@@ -1316,7 +1316,7 @@
             }
 
             // ─── Event Listeners ──────────────────────────────────────
-            function init() {
+            async function init() {
                 if (isInitialized) return;
                 isInitialized = true;
 
@@ -1443,50 +1443,48 @@
                     year: 'numeric', month: 'short', day: 'numeric'
                 });
 
-                // Initialize the application
-                (async function initialize() {
+                try {
+                    console.log('🔄 Loading initial data...');
+                    
+                    // Check backend health
                     try {
-                        console.log('🔄 Loading initial data...');
-                        // Check backend health
-                        try {
-                            const healthCheck = await fetch(`${CONFIG.API.BASE_URL}/api/health`);
-                            if (healthCheck.ok) {
-                                setApiStatus('● Connected to Flask API', true);
-                                console.log('✅ Backend is healthy');
-                            } else {
-                                setApiStatus('⚠️ Backend degraded, using fallback', false);
-                            }
-                        } catch (e) {
-                            setApiStatus('⚠️ Offline mode', false);
-                            console.log('⚠️ Backend unavailable, using fallback data');
+                        const healthCheck = await fetch(`${CONFIG.API.BASE_URL}/api/health`);
+                        if (healthCheck.ok) {
+                            setApiStatus('● Connected to Flask API', true);
+                            console.log('✅ Backend is healthy');
+                        } else {
+                            setApiStatus('⚠️ Backend degraded, using fallback', false);
                         }
-
-                        categories = FALLBACK_DATA.categories;
-                        routes = FALLBACK_DATA.routes;
-                        populateCategories();
-                        renderRouteChips();
-
-                        if (categories.length > 0) {
-                            elements.categorySelect.value = categories[0].id;
-                            elements.categorySelect.dispatchEvent(new Event('change'));
-                        }
-
-                        setTimeout(() => { computeAndRender(); }, 500);
-                        console.log('✅ Application initialized');
-                    } catch (error) {
-                        console.error('❌ Initialization error:', error);
-                        setApiStatus('⚠️ Failed to load data', false);
-                        showToast('Using fallback data', 'error');
-                        categories = FALLBACK_DATA.categories;
-                        routes = FALLBACK_DATA.routes;
-                        populateCategories();
-                        renderRouteChips();
-                        if (categories.length > 0) {
-                            elements.categorySelect.value = categories[0].id;
-                            elements.categorySelect.dispatchEvent(new Event('change'));
-                        }
+                    } catch (e) {
+                        setApiStatus('⚠️ Offline mode', false);
+                        console.log('⚠️ Backend unavailable, using fallback data');
                     }
-                })();
+
+                    categories = FALLBACK_DATA.categories;
+                    routes = FALLBACK_DATA.routes;
+                    populateCategories();
+                    renderRouteChips();
+
+                    if (categories.length > 0) {
+                        elements.categorySelect.value = categories[0].id;
+                        elements.categorySelect.dispatchEvent(new Event('change'));
+                    }
+
+                    setTimeout(() => { computeAndRender(); }, 500);
+                    console.log('✅ Application initialized');
+                } catch (error) {
+                    console.error('❌ Initialization error:', error);
+                    setApiStatus('⚠️ Failed to load data', false);
+                    showToast('Using fallback data', 'error');
+                    categories = FALLBACK_DATA.categories;
+                    routes = FALLBACK_DATA.routes;
+                    populateCategories();
+                    renderRouteChips();
+                    if (categories.length > 0) {
+                        elements.categorySelect.value = categories[0].id;
+                        elements.categorySelect.dispatchEvent(new Event('change'));
+                    }
+                }
             }
 
             // ─── Start ──────────────────────────────────────────────────
