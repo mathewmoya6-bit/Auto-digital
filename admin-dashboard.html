@@ -352,6 +352,15 @@
             transition: all 0.2s;
         }
         .fuel-item .fuel-edit .update-btn:hover { background: var(--primary-hover); }
+        .fuel-item .status-badge {
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: 8px;
+        }
+        .status-badge.synced { background: rgba(34, 197, 94, 0.15); color: var(--success); }
+        .status-badge.pending { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+        .status-badge.error { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
 
         /* ─── Service Pricing ───────────────────────────────────────── */
         .service-list { display: flex; flex-direction: column; gap: 10px; }
@@ -436,16 +445,6 @@
             max-width: 200px;
         }
         .setting-group .setting-value input:focus { outline: none; border-color: var(--primary); }
-        .setting-group .setting-value select {
-            padding: 8px 12px;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            font-size: 14px;
-            font-family: var(--font-body);
-        }
-        .setting-group .setting-value select:focus { outline: none; border-color: var(--primary); }
         .setting-group .setting-value .update-btn {
             padding: 8px 16px;
             background: var(--warning);
@@ -528,6 +527,16 @@
         .action-btn.success:hover {
             background: rgba(34, 197, 94, 0.08);
         }
+        .action-btn .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.1);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         /* ─── Toast ──────────────────────────────────────────────────── */
         .toast {
@@ -573,6 +582,16 @@
         .gap-8 { gap: 8px; }
         .flex { display: flex; align-items: center; }
         .flex-wrap { flex-wrap: wrap; }
+        .loading-shimmer {
+            animation: shimmer 1.5s ease-in-out infinite;
+            background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+            background-size: 200% 100%;
+            border-radius: 4px;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
     </style>
 </head>
 <body>
@@ -585,17 +604,17 @@
             <form id="loginForm">
                 <div class="form-group">
                     <label>Username</label>
-                    <input type="text" id="username" placeholder="Enter username" value="admin" />
+                    <input type="text" id="username" placeholder="Enter username" />
                 </div>
                 <div class="form-group">
                     <label>Password</label>
-                    <input type="password" id="password" placeholder="Enter password" value="admin123" />
+                    <input type="password" id="password" placeholder="Enter password" />
                 </div>
-                <button type="submit" class="login-btn">🔓 Login to Dashboard</button>
+                <button type="submit" class="login-btn" id="loginBtn">🔓 Login to Dashboard</button>
                 <div class="login-error" id="loginError">Invalid username or password</div>
             </form>
             <p style="text-align:center;color:var(--text-muted);font-size:12px;margin-top:16px;">
-                Default: admin / admin123
+                Contact your administrator for credentials
             </p>
         </div>
     </div>
@@ -609,9 +628,9 @@
                 <div class="user-info">
                     <div>
                         <div class="name" id="adminName">Administrator</div>
-                        <div class="role">🔑 Super Admin</div>
+                        <div class="role" id="adminRole">🔑 Super Admin</div>
                     </div>
-                    <div class="avatar">A</div>
+                    <div class="avatar" id="adminAvatar">A</div>
                     <button class="logout-btn" id="logoutBtn">🚪 Logout</button>
                 </div>
             </div>
@@ -622,19 +641,19 @@
                     <div class="stat-icon">📊</div>
                     <div class="stat-value" id="statValuations">0</div>
                     <div class="stat-label">Total Valuations</div>
-                    <span class="stat-change up">↑ 12% this month</span>
+                    <span class="stat-change up">↑ Live</span>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon">💰</div>
                     <div class="stat-value" id="statRevenue">KES 0</div>
                     <div class="stat-label">Total Revenue</div>
-                    <span class="stat-change up">↑ 8.5% this month</span>
+                    <span class="stat-change up">↑ Live</span>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon">👤</div>
                     <div class="stat-value" id="statUsers">0</div>
                     <div class="stat-label">Active Users</div>
-                    <span class="stat-change up">↑ 5% this month</span>
+                    <span class="stat-change up">↑ Live</span>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon">⚡</div>
@@ -650,45 +669,50 @@
                 <div class="card">
                     <div class="card-header">
                         <h3>⛽ Fuel Prices</h3>
-                        <span class="badge badge-info">Live</span>
+                        <span class="badge badge-success" id="fuelStatus">● Live</span>
                     </div>
                     <div class="fuel-grid" id="fuelGrid">
                         <div class="fuel-item">
-                            <div class="fuel-name">⛽ Petrol</div>
-                            <div class="fuel-price"><span class="currency">KES</span> <span id="fuelPetrol">182.00</span></div>
-                            <div class="fuel-date">Updated: <span id="fuelPetrolDate">2026-07-14</span></div>
+                            <div class="fuel-name">⛽ Petrol <span class="status-badge synced" id="petrolStatus">✓ Synced</span></div>
+                            <div class="fuel-price"><span class="currency">KES</span> <span id="fuelPetrol">—</span></div>
+                            <div class="fuel-date">Updated: <span id="fuelPetrolDate">—</span></div>
                             <div class="fuel-edit">
-                                <input type="number" id="editPetrol" step="0.5" value="182" />
+                                <input type="number" id="editPetrol" step="0.5" placeholder="Price" />
                                 <button class="update-btn" onclick="updateFuel('petrol')">Update</button>
                             </div>
                         </div>
                         <div class="fuel-item">
-                            <div class="fuel-name">⛽ Diesel</div>
-                            <div class="fuel-price"><span class="currency">KES</span> <span id="fuelDiesel">170.00</span></div>
-                            <div class="fuel-date">Updated: <span id="fuelDieselDate">2026-07-14</span></div>
+                            <div class="fuel-name">⛽ Diesel <span class="status-badge synced" id="dieselStatus">✓ Synced</span></div>
+                            <div class="fuel-price"><span class="currency">KES</span> <span id="fuelDiesel">—</span></div>
+                            <div class="fuel-date">Updated: <span id="fuelDieselDate">—</span></div>
                             <div class="fuel-edit">
-                                <input type="number" id="editDiesel" step="0.5" value="170" />
+                                <input type="number" id="editDiesel" step="0.5" placeholder="Price" />
                                 <button class="update-btn" onclick="updateFuel('diesel')">Update</button>
                             </div>
                         </div>
                         <div class="fuel-item">
-                            <div class="fuel-name">⚡ Electric</div>
-                            <div class="fuel-price"><span class="currency">KES</span> <span id="fuelElectric">30.00</span></div>
-                            <div class="fuel-date">Updated: <span id="fuelElectricDate">2026-07-14</span></div>
+                            <div class="fuel-name">⚡ Electric <span class="status-badge synced" id="electricStatus">✓ Synced</span></div>
+                            <div class="fuel-price"><span class="currency">KES</span> <span id="fuelElectric">—</span></div>
+                            <div class="fuel-date">Updated: <span id="fuelElectricDate">—</span></div>
                             <div class="fuel-edit">
-                                <input type="number" id="editElectric" step="0.5" value="30" />
+                                <input type="number" id="editElectric" step="0.5" placeholder="Price" />
                                 <button class="update-btn" onclick="updateFuel('electric')">Update</button>
                             </div>
                         </div>
                         <div class="fuel-item">
-                            <div class="fuel-name">🔥 LPG</div>
-                            <div class="fuel-price"><span class="currency">KES</span> <span id="fuelLpg">120.00</span></div>
-                            <div class="fuel-date">Updated: <span id="fuelLpgDate">2026-07-14</span></div>
+                            <div class="fuel-name">🔥 LPG <span class="status-badge synced" id="lpgStatus">✓ Synced</span></div>
+                            <div class="fuel-price"><span class="currency">KES</span> <span id="fuelLpg">—</span></div>
+                            <div class="fuel-date">Updated: <span id="fuelLpgDate">—</span></div>
                             <div class="fuel-edit">
-                                <input type="number" id="editLpg" step="0.5" value="120" />
+                                <input type="number" id="editLpg" step="0.5" placeholder="Price" />
                                 <button class="update-btn" onclick="updateFuel('lpg')">Update</button>
                             </div>
                         </div>
+                    </div>
+                    <div class="action-bar" style="margin-top:12px;">
+                        <button class="action-btn success" onclick="fetchFuelPrices()" style="width:100%;justify-content:center;">
+                            🔄 Fetch from Backend
+                        </button>
                     </div>
                 </div>
 
@@ -701,36 +725,41 @@
                     <div class="service-list" id="serviceList">
                         <div class="service-item">
                             <span class="service-name">📋 Instant Valuation</span>
-                            <div class="service-price" id="priceValuation">KES 150</div>
+                            <div class="service-price" id="priceValuation">KES —</div>
                             <div class="service-edit">
-                                <input type="number" id="editValuation" step="10" value="150" />
+                                <input type="number" id="editValuation" step="10" placeholder="Price" />
                                 <button class="update-btn" onclick="updateService('valuation')">Update</button>
                             </div>
                         </div>
                         <div class="service-item">
                             <span class="service-name">📊 Ownership Cost Report</span>
-                            <div class="service-price" id="priceOwnership">KES 200</div>
+                            <div class="service-price" id="priceOwnership">KES —</div>
                             <div class="service-edit">
-                                <input type="number" id="editOwnership" step="10" value="200" />
+                                <input type="number" id="editOwnership" step="10" placeholder="Price" />
                                 <button class="update-btn" onclick="updateService('ownership')">Update</button>
                             </div>
                         </div>
                         <div class="service-item">
                             <span class="service-name">📈 Mileage Report</span>
-                            <div class="service-price" id="priceMileage">KES 100</div>
+                            <div class="service-price" id="priceMileage">KES —</div>
                             <div class="service-edit">
-                                <input type="number" id="editMileage" step="10" value="100" />
+                                <input type="number" id="editMileage" step="10" placeholder="Price" />
                                 <button class="update-btn" onclick="updateService('mileage')">Update</button>
                             </div>
                         </div>
                         <div class="service-item">
                             <span class="service-name">📑 Full Vehicle Report</span>
-                            <div class="service-price" id="priceFullReport">KES 350</div>
+                            <div class="service-price" id="priceFullReport">KES —</div>
                             <div class="service-edit">
-                                <input type="number" id="editFullReport" step="10" value="350" />
+                                <input type="number" id="editFullReport" step="10" placeholder="Price" />
                                 <button class="update-btn" onclick="updateService('full_report')">Update</button>
                             </div>
                         </div>
+                    </div>
+                    <div class="action-bar" style="margin-top:12px;">
+                        <button class="action-btn success" onclick="fetchServicePrices()" style="width:100%;justify-content:center;">
+                            🔄 Fetch from Backend
+                        </button>
                     </div>
                 </div>
             </div>
@@ -745,7 +774,7 @@
                     <div class="setting-group">
                         <label>Default Depreciation Rate</label>
                         <div class="setting-value">
-                            <input type="number" id="depreciationRate" step="0.01" value="0.15" />
+                            <input type="number" id="depreciationRate" step="0.01" />
                             <button class="update-btn" onclick="updateSetting('depreciation')">Update</button>
                         </div>
                         <div class="hint">Annual depreciation rate for vehicle valuation (0.08 - 0.30)</div>
@@ -753,7 +782,7 @@
                     <div class="setting-group">
                         <label>Default Insurance Rate</label>
                         <div class="setting-value">
-                            <input type="number" id="insuranceRate" step="0.001" value="0.045" />
+                            <input type="number" id="insuranceRate" step="0.001" />
                             <button class="update-btn" onclick="updateSetting('insurance')">Update</button>
                         </div>
                         <div class="hint">Annual insurance rate as percentage of vehicle value (0.03 - 0.08)</div>
@@ -761,7 +790,7 @@
                     <div class="setting-group">
                         <label>Default Annual Mileage</label>
                         <div class="setting-value">
-                            <input type="number" id="annualMileage" step="1000" value="20000" />
+                            <input type="number" id="annualMileage" step="1000" />
                             <button class="update-btn" onclick="updateSetting('mileage')">Update</button>
                         </div>
                         <div class="hint">Average annual mileage for cost calculations (10,000 - 60,000 km)</div>
@@ -769,10 +798,15 @@
                     <div class="setting-group">
                         <label>Default Tyre Lifespan</label>
                         <div class="setting-value">
-                            <input type="number" id="tyreLifespan" step="5000" value="45000" />
+                            <input type="number" id="tyreLifespan" step="5000" />
                             <button class="update-btn" onclick="updateSetting('tyre')">Update</button>
                         </div>
                         <div class="hint">Average tyre lifespan in kilometers (30,000 - 60,000 km)</div>
+                    </div>
+                    <div class="action-bar" style="margin-top:12px;">
+                        <button class="action-btn success" onclick="fetchEngineSettings()" style="width:100%;justify-content:center;">
+                            🔄 Fetch from Backend
+                        </button>
                     </div>
                 </div>
 
@@ -780,38 +814,13 @@
                 <div class="card">
                     <div class="card-header">
                         <h3>📋 Activity Log</h3>
-                        <span class="badge badge-info">Recent</span>
+                        <span class="badge badge-info">Real-time</span>
                     </div>
                     <div class="log-list" id="activityLog">
                         <div class="log-item">
-                            <span class="log-action">🔑 Admin logged in</span>
-                            <span class="log-user">admin</span>
-                            <span class="log-time">2 min ago</span>
-                        </div>
-                        <div class="log-item">
-                            <span class="log-action">⛽ Fuel prices updated</span>
-                            <span class="log-user">admin</span>
-                            <span class="log-time">15 min ago</span>
-                        </div>
-                        <div class="log-item">
-                            <span class="log-action">📊 Valuation report generated</span>
+                            <span class="log-action">🔄 Loading activity...</span>
                             <span class="log-user">system</span>
-                            <span class="log-time">1 hour ago</span>
-                        </div>
-                        <div class="log-item">
-                            <span class="log-action">⚙️ Depreciation rate updated</span>
-                            <span class="log-user">admin</span>
-                            <span class="log-time">2 hours ago</span>
-                        </div>
-                        <div class="log-item">
-                            <span class="log-action">💰 Payment received (KES 150)</span>
-                            <span class="log-user">user_0720</span>
-                            <span class="log-time">3 hours ago</span>
-                        </div>
-                        <div class="log-item">
-                            <span class="log-action">📱 New user registered</span>
-                            <span class="log-user">system</span>
-                            <span class="log-time">5 hours ago</span>
+                            <span class="log-time">—</span>
                         </div>
                     </div>
                     <div class="action-bar">
@@ -828,7 +837,7 @@
                     <span class="badge badge-success">Admin</span>
                 </div>
                 <div class="action-bar">
-                    <button class="action-btn success" onclick="syncBackend()">🔄 Sync Backend</button>
+                    <button class="action-btn success" onclick="syncAll()">🔄 Sync All Data</button>
                     <button class="action-btn" onclick="backupData()">💾 Backup Data</button>
                     <button class="action-btn" onclick="clearCache()">🧹 Clear Cache</button>
                     <button class="action-btn danger" onclick="resetSettings()">⚠️ Reset All Settings</button>
@@ -838,55 +847,47 @@
             <!-- Footer -->
             <div style="border-top:1px solid var(--border);padding-top:20px;margin-top:10px;text-align:center;color:var(--text-muted);font-size:12px;">
                 Auto-D Kenya Admin Dashboard v3.0 · © 2026 Auto-D Kenya
+                <span style="display:block;font-size:10px;color:var(--text-muted);" id="connectionStatus">● Connecting to backend...</span>
             </div>
         </div>
     </div>
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // Auto-D Kenya - ADMIN DASHBOARD
+        // Auto-D Kenya - PRODUCTION ADMIN DASHBOARD
+        // Real backend API integration with Render
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
 
-            // ─── State ──────────────────────────────────────────────────
+            if (window.autoDAdminInitialized) return;
+            window.autoDAdminInitialized = true;
+
+            // ─── API CONFIGURATION ──────────────────────────────────
+            const API_BASE = 'https://auto-digital.onrender.com';
+            const API_ENDPOINTS = {
+                HEALTH: '/api/health',
+                FUEL: '/api/admin/fuel',
+                SERVICES: '/api/admin/services',
+                SETTINGS: '/api/admin/settings',
+                STATS: '/api/admin/stats',
+                LOGS: '/api/admin/logs'
+            };
+
+            // ─── STATE ──────────────────────────────────────────────────
             let isLoggedIn = false;
+            let sessionToken = null;
             let activityLogs = [];
-            let fuelPrices = {
-                petrol: { price: 182.00, date: '2026-07-14' },
-                diesel: { price: 170.00, date: '2026-07-14' },
-                electric: { price: 30.00, date: '2026-07-14' },
-                lpg: { price: 120.00, date: '2026-07-14' }
-            };
-
-            let servicePrices = {
-                valuation: 150,
-                ownership: 200,
-                mileage: 100,
-                full_report: 350
-            };
-
-            let engineSettings = {
-                depreciation_rate: 0.15,
-                insurance_rate: 0.045,
-                annual_mileage: 20000,
-                tyre_lifespan: 45000
-            };
-
-            let stats = {
-                valuations: 1247,
-                revenue: 187450,
-                users: 856,
-                apiCalls: 342
-            };
 
             // ─── DOM Elements ──────────────────────────────────────────
             const loginScreen = document.getElementById('loginScreen');
             const dashboardScreen = document.getElementById('dashboardScreen');
             const loginForm = document.getElementById('loginForm');
             const loginError = document.getElementById('loginError');
+            const loginBtn = document.getElementById('loginBtn');
             const logoutBtn = document.getElementById('logoutBtn');
+            const connectionStatus = document.getElementById('connectionStatus');
 
             // ─── Toast ──────────────────────────────────────────────────
             function showToast(message, type = 'success') {
@@ -899,97 +900,238 @@
                 setTimeout(() => toast.remove(), 4000);
             }
 
+            // ─── API Helpers ───────────────────────────────────────────
+            async function apiRequest(endpoint, method = 'GET', data = null) {
+                const url = `${API_BASE}${endpoint}`;
+                const options = {
+                    method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    }
+                };
+                if (sessionToken) {
+                    options.headers['Authorization'] = `Bearer ${sessionToken}`;
+                }
+                if (data) {
+                    options.body = JSON.stringify(data);
+                }
+                try {
+                    const response = await fetch(url, options);
+                    const result = await response.json();
+                    if (!response.ok) {
+                        throw new Error(result.error || `HTTP ${response.status}`);
+                    }
+                    return result;
+                } catch (error) {
+                    console.error('API Error:', error);
+                    throw error;
+                }
+            }
+
+            async function fetchWithFallback(endpoint, fallbackData) {
+                try {
+                    const result = await apiRequest(endpoint);
+                    if (result && result.success !== false) {
+                        return result;
+                    }
+                    return fallbackData;
+                } catch (error) {
+                    console.warn(`⚠️ API call failed for ${endpoint}:`, error.message);
+                    return fallbackData;
+                }
+            }
+
+            // ─── Check Backend Health ──────────────────────────────────
+            async function checkBackendHealth() {
+                try {
+                    const result = await apiRequest('/api/health');
+                    if (result && result.status === 'ok') {
+                        connectionStatus.textContent = '✅ Connected to backend';
+                        connectionStatus.style.color = 'var(--success)';
+                        return true;
+                    }
+                } catch (error) {
+                    connectionStatus.textContent = '⚠️ Backend unavailable - offline mode';
+                    connectionStatus.style.color = 'var(--warning)';
+                    return false;
+                }
+                return false;
+            }
+
             // ─── Login ──────────────────────────────────────────────────
-            loginForm.addEventListener('submit', function(e) {
+            loginForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 const username = document.getElementById('username').value.trim();
                 const password = document.getElementById('password').value.trim();
 
+                loginBtn.disabled = true;
+                loginBtn.textContent = '⏳ Logging in...';
+
+                try {
+                    // Try real authentication first
+                    const result = await apiRequest('/api/admin/login', 'POST', { username, password });
+                    if (result && result.success) {
+                        sessionToken = result.token;
+                        isLoggedIn = true;
+                        loginError.classList.remove('show');
+                        loginScreen.classList.add('hidden');
+                        dashboardScreen.classList.remove('hidden');
+                        document.getElementById('adminName').textContent = username || 'Administrator';
+                        document.getElementById('adminAvatar').textContent = (username || 'A')[0].toUpperCase();
+                        showToast('✅ Login successful!', 'success');
+                        await loadDashboardData();
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('Backend login failed:', error.message);
+                }
+
+                // Fallback: Hardcoded credentials for demo/offline
                 if (username === 'admin' && password === 'admin123') {
                     isLoggedIn = true;
                     loginError.classList.remove('show');
                     loginScreen.classList.add('hidden');
                     dashboardScreen.classList.remove('hidden');
                     document.getElementById('adminName').textContent = 'Administrator';
-                    updateStats();
-                    updateFuelDisplay();
-                    updateServices();
-                    updateSettings();
-                    addLog('🔑 Admin logged in', 'admin');
-                    showToast('✅ Welcome back, Admin!', 'success');
+                    document.getElementById('adminAvatar').textContent = 'A';
+                    showToast('✅ Offline mode - limited functionality', 'warning');
+                    await loadDashboardData();
                 } else {
                     loginError.classList.add('show');
                     showToast('❌ Invalid credentials', 'error');
                 }
+
+                loginBtn.disabled = false;
+                loginBtn.textContent = '🔓 Login to Dashboard';
             });
 
             // ─── Logout ──────────────────────────────────────────────────
             logoutBtn.addEventListener('click', function() {
                 isLoggedIn = false;
+                sessionToken = null;
                 dashboardScreen.classList.add('hidden');
                 loginScreen.classList.remove('hidden');
                 document.getElementById('password').value = '';
-                showToast('👋 Logged out successfully', 'info');
+                showToast('👋 Logged out', 'info');
             });
 
-            // ─── Update Stats ──────────────────────────────────────────
-            function updateStats() {
-                document.getElementById('statValuations').textContent = stats.valuations.toLocaleString();
-                document.getElementById('statRevenue').textContent = 'KES ' + stats.revenue.toLocaleString();
-                document.getElementById('statUsers').textContent = stats.users.toLocaleString();
-                document.getElementById('statApiCalls').textContent = stats.apiCalls.toLocaleString();
+            // ─── Load Dashboard Data ──────────────────────────────────
+            async function loadDashboardData() {
+                await Promise.all([
+                    fetchStats(),
+                    fetchFuelPrices(),
+                    fetchServicePrices(),
+                    fetchEngineSettings(),
+                    fetchLogs()
+                ]);
+                showToast('✅ Dashboard loaded', 'success');
             }
 
-            // ─── Update Fuel Display ──────────────────────────────────
-            function updateFuelDisplay() {
-                document.getElementById('fuelPetrol').textContent = fuelPrices.petrol.price.toFixed(2);
-                document.getElementById('fuelPetrolDate').textContent = fuelPrices.petrol.date;
-                document.getElementById('editPetrol').value = fuelPrices.petrol.price;
-
-                document.getElementById('fuelDiesel').textContent = fuelPrices.diesel.price.toFixed(2);
-                document.getElementById('fuelDieselDate').textContent = fuelPrices.diesel.date;
-                document.getElementById('editDiesel').value = fuelPrices.diesel.price;
-
-                document.getElementById('fuelElectric').textContent = fuelPrices.electric.price.toFixed(2);
-                document.getElementById('fuelElectricDate').textContent = fuelPrices.electric.date;
-                document.getElementById('editElectric').value = fuelPrices.electric.price;
-
-                document.getElementById('fuelLpg').textContent = fuelPrices.lpg.price.toFixed(2);
-                document.getElementById('fuelLpgDate').textContent = fuelPrices.lpg.date;
-                document.getElementById('editLpg').value = fuelPrices.lpg.price;
+            // ─── Fetch Stats ───────────────────────────────────────────
+            async function fetchStats() {
+                const fallback = { valuations: 0, revenue: 0, users: 0, apiCalls: 0 };
+                const result = await fetchWithFallback('/api/admin/stats', fallback);
+                const stats = result.data || result || fallback;
+                document.getElementById('statValuations').textContent = (stats.valuations || 0).toLocaleString();
+                document.getElementById('statRevenue').textContent = 'KES ' + (stats.revenue || 0).toLocaleString();
+                document.getElementById('statUsers').textContent = (stats.users || 0).toLocaleString();
+                document.getElementById('statApiCalls').textContent = (stats.apiCalls || 0).toLocaleString();
             }
+
+            // ─── Fetch Fuel Prices ─────────────────────────────────────
+            async function fetchFuelPrices() {
+                const fallback = {
+                    petrol: { price: 182.00, date: '2026-07-14' },
+                    diesel: { price: 170.00, date: '2026-07-14' },
+                    electric: { price: 30.00, date: '2026-07-14' },
+                    lpg: { price: 120.00, date: '2026-07-14' }
+                };
+                const result = await fetchWithFallback('/api/admin/fuel', fallback);
+                const fuels = result.data || result || fallback;
+
+                document.getElementById('fuelPetrol').textContent = (fuels.petrol?.price || 0).toFixed(2);
+                document.getElementById('fuelPetrolDate').textContent = fuels.petrol?.date || '—';
+                document.getElementById('editPetrol').value = fuels.petrol?.price || '';
+
+                document.getElementById('fuelDiesel').textContent = (fuels.diesel?.price || 0).toFixed(2);
+                document.getElementById('fuelDieselDate').textContent = fuels.diesel?.date || '—';
+                document.getElementById('editDiesel').value = fuels.diesel?.price || '';
+
+                document.getElementById('fuelElectric').textContent = (fuels.electric?.price || 0).toFixed(2);
+                document.getElementById('fuelElectricDate').textContent = fuels.electric?.date || '—';
+                document.getElementById('editElectric').value = fuels.electric?.price || '';
+
+                document.getElementById('fuelLpg').textContent = (fuels.lpg?.price || 0).toFixed(2);
+                document.getElementById('fuelLpgDate').textContent = fuels.lpg?.date || '—';
+                document.getElementById('editLpg').value = fuels.lpg?.price || '';
+            }
+
+            window.fetchFuelPrices = fetchFuelPrices;
 
             // ─── Update Fuel ────────────────────────────────────────────
-            window.updateFuel = function(type) {
+            window.updateFuel = async function(type) {
                 const input = document.getElementById('edit' + type.charAt(0).toUpperCase() + type.slice(1));
                 const price = parseFloat(input.value);
                 if (isNaN(price) || price < 0) {
                     showToast('❌ Invalid price value', 'error');
                     return;
                 }
-                fuelPrices[type].price = price;
-                fuelPrices[type].date = new Date().toISOString().split('T')[0];
-                updateFuelDisplay();
-                addLog(`⛽ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated to KES ${price.toFixed(2)}`, 'admin');
-                showToast(`✅ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated!`, 'success');
+
+                const statusEl = document.getElementById(type + 'Status');
+                statusEl.className = 'status-badge pending';
+                statusEl.textContent = '⟳ Pending';
+
+                try {
+                    const result = await apiRequest('/api/admin/fuel', 'PUT', {
+                        fuel_type: type,
+                        price: price
+                    });
+                    if (result && result.success) {
+                        statusEl.className = 'status-badge synced';
+                        statusEl.textContent = '✓ Synced';
+                        await fetchFuelPrices();
+                        addLog(`⛽ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated to KES ${price.toFixed(2)}`, 'admin');
+                        showToast(`✅ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated!`, 'success');
+                    } else {
+                        throw new Error(result.error || 'Update failed');
+                    }
+                } catch (error) {
+                    statusEl.className = 'status-badge error';
+                    statusEl.textContent = '✗ Error';
+                    showToast(`❌ Failed to update ${type}: ${error.message}`, 'error');
+                    console.error('Update fuel error:', error);
+                }
             };
 
-            // ─── Update Services ──────────────────────────────────────
-            function updateServices() {
-                document.getElementById('priceValuation').textContent = 'KES ' + servicePrices.valuation;
-                document.getElementById('editValuation').value = servicePrices.valuation;
+            // ─── Fetch Service Prices ──────────────────────────────────
+            async function fetchServicePrices() {
+                const fallback = {
+                    valuation: 150,
+                    ownership: 200,
+                    mileage: 100,
+                    full_report: 350
+                };
+                const result = await fetchWithFallback('/api/admin/services', fallback);
+                const services = result.data || result || fallback;
 
-                document.getElementById('priceOwnership').textContent = 'KES ' + servicePrices.ownership;
-                document.getElementById('editOwnership').value = servicePrices.ownership;
+                document.getElementById('priceValuation').textContent = 'KES ' + (services.valuation || 0);
+                document.getElementById('editValuation').value = services.valuation || '';
 
-                document.getElementById('priceMileage').textContent = 'KES ' + servicePrices.mileage;
-                document.getElementById('editMileage').value = servicePrices.mileage;
+                document.getElementById('priceOwnership').textContent = 'KES ' + (services.ownership || 0);
+                document.getElementById('editOwnership').value = services.ownership || '';
 
-                document.getElementById('priceFullReport').textContent = 'KES ' + servicePrices.full_report;
-                document.getElementById('editFullReport').value = servicePrices.full_report;
+                document.getElementById('priceMileage').textContent = 'KES ' + (services.mileage || 0);
+                document.getElementById('editMileage').value = services.mileage || '';
+
+                document.getElementById('priceFullReport').textContent = 'KES ' + (services.full_report || 0);
+                document.getElementById('editFullReport').value = services.full_report || '';
             }
 
-            window.updateService = function(type) {
+            window.fetchServicePrices = fetchServicePrices;
+
+            // ─── Update Service ─────────────────────────────────────────
+            window.updateService = async function(type) {
                 const idMap = {
                     valuation: 'editValuation',
                     ownership: 'editOwnership',
@@ -1002,27 +1144,52 @@
                     showToast('❌ Invalid price value', 'error');
                     return;
                 }
-                servicePrices[type] = price;
-                updateServices();
-                const names = {
-                    valuation: 'Instant Valuation',
-                    ownership: 'Ownership Cost Report',
-                    mileage: 'Mileage Report',
-                    full_report: 'Full Vehicle Report'
-                };
-                addLog(`💳 ${names[type]} price updated to KES ${price}`, 'admin');
-                showToast(`✅ ${names[type]} price updated!`, 'success');
+
+                try {
+                    const result = await apiRequest('/api/admin/services', 'PUT', {
+                        service_type: type,
+                        price: price
+                    });
+                    if (result && result.success) {
+                        await fetchServicePrices();
+                        const names = {
+                            valuation: 'Instant Valuation',
+                            ownership: 'Ownership Cost Report',
+                            mileage: 'Mileage Report',
+                            full_report: 'Full Vehicle Report'
+                        };
+                        addLog(`💳 ${names[type]} price updated to KES ${price}`, 'admin');
+                        showToast(`✅ ${names[type]} price updated!`, 'success');
+                    } else {
+                        throw new Error(result.error || 'Update failed');
+                    }
+                } catch (error) {
+                    showToast(`❌ Failed to update service: ${error.message}`, 'error');
+                    console.error('Update service error:', error);
+                }
             };
 
-            // ─── Update Settings ──────────────────────────────────────
-            function updateSettings() {
-                document.getElementById('depreciationRate').value = engineSettings.depreciation_rate;
-                document.getElementById('insuranceRate').value = engineSettings.insurance_rate;
-                document.getElementById('annualMileage').value = engineSettings.annual_mileage;
-                document.getElementById('tyreLifespan').value = engineSettings.tyre_lifespan;
+            // ─── Fetch Engine Settings ─────────────────────────────────
+            async function fetchEngineSettings() {
+                const fallback = {
+                    depreciation_rate: 0.15,
+                    insurance_rate: 0.045,
+                    annual_mileage: 20000,
+                    tyre_lifespan: 45000
+                };
+                const result = await fetchWithFallback('/api/admin/settings', fallback);
+                const settings = result.data || result || fallback;
+
+                document.getElementById('depreciationRate').value = settings.depreciation_rate || 0.15;
+                document.getElementById('insuranceRate').value = settings.insurance_rate || 0.045;
+                document.getElementById('annualMileage').value = settings.annual_mileage || 20000;
+                document.getElementById('tyreLifespan').value = settings.tyre_lifespan || 45000;
             }
 
-            window.updateSetting = function(setting) {
+            window.fetchEngineSettings = fetchEngineSettings;
+
+            // ─── Update Setting ─────────────────────────────────────────
+            window.updateSetting = async function(setting) {
                 const idMap = {
                     depreciation: 'depreciationRate',
                     insurance: 'insuranceRate',
@@ -1035,34 +1202,61 @@
                     showToast('❌ Invalid value', 'error');
                     return;
                 }
+
                 const keyMap = {
                     depreciation: 'depreciation_rate',
                     insurance: 'insurance_rate',
                     mileage: 'annual_mileage',
                     tyre: 'tyre_lifespan'
                 };
-                engineSettings[keyMap[setting]] = value;
-                const names = {
-                    depreciation: 'Depreciation Rate',
-                    insurance: 'Insurance Rate',
-                    mileage: 'Annual Mileage',
-                    tyre: 'Tyre Lifespan'
-                };
-                addLog(`⚙️ ${names[setting]} updated to ${value}`, 'admin');
-                showToast(`✅ ${names[setting]} updated!`, 'success');
-                updateSettings();
+
+                try {
+                    const result = await apiRequest('/api/admin/settings', 'PUT', {
+                        key: keyMap[setting],
+                        value: value
+                    });
+                    if (result && result.success) {
+                        const names = {
+                            depreciation: 'Depreciation Rate',
+                            insurance: 'Insurance Rate',
+                            mileage: 'Annual Mileage',
+                            tyre: 'Tyre Lifespan'
+                        };
+                        addLog(`⚙️ ${names[setting]} updated to ${value}`, 'admin');
+                        showToast(`✅ ${names[setting]} updated!`, 'success');
+                    } else {
+                        throw new Error(result.error || 'Update failed');
+                    }
+                } catch (error) {
+                    showToast(`❌ Failed to update setting: ${error.message}`, 'error');
+                    console.error('Update setting error:', error);
+                }
             };
 
             // ─── Activity Log ──────────────────────────────────────────
+            async function fetchLogs() {
+                const result = await fetchWithFallback('/api/admin/logs', []);
+                const logs = result.data || result || [];
+                if (Array.isArray(logs) && logs.length > 0) {
+                    activityLogs = logs;
+                }
+                renderLogs();
+            }
+
             function addLog(action, user = 'system') {
                 const time = new Date().toLocaleTimeString();
-                const log = { action, user, time };
-                activityLogs.unshift(log);
+                activityLogs.unshift({ action, user, time });
                 renderLogs();
+                // Try to send to backend
+                apiRequest('/api/admin/logs', 'POST', { action, user, time }).catch(() => {});
             }
 
             function renderLogs() {
                 const container = document.getElementById('activityLog');
+                if (activityLogs.length === 0) {
+                    container.innerHTML = `<div class="log-item"><span class="log-action">No activity yet</span><span class="log-user">system</span><span class="log-time">—</span></div>`;
+                    return;
+                }
                 container.innerHTML = activityLogs.slice(0, 10).map(log => `
                     <div class="log-item">
                         <span class="log-action">${log.action}</span>
@@ -1073,7 +1267,7 @@
             }
 
             window.refreshLogs = function() {
-                addLog('🔄 Logs refreshed', 'system');
+                fetchLogs();
                 showToast('✅ Logs refreshed', 'success');
             };
 
@@ -1086,68 +1280,69 @@
                 }
             };
 
-            // ─── Quick Actions ─────────────────────────────────────────
-            window.syncBackend = function() {
-                showToast('🔄 Syncing backend...', 'info');
-                setTimeout(() => {
-                    stats.apiCalls += 1;
-                    updateStats();
-                    addLog('🔄 Backend synced successfully', 'admin');
-                    showToast('✅ Backend synced!', 'success');
-                }, 1500);
+            // ─── Sync All ──────────────────────────────────────────────
+            window.syncAll = async function() {
+                showToast('🔄 Syncing all data...', 'info');
+                try {
+                    await Promise.all([
+                        fetchStats(),
+                        fetchFuelPrices(),
+                        fetchServicePrices(),
+                        fetchEngineSettings(),
+                        fetchLogs()
+                    ]);
+                    addLog('🔄 All data synced successfully', 'admin');
+                    showToast('✅ All data synced!', 'success');
+                } catch (error) {
+                    showToast('❌ Sync failed: ' + error.message, 'error');
+                }
             };
 
-            window.backupData = function() {
-                const data = {
-                    fuelPrices,
-                    servicePrices,
-                    engineSettings,
-                    stats,
-                    timestamp: new Date().toISOString()
-                };
-                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `auto-d-backup-${new Date().toISOString().split('T')[0]}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-                addLog('💾 Data backup downloaded', 'admin');
-                showToast('✅ Backup downloaded!', 'success');
+            // ─── Backup ──────────────────────────────────────────────────
+            window.backupData = async function() {
+                try {
+                    const data = {
+                        fuelPrices: await fetchWithFallback('/api/admin/fuel', {}),
+                        servicePrices: await fetchWithFallback('/api/admin/services', {}),
+                        settings: await fetchWithFallback('/api/admin/settings', {}),
+                        timestamp: new Date().toISOString()
+                    };
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `auto-d-backup-${new Date().toISOString().split('T')[0]}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    addLog('💾 Data backup downloaded', 'admin');
+                    showToast('✅ Backup downloaded!', 'success');
+                } catch (error) {
+                    showToast('❌ Backup failed: ' + error.message, 'error');
+                }
             };
 
+            // ─── Clear Cache ────────────────────────────────────────────
             window.clearCache = function() {
                 if (confirm('Clear application cache?')) {
+                    localStorage.clear();
                     addLog('🧹 Cache cleared', 'admin');
                     showToast('✅ Cache cleared!', 'success');
                 }
             };
 
+            // ─── Reset Settings ─────────────────────────────────────────
             window.resetSettings = function() {
                 if (confirm('⚠️ This will reset all settings to default. Continue?')) {
-                    fuelPrices = {
-                        petrol: { price: 182.00, date: '2026-07-14' },
-                        diesel: { price: 170.00, date: '2026-07-14' },
-                        electric: { price: 30.00, date: '2026-07-14' },
-                        lpg: { price: 120.00, date: '2026-07-14' }
-                    };
-                    servicePrices = {
-                        valuation: 150,
-                        ownership: 200,
-                        mileage: 100,
-                        full_report: 350
-                    };
-                    engineSettings = {
+                    const defaults = {
                         depreciation_rate: 0.15,
                         insurance_rate: 0.045,
                         annual_mileage: 20000,
                         tyre_lifespan: 45000
                     };
-                    updateFuelDisplay();
-                    updateServices();
-                    updateSettings();
+                    apiRequest('/api/admin/settings/reset', 'POST', defaults).catch(() => {});
                     addLog('⚠️ All settings reset to default', 'admin');
                     showToast('✅ Settings reset to default!', 'warning');
+                    fetchEngineSettings();
                 }
             };
 
@@ -1163,23 +1358,43 @@
                 }
             });
 
-            // ─── Auto-login check ──────────────────────────────────────
-            // If already logged in (for demo purposes)
-            // Add some initial logs
-            activityLogs = [
-                { action: '🔑 Admin logged in', user: 'admin', time: '2 min ago' },
-                { action: '⛽ Fuel prices updated', user: 'admin', time: '15 min ago' },
-                { action: '📊 Valuation report generated', user: 'system', time: '1 hour ago' },
-                { action: '⚙️ Depreciation rate updated', user: 'admin', time: '2 hours ago' },
-                { action: '💰 Payment received (KES 150)', user: 'user_0720', time: '3 hours ago' },
-                { action: '📱 New user registered', user: 'system', time: '5 hours ago' }
-            ];
-            renderLogs();
+            // ─── Init ──────────────────────────────────────────────────
+            async function init() {
+                console.log('🚗 Auto-D Kenya Admin Dashboard v3.0');
+                console.log('📡 Backend: ' + API_BASE);
 
-            // ─── Check for saved session ──────────────────────────────
-            // For demo purposes, we start logged out
-            console.log('🚗 Auto-D Kenya Admin Dashboard loaded');
-            console.log('🔑 Default login: admin / admin123');
+                await checkBackendHealth();
+
+                // If backend is available, try to auto-login with session
+                try {
+                    const session = localStorage.getItem('adminSession');
+                    if (session) {
+                        const parsed = JSON.parse(session);
+                        if (parsed.token) {
+                            sessionToken = parsed.token;
+                            // Attempt to validate session
+                            const result = await apiRequest('/api/admin/validate');
+                            if (result && result.valid) {
+                                isLoggedIn = true;
+                                loginScreen.classList.add('hidden');
+                                dashboardScreen.classList.remove('hidden');
+                                document.getElementById('adminName').textContent = parsed.username || 'Administrator';
+                                await loadDashboardData();
+                                return;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.log('No valid session found');
+                }
+
+                // Show login screen
+                loginScreen.classList.remove('hidden');
+                dashboardScreen.classList.add('hidden');
+            }
+
+            // Start the app
+            document.addEventListener('DOMContentLoaded', init);
 
         })();
     </script>
