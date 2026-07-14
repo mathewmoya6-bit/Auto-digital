@@ -54,6 +54,61 @@ logging.basicConfig(
 )
 logger = logging.getLogger("auto-d-backend")
 
+# ─── Simple Mileage Calculation Function ──────────────────────────
+def calculate_mileage_simple(data):
+    """Simple mileage calculation that works without external dependencies"""
+    distance_km = data.get("distance_km")
+    
+    if distance_km is None:
+        return {"error": "distance_km is required"}
+    
+    try:
+        distance_km = float(distance_km)
+        if distance_km <= 0:
+            raise ValueError
+    except ValueError:
+        return {"error": "distance_km must be a positive number"}
+    
+    # Get parameters with defaults
+    fuel_type = data.get("fuel_type", "petrol").lower()
+    fuel_consumption = data.get("fuel_consumption", 8)
+    maintenance_per_km = data.get("maintenance_per_km", 0)
+    insurance = data.get("insurance", 0)
+    tax = data.get("tax", 0)
+    
+    # Fuel prices (KES per litre/unit)
+    fuel_prices = {
+        "petrol": 214.03,
+        "diesel": 222.86,
+        "electric": 30.00,
+        "lpg": 120.00,
+        "hybrid": 150.00,
+        "cng": 100.00
+    }
+    fuel_price = fuel_prices.get(fuel_type, 214.03)
+    
+    # Calculate costs
+    fuel_used = (distance_km / 100) * fuel_consumption
+    fuel_cost = fuel_used * fuel_price
+    maintenance_cost = distance_km * maintenance_per_km
+    
+    total_cost = fuel_cost + maintenance_cost + insurance + tax
+    cost_per_km = total_cost / distance_km if distance_km > 0 else 0
+    
+    return {
+        "distance_km": distance_km,
+        "fuel_type": fuel_type,
+        "fuel_consumption": fuel_consumption,
+        "fuel_price_per_litre": fuel_price,
+        "fuel_used_litres": round(fuel_used, 2),
+        "fuel_cost": round(fuel_cost, 2),
+        "maintenance_cost": round(maintenance_cost, 2),
+        "insurance_cost": round(insurance, 2),
+        "tax_cost": round(tax, 2),
+        "total_cost": round(total_cost, 2),
+        "cost_per_km": round(cost_per_km, 2)
+    }
+
 # ─── Import Services (with fallback for missing modules) ──────────
 try:
     from services.mileage_service import MileageService
@@ -181,8 +236,8 @@ ADMIN_CREDENTIALS = {
 
 # Fuel prices (in-memory, can be moved to database)
 FUEL_PRICES = {
-    "petrol": {"price": 182.00, "date": datetime.now().strftime("%Y-%m-%d")},
-    "diesel": {"price": 170.00, "date": datetime.now().strftime("%Y-%m-%d")},
+    "petrol": {"price": 214.03, "date": datetime.now().strftime("%Y-%m-%d")},
+    "diesel": {"price": 222.86, "date": datetime.now().strftime("%Y-%m-%d")},
     "electric": {"price": 30.00, "date": datetime.now().strftime("%Y-%m-%d")},
     "lpg": {"price": 120.00, "date": datetime.now().strftime("%Y-%m-%d")}
 }
@@ -322,19 +377,33 @@ def get_vehicle_price_endpoint(make, model):
 @app.post("/api/service/mileage")
 def mileage():
     """Calculate mileage and running cost"""
-    if not mileage_service:
-        return jsonify({"error": "Mileage service unavailable"}), 503
-    
     data = request.get_json() or {}
-    result = mileage_service.calculate(data)
     
+    # Try using the service first
+    if mileage_service:
+        try:
+            result = mileage_service.calculate(data)
+            if "error" in result:
+                return jsonify(result), 400
+            return jsonify({
+                "success": True,
+                "data": result,
+                "service": "mileage",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        except Exception as e:
+            logger.error(f"Mileage service error: {e}")
+            # Fall through to simple calculation
+    
+    # Fallback to simple calculation
+    result = calculate_mileage_simple(data)
     if "error" in result:
         return jsonify(result), 400
     
     return jsonify({
         "success": True,
         "data": result,
-        "service": "mileage",
+        "service": "mileage (simple)",
         "timestamp": datetime.utcnow().isoformat()
     })
 
@@ -342,7 +411,39 @@ def mileage():
 def valuation():
     """Calculate vehicle instant valuation"""
     if not valuation_service:
-        return jsonify({"error": "Valuation service unavailable"}), 503
+        # Simple fallback valuation
+        data = request.get_json() or {}
+        purchase_price = data.get("purchase_price", 5000000)
+        age_years = data.get("age_years", 3)
+        depreciation_rate = data.get("depreciation_rate", 0.15)
+        
+        try:
+            purchase_price = float(purchase_price)
+            age_years = float(age_years)
+            depreciation_rate = float(depreciation_rate)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid input values"}), 400
+        
+        current_value = purchase_price * ((1 - depreciation_rate) ** age_years)
+        
+        return jsonify({
+            "success": True,
+            "data": {
+                "current_value": round(current_value, 2),
+                "market_value": round(current_value, 2),
+                "estimated_value": round(current_value, 2),
+                "total_depreciation": round(purchase_price - current_value, 2),
+                "value_retained": round((current_value / purchase_price) * 100, 2),
+                "confidence_score": 85,
+                "valuation_range": {
+                    "low": round(current_value * 0.85),
+                    "high": round(current_value * 1.05)
+                },
+                "yearly_breakdown": []
+            },
+            "service": "valuation (simple)",
+            "timestamp": datetime.utcnow().isoformat()
+        })
     
     data = request.get_json() or {}
     result = valuation_service.calculate(data)
@@ -361,17 +462,51 @@ def valuation():
 def ownership():
     """Calculate total cost of vehicle ownership"""
     if not ownership_service:
-        return jsonify({"error": "Ownership service unavailable"}), 503
+        # Simple fallback ownership calculation
+        data = request.get_json() or {}
+        purchase_price = data.get("purchase_price", 5000000)
+        years_owned = data.get("years_owned", 5)
+        fuel_cost = data.get("fuel_cost", 360000)
+        maintenance_cost = data.get("maintenance_cost", 120000)
+        insurance_cost = data.get("insurance_cost", 150000)
+        taxes = data.get("taxes", 50000)
+        resale_value = data.get("resale_value", purchase_price * 0.3)
+        
+        try:
+            purchase_price = float(purchase_price)
+            years_owned = float(years_owned)
+            fuel_cost = float(fuel_cost)
+            maintenance_cost = float(maintenance_cost)
+            insurance_cost = float(insurance_cost)
+            taxes = float(taxes)
+            resale_value = float(resale_value)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid input values"}), 400
+        
+        total_operating_cost = fuel_cost + maintenance_cost + insurance_cost + taxes
+        total_cost = purchase_price + total_operating_cost - resale_value
+        annual_cost = total_cost / years_owned if years_owned > 0 else 0
+        
+        return jsonify({
+            "success": True,
+            "data": {
+                "total_cost": round(total_cost, 2),
+                "annual_cost": round(annual_cost, 2),
+                "cost_per_km": round(annual_cost / 20000, 2),
+                "cost_per_month": round(annual_cost / 12, 2),
+                "resale_value": round(resale_value, 2)
+            },
+            "service": "ownership (simple)",
+            "timestamp": datetime.utcnow().isoformat()
+        })
     
     data = request.get_json() or {}
     
     # Handle both class and function cases
     if callable(ownership_service):
         if isinstance(ownership_service, type):
-            # It's a class
             result = ownership_service().calculate(data)
         else:
-            # It's a function
             result = ownership_service(data)
     else:
         result = ownership_service.calculate(data)
@@ -439,7 +574,7 @@ def admin_login():
             "success": True,
             "token": token,
             "username": username,
-            "expires_in": 86400  # 24 hours in seconds
+            "expires_in": 86400
         })
     
     return jsonify({"success": False, "error": "Invalid credentials"}), 401
@@ -668,7 +803,6 @@ def add_admin_log(action, user="system"):
             "timestamp": datetime.now().isoformat()
         }
         activity_logs.insert(0, log_entry)
-        # Keep only last 100 logs
         if len(activity_logs) > 100:
             activity_logs.pop()
 
@@ -685,9 +819,9 @@ def health():
         "service": "auto-d-backend",
         "version": "3.1.0",
         "services": {
-            "mileage": "active" if mileage_service else "unavailable",
-            "valuation": "active" if valuation_service else "unavailable",
-            "ownership": "active" if ownership_service else "unavailable"
+            "mileage": "active" if mileage_service else "available (simple)",
+            "valuation": "active" if valuation_service else "available (simple)",
+            "ownership": "active" if ownership_service else "available (simple)"
         },
         "vehicle_categories": get_categories(),
         "mpesa_available": MPESA_AVAILABLE,
