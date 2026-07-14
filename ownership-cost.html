@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cost of Vehicle Ownership Calculator — Auto-D Kenya</title>
+    <meta name="description" content="Calculate the true total cost of owning a vehicle in Kenya — depreciation, financing, insurance, fuel, maintenance, and levies, year by year." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --surface-2: #334155;
+            --primary: #eab308;
+            --primary-hover: #facc15;
+            --text: #f8fafc;
+            --muted: #cbd5e1;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --radius: 12px;
+            --border: #334155;
+            --c-depreciation: #eab308;
+            --c-financing: #f97316;
+            --c-insurance: #38bdf8;
+            --c-fuel: #a78bfa;
+            --c-maintenance: #34d399;
+            --c-tyres: #f472b6;
+            --c-licensing: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+        a { color: inherit; text-decoration: none; }
+        h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
+        .display { font-family: 'Space Grotesk', sans-serif; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+
+        .grid-bg {
+            position: fixed; inset: 0;
+            background-image:
+                linear-gradient(rgba(234, 179, 8, 0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(234, 179, 8, 0.035) 1px, transparent 1px);
+            background-size: 64px 64px;
+            mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 20%, transparent 75%);
+            pointer-events: none; z-index: 0;
+        }
+
+        header {
+            position: sticky; top: 0; z-index: 100;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+        }
+        nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 32px; max-width: 1200px; margin: 0 auto; }
+        .logo { display: flex; align-items: center; gap: 10px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 20px; letter-spacing: -0.02em; }
+        .logo-mark { width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(145deg, var(--primary), #ca8a04); display: flex; align-items: center; justify-content: center; color: #1e293b; font-weight: 800; font-size: 16px; font-family: 'Space Grotesk', sans-serif; }
+        .logo-sub { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; margin-left: 2px; }
+        .back-link { font-size: 14px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+        .back-link:hover { color: var(--text); }
+
+        .page-head { padding: 56px 0 8px; position: relative; z-index: 1; }
+        .eyebrow {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(234, 179, 8, 0.1); border: 1px solid rgba(234, 179, 8, 0.28);
+            color: var(--primary); font-size: 12.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+            padding: 7px 14px; border-radius: 999px; margin-bottom: 18px;
+        }
+        .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.25); }
+        .page-title { font-family: 'Space Grotesk', sans-serif; font-size: clamp(28px, 3.6vw, 42px); margin-bottom: 12px; max-width: 700px; }
+        .page-sub { color: var(--muted); font-size: 16px; max-width: 620px; margin-bottom: 8px; }
+
+        .calc-wrap {
+            display: grid; grid-template-columns: 400px 1fr; gap: 28px;
+            padding: 40px 0 100px; position: relative; z-index: 1; align-items: start;
+        }
+        @media (max-width: 980px) { .calc-wrap { grid-template-columns: 1fr; } }
+
+        .panel {
+            background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 28px; box-shadow: 0 10px 30px rgba(0,0,0,.25);
+        }
+        .panel h3 { font-family: 'Space Grotesk', sans-serif; font-size: 17px; margin-bottom: 20px; }
+
+        .form-row { margin-bottom: 18px; }
+        .form-row label {
+            display: flex; justify-content: space-between; align-items: baseline;
+            font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 8px;
+        }
+        .form-row label .val { color: var(--primary); font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 13px; }
+        .form-row input[type="number"], .form-row input[type="text"], .form-row select {
+            width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 10px;
+            padding: 11px 13px; color: var(--text); font-size: 14.5px; font-family: 'Inter', sans-serif;
+        }
+        .form-row input:focus, .form-row select:focus { outline: none; border-color: var(--primary); }
+        .form-row input[type="range"] {
+            width: 100%; accent-color: var(--primary); margin-top: 4px;
+        }
+        .toggle-group { display: flex; gap: 8px; }
+        .toggle-btn {
+            flex: 1; background: rgba(255,255,255,0.03); border: 1px solid var(--border); color: var(--muted);
+            font-size: 13px; font-weight: 600; padding: 10px 8px; border-radius: 9px; cursor: pointer; transition: all .2s;
+        }
+        .toggle-btn.active { background: rgba(234,179,8,0.12); border-color: rgba(234,179,8,0.4); color: var(--primary); }
+        .financed-fields { display: none; padding-top: 4px; }
+        .financed-fields.show { display: block; }
+        .divider { height: 1px; background: var(--border); margin: 22px 0; }
+
+        .btn-primary {
+            background: var(--primary); color: #111827; font-weight: 700; font-size: 14.5px;
+            border: none; border-radius: 10px; padding: 14px 26px; cursor: pointer;
+            transition: all .25s ease; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+        }
+        .btn-primary:hover { background: var(--primary-hover); transform: translateY(-2px); box-shadow: 0 12px 24px rgba(234,179,8,.22); }
+        .btn-outline-light {
+            background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--text);
+            font-weight: 600; font-size: 14.5px; border-radius: 10px; padding: 14px 26px; cursor: pointer; width: 100%;
+        }
+        .btn-outline-light:hover { background: rgba(255,255,255,0.06); }
+
+        /* ── Results ── */
+        .results-top {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;
+        }
+        @media (max-width: 700px) { .results-top { grid-template-columns: 1fr 1fr; } }
+        .stat-card {
+            background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px;
+        }
+        .stat-card .label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+        .stat-card .num { font-family: 'Space Grotesk', sans-serif; font-size: 24px; font-weight: 700; }
+        .stat-card.accent .num { color: var(--primary); }
+
+        .breakdown-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; margin-bottom: 24px; }
+        .breakdown-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; flex-wrap: wrap; gap: 10px; }
+        .breakdown-head h3 { font-family: 'Space Grotesk', sans-serif; font-size: 17px; }
+
+        .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 20px; }
+        .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+        .legend-dot { width: 9px; height: 9px; border-radius: 3px; }
+
+        .stacked-bars { display: flex; flex-direction: column; gap: 10px; }
+        .year-row { display: grid; grid-template-columns: 56px 1fr 90px; align-items: center; gap: 12px; }
+        .year-row .yr-label { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+        .year-row .yr-total { font-size: 13px; font-weight: 700; text-align: right; font-family: 'Space Grotesk', sans-serif; }
+        .bar-track { display: flex; height: 26px; border-radius: 6px; overflow: hidden; background: rgba(255,255,255,0.03); }
+        .bar-seg { height: 100%; }
+
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { text-align: right; padding: 10px 12px; white-space: nowrap; }
+        th:first-child, td:first-child { text-align: left; }
+        th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; border-bottom: 1px solid var(--border); }
+        td { border-bottom: 1px solid rgba(51,65,85,0.5); }
+        tr:last-child td { border-bottom: none; font-weight: 700; color: var(--primary); }
+
+        .report-cta {
+            background: linear-gradient(135deg, #1e293b, #17233a); border: 1px solid var(--border); border-radius: 18px;
+            padding: 28px; display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+        }
+        .report-cta h4 { font-family: 'Space Grotesk', sans-serif; font-size: 17px; margin-bottom: 4px; }
+        .report-cta p { color: var(--muted); font-size: 13.5px; }
+        .report-cta button { white-space: nowrap; width: auto; padding: 13px 22px; }
+
+        .disclaimer { font-size: 11.5px; color: var(--muted); margin-top: 18px; line-height: 1.6; }
+
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; background: rgba(4,8,18,0.72); backdrop-filter: blur(4px);
+            z-index: 200; align-items: center; justify-content: center; padding: 20px;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 32px; width: 100%; max-width: 420px; box-shadow: 0 30px 70px rgba(0,0,0,.5); position: relative; }
+        .modal-close { position: absolute; top: 18px; right: 18px; background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; }
+        .modal-close:hover { color: var(--text); }
+        .modal-card h3 { font-family: 'Space Grotesk', sans-serif; font-size: 20px; margin-bottom: 6px; }
+        .modal-sub { color: var(--muted); font-size: 13.5px; margin-bottom: 22px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+        .form-group input { width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; color: var(--text); font-size: 14.5px; font-family: 'Inter', sans-serif; }
+        .form-group input:focus { outline: none; border-color: var(--primary); }
+        .form-note { font-size: 12px; color: var(--muted); margin-top: 14px; line-height: 1.5; }
+        .status-box { margin-top: 16px; padding: 12px 14px; border-radius: 10px; font-size: 13.5px; display: none; }
+        .status-box.info { display: block; background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.25); color: var(--primary); }
+        .status-box.success { display: block; background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.25); color: var(--success); }
+        .status-box.error { display: block; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); color: var(--danger); }
+
+        a:focus-visible, button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+        @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+    </style>
+</head>
+<body>
+
+    <div class="grid-bg"></div>
+
+    <header>
+        <nav>
+            <a href="index.html" class="logo">
+                <span class="logo-mark">AD</span>
+                Auto-D<span class="logo-sub">Kenya</span>
+            </a>
+            <a href="index.html" class="back-link">← Back to Auto-D</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <div class="page-head">
+            <div class="eyebrow"><span class="dot"></span> Feature #3 · Cost of Vehicle Ownership</div>
+            <h1 class="page-title display">What will this vehicle really cost you to own?</h1>
+            <p class="page-sub">Depreciation, financing, insurance, fuel, maintenance, tyres, and levies — combined into one honest, year-by-year total. Adjust the numbers to match your vehicle.</p>
+        </div>
+
+        <div class="calc-wrap">
+            <!-- ── INPUT PANEL ── -->
+            <div class="panel">
+                <h3>Your vehicle &amp; usage</h3>
+
+                <div class="form-row">
+                    <label>Vehicle price <span class="val" id="valPrice">KES 3,200,000</span></label>
+                    <input type="range" id="price" min="500000" max="15000000" step="50000" value="3200000" />
+                </div>
+
+                <div class="form-row">
+                    <label>Ownership period <span class="val" id="valYears">5 years</span></label>
+                    <input type="range" id="years" min="1" max="10" step="1" value="5" />
+                </div>
+
+                <div class="form-row">
+                    <label>Annual mileage <span class="val" id="valMileage">20,000 km</span></label>
+                    <input type="range" id="mileage" min="4000" max="60000" step="1000" value="20000" />
+                </div>
+
+                <div class="form-row">
+                    <label>Fuel efficiency <span class="val" id="valEfficiency">10 km/l</span></label>
+                    <input type="range" id="efficiency" min="4" max="22" step="0.5" value="10" />
+                </div>
+
+                <div class="form-row">
+                    <label>Fuel price <span class="val" id="valFuelPrice">KES 182 / litre</span></label>
+                    <input type="range" id="fuelPrice" min="140" max="240" step="1" value="182" />
+                </div>
+
+                <div class="divider"></div>
+
+                <h3>Financing</h3>
+                <div class="form-row">
+                    <div class="toggle-group">
+                        <button type="button" class="toggle-btn active" id="btnCash">Cash purchase</button>
+                        <button type="button" class="toggle-btn" id="btnFinanced">Financed / loan</button>
+                    </div>
+                </div>
+                <div class="financed-fields" id="financedFields">
+                    <div class="form-row">
+                        <label>Down payment <span class="val" id="valDown">30%</span></label>
+                        <input type="range" id="downPct" min="10" max="70" step="5" value="30" />
+                    </div>
+                    <div class="form-row">
+                        <label>Interest rate (annual) <span class="val" id="valRate">16%</span></label>
+                        <input type="range" id="rate" min="8" max="26" step="0.5" value="16" />
+                    </div>
+                    <div class="form-row">
+                        <label>Loan term <span class="val" id="valTerm">4 years</span></label>
+                        <input type="range" id="term" min="1" max="7" step="1" value="4" />
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <h3>Insurance &amp; upkeep</h3>
+                <div class="form-row">
+                    <label>Insurance cover</label>
+                    <select id="insuranceType">
+                        <option value="comprehensive" selected>Comprehensive</option>
+                        <option value="third_party">Third-party only</option>
+                    </select>
+                </div>
+                <div class="form-row" style="margin-bottom: 6px;">
+                    <label>Maintenance level</label>
+                    <select id="maintenanceLevel">
+                        <option value="light">Light — small petrol saloon</option>
+                        <option value="average" selected>Average — SUV / pickup, mixed use</option>
+                        <option value="heavy">Heavy — commercial / off-road duty</option>
+                    </select>
+                </div>
+
+                <div class="divider"></div>
+                <button class="btn-primary" id="calcBtn">Recalculate</button>
+            </div>
+
+            <!-- ── RESULTS ── -->
+            <div>
+                <div class="results-top">
+                    <div class="stat-card accent">
+                        <div class="label">Total cost of ownership</div>
+                        <div class="num" id="outTotal">—</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Average per month</div>
+                        <div class="num" id="outMonthly">—</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Cost per kilometre</div>
+                        <div class="num" id="outPerKm">—</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Est. resale value</div>
+                        <div class="num" id="outResale">—</div>
+                    </div>
+                </div>
+
+                <div class="breakdown-panel">
+                    <div class="breakdown-head">
+                        <h3>Year-by-year breakdown</h3>
+                    </div>
+                    <div class="legend">
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-depreciation)"></span>Depreciation</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-financing)"></span>Financing</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-insurance)"></span>Insurance</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-fuel)"></span>Fuel</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-maintenance)"></span>Maintenance</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-tyres)"></span>Tyres</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-licensing)"></span>Licensing/levies</div>
+                    </div>
+                    <div class="stacked-bars" id="stackedBars"></div>
+                </div>
+
+                <div class="breakdown-panel">
+                    <div class="breakdown-head"><h3>Full table (KES)</h3></div>
+                    <div class="table-wrap">
+                        <table id="resultsTable">
+                            <thead>
+                                <tr>
+                                    <th>Year</th><th>Depreciation</th><th>Financing</th><th>Insurance</th>
+                                    <th>Fuel</th><th>Maintenance</th><th>Tyres</th><th>Licensing</th><th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultsBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="report-cta">
+                    <div>
+                        <h4 class="display">Want this as a downloadable PDF report?</h4>
+                        <p>Get the full year-by-year breakdown with notes, ready to share with a lender or buyer.</p>
+                    </div>
+                    <button class="btn-primary" style="width:auto;" onclick="openPayment('Ownership cost PDF report', 150)">Unlock PDF report — KES 150</button>
+                </div>
+
+                <p class="disclaimer">Figures are estimates based on typical Kenyan market rates for fuel, insurance, and servicing as of 2026. Actual costs vary by make, model, dealer, insurer, and driving conditions — use this as a planning guide, not a quote.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- ── PAYMENT MODAL ── -->
+    <div class="modal-overlay" id="paymentModal">
+        <div class="modal-card">
+            <button class="modal-close" id="closeModal" aria-label="Close">✕</button>
+            <h3 id="modalTitle">Pay with M-Pesa</h3>
+            <p class="modal-sub" id="modalSub">You'll get an STK push prompt on your phone to confirm.</p>
+            <form id="paymentForm">
+                <div class="form-group">
+                    <label for="phone">Safaricom number</label>
+                    <input type="tel" id="phone" name="phone" placeholder="07XX XXX XXX" required />
+                </div>
+                <div class="form-group">
+                    <label for="amount">Amount (KES)</label>
+                    <input type="number" id="amount" name="amount" min="1" required />
+                </div>
+                <button type="submit" class="btn-primary" id="payButton">Send payment request</button>
+            </form>
+            <div class="status-box" id="statusBox"></div>
+            <p class="form-note">Payments are processed by Safaricom's M-Pesa Daraja API. Auto-D never sees or stores your M-Pesa PIN.</p>
+        </div>
+    </div>
+
+    <script>
+        // Point this at your deployed backend (see /backend/README.md)
+        const API_BASE = "https://your-backend-domain.example.com";
+
+        const fmt = (n) => "KES " + Math.round(n).toLocaleString("en-KE");
+        const COLORS = {
+            depreciation: "var(--c-depreciation)", financing: "var(--c-financing)",
+            insurance: "var(--c-insurance)", fuel: "var(--c-fuel)",
+            maintenance: "var(--c-maintenance)", tyres: "var(--c-tyres)", licensing: "var(--c-licensing)"
+        };
+
+        // ── Sliders: live label updates ──
+        const bind = (id, valId, formatter) => {
+            const el = document.getElementById(id);
+            const out = document.getElementById(valId);
+            const update = () => out.textContent = formatter(el.value);
+            el.addEventListener("input", update);
+            update();
+        };
+        bind("price", "valPrice", v => "KES " + Number(v).toLocaleString("en-KE"));
+        bind("years", "valYears", v => v + (v == 1 ? " year" : " years"));
+        bind("mileage", "valMileage", v => Number(v).toLocaleString("en-KE") + " km");
+        bind("efficiency", "valEfficiency", v => v + " km/l");
+        bind("fuelPrice", "valFuelPrice", v => "KES " + v + " / litre");
+        bind("downPct", "valDown", v => v + "%");
+        bind("rate", "valRate", v => v + "%");
+        bind("term", "valTerm", v => v + (v == 1 ? " year" : " years"));
+
+        // ── Cash / Financed toggle ──
+        let financed = false;
+        const btnCash = document.getElementById("btnCash");
+        const btnFinanced = document.getElementById("btnFinanced");
+        const financedFields = document.getElementById("financedFields");
+        btnCash.addEventListener("click", () => { financed = false; btnCash.classList.add("active"); btnFinanced.classList.remove("active"); financedFields.classList.remove("show"); });
+        btnFinanced.addEventListener("click", () => { financed = true; btnFinanced.classList.add("active"); btnCash.classList.remove("active"); financedFields.classList.add("show"); });
+
+        // ── Client-side calculation (mirrors backend/ownership.py) ──
+        const DEFAULTS = {
+            insuranceComprehensive: 0.045,
+            insuranceThirdParty: 0.012,
+            ntsaAnnual: 5000,
+            firstYearDep: 0.20,
+            laterYearDep: 0.12,
+            maintenancePerKm: { light: 6, average: 10, heavy: 16 },
+            tyreCost: 32000,
+            tyreLifespanKm: 45000
+        };
+
+        function loanAnnualPayment(principal, rate, years) {
+            if (years <= 0 || principal <= 0) return 0;
+            if (rate === 0) return principal / years;
+            const r = rate, n = years;
+            return principal * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+        }
+
+        function calculate() {
+            const price = Number(document.getElementById("price").value);
+            const years = Number(document.getElementById("years").value);
+            const mileage = Number(document.getElementById("mileage").value);
+            const efficiency = Number(document.getElementById("efficiency").value);
+            const fuelPrice = Number(document.getElementById("fuelPrice").value);
+            const insuranceType = document.getElementById("insuranceType").value;
+            const maintLevel = document.getElementById("maintenanceLevel").value;
+
+            let financingAnnual = 0, loanTerm = 0;
+            if (financed) {
+                const downPct = Number(document.getElementById("downPct").value) / 100;
+                const rate = Number(document.getElementById("rate").value) / 100;
+                loanTerm = Number(document.getElementById("term").value);
+                const loanBalance = price * (1 - downPct);
+                financingAnnual = loanAnnualPayment(loanBalance, rate, loanTerm);
+            }
+
+            const insRate = insuranceType === "comprehensive" ? DEFAULTS.insuranceComprehensive : DEFAULTS.insuranceThirdParty;
+            const maintRate = DEFAULTS.maintenancePerKm[maintLevel];
+
+            let vehicleValue = price;
+            let totalCost = 0;
+            const rows = [];
+
+            for (let y = 1; y <= years; y++) {
+                const depRate = y === 1 ? DEFAULTS.firstYearDep : DEFAULTS.laterYearDep;
+                const depreciation = vehicleValue * depRate;
+                vehicleValue -= depreciation;
+
+                const financing = (financed && y <= loanTerm) ? financingAnnual : 0;
+                const insurance = Math.max(vehicleValue, price * 0.15) * insRate;
+                const litres = mileage / Math.max(efficiency, 0.1);
+                const fuel = litres * fuelPrice;
+                const maintenance = mileage * maintRate * (1 + 0.06 * (y - 1));
+                const tyres = (mileage / DEFAULTS.tyreLifespanKm) * DEFAULTS.tyreCost;
+                const licensing = DEFAULTS.ntsaAnnual;
+
+                const yearTotal = depreciation + financing + insurance + fuel + maintenance + tyres + licensing;
+                totalCost += yearTotal;
+
+                rows.push({ year: y, depreciation, financing, insurance, fuel, maintenance, tyres, licensing, total: yearTotal });
+            }
+
+            const totalKm = mileage * years;
+            const costPerKm = totalKm ? totalCost / totalKm : 0;
+            const costPerMonth = totalCost / (years * 12);
+            const resale = Math.max(vehicleValue, price * 0.1);
+
+            return { rows, totalCost, costPerKm, costPerMonth, resale };
+        }
+
+        function render() {
+            const { rows, totalCost, costPerKm, costPerMonth, resale } = calculate();
+
+            document.getElementById("outTotal").textContent = fmt(totalCost);
+            document.getElementById("outMonthly").textContent = fmt(costPerMonth);
+            document.getElementById("outPerKm").textContent = "KES " + costPerKm.toFixed(1);
+            document.getElementById("outResale").textContent = fmt(resale);
+
+            // Stacked bars
+            const barsWrap = document.getElementById("stackedBars");
+            barsWrap.innerHTML = "";
+            const maxTotal = Math.max(...rows.map(r => r.total));
+            rows.forEach(r => {
+                const segs = ["depreciation", "financing", "insurance", "fuel", "maintenance", "tyres", "licensing"];
+                const trackWidthPct = (r.total / maxTotal) * 100;
+                const segHtml = segs.map(k => {
+                    const pct = (r[k] / r.total) * 100;
+                    return `<div class="bar-seg" style="width:${pct}%; background:${COLORS[k]};" title="${k}: ${fmt(r[k])}"></div>`;
+                }).join("");
+                const row = document.createElement("div");
+                row.className = "year-row";
+                row.innerHTML = `
+                    <div class="yr-label">Year ${r.year}</div>
+                    <div class="bar-track" style="width:${trackWidthPct}%;">${segHtml}</div>
+                    <div class="yr-total">${fmt(r.total)}</div>
+                `;
+                barsWrap.appendChild(row);
+            });
+
+            // Table
+            const tbody = document.getElementById("resultsBody");
+            tbody.innerHTML = "";
+            rows.forEach(r => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>Year ${r.year}</td>
+                    <td>${fmt(r.depreciation)}</td>
+                    <td>${fmt(r.financing)}</td>
+                    <td>${fmt(r.insurance)}</td>
+                    <td>${fmt(r.fuel)}</td>
+                    <td>${fmt(r.maintenance)}</td>
+                    <td>${fmt(r.tyres)}</td>
+                    <td>${fmt(r.licensing)}</td>
+                    <td>${fmt(r.total)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+            const totalRow = document.createElement("tr");
+            const sums = rows.reduce((acc, r) => {
+                ["depreciation","financing","insurance","fuel","maintenance","tyres","licensing","total"].forEach(k => acc[k] = (acc[k]||0) + r[k]);
+                return acc;
+            }, {});
+            totalRow.innerHTML = `
+                <td>Total</td>
+                <td>${fmt(sums.depreciation)}</td><td>${fmt(sums.financing)}</td><td>${fmt(sums.insurance)}</td>
+                <td>${fmt(sums.fuel)}</td><td>${fmt(sums.maintenance)}</td><td>${fmt(sums.tyres)}</td>
+                <td>${fmt(sums.licensing)}</td><td>${fmt(sums.total)}</td>
+            `;
+            tbody.appendChild(totalRow);
+        }
+
+        document.getElementById("calcBtn").addEventListener("click", render);
+        document.querySelectorAll('input[type="range"], select').forEach(el => el.addEventListener("change", render));
+        render();
+
+        // ── Payment modal (same flow as the main site) ──
+        const modal = document.getElementById('paymentModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const amountInput = document.getElementById('amount');
+        const statusBox = document.getElementById('statusBox');
+        const payButton = document.getElementById('payButton');
+        let currentReference = 'Auto-D Kenya';
+
+        function openPayment(reference, amount) {
+            currentReference = reference;
+            modalTitle.textContent = `Pay for: ${reference}`;
+            amountInput.value = amount;
+            statusBox.className = 'status-box';
+            statusBox.textContent = '';
+            modal.classList.add('open');
+        }
+        function closePayment() { modal.classList.remove('open'); }
+        document.getElementById('closeModal').addEventListener('click', closePayment);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closePayment(); });
+
+        document.getElementById('paymentForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const phone = document.getElementById('phone').value.trim();
+            const amount = amountInput.value;
+            payButton.disabled = true;
+            payButton.textContent = 'Sending request…';
+            statusBox.className = 'status-box info';
+            statusBox.textContent = 'Sending STK push request…';
+            try {
+                const res = await fetch(`${API_BASE}/api/mpesa/stkpush`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, amount, account_reference: currentReference, description: currentReference })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Payment request failed.');
+                statusBox.className = 'status-box success';
+                statusBox.textContent = 'Check your phone and enter your M-Pesa PIN to complete the payment.';
+                payButton.textContent = 'Request sent ✓';
+                if (data.checkout_request_id) pollStatus(data.checkout_request_id);
+            } catch (err) {
+                statusBox.className = 'status-box error';
+                statusBox.textContent = err.message || 'Something went wrong. Please try again.';
+                payButton.disabled = false;
+                payButton.textContent = 'Send payment request';
+            }
+        });
+
+        async function pollStatus(checkoutRequestId, attempts = 0) {
+            if (attempts > 15) return;
+            try {
+                const res = await fetch(`${API_BASE}/api/mpesa/status/${checkoutRequestId}`);
+                const data = await res.json();
+                if (data.status === 'success') {
+                    statusBox.className = 'status-box success';
+                    statusBox.textContent = `Payment received. Receipt: ${data.receipt_number || 'confirmed'}.`;
+                    return;
+                }
+                if (data.status === 'failed') {
+                    statusBox.className = 'status-box error';
+                    statusBox.textContent = data.result_desc || 'Payment was not completed.';
+                    payButton.disabled = false;
+                    payButton.textContent = 'Send payment request';
+                    return;
+                }
+            } catch (err) { /* ignore transient errors while polling */ }
+            setTimeout(() => pollStatus(checkoutRequestId, attempts + 1), 3000);
+        }
+    </script>
+</body>
+</html>
