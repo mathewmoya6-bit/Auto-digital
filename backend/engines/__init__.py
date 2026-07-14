@@ -1,14 +1,14 @@
 """
 Auto-D Kenya - Engines Module
-All calculation engines for the platform
 """
 
-from .fuel_service import (
-    FuelService,
-    get_fuel_price,
-    calculate_energy_cost,
-    FUEL_TYPES
-)
+# Remove or comment out the fuel_service import if it doesn't exist
+# from .fuel_service import (
+#     FuelService,
+#     get_fuel_price,
+#     calculate_energy_cost,
+#     FUEL_TYPES
+# )
 
 from .depreciation_engine import (
     DepreciationEngine,
@@ -77,11 +77,9 @@ from .report_engine import (
     generate_report
 )
 
+# Remove fuel_service from __all__ if it doesn't exist
 __all__ = [
-    'FuelService',
-    'get_fuel_price',
-    'calculate_energy_cost',
-    'FUEL_TYPES',
+    # Fuel service removed
     'DepreciationEngine',
     'calculate_depreciation',
     'DEPRECIATION_RATES',
