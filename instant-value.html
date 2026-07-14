@@ -920,17 +920,17 @@
                 <h4>
                     📸 Vehicle Photos
                     <span class="vehicle-type-badge" id="photoTypeBadge">🚗 Car</span>
-                    <span class="required-note" id="photoRequirementNote">(6 mandatory angles)</span>
+                    <span class="required-note" id="photoRequirementNote">(8 mandatory angles)</span>
                 </h4>
                 
                 <!-- Photo Requirements Info -->
                 <div class="photo-requirements-info">
                     <div class="row">
                         <span>📷 Required Photos</span>
-                        <span class="badge badge-required" id="requiredCountBadge">6</span>
+                        <span class="badge badge-required" id="requiredCountBadge">8</span>
                     </div>
                     <div class="row" id="photoRequirementDetails">
-                        <span style="font-size:11px;color:#64748b;">Front, Rear, Left, Right, Dashboard, VIN</span>
+                        <span style="font-size:11px;color:#64748b;">Front, Rear, Left, Right, Dashboard, VIN, Engine, Interior</span>
                     </div>
                     <div class="row">
                         <span>📎 Optional Photos</span>
@@ -943,7 +943,7 @@
                 </div>
 
                 <div class="photo-count" id="photoCount">
-                    Photos: <span class="count" id="photoCountNum">0</span> / <span class="required" id="totalRequiredPhotos">6</span> mandatory captured
+                    Photos: <span class="count" id="photoCountNum">0</span> / <span class="required" id="totalRequiredPhotos">8</span> mandatory captured
                 </div>
                 <small style="color:#64748b;font-size:10px;display:block;margin-top:8px;">
                     ⚡ Use the camera button to take photos directly. Gallery upload is also supported for convenience.
@@ -1081,6 +1081,11 @@
             };
 
             // ─── PHOTO REQUIREMENTS BY VEHICLE TYPE ────────────────
+            // ═══════════════════════════════════════════════════════════
+            // Car: 8 mandatory images
+            // Bike: 2 mandatory images (Left Side, Right Side)
+            // Tricycle: 4 mandatory images (Left Side, Right Side, Front, Rear)
+            // ═══════════════════════════════════════════════════════════
             const PHOTO_REQUIREMENTS = {
                 Car: {
                     mandatory: [
@@ -1103,39 +1108,40 @@
                 },
                 Bike: {
                     mandatory: [
-                        { angle: 'front', label: 'Front' },
-                        { angle: 'rear', label: 'Rear' },
                         { angle: 'left_side', label: 'Left Side' },
-                        { angle: 'right_side', label: 'Right Side' },
-                        { angle: 'dashboard', label: 'Dashboard' },
-                        { angle: 'vin', label: 'VIN/Chassis' }
+                        { angle: 'right_side', label: 'Right Side' }
                     ],
                     optional: [
+                        { angle: 'front', label: 'Front' },
+                        { angle: 'rear', label: 'Rear' },
+                        { angle: 'dashboard', label: 'Dashboard' },
+                        { angle: 'vin', label: 'VIN/Chassis' },
                         { angle: 'engine_detail', label: 'Engine Detail' },
                         { angle: 'chain_sprocket', label: 'Chain/Sprocket' },
-                        { angle: 'tyres', label: 'Tyres' }
+                        { angle: 'tyres', label: 'Tyres' },
+                        { angle: 'full_bike', label: 'Full Bike' }
                     ],
                     icon: '🏍️',
-                    totalRequired: 6
+                    totalRequired: 2
                 },
                 Tricycle: {
                     mandatory: [
                         { angle: 'front', label: 'Front' },
                         { angle: 'rear', label: 'Rear' },
                         { angle: 'left_side', label: 'Left Side' },
-                        { angle: 'right_side', label: 'Right Side' },
+                        { angle: 'right_side', label: 'Right Side' }
+                    ],
+                    optional: [
                         { angle: 'dashboard', label: 'Dashboard' },
                         { angle: 'vin', label: 'VIN/Chassis' },
                         { angle: 'engine', label: 'Engine Bay' },
-                        { angle: 'cargo_area', label: 'Cargo/Passenger Area' }
-                    ],
-                    optional: [
+                        { angle: 'cargo_area', label: 'Cargo/Passenger Area' },
                         { angle: 'undercarriage', label: 'Undercarriage' },
                         { angle: 'tyres', label: 'Tyres' },
-                        { angle: 'full_vehicle', label: 'Full Vehicle' }
+                        { angle: 'full_tricycle', label: 'Full Tricycle' }
                     ],
                     icon: '🛺',
-                    totalRequired: 8
+                    totalRequired: 4
                 }
             };
 
@@ -1374,8 +1380,7 @@
             function updatePhotoCount() {
                 const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
                 const mandatoryAngles = req.mandatory.map(a => a.angle);
-                const captured = document.querySelectorAll('.image-upload-item.has-image').length;
-                const mandatoryCaptured = document.querySelectorAll('.image-upload-item.mandatory.has-image').length;
+                const mandatoryCaptured = mandatoryAngles.filter(angle => capturedPhotos[angle]).length;
                 
                 document.getElementById('photoCountNum').textContent = mandatoryCaptured;
                 totalRequiredPhotos.textContent = req.totalRequired;
@@ -1675,7 +1680,7 @@
                 mandatoryAngles.forEach(angle => {
                     if (capturedPhotos[angle]) photoFilled++;
                 });
-                const photoProgress = (photoFilled / req.totalRequired) * 40;
+                const photoProgress = req.totalRequired > 0 ? (photoFilled / req.totalRequired) * 40 : 0;
 
                 const totalProgress = Math.min((filled / fields.length) * 60 + photoProgress, 100);
                 const percent = Math.round(totalProgress);
@@ -1945,6 +1950,15 @@
             // ─── EVENT LISTENERS ──────────────────────────────────────
             vehicleTypeSelect.addEventListener('change', function() {
                 currentVehicleType = this.value;
+                // Reset captured photos when changing vehicle type
+                // (keep photos that match new requirements)
+                const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
+                const validAngles = [...req.mandatory, ...req.optional].map(a => a.angle);
+                Object.keys(capturedPhotos).forEach(key => {
+                    if (!validAngles.includes(key)) {
+                        delete capturedPhotos[key];
+                    }
+                });
                 renderPhotoGrid(currentVehicleType);
                 updateEngineDropdown();
                 updateBodyTypeDropdown();
@@ -2178,6 +2192,9 @@
                 console.log(`📡 API Base: ${API_BASE}`);
                 console.log(`📡 Backend Available: ${isBackendAvailable}`);
                 console.log(`📸 Dynamic Photo Requirements loaded for ${currentVehicleType}`);
+                console.log(`   - Car: 8 mandatory`);
+                console.log(`   - Bike: 2 mandatory (Left Side, Right Side)`);
+                console.log(`   - Tricycle: 4 mandatory (Front, Rear, Left Side, Right Side)`);
             }
 
             document.addEventListener('DOMContentLoaded', init);
