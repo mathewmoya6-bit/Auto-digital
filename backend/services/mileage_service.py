@@ -4,174 +4,186 @@ API endpoints for mileage and running cost calculations
 """
 
 from typing import Dict, Any, Optional
-import logging
+from flask import jsonify, request
 
-logger = logging.getLogger(__name__)
+from engines.running_cost_engine import RunningCostEngine
 
 
 class MileageService:
     """Mileage and running cost service"""
     
     def __init__(self):
-        self.engine = None
-        try:
-            from engines.running_cost_engine import RunningCostEngine
-            self.engine = RunningCostEngine()
-            logger.info("✅ RunningCostEngine initialized successfully")
-        except ImportError as e:
-            logger.warning(f"⚠️ RunningCostEngine not available: {e}")
-            self.engine = None
+        self.engine = RunningCostEngine()
+        
+        # Default vehicle specifications for common selections
+        self.VEHICLE_SPECS = {
+            "1.6L Diesel - Standard": {
+                "fuel_type": "diesel",
+                "fuel_consumption": 6.5,  # L/100km
+                "purchase_price": 1800000,  # KES
+                "maintenance_per_km": 1.5,  # KES
+                "tyre_size": "195/65R15",
+                "insurance_annual": 45000,
+                "tax_annual": 2400,
+                "annual_km": 20000
+            },
+            "2.0L Petrol - Standard": {
+                "fuel_type": "petrol",
+                "fuel_consumption": 8.5,
+                "purchase_price": 1500000,
+                "maintenance_per_km": 1.8,
+                "tyre_size": "205/55R16",
+                "insurance_annual": 40000,
+                "tax_annual": 2400,
+                "annual_km": 20000
+            }
+            # Add more vehicle specifications as needed
+        }
     
     def calculate(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Calculate mileage cost
+        """Calculate mileage cost"""
+        distance_km = data.get("distance_km") or data.get("trip_distance")
         
-        Args:
-            data: Request data with vehicle and trip parameters
-            
-        Returns:
-            Dict with calculation results or error
-        """
-        # ─── Validate input ──────────────────────────────────────────
-        distance_km = data.get("distance_km")
-        if distance_km is None:
-            return {"error": "distance_km is required"}
+        if not distance_km:
+            return {"error": "distance_km is required"}, 400
         
         try:
             distance_km = float(distance_km)
             if distance_km <= 0:
                 raise ValueError
         except ValueError:
-            return {"error": "distance_km must be a positive number"}
+            return {"error": "distance_km must be a positive number"}, 400
         
-        # ─── Build vehicle data ──────────────────────────────────────
+        # Get vehicle selection from UI
+        fuel_type = data.get("fuel_type", "all")
+        vehicle_category = data.get("vehicle_category", "")
+        engine_class = data.get("engine_class", "1.6L Diesel - Standard")
+        
+        # Load vehicle specifications based on selection
+        vehicle_specs = self.VEHICLE_SPECS.get(
+            engine_class, 
+            self.VEHICLE_SPECS["1.6L Diesel - Standard"]
+        )
+        
+        # Allow overrides from request data
         vehicle_data = {
-            "fuel_type": data.get("fuel_type", "petrol"),
-            "fuel_consumption": data.get("fuel_consumption", 8),
-            "maintenance_per_km": data.get("maintenance_per_km", 0),
-            "insurance_annual": data.get("insurance", 0),
-            "tax_annual": data.get("tax", 0),
-            "annual_km": data.get("annual_km", 20000),
-            "purchase_price": data.get("purchase_price", 0),
-            "tyre_size": data.get("tyre_size", ""),
+            "fuel_type": data.get("fuel_type", vehicle_specs["fuel_type"]),
+            "fuel_consumption": data.get("fuel_consumption", vehicle_specs["fuel_consumption"]),
+            "maintenance_per_km": data.get("maintenance_per_km", vehicle_specs["maintenance_per_km"]),
+            "insurance_annual": data.get("insurance", vehicle_specs["insurance_annual"]),
+            "tax_annual": data.get("tax", vehicle_specs["tax_annual"]),
+            "annual_km": data.get("annual_km", vehicle_specs["annual_km"]),
+            "purchase_price": data.get("purchase_price", vehicle_specs["purchase_price"]),
+            "tyre_size": data.get("tyre_size", vehicle_specs["tyre_size"]),
             "vehicle_type": data.get("vehicle_type", "Car")
         }
         
-        # ─── Calculate using engine or fallback ──────────────────────
-        if self.engine:
-            try:
-                result = self.engine.calculate_trip_cost(
-                    distance_km=distance_km,
-                    vehicle_data=vehicle_data
-                )
+        result = self.engine.calculate_trip_cost(
+            distance_km=distance_km,
+            vehicle_data=vehicle_data
+        )
+        
+        # Calculate averages for display
+        purchase_price = vehicle_data["purchase_price"]
+        total_cost = result.summary["total_cost"]
+        cost_per_km = result.summary["total_per_km"]
+        
+        # 5-year projection from engine results
+        projection = result.projection if hasattr(result, 'projection') else {
+            "year_1": total_cost,
+            "year_2": total_cost * 1.08,
+            "year_3": total_cost * 1.16,
+            "year_4": total_cost * 1.25,
+            "year_5": total_cost * 1.35
+        }
+        
+        return {
+            "success": True,
+            "data": {
+                # Summary section
+                "total_cost": total_cost,
+                "cost_per_km": cost_per_km,
+                "distance_km": distance_km,
                 
-                # Extract data safely
-                summary = result.summary if hasattr(result, 'summary') else result.get('summary', {})
-                fixed_costs = result.fixed_costs if hasattr(result, 'fixed_costs') else result.get('fixed_costs', {})
-                operating_costs = result.operating_costs if hasattr(result, 'operating_costs') else result.get('operating_costs', {})
+                # Cost breakdowns
+                "fixed_cost_per_km": result.fixed_costs.get("total_per_km", 0),
+                "operating_cost_per_km": result.operating_costs.get("total_per_km", 0),
+                "fixed_cost_trip": result.fixed_costs.get("total", 0),
+                "operating_cost_trip": result.operating_costs.get("total", 0),
+                "total_running_cost_per_km": result.summary["total_per_km"],
                 
-                return {
-                    "success": True,
-                    "data": {
-                        "total_cost": summary.get("total_cost", 0),
-                        "cost_per_km": summary.get("total_per_km", 0),
-                        "fuel_cost": summary.get("energy_cost", 0),
-                        "maintenance_cost": operating_costs.get("maintenance", 0),
-                        "insurance_cost": fixed_costs.get("insurance", 0),
-                        "tax_cost": fixed_costs.get("tax", 0) or fixed_costs.get("licensing", 0),
-                        "tyre_cost": operating_costs.get("tyres", 0),
-                        "depreciation_cost": fixed_costs.get("depreciation", 0),
-                        "fixed_costs": fixed_costs,
-                        "operating_costs": operating_costs,
-                        "projection": result.projection if hasattr(result, 'projection') else result.get('projection', []),
-                        "recommendations": result.recommendations if hasattr(result, 'recommendations') else result.get('recommendations', [])
-                    }
-                }
-            except Exception as e:
-                logger.error(f"Engine calculation failed: {e}")
-                # Fall through to simple calculation
-        
-        # ─── Fallback: Simple calculation ────────────────────────────
-        return self._calculate_simple(distance_km, vehicle_data)
-    
-    def _calculate_simple(self, distance_km: float, vehicle_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Simple fallback calculation when engine is not available
-        """
-        try:
-            fuel_type = vehicle_data.get("fuel_type", "petrol")
-            fuel_consumption = vehicle_data.get("fuel_consumption", 8)
-            maintenance_per_km = vehicle_data.get("maintenance_per_km", 0)
-            insurance_annual = vehicle_data.get("insurance_annual", 0)
-            tax_annual = vehicle_data.get("tax_annual", 0)
-            
-            # Fuel prices (KES per litre)
-            fuel_prices = {
-                "petrol": 214.03,
-                "diesel": 222.86,
-                "electric": 30.00,
-                "lpg": 120.00,
-                "hybrid": 150.00,
-                "cng": 100.00
+                # Detailed cost breakdown
+                "detailed_costs": {
+                    "insurance": result.fixed_costs.get("insurance", 0),
+                    "depreciation": result.fixed_costs.get("depreciation", 0),
+                    "interest_on_capital": result.fixed_costs.get("interest", 0),
+                    "fuel": result.operating_costs.get("energy", 0),
+                    "servicing": result.operating_costs.get("servicing", 0),
+                    "repairs_replacements": result.operating_costs.get("repairs", 0),
+                    "automotive_tyres": result.operating_costs.get("tyres", 0),
+                    "licences_parking": result.fixed_costs.get("tax", 0)
+                },
+                
+                # Vehicle info
+                "average_initial_cost": purchase_price,
+                
+                # 5-Year running cost progression
+                "cost_projection": {
+                    "new": projection.get("year_1", total_cost),
+                    "year_2": projection.get("year_2", total_cost * 1.08),
+                    "year_3": projection.get("year_3", total_cost * 1.16),
+                    "year_4": projection.get("year_4", total_cost * 1.25),
+                    "year_5": projection.get("year_5", total_cost * 1.35)
+                },
+                
+                "recommendations": result.recommendations if hasattr(result, 'recommendations') else [],
+                
+                # Raw data for debugging
+                "fixed_costs": result.fixed_costs,
+                "operating_costs": result.operating_costs,
+                "projection": projection
             }
-            fuel_price = fuel_prices.get(fuel_type, 214.03)
-            
-            # Calculate costs
-            fuel_used = (distance_km / 100) * fuel_consumption
-            fuel_cost = fuel_used * fuel_price
-            maintenance_cost = distance_km * maintenance_per_km
-            
-            # Insurance and tax per trip
-            annual_km = vehicle_data.get("annual_km", 20000)
-            insurance_cost = (insurance_annual / annual_km) * distance_km if annual_km > 0 else 0
-            tax_cost = (tax_annual / annual_km) * distance_km if annual_km > 0 else 0
-            
-            total_cost = fuel_cost + maintenance_cost + insurance_cost + tax_cost
-            cost_per_km = total_cost / distance_km if distance_km > 0 else 0
-            
-            return {
-                "success": True,
-                "data": {
-                    "total_cost": round(total_cost, 2),
-                    "cost_per_km": round(cost_per_km, 2),
-                    "fuel_cost": round(fuel_cost, 2),
-                    "maintenance_cost": round(maintenance_cost, 2),
-                    "insurance_cost": round(insurance_cost, 2),
-                    "tax_cost": round(tax_cost, 2),
-                    "tyre_cost": 0,
-                    "depreciation_cost": 0,
-                    "fixed_costs": {
-                        "insurance": round(insurance_cost, 2),
-                        "tax": round(tax_cost, 2)
-                    },
-                    "operating_costs": {
-                        "fuel": round(fuel_cost, 2),
-                        "maintenance": round(maintenance_cost, 2)
-                    },
-                    "projection": [],
-                    "recommendations": self._get_fallback_recommendations(fuel_type, total_cost, distance_km)
-                }
-            }
-        except Exception as e:
-            logger.error(f"Simple calculation failed: {e}")
-            return {"error": f"Calculation failed: {str(e)}"}
+        }
     
-    def _get_fallback_recommendations(self, fuel_type: str, total_cost: float, distance_km: float) -> list:
-        """Generate basic recommendations for fallback mode"""
-        recommendations = []
-        
-        if fuel_type in ["petrol", "diesel"]:
-            recommendations.append({
-                "type": "fuel",
-                "message": f"Your {fuel_type} trip cost is KES {total_cost:.2f}",
-                "suggestion": "Consider a more fuel-efficient vehicle or alternative fuel options."
-            })
-        
-        if distance_km > 100:
-            recommendations.append({
-                "type": "distance",
-                "message": f"Long trip of {distance_km} km detected.",
-                "suggestion": "Plan your route efficiently and consider carpooling."
-            })
-        
-        return recommendations
+    def get_vehicle_options(self) -> Dict[str, Any]:
+        """Get available vehicle options for the UI"""
+        return {
+            "fuel_types": ["All", "Petrol", "Diesel", "Gas/LPG", "Electric"],
+            "vehicle_categories": [
+                "Saloon Cars - Diesel",
+                "Saloon Cars - Petrol",
+                "SUV - Diesel",
+                "SUV - Petrol",
+                "Pickup - Diesel",
+                "Minibus - Diesel"
+            ],
+            "engine_classes": list(self.VEHICLE_SPECS.keys()),
+            "quick_routes": [
+                {"name": "Nairobi → Mombasa", "distance": 485},
+                {"name": "Nairobi → Kisumu", "distance": 355},
+                {"name": "Nairobi → Nakuru", "distance": 160},
+                {"name": "Nairobi → Eldoret", "distance": 315},
+                {"name": "Nairobi → Malindi", "distance": 500},
+                {"name": "Nairobi → Nanyuki", "distance": 210}
+            ]
+        }
+
+
+# Flask route handlers (if using Flask)
+def register_routes(app):
+    """Register MileageService routes"""
+    service = MileageService()
+    
+    @app.route('/api/mileage/calculate', methods=['POST'])
+    def calculate_mileage():
+        """Calculate mileage cost endpoint"""
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid request data"}), 400
+        result = service.calculate(data)
+        return jsonify(result)
+    
+    @app.route('/api/mileage/options', methods=['GET'])
+    def get_mileage_options():
+        """Get available vehicle options"""
+        return jsonify(service.get_vehicle_options())
