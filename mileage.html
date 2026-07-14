@@ -3,21 +3,14 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AUTO-V | Professional Mileage Calculator</title>
+    <title>Auto-D Kenya — Professional Mileage Calculator</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 
-    <!-- Hybrid API Client - Single Source of Truth -->
-    <script src="/auto-v-api.js"></script>
-    
-    <!-- Supabase JS Client (fallback) -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
-    </script>
-
     <style>
         /* ============================================================
-           AUTO-V - Professional Mileage Calculator
+           Auto-D Kenya - Professional Mileage Calculator
            CSS Variables & Reset
            ============================================================ */
         :root {
@@ -1015,21 +1008,21 @@
 
         <div class="report-header">
             <div class="header-left">
-                <div class="badge">📋 Official Reimbursement Schedule</div>
-                <h1>AUTO-V <span>Professional</span><br />Vehicle Running Costs</h1>
+                <div class="badge">📋 Official Mileage Schedule</div>
+                <h1>Auto-D <span>Kenya</span><br />Professional Mileage Calculator</h1>
                 <p class="subtitle">
                     Kenya Mileage Rate Schedule — <strong>July 2026</strong><br />
-                    <span style="font-size:12px;color:var(--ink-soft);">⚡ Data from Supabase · Business Logic via FastAPI · Hybrid Architecture</span>
+                    <span style="font-size:12px;color:var(--ink-soft);">⚡ Business Logic via FastAPI · Hybrid Architecture</span>
                 </p>
             </div>
             <div class="header-right">
-                <div class="version">Report Version <span>2026.07</span></div>
+                <div class="version">Version <span>2026.07</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div>
-                    Data Status: <span class="status" id="dbStatus" role="status" aria-live="polite">● Connecting...</span>
+                    API Status: <span class="status" id="apiStatus" role="status" aria-live="polite">● Connecting...</span>
                 </div>
                 <div style="margin-top:4px;font-size:10px;color:var(--ink-soft);">
-                    <span id="dataSource">Supabase</span> · <span id="calcMethod">Client-side</span>
+                    <span id="calcMethod">Client-side</span>
                 </div>
             </div>
         </div>
@@ -1062,8 +1055,8 @@
 
                 <div class="form-group">
                     <label for="categorySelect">Vehicle Category</label>
-                    <select id="categorySelect" disabled aria-busy="true">
-                        <option value="">Loading categories...</option>
+                    <select id="categorySelect">
+                        <option value="">Select category...</option>
                     </select>
                 </div>
 
@@ -1077,7 +1070,7 @@
                             </label>
                         </div>
                     </div>
-                    <select id="variantSelect" disabled aria-busy="true">
+                    <select id="variantSelect" disabled>
                         <option value="">Select a category first</option>
                     </select>
                 </div>
@@ -1095,7 +1088,7 @@
                     <div class="route-chips" id="routeChips"></div>
                 </div>
 
-                <button class="calc-btn" id="calculateBtn" disabled>🚀 Calculate Mileage Rate</button>
+                <button class="calc-btn" id="calculateBtn">🚀 Calculate Mileage Rate</button>
             </section>
 
             <section class="results-panel" aria-label="Cost results" aria-live="polite">
@@ -1175,10 +1168,10 @@
         </div>
 
         <div class="report-footer">
-            <div class="brand">🚗 AUTO-V <span>Professional</span></div>
+            <div class="brand">🚗 Auto-D <span>Kenya</span></div>
             <div class="meta">
-                <strong>Architecture:</strong> Supabase (Read) + FastAPI (Business Logic) · Hybrid<br />
-                For official use only · v3.1.0
+                <strong>Architecture:</strong> FastAPI (Business Logic) · Hybrid<br />
+                <span id="footerUrl">https://auto-d.meipressgroup.com</span> · v3.1.0
             </div>
         </div>
     </div>
@@ -1188,67 +1181,14 @@
             "use strict";
 
             // ============================================================
-            // CONFIGURATION
+            // CONFIGURATION - Auto-D Kenya
             // ============================================================
             const CONFIG = {
-                SUPABASE: {
-                    URL: 'https://tsvejnzxrxrrecgquxbq.supabase.co',
-                    ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzdmVqbnp4cnhycmVjZ3F1eGJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExODczNjgsImV4cCI6MjA5Njc2MzM2OH0.PCEppwafuPatBoWh4OnhzgHv6fA9uF5-bWW9mmf2VoQ'
-                },
                 FASTAPI: {
-                    // Versioned base — auth & calculate endpoints live here
                     BASE_URL: 'https://auto-v.onrender.com/api/v1',
-                    // Root of the deployed service — /health lives here, NOT under /api/v1
                     ROOT_URL: 'https://auto-v.onrender.com'
-                },
-                CACHE_TTL: 300000
+                }
             };
-
-            // ============================================================
-            // CHECK AUTHENTICATION
-            // ============================================================
-            let currentUser = null;
-
-            async function checkAuth() {
-                try {
-                    if (window.autoV) {
-                        currentUser = await window.autoV.getCurrentUser();
-                        if (!currentUser) {
-                            console.warn('⚠️ User not authenticated');
-                            showToast('Please login to access mileage rates', 'warning');
-                            // Don't redirect, just show warning - user can still view
-                        }
-                    }
-                } catch (error) {
-                    console.warn('Auth check failed:', error);
-                }
-            }
-
-            // ============================================================
-            // INITIALIZE SUPABASE CLIENT
-            // ============================================================
-            let supabase = null;
-            try {
-                // Try using autoV's Supabase client first
-                if (window.autoV) {
-                    supabase = window.autoV.getSupabaseClient();
-                }
-                // Fallback to direct Supabase
-                if (!supabase) {
-                    supabase = window.supabase.createClient(CONFIG.SUPABASE.URL, CONFIG.SUPABASE.ANON_KEY, {
-                        auth: {
-                            autoRefreshToken: true,
-                            persistSession: true
-                        },
-                        db: {
-                            schema: 'public'
-                        }
-                    });
-                }
-                console.log('✅ Supabase client initialized');
-            } catch (error) {
-                console.error('❌ Failed to initialize Supabase:', error);
-            }
 
             // ============================================================
             // DOM REFERENCES
@@ -1261,8 +1201,7 @@
             const distanceError = document.getElementById('distanceError');
             const routeChips = document.getElementById('routeChips');
             const calculateBtn = document.getElementById('calculateBtn');
-            const dbStatus = document.getElementById('dbStatus');
-            const dataSource = document.getElementById('dataSource');
+            const apiStatus = document.getElementById('apiStatus');
             const calcMethod = document.getElementById('calcMethod');
 
             const vehicleLabel = document.getElementById('vehicleLabel');
@@ -1300,7 +1239,6 @@
             let currentFuelFilter = 'all';
             let isLoading = false;
             let useFastAPI = true;
-            let cache = {};
             let isInitialized = false;
 
             // ============================================================
@@ -1320,10 +1258,6 @@
             }
 
             function showToast(message, type = 'info') {
-                if (window.autoV && window.autoV.showToast) {
-                    window.autoV.showToast(message, type);
-                    return;
-                }
                 const existing = document.querySelector('.toast');
                 if (existing) existing.remove();
                 const toast = document.createElement('div');
@@ -1333,143 +1267,142 @@
                 setTimeout(() => toast.remove(), 4000);
             }
 
-            function setStatus(text, isGood = true) {
-                dbStatus.textContent = text;
-                dbStatus.className = 'status' + (isGood ? '' : ' degraded');
-                dbStatus.style.color = isGood ? 'var(--green)' : 'var(--rust)';
-            }
-
-            function getCache(key) {
-                const item = cache[key];
-                if (!item) return null;
-                if (Date.now() - item.timestamp > CONFIG.CACHE_TTL) {
-                    delete cache[key];
-                    return null;
-                }
-                return item.data;
-            }
-
-            function setCache(key, data) {
-                cache[key] = { data, timestamp: Date.now() };
+            function setApiStatus(text, isGood = true) {
+                apiStatus.textContent = text;
+                apiStatus.className = 'status' + (isGood ? '' : ' degraded');
+                apiStatus.style.color = isGood ? 'var(--green)' : 'var(--rust)';
             }
 
             // ============================================================
-            // SUPABASE DATA ACCESS
+            // FALLBACK DATA
             // ============================================================
-            async function fetchCategoriesFromSupabase() {
+            const FALLBACK_DATA = {
+                categories: [
+                    { id: 'cat1', name: 'Saloon Cars - Petrol', fuel_type: 'Petrol' },
+                    { id: 'cat2', name: 'Saloon Cars - Diesel', fuel_type: 'Diesel' },
+                    { id: 'cat3', name: 'SUVs & Crossovers', fuel_type: 'Diesel' },
+                    { id: 'cat4', name: 'Pickups & Vans', fuel_type: 'Diesel' },
+                    { id: 'cat5', name: 'Electric Vehicles', fuel_type: 'Electric' }
+                ],
+                variants: {
+                    'cat1': [
+                        { id: 'v1', label: '1.5L Petrol - Standard', fixed_per_km: 12.50, operating_per_km: 18.75,
+                            total_per_km: 31.25, initial_cost: 1500000,
+                            components: { Insurance: 2.50, Depreciation: 5.00, Interest: 5.00, Fuel: 8.75, Servicing: 4.00,
+                                Repairs: 3.00, Tyres: 2.00, Licences: 1.00 },
+                            year1: 28.50, year2: 32.00, year3: 36.00, year4: 41.00, year5: 47.00 },
+                        { id: 'v2', label: '1.8L Petrol - Premium', fixed_per_km: 15.00, operating_per_km: 22.50,
+                            total_per_km: 37.50, initial_cost: 2000000,
+                            components: { Insurance: 3.00, Depreciation: 6.00, Interest: 6.00, Fuel: 10.50, Servicing: 5.00,
+                                Repairs: 3.50, Tyres: 2.50, Licences: 1.00 },
+                            year1: 34.00, year2: 38.00, year3: 43.00, year4: 49.00, year5: 56.00 }
+                    ],
+                    'cat2': [
+                        { id: 'v3', label: '1.6L Diesel - Standard', fixed_per_km: 14.00, operating_per_km: 16.50,
+                            total_per_km: 30.50, initial_cost: 1800000,
+                            components: { Insurance: 2.80, Depreciation: 5.50, Interest: 5.70, Fuel: 7.50, Servicing: 4.50,
+                                Repairs: 2.50, Tyres: 2.00, Licences: 1.00 },
+                            year1: 27.50, year2: 30.50, year3: 34.50, year4: 39.50, year5: 45.50 }
+                    ],
+                    'cat3': [
+                        { id: 'v4', label: '2.0L Diesel - 4x4', fixed_per_km: 18.00, operating_per_km: 20.00,
+                            total_per_km: 38.00, initial_cost: 3500000,
+                            components: { Insurance: 4.00, Depreciation: 8.00, Interest: 6.00, Fuel: 10.00, Servicing: 6.00,
+                                Repairs: 4.00, Tyres: 3.00, Licences: 1.50 },
+                            year1: 34.00, year2: 38.50, year3: 44.00, year4: 50.50, year5: 58.00 }
+                    ],
+                    'cat4': [
+                        { id: 'v5', label: '3.0L Diesel - 4x4', fixed_per_km: 20.00, operating_per_km: 22.00,
+                            total_per_km: 42.00, initial_cost: 4500000,
+                            components: { Insurance: 4.50, Depreciation: 9.00, Interest: 6.50, Fuel: 12.00, Servicing: 7.00,
+                                Repairs: 4.50, Tyres: 3.50, Licences: 1.50 },
+                            year1: 38.00, year2: 42.00, year3: 48.00, year4: 55.00, year5: 63.00 }
+                    ],
+                    'cat5': [
+                        { id: 'v6', label: 'EV Standard Range', fixed_per_km: 10.00, operating_per_km: 8.00,
+                            total_per_km: 18.00, initial_cost: 4000000,
+                            components: { Insurance: 3.50, Depreciation: 12.00, Interest: 4.50, Fuel: 3.00, Servicing: 2.00,
+                                Repairs: 1.50, Tyres: 2.00, Licences: 0.50 },
+                            year1: 16.00, year2: 18.50, year3: 22.00, year4: 27.00, year5: 33.00 }
+                    ]
+                },
+                routes: [
+                    { from_city: 'Nairobi', to_city: 'Mombasa', km: 485 },
+                    { from_city: 'Nairobi', to_city: 'Kisumu', km: 355 },
+                    { from_city: 'Nairobi', to_city: 'Nakuru', km: 160 },
+                    { from_city: 'Nairobi', to_city: 'Eldoret', km: 315 },
+                    { from_city: 'Nairobi', to_city: 'Malindi', km: 500 },
+                    { from_city: 'Nairobi', to_city: 'Nanyuki', km: 210 }
+                ]
+            };
+
+            // ============================================================
+            // FASTAPI / API COMMUNICATION
+            // ============================================================
+            async function fetchCategories() {
                 try {
-                    const cached = getCache('categories');
-                    if (cached) {
-                        console.log('📦 Using cached categories:', cached.length);
-                        return cached;
+                    // Try FastAPI first
+                    if (useFastAPI) {
+                        const response = await fetch(`${CONFIG.FASTAPI.BASE_URL}/categories`, {
+                            headers: { 'Accept': 'application/json' }
+                        });
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data && data.length > 0) {
+                                return data;
+                            }
+                        }
                     }
-
-                    if (!supabase) throw new Error('Supabase not initialized');
-
-                    console.log('📡 Fetching categories from Supabase...');
-                    const { data, error } = await supabase
-                        .from('vehicle_categories')
-                        .select('*')
-                        .eq('is_active', true)
-                        .order('name');
-
-                    if (error) throw error;
-
-                    console.log('✅ Categories loaded:', data ? data.length : 0);
-                    setCache('categories', data);
-                    dataSource.textContent = 'Supabase';
-                    return data || [];
                 } catch (error) {
-                    console.error('❌ Supabase categories error:', error);
-                    showToast('Error loading categories: ' + error.message, 'error');
-                    throw error;
+                    console.warn('⚠️ FastAPI categories fetch failed:', error.message);
                 }
+                // Fallback to local data
+                console.log('📦 Using fallback categories');
+                return FALLBACK_DATA.categories;
             }
 
-            async function fetchVariantsFromSupabase(categoryId) {
+            async function fetchVariants(categoryId) {
                 try {
-                    const cacheKey = `variants_${categoryId}`;
-                    const cached = getCache(cacheKey);
-                    if (cached) {
-                        console.log('📦 Using cached variants:', cached.length);
-                        return cached;
+                    if (useFastAPI) {
+                        const response = await fetch(`${CONFIG.FASTAPI.BASE_URL}/variants?category_id=${categoryId}`, {
+                            headers: { 'Accept': 'application/json' }
+                        });
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data && data.length > 0) {
+                                return data;
+                            }
+                        }
                     }
-
-                    if (!supabase) throw new Error('Supabase not initialized');
-
-                    console.log('📡 Fetching variants for category:', categoryId);
-                    const { data, error } = await supabase
-                        .from('vehicle_variants')
-                        .select('*')
-                        .eq('category_id', categoryId)
-                        .eq('is_active', true)
-                        .order('label');
-
-                    if (error) throw error;
-
-                    console.log('✅ Variants loaded:', data ? data.length : 0);
-                    setCache(cacheKey, data);
-                    dataSource.textContent = 'Supabase';
-                    return data || [];
                 } catch (error) {
-                    console.error('❌ Supabase variants error:', error);
-                    showToast('Error loading vehicles: ' + error.message, 'error');
-                    throw error;
+                    console.warn('⚠️ FastAPI variants fetch failed:', error.message);
                 }
+                // Fallback to local data
+                console.log('📦 Using fallback variants');
+                return FALLBACK_DATA.variants[categoryId] || [];
             }
 
-            async function fetchRoutesFromSupabase() {
+            async function fetchRoutes() {
                 try {
-                    const cached = getCache('routes');
-                    if (cached) {
-                        console.log('📦 Using cached routes:', cached.length);
-                        return cached;
+                    if (useFastAPI) {
+                        const response = await fetch(`${CONFIG.FASTAPI.BASE_URL}/routes`, {
+                            headers: { 'Accept': 'application/json' }
+                        });
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data && data.length > 0) {
+                                return data;
+                            }
+                        }
                     }
-
-                    if (!supabase) throw new Error('Supabase not initialized');
-
-                    console.log('📡 Fetching routes from Supabase...');
-                    const { data, error } = await supabase
-                        .from('routes')
-                        .select('*')
-                        .eq('is_active', true)
-                        .order('from_city');
-
-                    if (error) throw error;
-
-                    console.log('✅ Routes loaded:', data ? data.length : 0);
-                    setCache('routes', data);
-                    return data || [];
                 } catch (error) {
-                    console.error('❌ Supabase routes error:', error);
-                    showToast('Error loading routes: ' + error.message, 'error');
-                    throw error;
+                    console.warn('⚠️ FastAPI routes fetch failed:', error.message);
                 }
+                return FALLBACK_DATA.routes;
             }
 
-            // ============================================================
-            // FASTAPI BUSINESS LOGIC
-            // ============================================================
             async function calculateViaFastAPI(variantId, distance) {
                 try {
-                    console.log('📡 Calling FastAPI calculation...');
-                    
-                    // Use autoV if available
-                    if (window.autoV) {
-                        const result = await window.autoV.apiRequest('/calculate/mileage', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                                variant_id: variantId,
-                                distance: distance,
-                                include_forecast: true
-                            })
-                        });
-                        console.log('✅ FastAPI calculation complete');
-                        calcMethod.textContent = 'FastAPI';
-                        return result;
-                    }
-
-                    // Fallback to direct fetch
                     const response = await fetch(`${CONFIG.FASTAPI.BASE_URL}/calculate/mileage`, {
                         method: 'POST',
                         headers: {
@@ -1483,24 +1416,17 @@
                         })
                     });
 
-                    if (!response.ok) {
-                        const error = await response.json().catch(() => ({}));
-                        throw new Error(error.detail || `HTTP ${response.status}`);
+                    if (response.ok) {
+                        const result = await response.json();
+                        calcMethod.textContent = 'FastAPI';
+                        return result;
                     }
-
-                    const result = await response.json();
-                    console.log('✅ FastAPI calculation complete');
-                    calcMethod.textContent = 'FastAPI';
-                    return result;
                 } catch (error) {
                     console.warn('⚠️ FastAPI calculation failed:', error.message);
-                    return null;
                 }
+                return null;
             }
 
-            // ============================================================
-            // CLIENT-SIDE CALCULATION (FALLBACK)
-            // ============================================================
             function calculateClientSide(variant, distance) {
                 const fixedRate = num(variant.fixed_per_km);
                 const operatingRate = num(variant.operating_per_km);
@@ -1563,7 +1489,7 @@
                     categories :
                     categories.filter(c => c.fuel_type === currentFuelFilter);
 
-                categorySelect.innerHTML = '';
+                categorySelect.innerHTML = '<option value="">Select category...</option>';
                 if (!visible || visible.length === 0) {
                     categorySelect.innerHTML = '<option value="">No categories match</option>';
                     categorySelect.disabled = true;
@@ -1579,9 +1505,6 @@
                     opt.textContent = c.name || 'Unnamed';
                     categorySelect.appendChild(opt);
                 });
-
-                categorySelect.value = visible[0].id;
-                categorySelect.dispatchEvent(new Event('change'));
             }
 
             function applyVariantFilter() {
@@ -1746,9 +1669,6 @@
                 if (isInitialized) return;
                 isInitialized = true;
 
-                // Check authentication first
-                await checkAuth();
-
                 // Fuel filter
                 fuelFilterGroup.addEventListener('click', function(e) {
                     const btn = e.target.closest('.fuel-filter-btn');
@@ -1761,16 +1681,23 @@
                     btn.setAttribute('aria-pressed', 'true');
                     currentFuelFilter = btn.dataset.fuel;
                     populateCategories();
+                    // Reset variants
+                    allVariants = [];
+                    applyVariantFilter();
                 });
 
                 // Category change
                 categorySelect.addEventListener('change', async function() {
                     const catId = this.value;
-                    if (!catId || isLoading) return;
+                    if (!catId || isLoading) {
+                        variantSelect.disabled = true;
+                        variantSelect.innerHTML = '<option value="">Select a category first</option>';
+                        return;
+                    }
 
                     isLoading = true;
                     try {
-                        const variants = await fetchVariantsFromSupabase(catId);
+                        const variants = await fetchVariants(catId);
                         allVariants = variants || [];
                         applyVariantFilter();
                     } catch (error) {
@@ -1838,11 +1765,11 @@
                 document.getElementById('shareBtn').addEventListener('click', function() {
                     const url = window.location.href;
                     const text =
-                        `AUTO-V Mileage Report\nVehicle: ${vehicleLabel.textContent}\nTotal Cost: KES ${totalTrip.textContent}`;
+                        `Auto-D Kenya Mileage Report\nVehicle: ${vehicleLabel.textContent}\nTotal Cost: KES ${totalTrip.textContent}`;
 
                     if (navigator.share) {
                         navigator.share({
-                            title: 'AUTO-V Mileage Report',
+                            title: 'Auto-D Kenya Mileage Report',
                             text: text,
                             url: url
                         }).catch(() => {});
@@ -1868,11 +1795,11 @@
                         ['Vehicle', variant.label || 'Unknown'],
                         ['Category', currentCategory()?.name || 'Unknown'],
                         ['Fuel Type', currentCategory()?.fuel_type || 'Unknown'],
-                        ['Distance', distanceInput.value],
-                        ['Total Cost', totalTrip.textContent],
-                        ['Fixed Cost / km', fixedPerKm.textContent],
-                        ['Operating Cost / km', operatingPerKm.textContent],
-                        ['Total Cost / km', totalPerKm.textContent]
+                        ['Distance (km)', distanceInput.value],
+                        ['Total Cost (KES)', totalTrip.textContent],
+                        ['Fixed Cost / km (KES)', fixedPerKm.textContent],
+                        ['Operating Cost / km (KES)', operatingPerKm.textContent],
+                        ['Total Cost / km (KES)', totalPerKm.textContent]
                     ];
 
                     const csv = rows.map(row => row.join(',')).join('\n');
@@ -1880,7 +1807,7 @@
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `auto-v-report-${Date.now()}.csv`;
+                    a.download = `auto-d-report-${Date.now()}.csv`;
                     a.click();
                     URL.revokeObjectURL(url);
                     showToast('CSV exported!', 'success');
@@ -1889,7 +1816,7 @@
                 // ============================================================
                 // INITIAL LOAD
                 // ============================================================
-                setStatus('● Connecting to Supabase...', true);
+                setApiStatus('● Connecting to API...', true);
                 document.getElementById('lastUpdated').textContent = new Date().toLocaleDateString('en-KE', {
                     year: 'numeric',
                     month: 'short',
@@ -1897,13 +1824,12 @@
                 });
 
                 try {
-                    if (!supabase) throw new Error('Supabase client not available');
+                    console.log('🔄 Loading initial data...');
 
                     // Load categories and routes in parallel
-                    console.log('🔄 Loading initial data...');
                     const [categoriesData, routesData] = await Promise.all([
-                        fetchCategoriesFromSupabase(),
-                        fetchRoutesFromSupabase()
+                        fetchCategories(),
+                        fetchRoutes()
                     ]);
 
                     categories = categoriesData || [];
@@ -1911,69 +1837,63 @@
 
                     console.log(`📊 Loaded ${categories.length} categories and ${routes.length} routes`);
 
-                    populateCategories();
-                    renderRouteChips();
-
-                    // Check FastAPI health
-                    // NOTE: /health is mounted at the app ROOT, not under /api/v1 —
-                    // this must NOT go through apiRequest() / CONFIG.FASTAPI.BASE_URL.
+                    // Check if FastAPI is healthy
                     try {
                         console.log('📡 Checking FastAPI health...');
-                        let healthOk = false;
+                        const healthCheck = await fetch(`${CONFIG.FASTAPI.ROOT_URL}/health`, {
+                            method: 'GET',
+                            headers: { 'Accept': 'application/json' }
+                        });
 
-                        if (window.autoV && window.autoV.checkHealth) {
-                            healthOk = await window.autoV.checkHealth();
-                        } else {
-                            const healthCheck = await fetch(`${CONFIG.FASTAPI.ROOT_URL}/health`, {
-                                method: 'GET',
-                                headers: { 'Accept': 'application/json' }
-                            });
-                            healthOk = healthCheck.ok;
-                        }
-                        
-                        if (healthOk) {
+                        if (healthCheck.ok) {
                             useFastAPI = true;
-                            setStatus('● Connected to Supabase + FastAPI', true);
-                            showToast('✅ Connected to Supabase & FastAPI', 'success');
+                            setApiStatus('● Connected to FastAPI', true);
+                            showToast('✅ Connected to FastAPI', 'success');
                             console.log('✅ FastAPI is healthy');
                         } else {
                             useFastAPI = false;
-                            setStatus('⚠️ FastAPI degraded, using client-side', false);
+                            setApiStatus('⚠️ FastAPI degraded, using client-side', false);
                             showToast('⚠️ Using client-side calculations', 'warning');
                             console.warn('⚠️ FastAPI health check failed');
                         }
                     } catch (error) {
                         useFastAPI = false;
-                        setStatus('⚠️ FastAPI unavailable, using client-side', false);
+                        setApiStatus('⚠️ FastAPI unavailable, using client-side', false);
                         showToast('⚠️ Using client-side calculations', 'warning');
                         console.warn('⚠️ FastAPI unavailable:', error.message);
                     }
+
+                    populateCategories();
+                    renderRouteChips();
+
+                    // Auto-select first category and load variants
+                    if (categories.length > 0) {
+                        categorySelect.value = categories[0].id;
+                        categorySelect.dispatchEvent(new Event('change'));
+                    }
+
+                    // Initial calculation with default values
+                    setTimeout(() => {
+                        computeAndRender();
+                    }, 500);
 
                     console.log('✅ Application initialized (Hybrid Mode)');
 
                 } catch (error) {
                     console.error('❌ Initialization error:', error);
-                    setStatus('⚠️ Supabase connection failed', false);
-                    showToast('Could not connect to Supabase. Using fallback data.', 'error');
+                    setApiStatus('⚠️ API connection failed', false);
+                    showToast('Using fallback data', 'error');
 
-                    // Fallback data with real UUIDs
-                    const fallbackCategories = [
-                        { id: '123e4567-e89b-12d3-a456-426614174001', name: 'Saloon Cars - Petrol', fuel_type: 'Petrol' },
-                        { id: '123e4567-e89b-12d3-a456-426614174002', name: 'Saloon Cars - Diesel', fuel_type: 'Diesel' },
-                        { id: '123e4567-e89b-12d3-a456-426614174003', name: 'SUVs & Crossovers', fuel_type: 'Diesel' },
-                        { id: '123e4567-e89b-12d3-a456-426614174004', name: 'Pickups & Vans', fuel_type: 'Diesel' }
-                    ];
-                    const fallbackRoutes = [
-                        { from_city: 'Nairobi', to_city: 'Mombasa', km: 485 },
-                        { from_city: 'Nairobi', to_city: 'Kisumu', km: 355 },
-                        { from_city: 'Nairobi', to_city: 'Nakuru', km: 160 },
-                        { from_city: 'Nairobi', to_city: 'Eldoret', km: 315 }
-                    ];
-                    
-                    categories = fallbackCategories;
-                    routes = fallbackRoutes;
+                    // Use fallback data
+                    categories = FALLBACK_DATA.categories;
+                    routes = FALLBACK_DATA.routes;
                     populateCategories();
                     renderRouteChips();
+
+                    if (categories.length > 0) {
+                        categorySelect.value = categories[0].id;
+                        categorySelect.dispatchEvent(new Event('change'));
+                    }
                 }
             }
 
