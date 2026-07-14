@@ -18,14 +18,30 @@ GET  /api/vehicles/database       - Get full vehicle database
 POST /api/service/mileage         - Calculate mileage cost (mileage.html)
 POST /api/service/valuation       - Calculate vehicle valuation (instant-value.html)
 POST /api/service/ownership       - Calculate ownership cost (ownership-cost.html)
+
+# ─── Admin Endpoints ─────────────────────────────────────────────
+POST /api/admin/login             - Admin login
+GET  /api/admin/stats             - Dashboard statistics
+GET  /api/admin/fuel              - Get fuel prices
+PUT  /api/admin/fuel              - Update fuel price
+GET  /api/admin/services          - Get service pricing
+PUT  /api/admin/services          - Update service price
+GET  /api/admin/settings          - Get engine settings
+PUT  /api/admin/settings          - Update engine setting
+POST /api/admin/settings/reset    - Reset all settings
+GET  /api/admin/logs              - Get activity logs
+POST /api/admin/logs              - Add activity log
+GET  /api/admin/validate          - Validate admin session
 """
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, session
 from flask_cors import CORS
 import os
 import logging
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import threading
 
 # ─── Import Services ──────────────────────────────────────────────
 from services.mileage_service import MileageService
@@ -69,6 +85,8 @@ logger = logging.getLogger("auto-d-backend")
 # ─── Flask App ────────────────────────────────────────────────────
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "development-secret")
+app.config["SESSION_TYPE"] = "filesystem"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=24)
 
 # ─── CORS Configuration ────────────────────────────────────────────
 ALLOWED_ORIGINS = os.getenv(
@@ -85,17 +103,52 @@ CORS(
 )
 
 # ─── Initialize Services ──────────────────────────────────────────
-# Each service handles its specific calculation logic
 mileage_service = MileageService()
 valuation_service = ValuationService()
 ownership_service = OwnershipService()
 
 logger.info("✅ Services initialized: Mileage, Valuation, Ownership")
 
-# ─── Temporary Storage for M-Pesa ──────────────────────────────────
+# ─── Temporary Storage ──────────────────────────────────────────
 transactions = {}
-import threading
 transactions_lock = threading.Lock()
+
+# ─── Admin Storage ──────────────────────────────────────────────
+ADMIN_CREDENTIALS = {
+    "username": os.getenv("ADMIN_USERNAME", "admin"),
+    "password": os.getenv("ADMIN_PASSWORD", "admin123")
+}
+
+# Fuel prices (in-memory, can be moved to database)
+FUEL_PRICES = {
+    "petrol": {"price": 182.00, "date": datetime.now().strftime("%Y-%m-%d")},
+    "diesel": {"price": 170.00, "date": datetime.now().strftime("%Y-%m-%d")},
+    "electric": {"price": 30.00, "date": datetime.now().strftime("%Y-%m-%d")},
+    "lpg": {"price": 120.00, "date": datetime.now().strftime("%Y-%m-%d")}
+}
+
+# Service pricing
+SERVICE_PRICES = {
+    "valuation": 150,
+    "ownership": 200,
+    "mileage": 100,
+    "full_report": 350
+}
+
+# Engine settings
+ENGINE_SETTINGS = {
+    "depreciation_rate": 0.15,
+    "insurance_rate": 0.045,
+    "annual_mileage": 20000,
+    "tyre_lifespan": 45000
+}
+
+# Activity logs
+activity_logs = []
+logs_lock = threading.Lock()
+
+# Admin sessions
+admin_sessions = {}
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -208,19 +261,7 @@ def get_vehicle_price_endpoint(make, model):
 
 @app.post("/api/service/mileage")
 def mileage():
-    """
-    Calculate mileage and running cost
-    Used by: mileage.html
-    Expected payload:
-    {
-        "distance_km": 100,
-        "fuel_type": "petrol",
-        "fuel_consumption": 8,
-        "maintenance_per_km": 2,
-        "insurance": 5000,
-        "tax": 2000
-    }
-    """
+    """Calculate mileage and running cost"""
     data = request.get_json() or {}
     result = mileage_service.calculate(data)
     
@@ -234,22 +275,9 @@ def mileage():
         "timestamp": datetime.utcnow().isoformat()
     })
 
-
 @app.post("/api/service/valuation")
 def valuation():
-    """
-    Calculate vehicle instant valuation
-    Used by: instant-value.html
-    Expected payload:
-    {
-        "purchase_price": 5000000,
-        "age_years": 3,
-        "depreciation_rate": 0.15,
-        "condition": "Good",
-        "mileage": 45000,
-        "location": "Nairobi"
-    }
-    """
+    """Calculate vehicle instant valuation"""
     data = request.get_json() or {}
     result = valuation_service.calculate(data)
     
@@ -263,35 +291,9 @@ def valuation():
         "timestamp": datetime.utcnow().isoformat()
     })
 
-
 @app.post("/api/service/ownership")
 def ownership():
-    """
-    Calculate total cost of vehicle ownership
-    Used by: ownership-cost.html
-    Expected payload (manual input):
-    {
-        "purchase_price": 5000000,
-        "years_owned": 5,
-        "fuel_cost": 360000,
-        "maintenance_cost": 120000,
-        "insurance_cost": 150000,
-        "taxes": 50000,
-        "resale_value": 2000000
-    }
-    OR (vehicle database):
-    {
-        "make": "toyota",
-        "model": "prado",
-        "years_owned": 5,
-        "annual_mileage": 20000,
-        "financed": true,
-        "down_pct": 30,
-        "interest_rate": 16,
-        "loan_term": 4,
-        "driving_locations": ["nairobi"]
-    }
-    """
+    """Calculate total cost of vehicle ownership"""
     data = request.get_json() or {}
     result = ownership_service.calculate(data)
     
@@ -307,6 +309,293 @@ def ownership():
 
 
 # ──────────────────────────────────────────────────────────────────
+# ADMIN AUTHENTICATION ENDPOINTS
+# ──────────────────────────────────────────────────────────────────
+
+def generate_admin_token():
+    """Generate a secure admin session token"""
+    return secrets.token_urlsafe(32)
+
+def validate_admin_token(token):
+    """Validate admin session token"""
+    if not token:
+        return False
+    session_data = admin_sessions.get(token)
+    if not session_data:
+        return False
+    # Check if session expired (24 hours)
+    if datetime.now() > session_data.get("expires_at", datetime.now()):
+        del admin_sessions[token]
+        return False
+    return True
+
+def admin_required(f):
+    """Decorator for admin-only endpoints"""
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not validate_admin_token(token):
+            return jsonify({"error": "Unauthorized", "success": False}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+@app.post("/api/admin/login")
+def admin_login():
+    """Admin login endpoint"""
+    data = request.get_json() or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    
+    if username == ADMIN_CREDENTIALS["username"] and password == ADMIN_CREDENTIALS["password"]:
+        token = generate_admin_token()
+        admin_sessions[token] = {
+            "username": username,
+            "created_at": datetime.now(),
+            "expires_at": datetime.now() + timedelta(hours=24)
+        }
+        add_admin_log(f"🔑 Admin logged in: {username}", username)
+        return jsonify({
+            "success": True,
+            "token": token,
+            "username": username,
+            "expires_in": 86400  # 24 hours in seconds
+        })
+    
+    return jsonify({"success": False, "error": "Invalid credentials"}), 401
+
+@app.get("/api/admin/validate")
+def admin_validate():
+    """Validate admin session"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if validate_admin_token(token):
+        session_data = admin_sessions.get(token, {})
+        return jsonify({
+            "success": True,
+            "valid": True,
+            "username": session_data.get("username", "admin")
+        })
+    return jsonify({"success": False, "valid": False}), 401
+
+
+# ──────────────────────────────────────────────────────────────────
+# ADMIN DASHBOARD ENDPOINTS
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/admin/stats")
+@admin_required
+def admin_stats():
+    """Get dashboard statistics"""
+    # In production, fetch from database
+    return jsonify({
+        "success": True,
+        "data": {
+            "valuations": 1247,
+            "revenue": 187450,
+            "users": 856,
+            "apiCalls": 342
+        }
+    })
+
+@app.get("/api/admin/fuel")
+@admin_required
+def admin_get_fuel():
+    """Get current fuel prices"""
+    return jsonify({
+        "success": True,
+        "data": FUEL_PRICES
+    })
+
+@app.put("/api/admin/fuel")
+@admin_required
+def admin_update_fuel():
+    """Update fuel price"""
+    data = request.get_json() or {}
+    fuel_type = data.get("fuel_type")
+    price = data.get("price")
+    
+    if not fuel_type or price is None:
+        return jsonify({"success": False, "error": "fuel_type and price are required"}), 400
+    
+    if fuel_type not in FUEL_PRICES:
+        return jsonify({"success": False, "error": f"Invalid fuel type: {fuel_type}"}), 400
+    
+    try:
+        price = float(price)
+        if price < 0:
+            raise ValueError
+    except ValueError:
+        return jsonify({"success": False, "error": "Price must be a positive number"}), 400
+    
+    FUEL_PRICES[fuel_type]["price"] = price
+    FUEL_PRICES[fuel_type]["date"] = datetime.now().strftime("%Y-%m-%d")
+    
+    add_admin_log(f"⛽ {fuel_type.capitalize()} price updated to KES {price:.2f}", 
+                  request.headers.get('X-Admin-User', 'admin'))
+    
+    return jsonify({
+        "success": True,
+        "data": FUEL_PRICES[fuel_type],
+        "message": f"{fuel_type.capitalize()} price updated successfully"
+    })
+
+@app.get("/api/admin/services")
+@admin_required
+def admin_get_services():
+    """Get service pricing"""
+    return jsonify({
+        "success": True,
+        "data": SERVICE_PRICES
+    })
+
+@app.put("/api/admin/services")
+@admin_required
+def admin_update_service():
+    """Update service price"""
+    data = request.get_json() or {}
+    service_type = data.get("service_type")
+    price = data.get("price")
+    
+    if not service_type or price is None:
+        return jsonify({"success": False, "error": "service_type and price are required"}), 400
+    
+    if service_type not in SERVICE_PRICES:
+        return jsonify({"success": False, "error": f"Invalid service type: {service_type}"}), 400
+    
+    try:
+        price = int(price)
+        if price < 0:
+            raise ValueError
+    except ValueError:
+        return jsonify({"success": False, "error": "Price must be a positive integer"}), 400
+    
+    SERVICE_PRICES[service_type] = price
+    
+    service_names = {
+        "valuation": "Instant Valuation",
+        "ownership": "Ownership Cost Report",
+        "mileage": "Mileage Report",
+        "full_report": "Full Vehicle Report"
+    }
+    
+    add_admin_log(f"💳 {service_names.get(service_type, service_type)} price updated to KES {price}", 
+                  request.headers.get('X-Admin-User', 'admin'))
+    
+    return jsonify({
+        "success": True,
+        "data": SERVICE_PRICES,
+        "message": f"Service price updated successfully"
+    })
+
+@app.get("/api/admin/settings")
+@admin_required
+def admin_get_settings():
+    """Get engine settings"""
+    return jsonify({
+        "success": True,
+        "data": ENGINE_SETTINGS
+    })
+
+@app.put("/api/admin/settings")
+@admin_required
+def admin_update_setting():
+    """Update engine setting"""
+    data = request.get_json() or {}
+    key = data.get("key")
+    value = data.get("value")
+    
+    if not key or value is None:
+        return jsonify({"success": False, "error": "key and value are required"}), 400
+    
+    if key not in ENGINE_SETTINGS:
+        return jsonify({"success": False, "error": f"Invalid setting key: {key}"}), 400
+    
+    try:
+        value = float(value)
+        if value < 0:
+            raise ValueError
+    except ValueError:
+        return jsonify({"success": False, "error": "Value must be a positive number"}), 400
+    
+    ENGINE_SETTINGS[key] = value
+    
+    setting_names = {
+        "depreciation_rate": "Depreciation Rate",
+        "insurance_rate": "Insurance Rate",
+        "annual_mileage": "Annual Mileage",
+        "tyre_lifespan": "Tyre Lifespan"
+    }
+    
+    add_admin_log(f"⚙️ {setting_names.get(key, key)} updated to {value}", 
+                  request.headers.get('X-Admin-User', 'admin'))
+    
+    return jsonify({
+        "success": True,
+        "data": ENGINE_SETTINGS,
+        "message": f"Setting updated successfully"
+    })
+
+@app.post("/api/admin/settings/reset")
+@admin_required
+def admin_reset_settings():
+    """Reset all settings to defaults"""
+    default_settings = {
+        "depreciation_rate": 0.15,
+        "insurance_rate": 0.045,
+        "annual_mileage": 20000,
+        "tyre_lifespan": 45000
+    }
+    ENGINE_SETTINGS.update(default_settings)
+    
+    add_admin_log("⚠️ All settings reset to default", 
+                  request.headers.get('X-Admin-User', 'admin'))
+    
+    return jsonify({
+        "success": True,
+        "data": ENGINE_SETTINGS,
+        "message": "All settings reset to default"
+    })
+
+@app.get("/api/admin/logs")
+@admin_required
+def admin_get_logs():
+    """Get activity logs"""
+    limit = request.args.get('limit', 50, type=int)
+    with logs_lock:
+        logs = activity_logs[:limit]
+    return jsonify({
+        "success": True,
+        "data": logs,
+        "count": len(logs)
+    })
+
+@app.post("/api/admin/logs")
+@admin_required
+def admin_add_log_endpoint():
+    """Add activity log (internal)"""
+    data = request.get_json() or {}
+    action = data.get("action", "Unknown action")
+    user = data.get("user", "system")
+    add_admin_log(action, user)
+    return jsonify({"success": True})
+
+def add_admin_log(action, user="system"):
+    """Helper to add admin log"""
+    with logs_lock:
+        log_entry = {
+            "action": action,
+            "user": user,
+            "time": datetime.now().strftime("%I:%M %p"),
+            "timestamp": datetime.now().isoformat()
+        }
+        activity_logs.insert(0, log_entry)
+        # Keep only last 100 logs
+        if len(activity_logs) > 100:
+            activity_logs.pop()
+
+
+# ──────────────────────────────────────────────────────────────────
 # HEALTH CHECK ENDPOINT
 # ──────────────────────────────────────────────────────────────────
 
@@ -316,7 +605,7 @@ def health():
     return jsonify({
         "status": "ok",
         "service": "auto-d-backend",
-        "version": "3.0",
+        "version": "3.1.0",
         "services": {
             "mileage": "active",
             "valuation": "active",
@@ -324,6 +613,7 @@ def health():
         },
         "vehicle_categories": get_categories(),
         "mpesa_available": MPESA_AVAILABLE,
+        "admin_enabled": True,
         "timestamp": datetime.utcnow().isoformat()
     })
 
@@ -340,7 +630,6 @@ def get_mpesa_client():
     except MpesaConfigError as e:
         logger.error(e)
         raise
-
 
 @app.post("/api/mpesa/stkpush")
 def stkpush():
@@ -393,7 +682,6 @@ def stkpush():
         "checkout_request_id": checkout_id
     })
 
-
 @app.post("/api/mpesa/callback")
 def mpesa_callback():
     """Handle M-Pesa payment callback"""
@@ -436,7 +724,6 @@ def mpesa_callback():
         "ResultDesc": "Accepted"
     })
 
-
 @app.get("/api/mpesa/status/<checkout_id>")
 def payment_status(checkout_id):
     """Check payment status"""
@@ -458,4 +745,5 @@ if __name__ == "__main__":
     logger.info(f"🚀 Starting Auto-D Backend on port {port}")
     logger.info(f"📡 Services: Mileage, Valuation, Ownership")
     logger.info(f"🔌 M-Pesa: {'Available' if MPESA_AVAILABLE else 'Unavailable'}")
+    logger.info(f"🔑 Admin: Enabled at /api/admin/login")
     app.run(host="0.0.0.0", port=port, debug=False)
