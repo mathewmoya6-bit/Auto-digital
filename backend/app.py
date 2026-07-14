@@ -1,21 +1,19 @@
 """
-app.py
-──────
-Flask backend for Auto-D Kenya's M-Pesa payment flow.
+Auto-D Kenya Flask Backend
 
-Endpoints
-    POST /api/mpesa/stkpush      -> trigger an STK push prompt on the customer's phone
-    POST /api/mpesa/callback     -> Safaricom posts the payment result here
-    GET  /api/mpesa/status/<id>  -> frontend polls this to check payment status
-    GET  /api/health             -> simple health check
+Endpoints:
 
-Run locally:
-    cp .env.example .env      # then fill in real values
-    pip install -r requirements.txt
-    python app.py
+POST /api/mpesa/stkpush
+    Start M-Pesa STK Push payment
 
-In production, put this behind gunicorn + a reverse proxy (nginx) over HTTPS,
-and make sure MPESA_CALLBACK_URL points at this server's public /api/mpesa/callback.
+POST /api/mpesa/callback
+    Receive Safaricom payment callback
+
+GET /api/mpesa/status/<checkout_id>
+    Check payment status
+
+GET /api/health
+    Health check
 """
 
 from __future__ import annotations
@@ -28,152 +26,333 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-load_dotenv()  # reads .env in local/dev; in prod set real env vars on the host instead
+from mpesa import (
+    MpesaAPIError,
+    MpesaClient,
+    MpesaConfigError
+)
 
-from mpesa import MpesaAPIError, MpesaClient, MpesaConfigError  # noqa: E402
 
+# Load local .env during development
+load_dotenv()
+
+
+# Logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("app")
+logger = logging.getLogger("auto-d-backend")
 
+
+# Flask app
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev-only-change-me")
-CORS(app)  # tighten origins in production, e.g. CORS(app, origins=["https://yourdomain.com"])
-
-# In-memory store for demo purposes only.
-# Swap this for a real database (Postgres/SQLite/etc.) before going to production —
-# an in-memory dict does not survive a restart and won't work across multiple workers.
-_transactions_lock = threading.Lock()
-transactions: dict[str, dict] = {}
 
 
-def get_mpesa_client() -> MpesaClient:
+app.config["SECRET_KEY"] = os.getenv(
+    "FLASK_SECRET_KEY",
+    "development-secret"
+)
+
+
+# Allow frontend access
+CORS(
+    app,
+    origins=[
+        "https://auto-d.meipressgroup.com"
+    ]
+)
+
+
+# Temporary payment storage
+# Replace with database later if you need payment history
+transactions = {}
+
+transactions_lock = threading.Lock()
+
+
+
+def get_client():
+
     try:
         return MpesaClient()
-    except MpesaConfigError as exc:
-        logger.error(str(exc))
+
+    except MpesaConfigError as e:
+        logger.error(e)
         raise
+
 
 
 @app.get("/api/health")
 def health():
-    return jsonify({"status": "ok"})
+
+    return jsonify({
+        "status": "ok",
+        "service": "auto-d-backend"
+    })
+
 
 
 @app.post("/api/mpesa/stkpush")
-def stk_push():
-    """
-    Body JSON:
-    {
-        "phone": "0712345678",
-        "amount": 100,
-        "account_reference": "AUTO-D-1234",
-        "description": "Vehicle valuation report"
-    }
-    """
-    body = request.get_json(silent=True) or {}
-    phone = body.get("phone")
-    amount = body.get("amount")
-    account_reference = body.get("account_reference", "Auto-D Kenya")
-    description = body.get("description", "Payment")
+def stkpush():
+
+    data = request.get_json() or {}
+
+
+    phone = data.get("phone")
+    amount = data.get("amount")
+
+    account_reference = data.get(
+        "account_reference",
+        "AUTO-D"
+    )
+
+    description = data.get(
+        "description",
+        "Vehicle valuation"
+    )
+
 
     if not phone or not amount:
-        return jsonify({"error": "phone and amount are required"}), 400
+
+        return jsonify({
+            "error":
+            "phone and amount are required"
+        }), 400
+
+
 
     try:
-        amount = int(round(float(amount)))
+
+        amount = int(float(amount))
+
         if amount <= 0:
             raise ValueError
-    except (TypeError, ValueError):
-        return jsonify({"error": "amount must be a positive number"}), 400
+
+
+    except ValueError:
+
+        return jsonify({
+            "error":
+            "Invalid amount"
+        }), 400
+
+
 
     try:
-        client = get_mpesa_client()
+
+        client = get_client()
+
+
         result = client.stk_push(
+
             phone_number=phone,
+
             amount=amount,
-            account_reference=account_reference,
-            transaction_desc=description,
+
+            account_reference=
+            account_reference,
+
+            transaction_desc=
+            description
         )
-    except MpesaConfigError as exc:
-        return jsonify({"error": str(exc)}), 500
-    except MpesaAPIError as exc:
-        return jsonify({"error": str(exc)}), 502
 
-    checkout_id = result.get("CheckoutRequestID")
-    with _transactions_lock:
-        transactions[checkout_id] = {
-            "status": "pending",
-            "phone": client.normalize_phone(phone),
-            "amount": amount,
-            "account_reference": account_reference,
-            "raw_request": result,
-        }
 
-    return jsonify(
-        {
-            "message": "STK push sent. Ask the customer to check their phone and enter their M-Pesa PIN.",
-            "checkout_request_id": checkout_id,
-            "merchant_request_id": result.get("MerchantRequestID"),
-        }
+    except MpesaConfigError as e:
+
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+
+    except MpesaAPIError as e:
+
+        return jsonify({
+            "error": str(e)
+        }), 502
+
+
+
+    checkout_id = result.get(
+        "CheckoutRequestID"
     )
+
+
+    with transactions_lock:
+
+        transactions[checkout_id] = {
+
+            "status":
+            "pending",
+
+            "phone":
+            client.normalize_phone(phone),
+
+            "amount":
+            amount
+
+        }
+
+
+
+    return jsonify({
+
+        "message":
+        "STK Push sent",
+
+        "checkout_request_id":
+        checkout_id
+
+    })
+
+
 
 
 @app.post("/api/mpesa/callback")
 def mpesa_callback():
-    """Safaricom POSTs the final payment result here. Must be a public HTTPS URL."""
-    payload = request.get_json(silent=True) or {}
-    logger.info("M-Pesa callback received: %s", payload)
 
-    stk_callback = (payload.get("Body") or {}).get("stkCallback") or {}
-    checkout_id = stk_callback.get("CheckoutRequestID")
-    result_code = stk_callback.get("ResultCode")
-    result_desc = stk_callback.get("ResultDesc")
+    payload = request.get_json() or {}
 
-    receipt_number = None
-    paid_amount = None
+
+    logger.info(
+        "M-Pesa callback: %s",
+        payload
+    )
+
+
+    callback = (
+        payload
+        .get("Body", {})
+        .get("stkCallback", {})
+    )
+
+
+    checkout_id = callback.get(
+        "CheckoutRequestID"
+    )
+
+
+    result_code = callback.get(
+        "ResultCode"
+    )
+
+
+    result_desc = callback.get(
+        "ResultDesc"
+    )
+
+
+    receipt = None
+    amount = None
+
+
+
     if result_code == 0:
-        items = (stk_callback.get("CallbackMetadata") or {}).get("Item", [])
-        meta = {item.get("Name"): item.get("Value") for item in items}
-        receipt_number = meta.get("MpesaReceiptNumber")
-        paid_amount = meta.get("Amount")
 
-    with _transactions_lock:
-        if checkout_id in transactions:
-            transactions[checkout_id].update(
-                {
-                    "status": "success" if result_code == 0 else "failed",
-                    "result_code": result_code,
-                    "result_desc": result_desc,
-                    "receipt_number": receipt_number,
-                    "paid_amount": paid_amount,
-                }
-            )
-        else:
-            transactions[checkout_id] = {
-                "status": "success" if result_code == 0 else "failed",
-                "result_code": result_code,
-                "result_desc": result_desc,
-                "receipt_number": receipt_number,
-                "paid_amount": paid_amount,
-            }
-
-    # Always acknowledge receipt so Safaricom doesn't retry the callback.
-    return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"})
+        items = (
+            callback
+            .get("CallbackMetadata", {})
+            .get("Item", [])
+        )
 
 
-@app.get("/api/mpesa/status/<checkout_request_id>")
-def mpesa_status(checkout_request_id: str):
-    """Frontend polls this after triggering an STK push to see if payment completed."""
-    with _transactions_lock:
-        record = transactions.get(checkout_request_id)
+        metadata = {
 
-    if not record:
-        return jsonify({"status": "unknown"}), 404
+            item.get("Name"):
+            item.get("Value")
 
-    return jsonify(record)
+            for item in items
+
+        }
+
+
+        receipt = metadata.get(
+            "MpesaReceiptNumber"
+        )
+
+
+        amount = metadata.get(
+            "Amount"
+        )
+
+
+
+    with transactions_lock:
+
+        transactions[checkout_id] = {
+
+            "status":
+            "success"
+            if result_code == 0
+            else "failed",
+
+            "result_code":
+            result_code,
+
+            "description":
+            result_desc,
+
+            "receipt":
+            receipt,
+
+            "amount":
+            amount
+
+        }
+
+
+
+    return jsonify({
+
+        "ResultCode": 0,
+
+        "ResultDesc":
+        "Accepted"
+
+    })
+
+
+
+
+@app.get("/api/mpesa/status/<checkout_id>")
+def payment_status(checkout_id):
+
+    with transactions_lock:
+
+        payment = transactions.get(
+            checkout_id
+        )
+
+
+    if not payment:
+
+        return jsonify({
+
+            "status":
+            "unknown"
+
+        }), 404
+
+
+
+    return jsonify(payment)
+
+
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))
-    # debug=False in anything resembling production
-    app.run(host="0.0.0.0", port=port, debug=os.getenv("MPESA_ENV") != "production")
+
+    port = int(
+        os.getenv(
+            "PORT",
+            5000
+        )
+    )
+
+
+    app.run(
+
+        host="0.0.0.0",
+
+        port=port,
+
+        debug=False
+
+    )
