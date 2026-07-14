@@ -515,6 +515,39 @@
             to { opacity: 1; transform: translateX(0); }
         }
         
+        /* ─── Action Buttons ────────────────────────────────────── */
+        .action-bar {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .action-btn {
+            padding: 10px 24px;
+            border: 1px solid var(--border, #334155);
+            border-radius: 8px;
+            background: transparent;
+            color: #94a3b8;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .action-btn:hover {
+            border-color: #eab308;
+            color: #eab308;
+            background: rgba(234, 179, 8, 0.05);
+        }
+        .action-btn.print { border-color: #3b82f6; color: #3b82f6; }
+        .action-btn.print:hover { background: rgba(59, 130, 246, 0.08); }
+        .action-btn.share { border-color: #22c55e; color: #22c55e; }
+        .action-btn.share:hover { background: rgba(34, 197, 94, 0.08); }
+        
         @media (max-width: 768px) {
             .container { padding: 24px 18px; }
             .form-grid { grid-template-columns: 1fr; }
@@ -532,13 +565,15 @@
             .result-value { font-size: 26px; }
             .btn { font-size: 14px; padding: 14px; }
             .image-upload-grid { grid-template-columns: repeat(2, 1fr); }
+            .action-bar { flex-direction: column; }
+            .action-btn { justify-content: center; }
         }
     </style>
 </head>
 <body>
 
     <div class="container">
-        <a href="dashboard.html" class="back-link">← Back to Dashboard</a>
+        <a href="index.html" class="back-link">← Back to Auto-D</a>
 
         <div class="header">
             <h1>🚗 Instant Value Check</h1>
@@ -852,9 +887,11 @@
                 <span style="color:#64748b; font-size:12px; margin-left:12px;">🔒 Secure</span>
             </div>
 
-            <button class="btn btn-secondary" onclick="window.location.href='dashboard.html'">
-                ← Back to Dashboard
-            </button>
+            <!-- ─── ACTION BUTTONS ──────────────────────────────────── -->
+            <div class="action-bar">
+                <button class="action-btn print" id="printBtn">🖨️ Print</button>
+                <button class="action-btn share" id="shareBtn">📤 Share</button>
+            </div>
 
             <div class="result-footer">
                 Powered by <strong>Auto-D Intelligence Engine</strong>
@@ -865,7 +902,6 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - INSTANT VALUE CHECK
-        // Aligned with Flask Backend Endpoints
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -875,13 +911,10 @@
             window.autoDInstantCheckInitialized = true;
 
             // ─── API CONFIGURATION ──────────────────────────────────
-            // This matches your Flask backend endpoints
             const API_BASE = 'https://auto-digital.onrender.com';
             const API_ENDPOINTS = {
                 VALUATION: '/api/service/valuation',
-                HEALTH: '/api/health',
-                VEHICLES_MAKES: '/api/vehicles/makes',
-                VEHICLES_MODELS: '/api/vehicles/models/'
+                HEALTH: '/api/health'
             };
 
             // ─── COMPREHENSIVE VEHICLE DATA ────────────────────────
@@ -896,12 +929,11 @@
                                 '6 Series', '8 Series', 'i3', 'i4', 'iX', 'i7'],
                         'Mercedes-Benz': ['C-Class', 'E-Class', 'S-Class', 'A-Class', 'B-Class', 'CLA', 'CLS', 'GLA',
                                           'GLB', 'GLC', 'GLE', 'GLS', 'G-Class', 'EQB', 'EQC', 'EQE', 'EQS'],
-                        'Honda': ['Accord', 'Civic', 'City', 'Fit', 'CR-V', 'HR-V', 'Pilot', 'Passport', 'Odyssey',
-                                  'Ridgeline', 'Insight', 'Clarity'],
+                        'Honda': ['Accord', 'Civic', 'City', 'Fit', 'CR-V', 'HR-V', 'Pilot', 'Passport', 'Odyssey'],
                         'Mazda': ['Mazda3', 'Mazda6', 'CX-3', 'CX-5', 'CX-9', 'CX-30', 'CX-50', 'MX-5 Miata', 'MX-30'],
                         'Volkswagen': ['Golf', 'Jetta', 'Passat', 'Arteon', 'Tiguan', 'Atlas', 'Taos', 'ID.4', 'ID. Buzz'],
                         'Mitsubishi': ['Lancer', 'Outlander', 'Pajero', 'ASX', 'Eclipse Cross', 'Triton', 'Delica', 'Mirage'],
-                        'Subaru': ['Impreza', 'Legacy', 'Outback', 'Forester', 'Crosstrek', 'Ascent', 'BRZ', 'WRX', 'Solterra'],
+                        'Subaru': ['Impreza', 'Legacy', 'Outback', 'Forester', 'Crosstrek', 'Ascent', 'BRZ', 'WRX'],
                         'Ford': ['Focus', 'Fiesta', 'Mustang', 'Explorer', 'Escape', 'Bronco', 'F-150', 'Ranger', 'Edge'],
                         'Hyundai': ['Elantra', 'Sonata', 'Accent', 'Tucson', 'Santa Fe', 'Palisade', 'Kona', 'Ioniq'],
                         'Audi': ['A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'Q3', 'Q5', 'Q7', 'Q8', 'e-tron'],
@@ -1021,7 +1053,6 @@
             }
 
             // ─── STATE ──────────────────────────────────────────────────
-            let currentUser = null;
             let currentVehicleType = 'Car';
             let isBackendAvailable = true;
 
@@ -1264,7 +1295,6 @@
             }
 
             // ─── CALL BACKEND API ──────────────────────────────────
-            // This matches your Flask backend's calculate_vehicle_value function
             async function callValuationAPI(formData) {
                 const payload = {
                     purchase_price: formData.purchase_price || 3000000,
@@ -1308,7 +1338,6 @@
 
             // ─── SHOW RESULT ──────────────────────────────────────────
             function showResult(data) {
-                // Matches backend response format
                 const resultData = data.data || data;
                 const marketValue = resultData.current_value || resultData.estimated_value || 0;
                 const rangeMin = Math.round(marketValue * 0.88);
@@ -1460,11 +1489,41 @@
                 });
             });
 
+            // ─── PRINT BUTTON ──────────────────────────────────────
+            document.getElementById('printBtn').addEventListener('click', function() {
+                window.print();
+            });
+
+            // ─── SHARE BUTTON ──────────────────────────────────────
+            document.getElementById('shareBtn').addEventListener('click', function() {
+                const url = window.location.href;
+                const text = `🚗 Auto-D Kenya Vehicle Valuation\n` +
+                            `Vehicle: ${makeSelect.value} ${modelSelect.value}\n` +
+                            `Year: ${document.getElementById('year').value}\n` +
+                            `Estimated Value: ${document.getElementById('resultMarketValue').textContent}\n` +
+                            `Range: ${document.getElementById('resultRange').textContent}\n` +
+                            `Confidence: ${document.getElementById('confidenceLabel').textContent}\n\n` +
+                            `Generated by Auto-D Kenya`;
+
+                if (navigator.share) {
+                    navigator.share({
+                        title: 'Auto-D Kenya Vehicle Valuation',
+                        text: text,
+                        url: url
+                    }).catch(() => {});
+                } else {
+                    navigator.clipboard.writeText(`${text}\n${url}`).then(() => {
+                        showToast('📋 Report copied to clipboard!', 'success');
+                    }).catch(() => {
+                        showToast('Share not available', 'error');
+                    });
+                }
+            });
+
             // ─── FORM SUBMISSION ──────────────────────────────────────
             form.addEventListener('submit', async function(e) {
                 e.preventDefault();
 
-                // Check backend health first
                 const backendHealthy = await checkBackendHealth();
                 if (!backendHealthy) {
                     statusBox.className = 'status-box status-error';
@@ -1484,7 +1543,6 @@
                 const mileage = parseInt(document.getElementById('mileage').value);
                 const condition = document.getElementById('condition').value;
 
-                // Estimate purchase price
                 let estimatedPrice = 3000000;
                 const vehicleType = vehicleTypeSelect.value;
                 const make = makeSelect.value;
@@ -1521,7 +1579,6 @@
                     previous_owners: parseInt(document.getElementById('previousOwners').value),
                     usage_type: document.getElementById('usageType').value,
                     phone: document.getElementById('mpesaPhone').value.trim(),
-                    // Matches backend calculate_vehicle_value parameters
                     purchase_price: Math.round(estimatedPrice),
                     age_years: ageYears,
                     depreciation_rate: getDepreciationRate(condition, mileage)
@@ -1575,7 +1632,6 @@
 
             // ─── INIT ──────────────────────────────────────────────────
             async function init() {
-                // Check backend health
                 await checkBackendHealth();
 
                 currentVehicleType = vehicleTypeSelect.value;
