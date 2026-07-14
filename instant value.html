@@ -3,13 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>AUTO-V | Instant Value Check</title>
+    <title>Auto-D Kenya | Instant Value Check</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E">
     
-    <!-- ─── Supabase JS for Auth ────────────────────────────────── -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    
-    <!-- ─── FastAPI Client ────────────────────────────────────────── -->
     <script src="/auto-v-api.js"></script>
     
     <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js">
@@ -199,6 +196,95 @@
         .vehicle-preview .icon { font-size: 36px; }
         .vehicle-preview .info h4 { color: #eab308; font-size: 16px; font-weight: 600; }
         .vehicle-preview .info p { color: #94a3b8; font-size: 13px; }
+
+        /* ─── IMAGE UPLOAD SECTION ────────────────────────────── */
+        .image-upload-section {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 16px 0;
+            border: 1px solid #334155;
+        }
+        .image-upload-section h4 {
+            color: #eab308;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .image-upload-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+        .image-upload-item {
+            background: #0f172a;
+            border: 1px dashed #334155;
+            border-radius: 8px;
+            padding: 12px 8px;
+            text-align: center;
+            transition: all 0.2s;
+            cursor: pointer;
+            position: relative;
+        }
+        .image-upload-item:hover {
+            border-color: #eab308;
+            background: #1a2538;
+        }
+        .image-upload-item.has-image {
+            border-color: #22c55e;
+            border-style: solid;
+        }
+        .image-upload-item .icon {
+            font-size: 24px;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .image-upload-item .label {
+            font-size: 10px;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+        .image-upload-item input[type="file"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .image-upload-item .badge {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            background: #22c55e;
+            color: #000;
+            font-size: 10px;
+            font-weight: 700;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        .image-upload-item.has-image .badge {
+            display: flex;
+        }
+        .image-upload-item .filename {
+            font-size: 8px;
+            color: #64748b;
+            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 80px;
+            display: inline-block;
+        }
+
         .btn {
             width: 100%;
             padding: 16px;
@@ -440,8 +526,6 @@
             animation: spin 0.6s linear infinite;
             vertical-align: middle;
         }
-        
-        /* ─── Toast ─── */
         .toast {
             position: fixed;
             bottom: 20px;
@@ -473,12 +557,18 @@
             h1 { font-size: 22px; }
             .header { flex-direction: column; align-items: flex-start; }
             .vehicle-preview { flex-direction: column; text-align: center; }
+            .image-upload-grid { grid-template-columns: repeat(3, 1fr); }
         }
         @media (max-width: 480px) {
             body { padding: 10px; }
             .container { padding: 16px 12px; border-radius: 14px; }
             .result-value { font-size: 26px; }
             .btn { font-size: 14px; padding: 14px; }
+            .image-upload-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 380px) {
+            .image-upload-grid { grid-template-columns: 1fr 1fr; }
+            .image-upload-item .label { font-size: 8px; }
         }
     </style>
 </head>
@@ -700,6 +790,52 @@
                 </div>
             </div>
 
+            <!-- ─── IMAGE UPLOAD SECTION ──────────────────────────── -->
+            <div class="image-upload-section">
+                <h4>📸 Vehicle Photos <span style="font-size:11px;color:#64748b;font-weight:400;">(optional)</span></h4>
+                <div class="image-upload-grid">
+                    <div class="image-upload-item" id="uploadEngine">
+                        <span class="icon">🔧</span>
+                        <span class="label">Engine</span>
+                        <input type="file" accept="image/*" data-type="engine">
+                        <span class="badge">✓</span>
+                    </div>
+                    <div class="image-upload-item" id="uploadDashboard">
+                        <span class="icon">📊</span>
+                        <span class="label">Dashboard</span>
+                        <input type="file" accept="image/*" data-type="dashboard">
+                        <span class="badge">✓</span>
+                    </div>
+                    <div class="image-upload-item" id="uploadInterior">
+                        <span class="icon">🪑</span>
+                        <span class="label">Interior</span>
+                        <input type="file" accept="image/*" data-type="interior">
+                        <span class="badge">✓</span>
+                    </div>
+                    <div class="image-upload-item" id="uploadExterior">
+                        <span class="icon">🚗</span>
+                        <span class="label">Exterior</span>
+                        <input type="file" accept="image/*" data-type="exterior">
+                        <span class="badge">✓</span>
+                    </div>
+                    <div class="image-upload-item" id="uploadFullCar">
+                        <span class="icon">📐</span>
+                        <span class="label">Full Car</span>
+                        <input type="file" accept="image/*" data-type="fullcar">
+                        <span class="badge">✓</span>
+                    </div>
+                    <div class="image-upload-item" id="uploadFrontBack">
+                        <span class="icon">↔️</span>
+                        <span class="label">Front & Back</span>
+                        <input type="file" accept="image/*" data-type="frontback">
+                        <span class="badge">✓</span>
+                    </div>
+                </div>
+                <small style="color:#64748b;font-size:10px;display:block;margin-top:8px;">
+                    Upload clear photos to help the AI provide a more accurate valuation
+                </small>
+            </div>
+
             <div class="form-group">
                 <label>M-Pesa Phone Number <span class="required">*</span></label>
                 <input type="tel" id="mpesaPhone" placeholder="0712345678" required>
@@ -798,59 +934,191 @@
             </button>
 
             <div class="result-footer">
-                Powered by <strong>AUTO-V Intelligence Engine</strong>
+                Powered by <strong>Auto-D Intelligence Engine</strong>
             </div>
         </div>
     </div>
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // AUTO-V INSTANT VALUE CHECK — CLEAN VERSION
-        // Only calls /instant-value/calculate endpoint
+        // Auto-D Kenya - INSTANT VALUE CHECK
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
 
-            if (window.autoVInstantCheckInitialized) return;
-            window.autoVInstantCheckInitialized = true;
+            if (window.autoDInstantCheckInitialized) return;
+            window.autoDInstantCheckInitialized = true;
 
-            // ─── STATIC REFERENCE DATA ──────────────────────────────
-            const MAKES_BY_TYPE = {
-                'Car': ['Toyota', 'Nissan', 'BMW', 'Mercedes', 'Honda', 'Mazda', 'Volkswagen',
-                        'Mitsubishi', 'Subaru', 'Ford', 'Chevrolet', 'Jeep', 'Land Rover',
-                        'Hyundai', 'Kia', 'Peugeot', 'Suzuki', 'Isuzu', 'Daihatsu', 'Other'],
-                'Bike': ['Honda', 'Yamaha', 'Suzuki', 'Kawasaki', 'TVS', 'Bajaj', 'Hero MotoCorp',
-                         'Royal Enfield', 'KTM', 'Aprilia', 'BMW Motorrad', 'Ducati', 'Triumph',
-                         'Harley-Davidson', 'MV Agusta', 'Other'],
-                'Tricycle': ['Piaggio', 'TVS', 'Bajaj', 'Other']
+            // ─── COMPREHENSIVE VEHICLE DATA (NO SUPABASE) ──────────
+            const VEHICLE_DATA = {
+                Car: {
+                    makes: {
+                        'Toyota': ['Camry', 'Corolla', 'Avalon', 'Prius', 'Yaris', 'RAV4', 'Highlander', '4Runner', 
+                                   'Land Cruiser', 'Prado', 'Hilux', 'Tacoma', 'Tundra', 'Sequoia', 'Sienna',
+                                   'Supra', 'GR86', 'C-HR', 'Corolla Cross', 'Venza', 'Mirai', 'bZ4X'],
+                        'Nissan': ['Altima', 'Maxima', 'Sentra', 'Versa', 'Rogue', 'Murano', 'Pathfinder', 'Armada',
+                                   'Frontier', 'Titan', 'Kicks', 'Leaf', 'Ariya', 'Z', 'GT-R', 'Rogue Sport'],
+                        'BMW': ['3 Series', '5 Series', '7 Series', 'X1', 'X3', 'X5', 'X7', '2 Series', '4 Series',
+                                '6 Series', '8 Series', 'i3', 'i4', 'iX', 'i7', 'M3', 'M4', 'M5', 'X3 M', 'X5 M'],
+                        'Mercedes-Benz': ['C-Class', 'E-Class', 'S-Class', 'A-Class', 'B-Class', 'CLA', 'CLS', 'GLA',
+                                          'GLB', 'GLC', 'GLE', 'GLS', 'G-Class', 'EQB', 'EQC', 'EQE', 'EQS', 'AMG GT'],
+                        'Honda': ['Accord', 'Civic', 'City', 'Fit', 'CR-V', 'HR-V', 'Pilot', 'Passport', 'Odyssey',
+                                  'Ridgeline', 'Insight', 'Clarity', 'e:Ny1', 'Prologue'],
+                        'Mazda': ['Mazda3', 'Mazda6', 'CX-3', 'CX-5', 'CX-9', 'CX-30', 'CX-50', 'MX-5 Miata', 'MX-30'],
+                        'Volkswagen': ['Golf', 'Jetta', 'Passat', 'Arteon', 'Tiguan', 'Atlas', 'Taos', 'ID.4', 'ID. Buzz'],
+                        'Mitsubishi': ['Lancer', 'Outlander', 'Pajero', 'ASX', 'Eclipse Cross', 'Triton', 'Delica', 'Mirage'],
+                        'Subaru': ['Impreza', 'Legacy', 'Outback', 'Forester', 'Crosstrek', 'Ascent', 'BRZ', 'WRX', 'Solterra'],
+                        'Ford': ['Focus', 'Fiesta', 'Mustang', 'Explorer', 'Escape', 'Bronco', 'F-150', 'Ranger', 'Edge', 'Expedition', 'Maverick', 'Lightning'],
+                        'Chevrolet': ['Cruze', 'Malibu', 'Impala', 'Equinox', 'Traverse', 'Tahoe', 'Suburban', 'Silverado', 'Colorado', 'Camaro', 'Corvette', 'Blazer'],
+                        'Jeep': ['Wrangler', 'Cherokee', 'Grand Cherokee', 'Compass', 'Renegade', 'Gladiator', 'Wagoneer'],
+                        'Land Rover': ['Defender', 'Discovery', 'Range Rover', 'Range Rover Sport', 'Range Rover Evoque', 'Range Rover Velar'],
+                        'Hyundai': ['Elantra', 'Sonata', 'Accent', 'Tucson', 'Santa Fe', 'Palisade', 'Kona', 'Ioniq', 'Ioniq 5', 'Ioniq 6'],
+                        'Kia': ['Forte', 'K5', 'K900', 'Sportage', 'Sorento', 'Telluride', 'Soul', 'Niro', 'EV6', 'EV9'],
+                        'Peugeot': ['208', '308', '508', '2008', '3008', '5008', 'Rifter', 'Traveller', 'e-208', 'e-2008'],
+                        'Suzuki': ['Swift', 'Baleno', 'Celerio', 'Vitara', 'Grand Vitara', 'Jimny', 'Ignis', 'S-Cross', 'Across'],
+                        'Isuzu': ['D-Max', 'MU-X', 'F-Series', 'N-Series', 'Giga'],
+                        'Daihatsu': ['Sirion', 'Terios', 'Xenia', 'Ayla', 'Rocky'],
+                        'Audi': ['A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'Q3', 'Q5', 'Q7', 'Q8', 'e-tron', 'e-tron GT', 'RS3', 'RS5', 'RS6', 'RS7', 'R8'],
+                        'Lexus': ['IS', 'ES', 'LS', 'UX', 'NX', 'RX', 'GX', 'LX', 'RC', 'LC', 'RZ'],
+                        'Volvo': ['S60', 'S90', 'V60', 'V90', 'XC40', 'XC60', 'XC90', 'C40', 'EX30', 'EX90'],
+                        'Porsche': ['911', 'Taycan', 'Panamera', 'Cayenne', 'Macan', '718 Boxster', '718 Cayman'],
+                        'Jaguar': ['XE', 'XF', 'XJ', 'F-Pace', 'E-Pace', 'I-Pace', 'F-Type'],
+                        'Bentley': ['Continental GT', 'Flying Spur', 'Bentayga', 'Mulsanne'],
+                        'Rolls-Royce': ['Phantom', 'Ghost', 'Wraith', 'Dawn', 'Cullinan', 'Spectre'],
+                        'Ferrari': ['Roma', 'Portofino', 'Purosangue', 'SF90', '296 GTB', '812 Superfast', 'F8 Tributo'],
+                        'Lamborghini': ['Huracán', 'Revuelto', 'Urus', 'Aventador'],
+                        'Maserati': ['Ghibli', 'Quattroporte', 'Levante', 'MC20', 'Grecale'],
+                        'Other': ['Other Model']
+                    },
+                    engine_capacities: ['800', '1000', '1200', '1400', '1500', '1600', '1800', '2000', '2200', '2400', 
+                                       '2500', '2800', '3000', '3200', '3500', '4000', '4500', '5000', '5500', '6000'],
+                    body_types: ['Sedan', 'SUV', 'Hatchback', 'Pickup', 'Van', 'Coupe', 'Convertible', 'Wagon', 'Other']
+                },
+                Bike: {
+                    makes: {
+                        'Honda': ['CBR1000RR', 'CBR600RR', 'CBR500R', 'CB650R', 'CB1000R', 'Africa Twin', 'CRF450', 
+                                  'Rebel 500', 'Rebel 1100', 'Gold Wing', 'NC750X', 'X-ADV', 'Forza 350', 'ADV350'],
+                        'Yamaha': ['YZF-R1', 'YZF-R6', 'YZF-R7', 'MT-10', 'MT-09', 'MT-07', 'Tracer 9', 'Ténéré 700',
+                                   'XSR900', 'XSR700', 'Bolt', 'VMAX', 'Niken', 'TMAX'],
+                        'Suzuki': ['GSX-R1000', 'GSX-R750', 'GSX-R600', 'GSX-S1000', 'V-Strom 1050', 'V-Strom 650',
+                                   'Burgman 400', 'Burgman 650', 'Katana', 'Hayabusa', 'GSX-8S'],
+                        'Kawasaki': ['Ninja ZX-10R', 'Ninja ZX-6R', 'Ninja 400', 'Ninja 650', 'Z1000', 'Z900', 'Z650',
+                                     'Vulcan 650', 'Versys 1000', 'Versys 650', 'KLR650', 'H2', 'H2 SX', 'Eliminator'],
+                        'TVS': ['Apache RTR 200', 'Apache RTR 160', 'Apache RR 310', 'XL100', 'Star City', 'Ntorq 125', 
+                                'Scooty Pep', 'Jupiter', 'iQube Electric', 'Ronin 225'],
+                        'Bajaj': ['Pulsar NS200', 'Pulsar RS200', 'Pulsar N250', 'Pulsar F250', 'Dominar 400', 'Avenger 220',
+                                  'CT100', 'Platina', 'Boxer 150', 'Chetak Electric'],
+                        'Hero MotoCorp': ['Splendor', 'Passion', 'Glamour', 'XPulse 200', 'XPulse 200T', 'Xoom 125', 
+                                          'Maestro Edge', 'Pleasure', 'HF Deluxe', 'Super Splendor'],
+                        'Royal Enfield': ['Classic 350', 'Bullet 350', 'Meteor 350', 'Hunter 350', 'Scram 411', 
+                                          'Interceptor 650', 'Continental GT 650', 'Himalayan 411', 'Shotgun 650'],
+                        'KTM': ['1290 Super Duke', '890 Duke', '790 Duke', '390 Duke', '250 Duke', '125 Duke', 
+                                '1290 Super Adventure', '890 Adventure', '390 Adventure', '250 Adventure', 'RC 390'],
+                        'Aprilia': ['RSV4', 'Tuono V4', 'RS660', 'Tuono 660', 'RS125', 'Tuono 125', 'Shiver 900', 
+                                    'Dorsoduro 900', 'SR GT 200', 'SXR 160'],
+                        'BMW Motorrad': ['S1000RR', 'S1000R', 'M1000R', 'R1250GS', 'R1250RT', 'F900GS', 'F900R',
+                                         'F750GS', 'CE 04', 'R18', 'K1600GT', 'K1600GTL'],
+                        'Ducati': ['Panigale V4', 'Panigale V2', 'Streetfighter V4', 'Monster', 'Multistrada V4',
+                                   'Diavel V4', 'Scrambler 1100', 'Scrambler 800', 'DesertX'],
+                        'Triumph': ['Speed Triple 1200', 'Street Triple', 'Tiger 1200', 'Tiger 900', 'Bonneville T120',
+                                    'Bonneville T100', 'Scrambler 1200', 'Rocket 3', 'Thruxton RS', 'Trident 660'],
+                        'Harley-Davidson': ['Street Glide', 'Road Glide', 'Ultra Limited', 'Electra Glide', 'Fat Boy',
+                                            'Street Bob', 'Low Rider S', 'Sportster S', 'Pan America 1250', 'Nightster'],
+                        'MV Agusta': ['Brutale 1000', 'Brutale 800', 'Dragster 800', 'Turismo Veloce', 'Superveloce', 
+                                      'F3 800', 'F4', 'Lucky Explorer 9.5'],
+                        'Other': ['Other Model']
+                    },
+                    engine_capacities: ['50', '80', '100', '125', '150', '200', '250', '300', '350', '400', '450',
+                                       '500', '600', '650', '700', '750', '800', '900', '1000', '1100', '1200', '1300',
+                                       '1500', '1600', '1800', '2000', '2500'],
+                    body_types: ['Standard', 'Sport', 'Cruiser', 'Touring', 'Adventure', 'Scooter', 'Off-Road', 'Other']
+                },
+                Tricycle: {
+                    makes: {
+                        'Piaggio': ['Ape 50', 'Ape 70', 'Ape 100', 'Ape 150', 'Ape Calessino', 'Ape City', 'Ape TM'],
+                        'TVS': ['King', 'King Deluxe', 'King 150', 'King 200', 'King Cargo', 'King Passenger'],
+                        'Bajaj': ['RE 60', 'RE 75', 'RE 100', 'RE 125', 'RE Cargo', 'RE Passenger', 'RE Auto', 'Qute'],
+                        'Other': ['Other Model']
+                    },
+                    engine_capacities: ['50', '100', '125', '150', '200', '250', '300', '350', '400', '500'],
+                    body_types: ['Passenger', 'Cargo', 'Auto', 'Other']
+                }
             };
 
-            const ENGINE_CAPACITIES = {
-                'Car': ['800', '1000', '1200', '1500', '1800', '2000', '2500', '3000', '3500', '4000', '5000', '6000'],
-                'Bike': ['50', '100', '125', '150', '200', '250', '300', '400', '500', '600', '800', '1000', '1200', '1500', '1800'],
-                'Tricycle': ['50', '100', '125', '150', '200', '250', '300', '400', '500', '600', '800']
-            };
-            const BODY_TYPES = {
-                'Car': ['Sedan', 'SUV', 'Hatchback', 'Pickup', 'Van', 'Coupe', 'Convertible', 'Wagon', 'Other'],
-                'Bike': ['Standard', 'Sport', 'Cruiser', 'Touring', 'Adventure', 'Scooter', 'Off-Road', 'Other'],
-                'Tricycle': ['Passenger', 'Cargo', 'Auto', 'Other']
-            };
-            const VEHICLE_ICONS = {
-                'Sedan': '🚗', 'SUV': '🚙', 'Hatchback': '🚗', 'Pickup': '🛻', 'Van': '🚐',
-                'Coupe': '🏎️', 'Convertible': '🚗', 'Wagon': '🚗', 'Other': '🚗',
-                'Standard': '🏍️', 'Sport': '🏍️', 'Cruiser': '🏍️', 'Touring': '🏍️',
-                'Adventure': '🏍️', 'Scooter': '🛵', 'Off-Road': '🏍️',
-                'Passenger': '🛺', 'Cargo': '🛺', 'Auto': '🛺'
-            };
-            const VALID_VEHICLE_TYPES = Object.keys(MAKES_BY_TYPE);
-            const VALID_FUEL_TYPES = ['Petrol', 'Diesel', 'Hybrid', 'Electric'];
-            const VALID_TRANSMISSIONS = ['Automatic', 'Manual', 'CVT'];
-            const VALID_CONDITIONS = ['Excellent', 'Good', 'Fair', 'Poor'];
+            // ─── IMAGE UPLOAD HANDLING ──────────────────────────────
+            const uploadItems = document.querySelectorAll('.image-upload-item');
+            uploadItems.forEach(item => {
+                const input = item.querySelector('input[type="file"]');
+                const badge = item.querySelector('.badge');
 
-            // ─── State ──────────────────────────────────────────────────
+                input.addEventListener('change', function(e) {
+                    const file = this.files[0];
+                    if (file) {
+                        item.classList.add('has-image');
+                        if (badge) badge.style.display = 'flex';
+                        let filenameEl = item.querySelector('.filename');
+                        if (!filenameEl) {
+                            filenameEl = document.createElement('span');
+                            filenameEl.className = 'filename';
+                            item.appendChild(filenameEl);
+                        }
+                        filenameEl.textContent = file.name.length > 12 ? file.name.substring(0, 10) + '…' : file.name;
+                        
+                        const reader = new FileReader();
+                        reader.onload = function(e) {
+                            item.dataset.imageData = e.target.result;
+                            const iconEl = item.querySelector('.icon');
+                            if (iconEl) {
+                                iconEl.innerHTML = '📷';
+                                iconEl.style.fontSize = '18px';
+                            }
+                        };
+                        reader.readAsDataURL(file);
+                    } else {
+                        item.classList.remove('has-image');
+                        if (badge) badge.style.display = 'none';
+                        const filenameEl = item.querySelector('.filename');
+                        if (filenameEl) filenameEl.remove();
+                        const iconEl = item.querySelector('.icon');
+                        if (iconEl) {
+                            const icons = {
+                                'engine': '🔧',
+                                'dashboard': '📊',
+                                'interior': '🪑',
+                                'exterior': '🚗',
+                                'fullcar': '📐',
+                                'frontback': '↔️'
+                            };
+                            iconEl.textContent = icons[input.dataset.type] || '📷';
+                            iconEl.style.fontSize = '24px';
+                        }
+                        delete item.dataset.imageData;
+                    }
+                });
+            });
+
+            // ─── VEHICLE DATA HELPERS ───────────────────────────────
+            function getMakes(type) {
+                return VEHICLE_DATA[type]?.makes || {};
+            }
+
+            function getModels(type, make) {
+                const makes = getMakes(type);
+                return makes[make] || [];
+            }
+
+            function getEngineCapacities(type) {
+                return VEHICLE_DATA[type]?.engine_capacities || [];
+            }
+
+            function getBodyTypes(type) {
+                return VEHICLE_DATA[type]?.body_types || [];
+            }
+
+            // ─── STATE ──────────────────────────────────────────────────
             let currentUser = null;
-            let MODEL_MAP = {};
+            let currentVehicleType = 'Car';
 
             // ─── DOM ELEMENTS ──────────────────────────────────────────
             const vehicleTypeSelect = document.getElementById('vehicleType');
@@ -870,24 +1138,6 @@
             const previewTitle = document.getElementById('previewTitle');
             const previewSubtitle = document.getElementById('previewSubtitle');
 
-            // ─── CHECK AUTH ────────────────────────────────────────────
-            async function checkAuth() {
-                if (!window.autoV) return null;
-                try {
-                    const user = await window.autoV.getCurrentUser();
-                    if (!user) {
-                        window.location.href = 'login.html';
-                        return null;
-                    }
-                    currentUser = user;
-                    return user;
-                } catch (error) {
-                    console.error('Auth error:', error);
-                    window.location.href = 'login.html';
-                    return null;
-                }
-            }
-
             // ─── TOM SELECT ──────────────────────────────────────────
             let tomMake, tomModel, tomLocation;
 
@@ -904,7 +1154,6 @@
                     createOnBlur: true,
                     placeholder: 'Select or type model...',
                     maxItems: 1,
-                    // Ensure user-typed values are captured
                     onItemAdd: function(value) {
                         if (this.control_input) {
                             this.control_input.value = '';
@@ -923,10 +1172,10 @@
                 });
             }
 
-            // ─── UPDATE MAKE DROPDOWN ─────────────────────────────
+            // ─── UPDATE DROPDOWNS ────────────────────────────────────
             function updateMakeDropdown(preserveValue) {
                 const type = vehicleTypeSelect.value;
-                const makes = MAKES_BY_TYPE[type] || [];
+                const makes = Object.keys(getMakes(type) || {});
                 const previousValue = preserveValue !== undefined ? preserveValue : makeSelect.value;
 
                 if (tomMake) {
@@ -953,14 +1202,13 @@
                         makeSelect.value = previousValue;
                     }
                 }
-
                 updateModelDropdown();
             }
 
-            // ─── UPDATE MODEL DROPDOWN ──────────────────────────────
             function updateModelDropdown() {
+                const type = vehicleTypeSelect.value;
                 const selectedMake = makeSelect.value;
-                const models = MODEL_MAP[selectedMake] || [];
+                const models = getModels(type, selectedMake) || [];
 
                 if (tomModel) {
                     tomModel.clear(true);
@@ -986,15 +1234,13 @@
                         modelSelect.appendChild(opt);
                     });
                 }
-
                 updateVehiclePreview();
                 updateProgress();
             }
 
-            // ─── UPDATE ENGINE DROPDOWN ──────────────────────────────
             function updateEngineDropdown() {
                 const type = vehicleTypeSelect.value;
-                const capacities = ENGINE_CAPACITIES[type] || [];
+                const capacities = getEngineCapacities(type) || [];
 
                 engineCapacitySelect.innerHTML = '';
                 const placeholder = document.createElement('option');
@@ -1008,14 +1254,12 @@
                     opt.textContent = `${c}cc`;
                     engineCapacitySelect.appendChild(opt);
                 });
-
                 updateProgress();
             }
 
-            // ─── UPDATE BODY TYPE DROPDOWN ──────────────────────────
             function updateBodyTypeDropdown() {
                 const type = vehicleTypeSelect.value;
-                const types = BODY_TYPES[type] || [];
+                const types = getBodyTypes(type) || [];
 
                 bodyTypeSelect.innerHTML = '';
                 const placeholder = document.createElement('option');
@@ -1029,23 +1273,25 @@
                     opt.textContent = t;
                     bodyTypeSelect.appendChild(opt);
                 });
-
                 updateProgress();
             }
 
-            // ─── UPDATE VEHICLE PREVIEW ──────────────────────────────
+            // ─── VEHICLE PREVIEW ──────────────────────────────────────
             function updateVehiclePreview() {
                 const make = makeSelect.value;
                 const model = modelSelect.value;
                 const bodyType = bodyTypeSelect.value;
+                const vehicleType = vehicleTypeSelect.value;
 
+                const icons = { Car: '🚗', Bike: '🏍️', Tricycle: '🛺' };
+                
                 if (make && model) {
-                    previewIcon.textContent = VEHICLE_ICONS[bodyType] || '🚗';
+                    previewIcon.textContent = icons[vehicleType] || '🚗';
                     previewTitle.textContent = `${make} ${model}`;
-                    previewSubtitle.textContent = bodyType || 'Select body type';
+                    previewSubtitle.textContent = bodyType || vehicleType;
                     vehiclePreview.classList.add('show');
                 } else if (make) {
-                    previewIcon.textContent = '🚗';
+                    previewIcon.textContent = icons[vehicleType] || '🚗';
                     previewTitle.textContent = make;
                     previewSubtitle.textContent = 'Select model...';
                     vehiclePreview.classList.add('show');
@@ -1055,7 +1301,7 @@
                 updateProgress();
             }
 
-            // ─── UPDATE PROGRESS ──────────────────────────────────────
+            // ─── PROGRESS ──────────────────────────────────────────────
             function updateProgress() {
                 const fields = [
                     vehicleTypeSelect, makeSelect, modelSelect,
@@ -1080,139 +1326,6 @@
                 else if (percent < 60) stepLabel.textContent = 'Step 2: Vehicle Details';
                 else if (percent < 85) stepLabel.textContent = 'Step 3: Condition & History';
                 else stepLabel.textContent = 'Step 4: Ready for Valuation!';
-            }
-
-            // ─── FETCH VEHICLE DATA FROM API ─────────────────────────
-            async function loadVehicleData() {
-                try {
-                    if (!window.autoV) throw new Error('API client not available');
-                    const vehicles = await window.autoV.apiRequest('/vehicles/models');
-
-                    const map = {};
-                    (vehicles || []).forEach(v => {
-                        if (!v || !v.make || !v.model) return;
-                        if (!map[v.make]) map[v.make] = [];
-                        if (!map[v.make].includes(v.model)) map[v.make].push(v.model);
-                    });
-                    Object.keys(map).forEach(make => map[make].sort());
-
-                    MODEL_MAP = map;
-                    return true;
-                } catch (error) {
-                    console.error('Error loading vehicle model data:', error);
-                    MODEL_MAP = {};
-                    statusBox.className = 'status-box status-info';
-                    statusBox.textContent = 'ℹ️ Model suggestions temporarily unavailable — you can still type your model manually.';
-                    statusBox.style.display = 'flex';
-                    return false;
-                }
-            }
-
-            // ─── VALIDATE + SANITIZE VEHICLE DATA ──────────────────
-            function sanitizePortalVehicleData(raw) {
-                if (!raw || typeof raw !== 'object') return null;
-                const out = {};
-
-                if (typeof raw.vehicle_type === 'string' && VALID_VEHICLE_TYPES.includes(raw.vehicle_type)) {
-                    out.vehicle_type = raw.vehicle_type;
-                }
-                const strField = (key, maxLen) => {
-                    if (typeof raw[key] === 'string' && raw[key].trim().length > 0 && raw[key].length <= maxLen) {
-                        out[key] = raw[key].trim();
-                    }
-                };
-                strField('make', 50);
-                strField('model', 50);
-                strField('body_type', 50);
-                strField('location', 50);
-
-                const year = parseInt(raw.year, 10);
-                if (Number.isFinite(year) && year >= 1980 && year <= new Date().getFullYear()) out.year = year;
-
-                const engine = parseInt(raw.engine_capacity, 10);
-                if (Number.isFinite(engine) && engine > 0 && engine <= 10000) out.engine_capacity = engine;
-
-                const mileage = parseInt(raw.odometer, 10);
-                if (Number.isFinite(mileage) && mileage >= 0 && mileage < 1000000) out.odometer = mileage;
-
-                if (typeof raw.fuel_type === 'string') {
-                    const fuelMap = { petrol: 'Petrol', diesel: 'Diesel', hybrid: 'Hybrid', electric: 'Electric' };
-                    const mapped = fuelMap[raw.fuel_type.toLowerCase()];
-                    if (mapped) out.fuel_type = mapped;
-                }
-                if (typeof raw.transmission === 'string') {
-                    const transMap = { automatic: 'Automatic', manual: 'Manual', cvt: 'CVT' };
-                    const mapped = transMap[raw.transmission.toLowerCase()];
-                    if (mapped) out.transmission = mapped;
-                }
-                if (typeof raw.condition === 'string' && VALID_CONDITIONS.includes(raw.condition)) {
-                    out.condition = raw.condition;
-                }
-                if (typeof raw.phone === 'string' && /^[0-9+ ]{7,15}$/.test(raw.phone.trim())) {
-                    out.phone = raw.phone.trim();
-                }
-                return out;
-            }
-
-            function loadVehicleFromPortal() {
-                let raw = null;
-                try {
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const vehicleDataParam = urlParams.get('vehicle');
-                    if (vehicleDataParam) {
-                        raw = JSON.parse(decodeURIComponent(vehicleDataParam));
-                    } else {
-                        const stored = sessionStorage.getItem('selectedVehicle');
-                        if (stored) {
-                            raw = JSON.parse(stored);
-                            sessionStorage.removeItem('selectedVehicle');
-                        }
-                    }
-                } catch (e) {
-                    console.warn('Could not parse incoming vehicle data:', e);
-                    return false;
-                }
-
-                const data = sanitizePortalVehicleData(raw);
-                if (!data || Object.keys(data).length === 0) return false;
-
-                if (data.vehicle_type) {
-                    vehicleTypeSelect.value = data.vehicle_type;
-                    updateEngineDropdown();
-                    updateBodyTypeDropdown();
-                }
-
-                const type = vehicleTypeSelect.value;
-                updateMakeDropdown('');
-
-                if (data.make && (MAKES_BY_TYPE[type] || []).includes(data.make)) {
-                    if (tomMake) tomMake.setValue(data.make, true);
-                    else makeSelect.value = data.make;
-                    updateModelDropdown();
-
-                    if (data.model) {
-                        if (tomModel) tomModel.setValue(data.model, true);
-                        else modelSelect.value = data.model;
-                    }
-                }
-
-                if (data.year) document.getElementById('year').value = data.year;
-                if (data.engine_capacity) engineCapacitySelect.value = String(data.engine_capacity);
-                if (data.fuel_type) document.getElementById('fuelType').value = data.fuel_type;
-                if (data.transmission) document.getElementById('transmission').value = data.transmission;
-                if (data.body_type) bodyTypeSelect.value = data.body_type;
-                if (data.odometer !== undefined) document.getElementById('mileage').value = data.odometer;
-                if (data.location) {
-                    document.getElementById('location').value = data.location;
-                    if (tomLocation) tomLocation.setValue(data.location, true);
-                }
-                if (data.condition) document.getElementById('condition').value = data.condition;
-                if (data.phone) document.getElementById('mpesaPhone').value = data.phone;
-
-                updateVehiclePreview();
-                updateProgress();
-                if (window.autoV) window.autoV.showToast('✅ Vehicle details pre-filled', 'success');
-                return true;
             }
 
             // ─── VALIDATION ──────────────────────────────────────────
@@ -1269,7 +1382,7 @@
                 setTimeout(() => container.remove(), 5000);
             }
 
-            // ─── UPDATE LOADING STEPS ──────────────────────────────
+            // ─── LOADING STEPS ──────────────────────────────────────
             function updateLoadingStep(step) {
                 document.querySelectorAll('.loading-step').forEach((el, index) => {
                     const num = index + 1;
@@ -1286,7 +1399,7 @@
                 });
             }
 
-            // ─── SHOW RESULT WITH ANIMATION ──────────────────────────
+            // ─── SHOW RESULT ──────────────────────────────────────────
             function showResult(data) {
                 const marketValue = data.market_value || 0;
                 const rangeMin = data.range_low ?? Math.round(marketValue * 0.88);
@@ -1313,7 +1426,7 @@
                 document.getElementById('resultDate').textContent = new Date().toLocaleDateString('en-KE', {
                     year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
                 });
-                document.getElementById('resultCert').textContent = data.certificate_number || 'Pending';
+                document.getElementById('resultCert').textContent = data.certificate_number || 'AUTO-' + String(Date.now()).slice(-6);
 
                 const confidenceFill = document.getElementById('confidenceFill');
                 confidenceFill.style.width = '0%';
@@ -1324,34 +1437,6 @@
                 resultBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 fireConfetti();
             }
-
-            // ─── EVENT LISTENERS ──────────────────────────────────────
-            vehicleTypeSelect.addEventListener('change', function() {
-                updateEngineDropdown();
-                updateBodyTypeDropdown();
-                updateMakeDropdown('');
-            });
-
-            makeSelect.addEventListener('change', updateModelDropdown);
-            modelSelect.addEventListener('change', function() {
-                updateVehiclePreview();
-                updateProgress();
-            });
-            bodyTypeSelect.addEventListener('change', updateVehiclePreview);
-
-            document.querySelectorAll('input, select').forEach(el => {
-                el.addEventListener('input', function() {
-                    this.classList.remove('input-error');
-                    const errorEl = this.closest('.form-group')?.querySelector('.error-text');
-                    if (errorEl) errorEl.classList.remove('show');
-                    updateProgress();
-                    saveDraft();
-                });
-                el.addEventListener('change', function() {
-                    updateProgress();
-                    saveDraft();
-                });
-            });
 
             // ─── AUTO-SAVE DRAFT ──────────────────────────────────────
             function saveDraft() {
@@ -1389,33 +1474,44 @@
                 }
                 if (!data) return;
 
-                vehicleTypeSelect.value = VALID_VEHICLE_TYPES.includes(data.vehicleType) ? data.vehicleType : 'Car';
+                const types = ['Car', 'Bike', 'Tricycle'];
+                if (data.vehicleType && types.includes(data.vehicleType)) {
+                    vehicleTypeSelect.value = data.vehicleType;
+                }
+                currentVehicleType = vehicleTypeSelect.value;
                 updateEngineDropdown();
                 updateBodyTypeDropdown();
-                updateMakeDropdown('');
 
-                const type = vehicleTypeSelect.value;
-                if (data.make && (MAKES_BY_TYPE[type] || []).includes(data.make)) {
+                const makes = Object.keys(getMakes(currentVehicleType));
+                if (data.make && makes.includes(data.make)) {
                     if (tomMake) tomMake.setValue(data.make, true);
                     else makeSelect.value = data.make;
-                    updateModelDropdown();
+                }
+                updateModelDropdown();
 
-                    if (data.model) {
-                        if (tomModel) tomModel.setValue(data.model, true);
-                        else modelSelect.value = data.model;
-                    }
+                const models = getModels(currentVehicleType, data.make);
+                if (data.model && models.includes(data.model)) {
+                    if (tomModel) tomModel.setValue(data.model, true);
+                    else modelSelect.value = data.model;
                 }
 
                 if (data.year) document.getElementById('year').value = data.year;
-                if (data.engineCapacity) engineCapacitySelect.value = data.engineCapacity;
-                if (data.fuelType && VALID_FUEL_TYPES.includes(data.fuelType)) document.getElementById('fuelType').value = data.fuelType;
-                if (data.transmission && VALID_TRANSMISSIONS.includes(data.transmission)) document.getElementById('transmission').value = data.transmission;
-                if (data.bodyType) bodyTypeSelect.value = data.bodyType;
+                const capacities = getEngineCapacities(currentVehicleType);
+                if (data.engineCapacity && capacities.includes(data.engineCapacity)) {
+                    engineCapacitySelect.value = data.engineCapacity;
+                }
+                const fuels = ['Petrol', 'Diesel', 'Hybrid', 'Electric'];
+                if (data.fuelType && fuels.includes(data.fuelType)) document.getElementById('fuelType').value = data.fuelType;
+                const transmissions = ['Automatic', 'Manual', 'CVT'];
+                if (data.transmission && transmissions.includes(data.transmission)) document.getElementById('transmission').value = data.transmission;
+                const bodyTypes = getBodyTypes(currentVehicleType);
+                if (data.bodyType && bodyTypes.includes(data.bodyType)) bodyTypeSelect.value = data.bodyType;
                 if (data.bodyColor) document.getElementById('bodyColor').value = data.bodyColor;
                 if (data.mileage) document.getElementById('mileage').value = data.mileage;
                 if (data.previousOwners) document.getElementById('previousOwners').value = data.previousOwners;
                 if (data.usageType) document.getElementById('usageType').value = data.usageType;
-                if (data.condition && VALID_CONDITIONS.includes(data.condition)) document.getElementById('condition').value = data.condition;
+                const conditions = ['Excellent', 'Good', 'Fair', 'Poor'];
+                if (data.condition && conditions.includes(data.condition)) document.getElementById('condition').value = data.condition;
                 if (data.accidentHistory) document.getElementById('accidentHistory').value = data.accidentHistory;
                 if (data.location) {
                     document.getElementById('location').value = data.location;
@@ -1427,8 +1523,40 @@
                 updateProgress();
             }
 
+            // ─── EVENT LISTENERS ──────────────────────────────────────
+            vehicleTypeSelect.addEventListener('change', function() {
+                currentVehicleType = this.value;
+                updateEngineDropdown();
+                updateBodyTypeDropdown();
+                updateMakeDropdown('');
+                updateProgress();
+            });
+
+            makeSelect.addEventListener('change', function() {
+                updateModelDropdown();
+                updateProgress();
+            });
+            modelSelect.addEventListener('change', function() {
+                updateVehiclePreview();
+                updateProgress();
+            });
+            bodyTypeSelect.addEventListener('change', updateVehiclePreview);
+
+            document.querySelectorAll('input, select').forEach(el => {
+                el.addEventListener('input', function() {
+                    this.classList.remove('input-error');
+                    const errorEl = this.closest('.form-group')?.querySelector('.error-text');
+                    if (errorEl) errorEl.classList.remove('show');
+                    updateProgress();
+                    saveDraft();
+                });
+                el.addEventListener('change', function() {
+                    updateProgress();
+                    saveDraft();
+                });
+            });
+
             // ─── FORM SUBMISSION ──────────────────────────────────────
-            // ONLY calls /instant-value/calculate
             form.addEventListener('submit', async function(e) {
                 e.preventDefault();
 
@@ -1440,8 +1568,18 @@
                 }
 
                 if (!currentUser) {
-                    const user = await checkAuth();
-                    if (!user) return;
+                    // Check auth
+                    try {
+                        const user = await window.autoV.getCurrentUser();
+                        if (!user) {
+                            window.location.href = 'login.html';
+                            return;
+                        }
+                        currentUser = user;
+                    } catch (err) {
+                        window.location.href = 'login.html';
+                        return;
+                    }
                 }
 
                 if (!validateAll()) {
@@ -1450,6 +1588,15 @@
                     statusBox.style.display = 'flex';
                     return;
                 }
+
+                // Collect image data
+                const imageData = {};
+                document.querySelectorAll('.image-upload-item').forEach(item => {
+                    if (item.dataset.imageData) {
+                        const type = item.querySelector('input[type="file"]').dataset.type;
+                        imageData[type] = item.dataset.imageData;
+                    }
+                });
 
                 const formData = {
                     type: vehicleTypeSelect.value,
@@ -1467,7 +1614,8 @@
                     location: document.getElementById('location').value,
                     previous_owners: parseInt(document.getElementById('previousOwners').value),
                     usage_type: document.getElementById('usageType').value,
-                    phone: document.getElementById('mpesaPhone').value.trim()
+                    phone: document.getElementById('mpesaPhone').value.trim(),
+                    images: imageData
                 };
 
                 statusBox.style.display = 'none';
@@ -1487,7 +1635,6 @@
                         if (step <= 5) updateLoadingStep(step);
                     }, 1200);
 
-                    // ─── ONLY API CALL ───────────────────────────────────
                     const result = await window.autoV.apiRequest('/instant-value/calculate', {
                         method: 'POST',
                         body: JSON.stringify(formData)
@@ -1536,24 +1683,28 @@
                     });
                 }
 
-                const user = await checkAuth();
-                if (!user) return;
+                try {
+                    const user = await window.autoV.getCurrentUser();
+                    if (!user) {
+                        window.location.href = 'login.html';
+                        return;
+                    }
+                    currentUser = user;
+                } catch (err) {
+                    window.location.href = 'login.html';
+                    return;
+                }
 
                 initTomSelect();
-                vehicleTypeSelect.value = 'Car';
+                currentVehicleType = vehicleTypeSelect.value;
                 updateEngineDropdown();
                 updateBodyTypeDropdown();
                 updateMakeDropdown('');
 
-                await loadVehicleData();
-
-                const gotPortalData = loadVehicleFromPortal();
-                if (!gotPortalData) loadDraft();
-                else updateModelDropdown();
-
-                updateProgress();
+                loadDraft();
 
                 document.getElementById('year').max = new Date().getFullYear();
+                updateProgress();
 
                 if (window.autoV) window.autoV.showToast('🚗 Instant Value Check ready', 'success');
             }
