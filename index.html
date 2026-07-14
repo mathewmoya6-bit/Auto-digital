@@ -643,7 +643,8 @@
             const page = PAGE_ROUTES[tool];
             
             if (!page) {
-                console.error(`Unknown tool: ${tool}`);
+                console.error(`❌ Unknown tool: ${tool}`);
+                console.log('📋 Available tools: mileage, value, ownership');
                 return;
             }
             
@@ -656,6 +657,19 @@
             
             // Redirect to the specific page
             window.location.href = url;
+        }
+
+        // ── Fallback navigation if file not found ──
+        function navigateWithFallback(tool) {
+            try {
+                navigateTo(tool);
+            } catch (error) {
+                console.error('❌ Navigation error:', error);
+                // Fallback to calculator with parameter
+                const fallbackUrl = `https://auto-d.meipressgroup.com/calculator.html?tool=${tool}`;
+                console.log(`🔄 Fallback to: ${fallbackUrl}`);
+                window.location.href = fallbackUrl;
+            }
         }
 
         // ── Mobile menu ──
@@ -719,14 +733,35 @@
         // ── API Test Function (for development) ──
         async function testAPI(tool = 'mileage') {
             const endpoint = `${API_BASE_URL}/api/service/${tool}`;
-            const testData = {
-                distance_km: 100,
-                fuel_type: 'petrol',
-                fuel_consumption: 8,
-                maintenance_per_km: 2,
-                insurance: 5000,
-                tax: 2000
-            };
+            
+            // Different test data for different tools
+            let testData = {};
+            if (tool === 'mileage') {
+                testData = {
+                    distance_km: 100,
+                    fuel_type: 'petrol',
+                    fuel_consumption: 8,
+                    maintenance_per_km: 2,
+                    insurance: 5000,
+                    tax: 2000
+                };
+            } else if (tool === 'value' || tool === 'valuation') {
+                testData = {
+                    purchase_price: 5000000,
+                    age_years: 3,
+                    depreciation_rate: 0.15
+                };
+            } else if (tool === 'ownership') {
+                testData = {
+                    purchase_price: 5000000,
+                    years_owned: 5,
+                    fuel_cost: 360000,
+                    maintenance_cost: 120000,
+                    insurance_cost: 150000,
+                    taxes: 50000,
+                    resale_value: 2000000
+                };
+            }
 
             console.log(`📡 Testing API: ${endpoint}`);
             console.log('📦 Test data:', testData);
@@ -749,9 +784,21 @@
             }
         }
 
+        // ── Check if pages exist ──
+        async function checkPageExists(page) {
+            try {
+                const response = await fetch(`https://auto-d.meipressgroup.com/${page}`, { method: 'HEAD' });
+                return response.ok;
+            } catch {
+                return false;
+            }
+        }
+
         // ── Expose functions globally ──
         window.navigateTo = navigateTo;
+        window.navigateWithFallback = navigateWithFallback;
         window.testAPI = testAPI;
+        window.checkPageExists = checkPageExists;
         window.API_BASE_URL = API_BASE_URL;
         window.PAGE_ROUTES = PAGE_ROUTES;
 
@@ -765,6 +812,20 @@
         console.log('💡 Click any "Go to Service" button to navigate to the calculator');
         console.log('🔧 To test the API, run: testAPI("mileage") in the console');
         console.log('📋 Available tools: mileage, value, ownership');
+        console.log('🔄 If a page is not found, use: navigateWithFallback("tool")');
+        
+        // ── Check if all pages exist ──
+        (async function checkPages() {
+            console.log('🔍 Checking if all pages exist...');
+            for (const [tool, page] of Object.entries(PAGE_ROUTES)) {
+                const exists = await checkPageExists(page);
+                if (exists) {
+                    console.log(`   ✅ ${page} exists`);
+                } else {
+                    console.log(`   ❌ ${page} NOT FOUND - Please create this file`);
+                }
+            }
+        })();
     </script>
 
 </body>
