@@ -1,1 +1,3 @@
-# Services package
+"""
+Services Module - Auto-D Kenya
+"""
