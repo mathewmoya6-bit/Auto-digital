@@ -46,7 +46,6 @@
             padding: 28px 32px 60px;
         }
 
-        /* ─── Back to Auto-D Button ──────────────────────────────────── */
         .back-link-wrap {
             margin-bottom: 20px;
         }
@@ -1159,7 +1158,6 @@
             let routes = [];
             let currentFuelFilter = 'all';
             let isLoading = false;
-            let useBackend = true;
             let isInitialized = false;
 
             // ============================================================
@@ -1195,7 +1193,7 @@
             }
 
             // ============================================================
-            // COMPLETE FALLBACK DATA WITH ALL VALUES
+            // BACKEND DATA (FALLBACK IF API IS DOWN)
             // ============================================================
             const FALLBACK_DATA = {
                 categories: [
@@ -1427,47 +1425,6 @@
             };
 
             // ============================================================
-            // REAL DEPRECIATION CALCULATOR
-            // ============================================================
-            function calculateRealDepreciation(purchasePrice, ageYears, condition = 'Good', mileage = 0) {
-                const baseRates = {
-                    'Excellent': 0.08,
-                    'Good': 0.12,
-                    'Fair': 0.18,
-                    'Poor': 0.25
-                };
-
-                let rate = baseRates[condition] || 0.12;
-
-                if (mileage > 100000) rate += 0.05;
-                else if (mileage > 60000) rate += 0.03;
-                else if (mileage > 30000) rate += 0.015;
-
-                let currentValue = purchasePrice;
-                let yearlyDepreciation = [];
-
-                for (let year = 1; year <= ageYears; year++) {
-                    const yearRate = rate * (1 + (year - 1) * 0.08);
-                    const depAmount = currentValue * Math.min(yearRate, 0.40);
-                    currentValue -= depAmount;
-                    yearlyDepreciation.push({
-                        year: year,
-                        value: Math.max(currentValue, purchasePrice * 0.05),
-                        depreciation: depAmount,
-                        rate: yearRate
-                    });
-                }
-
-                return {
-                    currentValue: Math.max(currentValue, purchasePrice * 0.05),
-                    totalDepreciation: purchasePrice - Math.max(currentValue, purchasePrice * 0.05),
-                    valueRetained: (Math.max(currentValue, purchasePrice * 0.05) / purchasePrice) * 100,
-                    yearlyBreakdown: yearlyDepreciation,
-                    depreciationRate: rate
-                };
-            }
-
-            // ============================================================
             // BACKEND / API COMMUNICATION
             // ============================================================
             async function callBackend(endpoint, payload) {
@@ -1494,57 +1451,29 @@
             }
 
             // ============================================================
-            // MAIN CALCULATION
+            // CLIENT-SIDE CALCULATION (FALLBACK)
             // ============================================================
-            async function calculateMileage(variant, distance) {
+            async function calculateClientSide(variant, distance) {
                 if (!variant || !distance || distance <= 0) return null;
 
-                // Build payload for backend
-                const payload = {
-                    distance_km: distance,
-                    fuel_type: variant.fuel_type || 'petrol',
-                    fuel_consumption: variant.fuel_consumption || 8,
-                    maintenance_per_km: variant.maintenance_per_km || 2,
-                    insurance: variant.insurance_annual || 5000,
-                    tax: variant.tax_annual || 2000
-                };
+                const fixedRate = parseFloat(variant.fixed_per_km) || 0;
+                const operatingRate = parseFloat(variant.operating_per_km) || 0;
+                const totalRate = parseFloat(variant.total_per_km) || (fixedRate + operatingRate) || 0;
 
-                let result = null;
-
-                // Try backend first
-                if (useBackend) {
-                    result = await callBackend(CONFIG.API.ENDPOINTS.MILEAGE, payload);
-                    if (result && result.data) {
-                        calcMethod.textContent = 'Flask API';
-                        return result.data;
-                    }
-                }
-
-                // Fallback to client-side calculation with complete data
-                calcMethod.textContent = 'Client-side (fallback)';
-
-                // Use the variant's pre-calculated values
-                const fixedRate = num(variant.fixed_per_km);
-                const operatingRate = num(variant.operating_per_km);
-                const totalRate = num(variant.total_per_km) || (fixedRate + operatingRate);
-
-                // Calculate component costs for the trip
                 const components = variant.components || {};
                 const componentCosts = {};
                 Object.keys(components).forEach(key => {
-                    componentCosts[key] = (num(components[key]) || 0) * distance;
+                    const rate = parseFloat(components[key]) || 0;
+                    componentCosts[key] = rate * distance;
                 });
 
-                // Use the variant's yearly progression
                 const yearly = {
-                    year1: num(variant.year1) || totalRate,
-                    year2: num(variant.year2) || (totalRate * 1.05),
-                    year3: num(variant.year3) || (totalRate * 1.10),
-                    year4: num(variant.year4) || (totalRate * 1.18),
-                    year5: num(variant.year5) || (totalRate * 1.25)
+                    year1: parseFloat(variant.year1) || (totalRate * 0.9),
+                    year2: parseFloat(variant.year2) || (totalRate * 0.95),
+                    year3: parseFloat(variant.year3) || totalRate,
+                    year4: parseFloat(variant.year4) || (totalRate * 1.08),
+                    year5: parseFloat(variant.year5) || (totalRate * 1.15)
                 };
-
-                const purchasePrice = num(variant.initial_cost) || 1500000;
 
                 return {
                     totalCost: totalRate * distance,
@@ -1555,9 +1484,43 @@
                     operatingRate: operatingRate,
                     components: componentCosts,
                     yearly: yearly,
-                    initialCost: purchasePrice,
+                    initialCost: parseFloat(variant.initial_cost) || 1500000,
                     method: 'client'
                 };
+            }
+
+            // ============================================================
+            // MAIN CALCULATION - Tries Backend First, Falls Back to Client
+            // ============================================================
+            async function calculateMileage(variant, distance) {
+                if (!variant || !distance || distance <= 0) return null;
+
+                // Build payload for backend - matches your Flask API
+                const payload = {
+                    distance_km: distance,
+                    fuel_type: variant.fuel_type || 'petrol',
+                    fuel_consumption: variant.fuel_consumption || 8,
+                    maintenance_per_km: variant.maintenance_per_km || 2,
+                    insurance: variant.insurance_annual || 5000,
+                    tax: variant.tax_annual || 2000
+                };
+
+                // Try backend first
+                try {
+                    const result = await callBackend(CONFIG.API.ENDPOINTS.MILEAGE, payload);
+                    if (result && result.data) {
+                        calcMethod.textContent = 'Flask API ✓';
+                        setApiStatus('● Connected', true);
+                        return result.data;
+                    }
+                } catch (e) {
+                    console.log('⚠️ Backend unavailable, using fallback');
+                }
+
+                // Fallback to client-side
+                calcMethod.textContent = 'Client-side (fallback)';
+                setApiStatus('⚠️ Offline mode', false);
+                return await calculateClientSide(variant, distance);
             }
 
             // ============================================================
@@ -1666,7 +1629,6 @@
                     vehicleLabel.textContent = variant.label || 'Unnamed variant';
                     fuelPill.textContent = (category && category.fuel_type) || '—';
 
-                    // Update totals
                     totalTrip.textContent = formatCurrency(result.totalCost);
                     totalTripSub.textContent =
                         `at ${formatCurrency(result.totalRate)} KES/km over ${distance} km`;
@@ -1677,7 +1639,6 @@
                     operatingTrip.textContent = formatCurrency(result.operatingCost);
                     totalPerKm.textContent = formatCurrency(result.totalRate);
 
-                    // Update component costs
                     const components = result.components || {};
                     detailIds.forEach(key => {
                         const el = document.getElementById(detailMap[key]);
@@ -1694,11 +1655,9 @@
                         }
                     });
 
-                    // Update initial cost
                     const initialVal = result.initialCost || variant.initial_cost || 0;
                     initialCost.textContent = initialVal ? `KES ${formatCurrency(initialVal)}` : '—';
 
-                    // Update yearly progression
                     const yearly = result.yearly || {};
                     yearIds.forEach((id, idx) => {
                         const el = document.getElementById(id);
@@ -1899,7 +1858,7 @@
                 // ============================================================
                 // INITIAL LOAD
                 // ============================================================
-                setApiStatus('● Connecting to backend...', true);
+                setApiStatus('● Connecting...', true);
                 document.getElementById('lastUpdated').textContent = new Date().toLocaleDateString('en-KE', {
                     year: 'numeric',
                     month: 'short',
@@ -1909,52 +1868,37 @@
                 try {
                     console.log('🔄 Loading initial data...');
 
-                    // Check if backend is healthy
+                    // Check backend health
                     try {
-                        const healthCheck = await fetch(`${CONFIG.API.BASE_URL}/api/health`, {
-                            method: 'GET',
-                            headers: { 'Accept': 'application/json' }
-                        });
-
+                        const healthCheck = await fetch(`${CONFIG.API.BASE_URL}/api/health`);
                         if (healthCheck.ok) {
-                            useBackend = true;
                             setApiStatus('● Connected to Flask API', true);
-                            showToast('✅ Connected to backend', 'success');
                             console.log('✅ Backend is healthy');
                         } else {
-                            useBackend = false;
-                            setApiStatus('⚠️ Backend degraded, using client-side', false);
-                            showToast('⚠️ Using client-side calculations', 'warning');
-                            console.warn('⚠️ Backend health check failed');
+                            setApiStatus('⚠️ Backend degraded, using fallback', false);
                         }
-                    } catch (error) {
-                        useBackend = false;
-                        setApiStatus('⚠️ Backend unavailable, using client-side', false);
-                        showToast('⚠️ Using client-side calculations', 'warning');
-                        console.warn('⚠️ Backend unavailable:', error.message);
+                    } catch (e) {
+                        setApiStatus('⚠️ Offline mode', false);
+                        console.log('⚠️ Backend unavailable, using fallback data');
                     }
 
-                    // Use fallback data for UI
+                    // Load data
                     categories = FALLBACK_DATA.categories;
                     routes = FALLBACK_DATA.routes;
-
-                    console.log(`📊 Loaded ${categories.length} categories and ${routes.length} routes`);
 
                     populateCategories();
                     renderRouteChips();
 
-                    // Auto-select first category and load variants
                     if (categories.length > 0) {
                         categorySelect.value = categories[0].id;
                         categorySelect.dispatchEvent(new Event('change'));
                     }
 
-                    // Initial calculation with default values
                     setTimeout(() => {
                         computeAndRender();
                     }, 500);
 
-                    console.log('✅ Application initialized (Hybrid Mode)');
+                    console.log('✅ Application initialized');
 
                 } catch (error) {
                     console.error('❌ Initialization error:', error);
