@@ -1012,7 +1012,7 @@
                 <h1>Auto-D <span>Kenya</span><br />Professional Mileage Calculator</h1>
                 <p class="subtitle">
                     Kenya Mileage Rate Schedule — <strong>July 2026</strong><br />
-                    <span style="font-size:12px;color:var(--ink-soft);">⚡ Business Logic via FastAPI · Hybrid Architecture</span>
+                    <span style="font-size:12px;color:var(--ink-soft);">⚡ Powered by Flask API</span>
                 </p>
             </div>
             <div class="header-right">
@@ -1022,7 +1022,7 @@
                     API Status: <span class="status" id="apiStatus" role="status" aria-live="polite">● Connecting...</span>
                 </div>
                 <div style="margin-top:4px;font-size:10px;color:var(--ink-soft);">
-                    <span id="calcMethod">Client-side</span>
+                    <span id="calcMethod">Backend</span>
                 </div>
             </div>
         </div>
@@ -1170,7 +1170,7 @@
         <div class="report-footer">
             <div class="brand">🚗 Auto-D <span>Kenya</span></div>
             <div class="meta">
-                <strong>Architecture:</strong> FastAPI (Business Logic) · Hybrid<br />
+                <strong>Architecture:</strong> Flask API · Hybrid<br />
                 <span id="footerUrl">https://auto-d.meipressgroup.com</span> · v3.1.0
             </div>
         </div>
@@ -1181,12 +1181,16 @@
             "use strict";
 
             // ============================================================
-            // CONFIGURATION - Auto-D Kenya
+            // CONFIGURATION - Auto-D Kenya Flask Backend
             // ============================================================
             const CONFIG = {
-                FASTAPI: {
-                    BASE_URL: 'https://auto-v.onrender.com/api/v1',
-                    ROOT_URL: 'https://auto-v.onrender.com'
+                API: {
+                    BASE_URL: 'https://auto-digital.onrender.com',
+                    ENDPOINTS: {
+                        MILEAGE: '/api/service/mileage',
+                        VALUATION: '/api/service/valuation',
+                        OWNERSHIP: '/api/service/ownership'
+                    }
                 }
             };
 
@@ -1238,7 +1242,7 @@
             let routes = [];
             let currentFuelFilter = 'all';
             let isLoading = false;
-            let useFastAPI = true;
+            let useBackend = true;
             let isInitialized = false;
 
             // ============================================================
@@ -1274,7 +1278,7 @@
             }
 
             // ============================================================
-            // FALLBACK DATA
+            // FALLBACK DATA (for when backend is unavailable)
             // ============================================================
             const FALLBACK_DATA = {
                 categories: [
@@ -1337,97 +1341,109 @@
             };
 
             // ============================================================
-            // FASTAPI / API COMMUNICATION
+            // REAL DEPRECIATION CALCULATOR
             // ============================================================
-            async function fetchCategories() {
-                try {
-                    // Try FastAPI first
-                    if (useFastAPI) {
-                        const response = await fetch(`${CONFIG.FASTAPI.BASE_URL}/categories`, {
-                            headers: { 'Accept': 'application/json' }
-                        });
-                        if (response.ok) {
-                            const data = await response.json();
-                            if (data && data.length > 0) {
-                                return data;
-                            }
-                        }
-                    }
-                } catch (error) {
-                    console.warn('⚠️ FastAPI categories fetch failed:', error.message);
+            function calculateRealDepreciation(purchasePrice, ageYears, condition = 'Good', mileage = 0) {
+                // Base depreciation rates by condition
+                const baseRates = {
+                    'Excellent': 0.08,
+                    'Good': 0.12,
+                    'Fair': 0.18,
+                    'Poor': 0.25
+                };
+
+                let rate = baseRates[condition] || 0.12;
+
+                // Mileage adjustment (higher mileage = higher depreciation)
+                if (mileage > 100000) rate += 0.05;
+                else if (mileage > 60000) rate += 0.03;
+                else if (mileage > 30000) rate += 0.015;
+
+                // Age factor (older cars depreciate slower but have lower base)
+                const ageFactor = Math.max(0.5, 1 - (ageYears * 0.05));
+
+                // Calculate current value using declining balance
+                let currentValue = purchasePrice;
+                let yearlyDepreciation = [];
+
+                for (let year = 1; year <= ageYears; year++) {
+                    const yearRate = rate * (1 + (year - 1) * 0.08); // Depreciation accelerates slightly
+                    const depAmount = currentValue * Math.min(yearRate, 0.40);
+                    currentValue -= depAmount;
+                    yearlyDepreciation.push({
+                        year: year,
+                        value: Math.max(currentValue, purchasePrice * 0.05),
+                        depreciation: depAmount,
+                        rate: yearRate
+                    });
                 }
-                // Fallback to local data
-                console.log('📦 Using fallback categories');
-                return FALLBACK_DATA.categories;
+
+                return {
+                    currentValue: Math.max(currentValue, purchasePrice * 0.05),
+                    totalDepreciation: purchasePrice - Math.max(currentValue, purchasePrice * 0.05),
+                    valueRetained: (Math.max(currentValue, purchasePrice * 0.05) / purchasePrice) * 100,
+                    yearlyBreakdown: yearlyDepreciation,
+                    depreciationRate: rate
+                };
             }
 
-            async function fetchVariants(categoryId) {
+            // ============================================================
+            // BACKEND / API COMMUNICATION
+            // ============================================================
+            async function callBackend(endpoint, payload) {
                 try {
-                    if (useFastAPI) {
-                        const response = await fetch(`${CONFIG.FASTAPI.BASE_URL}/variants?category_id=${categoryId}`, {
-                            headers: { 'Accept': 'application/json' }
-                        });
-                        if (response.ok) {
-                            const data = await response.json();
-                            if (data && data.length > 0) {
-                                return data;
-                            }
-                        }
-                    }
-                } catch (error) {
-                    console.warn('⚠️ FastAPI variants fetch failed:', error.message);
-                }
-                // Fallback to local data
-                console.log('📦 Using fallback variants');
-                return FALLBACK_DATA.variants[categoryId] || [];
-            }
-
-            async function fetchRoutes() {
-                try {
-                    if (useFastAPI) {
-                        const response = await fetch(`${CONFIG.FASTAPI.BASE_URL}/routes`, {
-                            headers: { 'Accept': 'application/json' }
-                        });
-                        if (response.ok) {
-                            const data = await response.json();
-                            if (data && data.length > 0) {
-                                return data;
-                            }
-                        }
-                    }
-                } catch (error) {
-                    console.warn('⚠️ FastAPI routes fetch failed:', error.message);
-                }
-                return FALLBACK_DATA.routes;
-            }
-
-            async function calculateViaFastAPI(variantId, distance) {
-                try {
-                    const response = await fetch(`${CONFIG.FASTAPI.BASE_URL}/calculate/mileage`, {
+                    const response = await fetch(`${CONFIG.API.BASE_URL}${endpoint}`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'Accept': 'application/json'
                         },
-                        body: JSON.stringify({
-                            variant_id: variantId,
-                            distance: distance,
-                            include_forecast: true
-                        })
+                        body: JSON.stringify(payload)
                     });
 
-                    if (response.ok) {
-                        const result = await response.json();
-                        calcMethod.textContent = 'FastAPI';
-                        return result;
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.error || `HTTP ${response.status}`);
                     }
+
+                    return await response.json();
                 } catch (error) {
-                    console.warn('⚠️ FastAPI calculation failed:', error.message);
+                    console.warn(`⚠️ Backend call failed (${endpoint}):`, error.message);
+                    return null;
                 }
-                return null;
             }
 
-            function calculateClientSide(variant, distance) {
+            // ============================================================
+            // MAIN CALCULATION
+            // ============================================================
+            async function calculateMileage(variant, distance) {
+                if (!variant || !distance || distance <= 0) return null;
+
+                // Build payload for backend
+                const payload = {
+                    distance_km: distance,
+                    fuel_type: variant.fuel_type || 'petrol',
+                    fuel_consumption: variant.fuel_consumption || 8,
+                    maintenance_per_km: variant.maintenance_per_km || 2,
+                    insurance: variant.insurance_annual || 5000,
+                    tax: variant.tax_annual || 2000
+                };
+
+                let result = null;
+
+                // Try backend first
+                if (useBackend) {
+                    result = await callBackend(CONFIG.API.ENDPOINTS.MILEAGE, payload);
+                    if (result && result.data) {
+                        calcMethod.textContent = 'Flask API';
+                        return result.data;
+                    }
+                }
+
+                // Fallback to client-side calculation
+                calcMethod.textContent = 'Client-side (fallback)';
+
+                // Calculate using variant data
                 const fixedRate = num(variant.fixed_per_km);
                 const operatingRate = num(variant.operating_per_km);
                 const totalRate = num(variant.total_per_km) || (fixedRate + operatingRate);
@@ -1438,7 +1454,13 @@
                     componentCosts[key] = (num(components[key]) || 0) * distance;
                 });
 
-                calcMethod.textContent = 'Client-side';
+                // Real depreciation calculation
+                const purchasePrice = num(variant.initial_cost) || 1500000;
+                const ageYears = 3; // Default assumption
+                const condition = 'Good';
+                const mileage = distance;
+
+                const depResult = calculateRealDepreciation(purchasePrice, ageYears, condition, mileage);
 
                 return {
                     totalCost: totalRate * distance,
@@ -1449,35 +1471,16 @@
                     operatingRate: operatingRate,
                     components: componentCosts,
                     yearly: {
-                        year1: num(variant.year1),
-                        year2: num(variant.year2),
-                        year3: num(variant.year3),
-                        year4: num(variant.year4),
-                        year5: num(variant.year5)
+                        year1: num(variant.year1) || (totalRate * 0.9),
+                        year2: num(variant.year2) || (totalRate * 0.95),
+                        year3: num(variant.year3) || totalRate,
+                        year4: num(variant.year4) || (totalRate * 1.08),
+                        year5: num(variant.year5) || (totalRate * 1.15)
                     },
-                    initialCost: num(variant.initial_cost),
+                    initialCost: purchasePrice,
+                    depreciation: depResult,
                     method: 'client'
                 };
-            }
-
-            // ============================================================
-            // MAIN CALCULATION ORCHESTRATOR
-            // ============================================================
-            async function calculateMileage(variant, distance) {
-                if (!variant || !distance) return null;
-
-                let result = null;
-                if (useFastAPI) {
-                    result = await calculateViaFastAPI(variant.id, distance);
-                    if (result) {
-                        result.variant = variant;
-                        return result;
-                    }
-                }
-
-                result = calculateClientSide(variant, distance);
-                result.variant = variant;
-                return result;
             }
 
             // ============================================================
@@ -1627,6 +1630,17 @@
                         else el.classList.add('red');
                     });
 
+                    // Show depreciation info
+                    if (result.depreciation) {
+                        const dep = result.depreciation;
+                        // Update depreciation component with real calculation
+                        const depEl = document.getElementById('detailDepreciation');
+                        if (depEl) {
+                            depEl.textContent = formatCurrency(dep.totalDepreciation);
+                            depEl.className = 'value gold';
+                        }
+                    }
+
                     showToast('✅ Calculation complete!', 'success');
 
                 } catch (error) {
@@ -1681,7 +1695,6 @@
                     btn.setAttribute('aria-pressed', 'true');
                     currentFuelFilter = btn.dataset.fuel;
                     populateCategories();
-                    // Reset variants
                     allVariants = [];
                     applyVariantFilter();
                 });
@@ -1697,8 +1710,10 @@
 
                     isLoading = true;
                     try {
-                        const variants = await fetchVariants(catId);
-                        allVariants = variants || [];
+                        // Use fallback data for now (backend doesn't have categories endpoint)
+                        // In production, fetch from backend: /api/vehicles/models/{make}
+                        const variants = FALLBACK_DATA.variants[catId] || [];
+                        allVariants = variants;
                         applyVariantFilter();
                     } catch (error) {
                         console.error('Error loading variants:', error);
@@ -1816,7 +1831,7 @@
                 // ============================================================
                 // INITIAL LOAD
                 // ============================================================
-                setApiStatus('● Connecting to API...', true);
+                setApiStatus('● Connecting to backend...', true);
                 document.getElementById('lastUpdated').textContent = new Date().toLocaleDateString('en-KE', {
                     year: 'numeric',
                     month: 'short',
@@ -1826,42 +1841,36 @@
                 try {
                     console.log('🔄 Loading initial data...');
 
-                    // Load categories and routes in parallel
-                    const [categoriesData, routesData] = await Promise.all([
-                        fetchCategories(),
-                        fetchRoutes()
-                    ]);
-
-                    categories = categoriesData || [];
-                    routes = routesData || [];
-
-                    console.log(`📊 Loaded ${categories.length} categories and ${routes.length} routes`);
-
-                    // Check if FastAPI is healthy
+                    // Check if backend is healthy
                     try {
-                        console.log('📡 Checking FastAPI health...');
-                        const healthCheck = await fetch(`${CONFIG.FASTAPI.ROOT_URL}/health`, {
+                        const healthCheck = await fetch(`${CONFIG.API.BASE_URL}/api/health`, {
                             method: 'GET',
                             headers: { 'Accept': 'application/json' }
                         });
 
                         if (healthCheck.ok) {
-                            useFastAPI = true;
-                            setApiStatus('● Connected to FastAPI', true);
-                            showToast('✅ Connected to FastAPI', 'success');
-                            console.log('✅ FastAPI is healthy');
+                            useBackend = true;
+                            setApiStatus('● Connected to Flask API', true);
+                            showToast('✅ Connected to backend', 'success');
+                            console.log('✅ Backend is healthy');
                         } else {
-                            useFastAPI = false;
-                            setApiStatus('⚠️ FastAPI degraded, using client-side', false);
+                            useBackend = false;
+                            setApiStatus('⚠️ Backend degraded, using client-side', false);
                             showToast('⚠️ Using client-side calculations', 'warning');
-                            console.warn('⚠️ FastAPI health check failed');
+                            console.warn('⚠️ Backend health check failed');
                         }
                     } catch (error) {
-                        useFastAPI = false;
-                        setApiStatus('⚠️ FastAPI unavailable, using client-side', false);
+                        useBackend = false;
+                        setApiStatus('⚠️ Backend unavailable, using client-side', false);
                         showToast('⚠️ Using client-side calculations', 'warning');
-                        console.warn('⚠️ FastAPI unavailable:', error.message);
+                        console.warn('⚠️ Backend unavailable:', error.message);
                     }
+
+                    // Use fallback data for UI
+                    categories = FALLBACK_DATA.categories;
+                    routes = FALLBACK_DATA.routes;
+
+                    console.log(`📊 Loaded ${categories.length} categories and ${routes.length} routes`);
 
                     populateCategories();
                     renderRouteChips();
@@ -1881,7 +1890,7 @@
 
                 } catch (error) {
                     console.error('❌ Initialization error:', error);
-                    setApiStatus('⚠️ API connection failed', false);
+                    setApiStatus('⚠️ Failed to load data', false);
                     showToast('Using fallback data', 'error');
 
                     // Use fallback data
