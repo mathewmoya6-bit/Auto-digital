@@ -1,5 +1,6 @@
 """
 Auto-D Kenya Flask Backend - Production Ready
+Complete vehicle intelligence platform
 
 Endpoints:
 POST /api/mpesa/stkpush           - Start M-Pesa STK Push payment
@@ -14,23 +15,24 @@ GET  /api/vehicles/categories     - Get all vehicle categories
 GET  /api/vehicles/search         - Search for vehicles
 GET  /api/vehicles/database       - Get full vehicle database
 
-POST /api/service/mileage         - Calculate mileage cost
-POST /api/service/valuation       - Calculate vehicle valuation
-POST /api/service/ownership       - Calculate ownership cost
+POST /api/service/mileage         - Calculate mileage cost (mileage.html)
+POST /api/service/valuation       - Calculate vehicle valuation (instant-value.html)
+POST /api/service/ownership       - Calculate ownership cost (ownership-cost.html)
 """
 
-from __future__ import annotations
-
-import logging
-import os
-import threading
-from datetime import datetime
-
-from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+import os
+import logging
+from datetime import datetime
+from dotenv import load_dotenv
 
-# Import vehicle database
+# ─── Import Services ──────────────────────────────────────────────
+from services.mileage_service import MileageService
+from services.valuation_service import ValuationService
+from services.ownership_service import OwnershipService
+
+# ─── Import Vehicle Data ──────────────────────────────────────────
 from vehicle_data import (
     VEHICLE_DATABASE,
     get_all_makes,
@@ -42,7 +44,7 @@ from vehicle_data import (
     get_vehicle_price
 )
 
-# Import M-Pesa (if available)
+# ─── Import M-Pesa (if available) ──────────────────────────────────
 try:
     from mpesa import (
         MpesaAPIError,
@@ -54,25 +56,21 @@ except ImportError:
     MPESA_AVAILABLE = False
     logging.warning("M-Pesa module not available - M-Pesa endpoints disabled")
 
-# Load local .env during development
+# ─── Load Environment ──────────────────────────────────────────────
 load_dotenv()
 
-# ─── LOGGING ──────────────────────────────────────────────────────
+# ─── Logging ──────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("auto-d-backend")
 
-# ─── FLASK APP ──────────────────────────────────────────────────
+# ─── Flask App ────────────────────────────────────────────────────
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "development-secret")
 
-app.config["SECRET_KEY"] = os.getenv(
-    "FLASK_SECRET_KEY",
-    "development-secret-change-in-production"
-)
-
-# ─── CORS CONFIGURATION ────────────────────────────────────────
+# ─── CORS Configuration ────────────────────────────────────────────
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "https://auto-d.meipressgroup.com,http://localhost:3000,http://localhost:5000,https://auto-d-kenya-backend.onrender.com"
@@ -86,14 +84,23 @@ CORS(
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
 
-# ─── TEMPORARY STORAGE ──────────────────────────────────────────
+# ─── Initialize Services ──────────────────────────────────────────
+# Each service handles its specific calculation logic
+mileage_service = MileageService()
+valuation_service = ValuationService()
+ownership_service = OwnershipService()
+
+logger.info("✅ Services initialized: Mileage, Valuation, Ownership")
+
+# ─── Temporary Storage for M-Pesa ──────────────────────────────────
 transactions = {}
+import threading
 transactions_lock = threading.Lock()
 
 
-# ──────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # VEHICLE DATA ENDPOINTS
-# ──────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/vehicles/makes")
 def get_makes_endpoint():
@@ -195,266 +202,113 @@ def get_vehicle_price_endpoint(make, model):
     })
 
 
-# ──────────────────────────────────────────────────────────────
-# SERVICE CALCULATION ENDPOINTS
-# ──────────────────────────────────────────────────────────────
-
-def calculate_mileage_cost(distance_km, fuel_type="petrol", fuel_consumption=None,
-                           maintenance_per_km=0, insurance=0, tax=0):
-    """Calculate the cost of traveling a given distance."""
-    fuel_prices = {
-        "petrol": 180,
-        "diesel": 170,
-        "electric": 30,
-        "hybrid": 150,
-        "lpg": 120
-    }
-
-    default_consumption = {
-        "petrol": 8,
-        "diesel": 7,
-        "electric": 15,
-        "hybrid": 20,
-        "lpg": 10
-    }
-
-    if fuel_consumption is None:
-        fuel_consumption = default_consumption.get(fuel_type, 8)
-
-    price_per_unit = fuel_prices.get(fuel_type, 180)
-
-    fuel_cost = (distance_km / 100) * fuel_consumption * price_per_unit
-    maintenance_cost = distance_km * maintenance_per_km
-    insurance_cost = insurance
-    tax_cost = tax
-
-    total_cost = fuel_cost + maintenance_cost + insurance_cost + tax_cost
-
-    return {
-        "distance_km": distance_km,
-        "fuel_type": fuel_type,
-        "fuel_consumption": fuel_consumption,
-        "fuel_cost": round(fuel_cost, 2),
-        "maintenance_cost": round(maintenance_cost, 2),
-        "insurance_cost": round(insurance_cost, 2),
-        "tax_cost": round(tax_cost, 2),
-        "total_cost": round(total_cost, 2),
-        "cost_per_km": round(total_cost / distance_km if distance_km > 0 else 0, 2)
-    }
-
-
-def calculate_vehicle_value(purchase_price, age_years, depreciation_rate=0.15):
-    """Calculate current vehicle value using declining balance depreciation."""
-    try:
-        purchase_price = float(purchase_price)
-        age_years = float(age_years)
-        depreciation_rate = float(depreciation_rate)
-    except (ValueError, TypeError):
-        return {"error": "Invalid input values"}
-
-    if purchase_price <= 0 or age_years < 0:
-        return {"error": "Invalid input values"}
-
-    current_value = purchase_price * ((1 - depreciation_rate) ** age_years)
-    total_depreciation = purchase_price - current_value
-
-    return {
-        "purchase_price": purchase_price,
-        "age_years": age_years,
-        "depreciation_rate": depreciation_rate,
-        "current_value": round(current_value, 2),
-        "total_depreciation": round(total_depreciation, 2),
-        "value_retained": round((current_value / purchase_price) * 100, 2)
-    }
-
-
-def calculate_ownership_cost(purchase_price, years_owned, fuel_cost,
-                             maintenance_cost, insurance_cost, taxes,
-                             resale_value=0):
-    """Calculate total cost of vehicle ownership."""
-    try:
-        purchase_price = float(purchase_price)
-        years_owned = float(years_owned)
-        fuel_cost = float(fuel_cost)
-        maintenance_cost = float(maintenance_cost)
-        insurance_cost = float(insurance_cost)
-        taxes = float(taxes)
-        resale_value = float(resale_value)
-    except (ValueError, TypeError):
-        return {"error": "Invalid input values"}
-
-    if purchase_price < 0 or years_owned < 0:
-        return {"error": "Invalid input values"}
-
-    total_operating_cost = fuel_cost + maintenance_cost + insurance_cost + taxes
-    total_cost = purchase_price + total_operating_cost - resale_value
-    annual_cost = total_cost / years_owned if years_owned > 0 else 0
-
-    return {
-        "purchase_price": purchase_price,
-        "years_owned": years_owned,
-        "fuel_cost": round(fuel_cost, 2),
-        "maintenance_cost": round(maintenance_cost, 2),
-        "insurance_cost": round(insurance_cost, 2),
-        "taxes": round(taxes, 2),
-        "resale_value": round(resale_value, 2),
-        "total_operating_cost": round(total_operating_cost, 2),
-        "total_cost": round(total_cost, 2),
-        "annual_cost": round(annual_cost, 2),
-        "cost_per_day": round(annual_cost / 365, 2) if years_owned > 0 else 0
-    }
-
+# ──────────────────────────────────────────────────────────────────
+# SERVICE ENDPOINTS - Core Calculation Services
+# ──────────────────────────────────────────────────────────────────
 
 @app.post("/api/service/mileage")
 def mileage():
-    """Calculate mileage cost"""
+    """
+    Calculate mileage and running cost
+    Used by: mileage.html
+    Expected payload:
+    {
+        "distance_km": 100,
+        "fuel_type": "petrol",
+        "fuel_consumption": 8,
+        "maintenance_per_km": 2,
+        "insurance": 5000,
+        "tax": 2000
+    }
+    """
     data = request.get_json() or {}
-
-    distance_km = data.get("distance_km")
-    if distance_km is None:
-        return jsonify({"error": "distance_km is required"}), 400
-
-    try:
-        distance_km = float(distance_km)
-        if distance_km <= 0:
-            raise ValueError
-    except ValueError:
-        return jsonify({"error": "distance_km must be a positive number"}), 400
-
-    result = calculate_mileage_cost(
-        distance_km=distance_km,
-        fuel_type=data.get("fuel_type", "petrol"),
-        fuel_consumption=data.get("fuel_consumption"),
-        maintenance_per_km=data.get("maintenance_per_km", 0),
-        insurance=data.get("insurance", 0),
-        tax=data.get("tax", 0)
-    )
-
-    return jsonify({"success": True, "data": result})
+    result = mileage_service.calculate(data)
+    
+    if "error" in result:
+        return jsonify(result), 400
+    
+    return jsonify({
+        "success": True,
+        "data": result,
+        "service": "mileage",
+        "timestamp": datetime.utcnow().isoformat()
+    })
 
 
 @app.post("/api/service/valuation")
 def valuation():
-    """Calculate vehicle valuation"""
+    """
+    Calculate vehicle instant valuation
+    Used by: instant-value.html
+    Expected payload:
+    {
+        "purchase_price": 5000000,
+        "age_years": 3,
+        "depreciation_rate": 0.15,
+        "condition": "Good",
+        "mileage": 45000,
+        "location": "Nairobi"
+    }
+    """
     data = request.get_json() or {}
-
-    purchase_price = data.get("purchase_price")
-    age_years = data.get("age_years")
-
-    if purchase_price is None:
-        return jsonify({"error": "purchase_price is required"}), 400
-    if age_years is None:
-        return jsonify({"error": "age_years is required"}), 400
-
-    try:
-        purchase_price = float(purchase_price)
-        age_years = float(age_years)
-        if purchase_price <= 0 or age_years < 0:
-            raise ValueError
-    except ValueError:
-        return jsonify({"error": "purchase_price must be positive and age_years must be non-negative"}), 400
-
-    result = calculate_vehicle_value(
-        purchase_price=purchase_price,
-        age_years=age_years,
-        depreciation_rate=data.get("depreciation_rate", 0.15)
-    )
-
+    result = valuation_service.calculate(data)
+    
     if "error" in result:
         return jsonify(result), 400
-
-    return jsonify({"success": True, "data": result})
+    
+    return jsonify({
+        "success": True,
+        "data": result,
+        "service": "valuation",
+        "timestamp": datetime.utcnow().isoformat()
+    })
 
 
 @app.post("/api/service/ownership")
 def ownership():
-    """Calculate ownership cost"""
+    """
+    Calculate total cost of vehicle ownership
+    Used by: ownership-cost.html
+    Expected payload (manual input):
+    {
+        "purchase_price": 5000000,
+        "years_owned": 5,
+        "fuel_cost": 360000,
+        "maintenance_cost": 120000,
+        "insurance_cost": 150000,
+        "taxes": 50000,
+        "resale_value": 2000000
+    }
+    OR (vehicle database):
+    {
+        "make": "toyota",
+        "model": "prado",
+        "years_owned": 5,
+        "annual_mileage": 20000,
+        "financed": true,
+        "down_pct": 30,
+        "interest_rate": 16,
+        "loan_term": 4,
+        "driving_locations": ["nairobi"]
+    }
+    """
     data = request.get_json() or {}
-
-    # Check if using vehicle database or manual input
-    make = data.get("make")
-    model = data.get("model")
-
-    if make and model:
-        # Use vehicle database
-        vehicle = get_vehicle_data(make, model)
-        if not vehicle:
-            return jsonify({"error": f"Vehicle '{make} {model}' not found"}), 404
-
-        base_price = vehicle.get("price", 0)
-        years_owned = data.get("years_owned", 5)
-        annual_mileage = data.get("annual_mileage", 20000)
-
-        # Calculate using vehicle data
-        result = calculate_ownership_cost(
-            purchase_price=base_price,
-            years_owned=years_owned,
-            fuel_cost=annual_mileage * 182 / vehicle.get("fuel_efficiency", 10),
-            maintenance_cost=annual_mileage * vehicle.get("maintenance_per_km", 10) * years_owned,
-            insurance_cost=base_price * 0.045 * years_owned,
-            taxes=5000 * years_owned,
-            resale_value=base_price * 0.3
-        )
-
-        if "error" in result:
-            return jsonify(result), 400
-
-        return jsonify({"success": True, "data": result})
-
-    else:
-        # Manual input
-        required_fields = ["purchase_price", "years_owned", "fuel_cost",
-                          "maintenance_cost", "insurance_cost", "taxes"]
-
-        missing_fields = [field for field in required_fields if data.get(field) is None]
-        if missing_fields:
-            return jsonify({
-                "error": f"Missing required fields: {', '.join(missing_fields)}"
-            }), 400
-
-        try:
-            purchase_price = float(data.get("purchase_price"))
-            years_owned = float(data.get("years_owned"))
-            fuel_cost = float(data.get("fuel_cost"))
-            maintenance_cost = float(data.get("maintenance_cost"))
-            insurance_cost = float(data.get("insurance_cost"))
-            taxes = float(data.get("taxes"))
-            resale_value = float(data.get("resale_value", 0))
-
-            if purchase_price < 0 or years_owned < 0:
-                raise ValueError
-        except ValueError:
-            return jsonify({"error": "All numeric fields must be valid positive numbers"}), 400
-
-        result = calculate_ownership_cost(
-            purchase_price=purchase_price,
-            years_owned=years_owned,
-            fuel_cost=fuel_cost,
-            maintenance_cost=maintenance_cost,
-            insurance_cost=insurance_cost,
-            taxes=taxes,
-            resale_value=resale_value
-        )
-
-        if "error" in result:
-            return jsonify(result), 400
-
-        return jsonify({"success": True, "data": result})
+    result = ownership_service.calculate(data)
+    
+    if "error" in result:
+        return jsonify(result), 400
+    
+    return jsonify({
+        "success": True,
+        "data": result,
+        "service": "ownership",
+        "timestamp": datetime.utcnow().isoformat()
+    })
 
 
-# ──────────────────────────────────────────────────────────────
-# M-PESA PAYMENT ENDPOINTS (Conditional)
-# ──────────────────────────────────────────────────────────────
-
-def get_client():
-    if not MPESA_AVAILABLE:
-        raise MpesaConfigError("M-Pesa module not available")
-    try:
-        return MpesaClient()
-    except MpesaConfigError as e:
-        logger.error(e)
-        raise
-
+# ──────────────────────────────────────────────────────────────────
+# HEALTH CHECK ENDPOINT
+# ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
 def health():
@@ -462,11 +316,30 @@ def health():
     return jsonify({
         "status": "ok",
         "service": "auto-d-backend",
-        "version": "2.0",
+        "version": "3.0",
+        "services": {
+            "mileage": "active",
+            "valuation": "active",
+            "ownership": "active"
+        },
         "vehicle_categories": get_categories(),
         "mpesa_available": MPESA_AVAILABLE,
         "timestamp": datetime.utcnow().isoformat()
     })
+
+
+# ──────────────────────────────────────────────────────────────────
+# M-PESA PAYMENT ENDPOINTS (Conditional)
+# ──────────────────────────────────────────────────────────────────
+
+def get_mpesa_client():
+    if not MPESA_AVAILABLE:
+        raise MpesaConfigError("M-Pesa module not available")
+    try:
+        return MpesaClient()
+    except MpesaConfigError as e:
+        logger.error(e)
+        raise
 
 
 @app.post("/api/mpesa/stkpush")
@@ -493,7 +366,7 @@ def stkpush():
         return jsonify({"error": "Invalid amount"}), 400
 
     try:
-        client = get_client()
+        client = get_mpesa_client()
         result = client.stk_push(
             phone_number=phone,
             amount=amount,
@@ -576,19 +449,13 @@ def payment_status(checkout_id):
     return jsonify(payment)
 
 
-# ──────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # MAIN
-# ──────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
-    app.run(
-        host="0.0.0.0",
-        port=port,
-        debug=False
-    )
-
-
-# For Gunicorn
-if __name__ != "__main__":
-    app.config["ENV"] = "production"
+    logger.info(f"🚀 Starting Auto-D Backend on port {port}")
+    logger.info(f"📡 Services: Mileage, Valuation, Ownership")
+    logger.info(f"🔌 M-Pesa: {'Available' if MPESA_AVAILABLE else 'Unavailable'}")
+    app.run(host="0.0.0.0", port=port, debug=False)
