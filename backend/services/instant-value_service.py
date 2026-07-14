@@ -6,6 +6,9 @@ This module provides vehicle valuation calculations based on:
 - Vehicle age, condition, mileage
 - Market data from Kenya
 - Depreciation rates by vehicle type
+
+Aligned with Flask backend API endpoints:
+POST /api/service/valuation
 """
 
 from typing import Dict, Any, Optional, List
@@ -24,6 +27,8 @@ class InstantValueService:
     - Vehicle condition (Excellent, Good, Fair, Poor)
     - Mileage and usage history
     - Location-based market adjustments
+    
+    Matches the backend's calculate_vehicle_value function format.
     """
     
     # ─── CONSTANTS ──────────────────────────────────────────────────
@@ -164,7 +169,7 @@ class InstantValueService:
             engine_capacity: Engine capacity in cc
             
         Returns:
-            Dict with valuation details including current value, depreciation, etc.
+            Dict with valuation details matching backend calculate_vehicle_value format
         """
         try:
             # Validate inputs
@@ -275,26 +280,27 @@ class InstantValueService:
         range_low = round(current_value * 0.85)
         range_high = round(current_value * 1.05)
         
+        # ─── MATCH BACKEND RESPONSE FORMAT ──────────────────────
+        # This matches the Flask backend's calculate_vehicle_value return
         return {
-            # Primary valuation results
+            # Primary valuation results - matches backend format
             "current_value": round(current_value, 2),
-            "market_value": round(current_value, 2),
-            "estimated_value": round(current_value, 2),
+            "market_value": round(current_value, 2),  # Alias for frontend
+            "estimated_value": round(current_value, 2),  # Alias for frontend
+            "purchase_price": purchase_price,
+            "age_years": age_years,
+            "base_depreciation_rate": base_rate,
+            "depreciation_rate": effective_rate,  # Matches backend key
+            "effective_depreciation_rate": round(effective_rate, 4),
+            "total_depreciation": round(total_depreciation, 2),
+            "value_retained": round(value_retained, 2),
+            
+            # Additional detailed breakdown
             "valuation_range": {
                 "low": range_low,
                 "high": range_high
             },
-            
-            # Depreciation details
-            "purchase_price": purchase_price,
-            "age_years": age_years,
-            "base_depreciation_rate": base_rate,
-            "effective_depreciation_rate": round(effective_rate, 4),
-            "total_depreciation": round(total_depreciation, 2),
-            "value_retained": round(value_retained, 2),
             "yearly_breakdown": yearly_breakdown,
-            
-            # Confidence and metadata
             "confidence_score": confidence_score,
             "valuation_method": "AI-powered market valuation",
             "timestamp": datetime.utcnow().isoformat(),
@@ -326,7 +332,8 @@ class InstantValueService:
                 "fuel_multiplier": fuel_multiplier,
                 "body_multiplier": body_multiplier,
                 "owner_multiplier": owner_multiplier,
-                "mileage_multiplier": mileage_multiplier
+                "mileage_multiplier": mileage_multiplier,
+                "effective_rate": round(effective_rate, 4)
             }
         }
     
@@ -416,7 +423,70 @@ class InstantValueService:
         return report
 
 
-# ─── HELPER FUNCTIONS ──────────────────────────────────────────
+# ─── API COMPATIBILITY FUNCTIONS ──────────────────────────────
+
+def calculate_vehicle_value_api(
+    purchase_price: float,
+    age_years: float,
+    depreciation_rate: float = 0.15,
+    condition: str = "Good",
+    mileage: float = 0,
+    location: str = "Nairobi"
+) -> Dict[str, Any]:
+    """
+    API-compatible valuation function for Flask backend.
+    
+    This matches the backend's calculate_vehicle_value function signature
+    and is used by the /api/service/valuation endpoint.
+    
+    Args:
+        purchase_price: Original purchase price
+        age_years: Age of vehicle in years
+        depreciation_rate: Base annual depreciation rate
+        condition: Vehicle condition (Excellent, Good, Fair, Poor)
+        mileage: Total mileage in km
+        location: Location in Kenya
+    
+    Returns:
+        Dict matching backend response format
+    """
+    service = InstantValueService()
+    
+    current_year = datetime.now().year
+    year = current_year - int(age_years)
+    
+    result = service.calculate_valuation(
+        purchase_price=purchase_price,
+        year=year,
+        make="Unknown",
+        model="Unknown",
+        vehicle_type="Car",
+        condition=condition,
+        mileage=mileage,
+        location=location,
+        accident_history="None",
+        usage_type="Personal",
+        transmission="Automatic",
+        fuel_type="Petrol",
+        body_type="SUV"
+    )
+    
+    if "error" in result:
+        return {"error": result["error"]}
+    
+    # Return simplified format matching backend
+    return {
+        "purchase_price": purchase_price,
+        "age_years": age_years,
+        "depreciation_rate": depreciation_rate,
+        "current_value": result.get("current_value", 0),
+        "total_depreciation": result.get("total_depreciation", 0),
+        "value_retained": result.get("value_retained", 0),
+        "confidence_score": result.get("confidence_score", 85),
+        "valuation_range": result.get("valuation_range", {"low": 0, "high": 0}),
+        "yearly_breakdown": result.get("yearly_breakdown", [])
+    }
+
 
 def get_valuation_for_frontend(
     purchase_price: float,
@@ -446,17 +516,77 @@ def get_valuation_for_frontend(
         location=location
     )
     
+    if "error" in result:
+        return {"error": result["error"]}
+    
     # Return simplified format for frontend
     return {
-        "current_value": result.get("current_value", 0),
-        "market_value": result.get("market_value", 0),
-        "estimated_value": result.get("estimated_value", 0),
-        "total_depreciation": result.get("total_depreciation", 0),
-        "value_retained": result.get("value_retained", 0),
-        "confidence_score": result.get("confidence_score", 85),
-        "valuation_range": result.get("valuation_range", {"low": 0, "high": 0}),
-        "yearly_breakdown": result.get("yearly_breakdown", [])
+        "success": True,
+        "data": {
+            "current_value": result.get("current_value", 0),
+            "market_value": result.get("market_value", 0),
+            "estimated_value": result.get("estimated_value", 0),
+            "total_depreciation": result.get("total_depreciation", 0),
+            "value_retained": result.get("value_retained", 0),
+            "confidence_score": result.get("confidence_score", 85),
+            "valuation_range": result.get("valuation_range", {"low": 0, "high": 0}),
+            "yearly_breakdown": result.get("yearly_breakdown", []),
+            "purchase_price": purchase_price,
+            "age_years": age_years,
+            "depreciation_rate": depreciation_rate
+        }
     }
+
+
+# ─── INTEGRATE WITH FLASK BACKEND ─────────────────────────────
+
+def register_with_app(app):
+    """
+    Register the instant value service with a Flask app.
+    
+    This adds the /api/service/valuation endpoint to the app.
+    """
+    from flask import request, jsonify
+    
+    @app.route('/api/service/valuation', methods=['POST'])
+    def valuation():
+        """Calculate vehicle valuation endpoint"""
+        data = request.get_json() or {}
+        
+        purchase_price = data.get("purchase_price")
+        age_years = data.get("age_years")
+        
+        if purchase_price is None:
+            return jsonify({"error": "purchase_price is required"}), 400
+        if age_years is None:
+            return jsonify({"error": "age_years is required"}), 400
+        
+        try:
+            purchase_price = float(purchase_price)
+            age_years = float(age_years)
+            if purchase_price <= 0 or age_years < 0:
+                raise ValueError
+        except ValueError:
+            return jsonify({"error": "purchase_price must be positive and age_years must be non-negative"}), 400
+        
+        depreciation_rate = data.get("depreciation_rate", 0.15)
+        condition = data.get("condition", "Good")
+        mileage = data.get("mileage", 0)
+        location = data.get("location", "Nairobi")
+        
+        result = calculate_vehicle_value_api(
+            purchase_price=purchase_price,
+            age_years=age_years,
+            depreciation_rate=depreciation_rate,
+            condition=condition,
+            mileage=mileage,
+            location=location
+        )
+        
+        if "error" in result:
+            return jsonify(result), 400
+        
+        return jsonify({"success": True, "data": result})
 
 
 # ─── EXAMPLE USAGE ─────────────────────────────────────────────
@@ -464,7 +594,11 @@ def get_valuation_for_frontend(
 if __name__ == "__main__":
     service = InstantValueService()
     
-    # Example: Toyota Prado valuation
+    # Example 1: Toyota Prado valuation (full)
+    print("=" * 60)
+    print("🚗 Example 1: Toyota Prado Valuation")
+    print("=" * 60)
+    
     result = service.calculate_valuation(
         purchase_price=5200000,
         year=2020,
@@ -483,19 +617,27 @@ if __name__ == "__main__":
         engine_capacity=2800
     )
     
-    print("=" * 60)
-    print("🚗 Auto-D Kenya - Instant Value Check")
-    print("=" * 60)
     print(f"Vehicle: {result['vehicle']['make']} {result['vehicle']['model']}")
-    print(f"Year: {result['vehicle']['year']}")
-    print(f"Condition: {result['vehicle']['condition']}")
-    print(f"Mileage: {result['vehicle']['mileage']:,} km")
+    print(f"Current Value: KES {result['current_value']:,.2f}")
+    print(f"Total Depreciation: KES {result['total_depreciation']:,.2f}")
+    print(f"Value Retained: {result['value_retained']:.1f}%")
+    print(f"Confidence: {result['confidence_score']}%")
     print("-" * 60)
-    print(f"💰 Current Market Value: KES {result['current_value']:,.2f}")
-    print(f"📉 Total Depreciation: KES {result['total_depreciation']:,.2f}")
-    print(f"📊 Value Retained: {result['value_retained']:.1f}%")
-    print(f"🎯 Confidence Score: {result['confidence_score']}%")
-    print(f"📍 Location: {result['vehicle']['location']}")
-    print(f"🔄 Previous Owners: {result['vehicle']['previous_owners']}")
-    print(f"📅 Valuation Date: {result['timestamp']}")
+    
+    # Example 2: API-compatible calculation
+    print("Example 2: API-Compatible Calculation")
+    print("-" * 60)
+    
+    api_result = calculate_vehicle_value_api(
+        purchase_price=5200000,
+        age_years=3,
+        depreciation_rate=0.15,
+        condition="Good",
+        mileage=45000,
+        location="Nairobi"
+    )
+    
+    print(f"Current Value: KES {api_result['current_value']:,.2f}")
+    print(f"Total Depreciation: KES {api_result['total_depreciation']:,.2f}")
+    print(f"Value Retained: {api_result['value_retained']:.1f}%")
     print("=" * 60)
