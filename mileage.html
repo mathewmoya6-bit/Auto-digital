@@ -1076,7 +1076,7 @@
             }
 
             // ─── Client-Side Calculation ────────────────────────────────
-            async function calculateClientSide(variant, distance) {
+            function calculateClientSide(variant, distance) {
                 if (!variant || !distance || distance <= 0) return null;
                 const fixedRate = parseFloat(variant.fixed_per_km) || 0;
                 const operatingRate = parseFloat(variant.operating_per_km) || 0;
@@ -1136,7 +1136,7 @@
 
                 elements.calcMethod.textContent = 'Client-side (fallback)';
                 setApiStatus('⚠️ Offline mode', false);
-                return await calculateClientSide(variant, distance);
+                return calculateClientSide(variant, distance);
             }
 
             // ─── UI Population ──────────────────────────────────────────
@@ -1431,47 +1431,50 @@
                     year: 'numeric', month: 'short', day: 'numeric'
                 });
 
-                try {
-                    console.log('🔄 Loading initial data...');
-                    // Check backend health
+                // ✅ FIX: Make the initialization function async
+                (async function initialize() {
                     try {
-                        const healthCheck = await fetch(`${CONFIG.API.BASE_URL}/api/health`);
-                        if (healthCheck.ok) {
-                            setApiStatus('● Connected to Flask API', true);
-                            console.log('✅ Backend is healthy');
-                        } else {
-                            setApiStatus('⚠️ Backend degraded, using fallback', false);
+                        console.log('🔄 Loading initial data...');
+                        // Check backend health
+                        try {
+                            const healthCheck = await fetch(`${CONFIG.API.BASE_URL}/api/health`);
+                            if (healthCheck.ok) {
+                                setApiStatus('● Connected to Flask API', true);
+                                console.log('✅ Backend is healthy');
+                            } else {
+                                setApiStatus('⚠️ Backend degraded, using fallback', false);
+                            }
+                        } catch (e) {
+                            setApiStatus('⚠️ Offline mode', false);
+                            console.log('⚠️ Backend unavailable, using fallback data');
                         }
-                    } catch (e) {
-                        setApiStatus('⚠️ Offline mode', false);
-                        console.log('⚠️ Backend unavailable, using fallback data');
-                    }
 
-                    categories = FALLBACK_DATA.categories;
-                    routes = FALLBACK_DATA.routes;
-                    populateCategories();
-                    renderRouteChips();
+                        categories = FALLBACK_DATA.categories;
+                        routes = FALLBACK_DATA.routes;
+                        populateCategories();
+                        renderRouteChips();
 
-                    if (categories.length > 0) {
-                        elements.categorySelect.value = categories[0].id;
-                        elements.categorySelect.dispatchEvent(new Event('change'));
-                    }
+                        if (categories.length > 0) {
+                            elements.categorySelect.value = categories[0].id;
+                            elements.categorySelect.dispatchEvent(new Event('change'));
+                        }
 
-                    setTimeout(() => { computeAndRender(); }, 500);
-                    console.log('✅ Application initialized');
-                } catch (error) {
-                    console.error('❌ Initialization error:', error);
-                    setApiStatus('⚠️ Failed to load data', false);
-                    showToast('Using fallback data', 'error');
-                    categories = FALLBACK_DATA.categories;
-                    routes = FALLBACK_DATA.routes;
-                    populateCategories();
-                    renderRouteChips();
-                    if (categories.length > 0) {
-                        elements.categorySelect.value = categories[0].id;
-                        elements.categorySelect.dispatchEvent(new Event('change'));
+                        setTimeout(() => { computeAndRender(); }, 500);
+                        console.log('✅ Application initialized');
+                    } catch (error) {
+                        console.error('❌ Initialization error:', error);
+                        setApiStatus('⚠️ Failed to load data', false);
+                        showToast('Using fallback data', 'error');
+                        categories = FALLBACK_DATA.categories;
+                        routes = FALLBACK_DATA.routes;
+                        populateCategories();
+                        renderRouteChips();
+                        if (categories.length > 0) {
+                            elements.categorySelect.value = categories[0].id;
+                            elements.categorySelect.dispatchEvent(new Event('change'));
+                        }
                     }
-                }
+                })();
             }
 
             // ─── Start ──────────────────────────────────────────────────
