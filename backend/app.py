@@ -42,35 +42,7 @@ import secrets
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import threading
-
-# ─── Import Services ──────────────────────────────────────────────
-from services.mileage_service import MileageService
-from services.valuation_service import ValuationService
-from services.ownership_service import OwnershipService
-
-# ─── Import Vehicle Data ──────────────────────────────────────────
-from vehicle_data import (
-    VEHICLE_DATABASE,
-    get_all_makes,
-    get_models_for_make,
-    get_vehicle_data,
-    get_categories,
-    get_makes_by_category,
-    search_vehicles,
-    get_vehicle_price
-)
-
-# ─── Import M-Pesa (if available) ──────────────────────────────────
-try:
-    from mpesa import (
-        MpesaAPIError,
-        MpesaClient,
-        MpesaConfigError
-    )
-    MPESA_AVAILABLE = True
-except ImportError:
-    MPESA_AVAILABLE = False
-    logging.warning("M-Pesa module not available - M-Pesa endpoints disabled")
+import sys
 
 # ─── Load Environment ──────────────────────────────────────────────
 load_dotenv()
@@ -81,6 +53,71 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("auto-d-backend")
+
+# ─── Import Services (with fallback for missing modules) ──────────
+try:
+    from services.mileage_service import MileageService
+    logger.info("✅ MileageService imported successfully")
+except ImportError as e:
+    logger.warning(f"⚠️ MileageService import failed: {e}")
+    MileageService = None
+
+try:
+    from services.valuation_service import ValuationService
+    logger.info("✅ ValuationService imported successfully")
+except ImportError as e:
+    logger.warning(f"⚠️ ValuationService import failed: {e}")
+    ValuationService = None
+
+# ─── Import OwnershipService with fallback ──────────────────────
+try:
+    from services.ownership_service import OwnershipService
+    logger.info("✅ OwnershipService imported successfully")
+except ImportError as e:
+    logger.warning(f"⚠️ OwnershipService (class) import failed: {e}")
+    try:
+        from services.ownership_service import ownership_service as OwnershipService
+        logger.info("✅ ownership_service (function) imported as fallback")
+    except ImportError as e2:
+        logger.warning(f"⚠️ ownership_service fallback import failed: {e2}")
+        OwnershipService = None
+
+# ─── Import Vehicle Data ──────────────────────────────────────────
+try:
+    from vehicle_data import (
+        VEHICLE_DATABASE,
+        get_all_makes,
+        get_models_for_make,
+        get_vehicle_data,
+        get_categories,
+        get_makes_by_category,
+        search_vehicles,
+        get_vehicle_price
+    )
+    logger.info("✅ Vehicle data imported successfully")
+except ImportError as e:
+    logger.warning(f"⚠️ Vehicle data import failed: {e}")
+    VEHICLE_DATABASE = {}
+    get_all_makes = lambda: []
+    get_models_for_make = lambda x: []
+    get_vehicle_data = lambda x, y: None
+    get_categories = lambda: []
+    get_makes_by_category = lambda x: []
+    search_vehicles = lambda x: []
+    get_vehicle_price = lambda x, y: None
+
+# ─── Import M-Pesa (if available) ──────────────────────────────────
+try:
+    from mpesa import (
+        MpesaAPIError,
+        MpesaClient,
+        MpesaConfigError
+    )
+    MPESA_AVAILABLE = True
+    logger.info("✅ M-Pesa module imported successfully")
+except ImportError:
+    MPESA_AVAILABLE = False
+    logger.warning("⚠️ M-Pesa module not available - M-Pesa endpoints disabled")
 
 # ─── Flask App ────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -102,12 +139,35 @@ CORS(
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
 
-# ─── Initialize Services ──────────────────────────────────────────
-mileage_service = MileageService()
-valuation_service = ValuationService()
-ownership_service = OwnershipService()
+# ─── Initialize Services (with fallback) ──────────────────────────
+if MileageService:
+    mileage_service = MileageService()
+else:
+    mileage_service = None
+    logger.warning("⚠️ MileageService not available")
 
-logger.info("✅ Services initialized: Mileage, Valuation, Ownership")
+if ValuationService:
+    valuation_service = ValuationService()
+else:
+    valuation_service = None
+    logger.warning("⚠️ ValuationService not available")
+
+if OwnershipService:
+    # Check if it's a class or function
+    if callable(OwnershipService) and not isinstance(OwnershipService, type):
+        # It's a function, not a class
+        ownership_service = OwnershipService
+    else:
+        try:
+            ownership_service = OwnershipService()
+        except TypeError:
+            # It's a function
+            ownership_service = OwnershipService
+else:
+    ownership_service = None
+    logger.warning("⚠️ OwnershipService not available")
+
+logger.info("✅ Services initialized")
 
 # ─── Temporary Storage ──────────────────────────────────────────
 transactions = {}
@@ -262,6 +322,9 @@ def get_vehicle_price_endpoint(make, model):
 @app.post("/api/service/mileage")
 def mileage():
     """Calculate mileage and running cost"""
+    if not mileage_service:
+        return jsonify({"error": "Mileage service unavailable"}), 503
+    
     data = request.get_json() or {}
     result = mileage_service.calculate(data)
     
@@ -278,6 +341,9 @@ def mileage():
 @app.post("/api/service/valuation")
 def valuation():
     """Calculate vehicle instant valuation"""
+    if not valuation_service:
+        return jsonify({"error": "Valuation service unavailable"}), 503
+    
     data = request.get_json() or {}
     result = valuation_service.calculate(data)
     
@@ -294,8 +360,21 @@ def valuation():
 @app.post("/api/service/ownership")
 def ownership():
     """Calculate total cost of vehicle ownership"""
+    if not ownership_service:
+        return jsonify({"error": "Ownership service unavailable"}), 503
+    
     data = request.get_json() or {}
-    result = ownership_service.calculate(data)
+    
+    # Handle both class and function cases
+    if callable(ownership_service):
+        if isinstance(ownership_service, type):
+            # It's a class
+            result = ownership_service().calculate(data)
+        else:
+            # It's a function
+            result = ownership_service(data)
+    else:
+        result = ownership_service.calculate(data)
     
     if "error" in result:
         return jsonify(result), 400
@@ -387,7 +466,6 @@ def admin_validate():
 @admin_required
 def admin_stats():
     """Get dashboard statistics"""
-    # In production, fetch from database
     return jsonify({
         "success": True,
         "data": {
@@ -607,9 +685,9 @@ def health():
         "service": "auto-d-backend",
         "version": "3.1.0",
         "services": {
-            "mileage": "active",
-            "valuation": "active",
-            "ownership": "active"
+            "mileage": "active" if mileage_service else "unavailable",
+            "valuation": "active" if valuation_service else "unavailable",
+            "ownership": "active" if ownership_service else "unavailable"
         },
         "vehicle_categories": get_categories(),
         "mpesa_available": MPESA_AVAILABLE,
