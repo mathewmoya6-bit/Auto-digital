@@ -1076,8 +1076,8 @@
             // ─── API CONFIGURATION ──────────────────────────────────
             const API_BASE = 'https://auto-digital.onrender.com';
             const API_ENDPOINTS = {
-                VALUATION: '/api/service/valuation',
-                HEALTH: '/api/health'
+                VALUATION: '/api/valuation/calculate',
+                HEALTH: '/api/valuation/health'
             };
 
             // ─── PHOTO REQUIREMENTS BY VEHICLE TYPE ────────────────
@@ -1775,10 +1775,21 @@
 
             // ─── CALL BACKEND API ──────────────────────────────────
             async function callValuationAPI(formData) {
+                // Payload aligned with ValuationService.calculate() / ValuationEngine.calculate_value()
+                // Required: purchase_price, age_years. Everything else lets the engine apply its
+                // full multiplier stack (condition, mileage, location, accident history, ownership)
+                // instead of the client-side flat depreciation guess.
                 const payload = {
-                    purchase_price: formData.purchase_price || 3000000,
-                    age_years: new Date().getFullYear() - formData.year,
-                    depreciation_rate: formData.depreciation_rate || 0.15
+                    purchase_price: formData.purchase_price,
+                    age_years: formData.age_years,
+                    vehicle_type: formData.type,
+                    make: formData.make,
+                    model: formData.model,
+                    condition: formData.condition,
+                    mileage: formData.mileage,
+                    location: formData.location,
+                    accident_history: formData.accident_history,
+                    previous_owners: formData.previous_owners
                 };
 
                 const response = await fetch(`${API_BASE}${API_ENDPOINTS.VALUATION}`, {
@@ -1791,8 +1802,9 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Valuation failed');
+                    let errorData = {};
+                    try { errorData = await response.json(); } catch (e) {}
+                    throw new Error(errorData.message || errorData.error || `Valuation failed (${response.status})`);
                 }
 
                 return await response.json();
@@ -1819,9 +1831,18 @@
             function showResult(data) {
                 const resultData = data.data || data;
                 const marketValue = resultData.current_value || resultData.estimated_value || 0;
-                const rangeMin = Math.round(marketValue * 0.88);
-                const rangeMax = Math.round(marketValue * 1.05);
-                const confidence = Math.min(95, Math.max(65, 85 - (Math.random() * 10)));
+                const rangeMin = resultData.valuation_range?.min ?? Math.round(marketValue * 0.88);
+                const rangeMax = resultData.valuation_range?.max ?? Math.round(marketValue * 1.05);
+
+                // Use the backend's confidence_score when present (accepts either a 0-1
+                // fraction or a 0-100 integer), falling back to a sane default otherwise.
+                let confidence = resultData.confidence_score;
+                if (typeof confidence !== 'number' || Number.isNaN(confidence)) {
+                    confidence = 80;
+                } else if (confidence <= 1) {
+                    confidence = confidence * 100;
+                }
+                confidence = Math.min(98, Math.max(50, Math.round(confidence)));
 
                 const el = document.getElementById('resultMarketValue');
                 el.textContent = 'KES 0';
@@ -1834,7 +1855,7 @@
                     el.textContent = `KES ${current.toLocaleString()}`;
                 }, 30);
 
-                document.getElementById('resultRange').textContent = `KES ${rangeMin.toLocaleString()} - ${rangeMax.toLocaleString()}`;
+                document.getElementById('resultRange').textContent = `KES ${Math.round(rangeMin).toLocaleString()} - ${Math.round(rangeMax).toLocaleString()}`;
                 document.getElementById('resultVehicle').textContent = `${makeSelect.value} ${modelSelect.value}`;
                 document.getElementById('resultYear').textContent = document.getElementById('year').value;
                 document.getElementById('resultEngine').textContent = `${engineCapacitySelect.value}cc`;
