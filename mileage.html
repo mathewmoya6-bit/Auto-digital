@@ -316,6 +316,32 @@
         .chip:hover { border-color: var(--amber); color: var(--amber); background: rgba(234, 179, 8, 0.08); }
         .chip .km-badge { font-size: 7px; opacity: 0.6; margin-left: 3px; }
 
+        /* ─── Toggle Group ──────────────────────────────────────────── */
+        .toggle-group {
+            display: flex;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .toggle-btn {
+            flex: 1;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 10px;
+            font-weight: 600;
+            padding: 6px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .toggle-btn.active {
+            background: rgba(234,179,8,0.12);
+            border-color: rgba(234,179,8,0.4);
+            color: var(--amber);
+        }
+        .financed-fields { display: none; padding-top: 4px; }
+        .financed-fields.show { display: block; }
+
         .calc-btn {
             width: 100%;
             padding: 12px;
@@ -757,6 +783,17 @@
             to { opacity: 1; transform: translateX(0); }
         }
 
+        /* ─── Disclaimer ────────────────────────────────────────────── */
+        .disclaimer {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 12px;
+            padding: 8px 12px;
+            border-top: 1px solid var(--border);
+            line-height: 1.5;
+        }
+        .disclaimer strong { color: var(--amber); }
+
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
             .report-header { padding: 20px 18px; flex-direction: column; }
@@ -782,7 +819,7 @@
         }
 
         @media print {
-            .calculator-panel, .action-bar, .report-footer, .back-link-wrap { display: none !important; }
+            .calculator-panel, .action-bar, .report-footer { display: none !important; }
             .result-card { background: #fff !important; border-color: #ddd !important; }
             .result-card .card-title { color: #b8860b !important; }
             .trip-total { background: #f5f5f5 !important; }
@@ -813,6 +850,7 @@
             .header-right .status { display: none; }
             .metrics-grid { display: block !important; }
             .rci-display, .health-score { margin-bottom: 10px; }
+            .disclaimer { display: none; }
         }
     </style>
 </head>
@@ -887,8 +925,8 @@
                         <label for="variantSelect" style="margin-bottom:0;">Engine / Class</label>
                         <div class="all-classes-toggle">
                             <label for="showAllClasses">
-                                <input type="checkbox" id="showAllClasses" />
-                                <span>Show All</span>
+                                <input type="checkbox" id="showAllClasses" checked />
+                                <span>Show <strong>All</strong> Variants</span>
                             </label>
                         </div>
                     </div>
@@ -967,12 +1005,44 @@
                     </select>
                 </div>
 
+                <!-- ─── Purchase Type ────────────────────────────────── -->
+                <div class="panel-label"><span class="num">03</span> Purchase Type</div>
+
+                <div class="form-group">
+                    <label>How are you buying?</label>
+                    <div class="toggle-group">
+                        <button type="button" class="toggle-btn active" id="btnCash">💰 Cash Purchase</button>
+                        <button type="button" class="toggle-btn" id="btnFinanced">🏦 Financed / Loan</button>
+                    </div>
+                </div>
+                <div class="financed-fields" id="financedFields">
+                    <div class="form-group">
+                        <label>Down payment <span class="val" id="valDown">30%</span></label>
+                        <input type="range" id="downPct" min="5" max="70" step="5" value="30" />
+                    </div>
+                    <div class="form-group">
+                        <label>Interest rate (annual) <span class="val" id="valRate">16%</span></label>
+                        <input type="range" id="rate" min="8" max="28" step="0.5" value="16" />
+                    </div>
+                    <div class="form-group">
+                        <label>Loan term <span class="val" id="valTerm">4 years</span></label>
+                        <input type="range" id="term" min="1" max="7" step="1" value="4" />
+                    </div>
+                </div>
+
                 <div class="quick-routes">
                     <p class="quick-routes-title">📌 Quick Routes</p>
                     <div class="route-chips" id="routeChips"></div>
                 </div>
 
                 <button class="calc-btn" id="calculateBtn">🚀 Calculate Mileage Rate</button>
+
+                <!-- ─── Disclaimer ────────────────────────────────────── -->
+                <div class="disclaimer">
+                    ⚠️ <strong>Disclaimer:</strong> All figures are estimates based on typical Kenyan market rates as of 2026. 
+                    Actual costs vary by make, model, dealer, insurer, and driving conditions. 
+                    Use this as a planning guide only — <strong>not financial advice</strong>.
+                </div>
             </section>
 
             <!-- ─── Results Panel ────────────────────────────────────── -->
@@ -1109,6 +1179,15 @@
                         <button class="action-btn" id="exportFullBtn">📋 JSON</button>
                     </div>
                 </div>
+
+                <!-- Disclaimer in results -->
+                <div class="result-card" style="border-color: rgba(239, 68, 68, 0.2);">
+                    <div style="font-size:10px;color:var(--text-muted);line-height:1.6;">
+                        ⚠️ <strong style="color:var(--amber);">Disclaimer:</strong> All figures are estimates based on typical Kenyan market rates as of 2026. 
+                        Actual costs vary by make, model, dealer, insurer, and driving conditions. 
+                        Use this as a planning guide only — <strong style="color:var(--amber);">not financial advice</strong>.
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1133,11 +1212,9 @@
                     BASE_URL: 'https://auto-digital.onrender.com',
                     ENDPOINTS: {
                         MILEAGE: '/api/service/mileage',
-                        MILEAGE_HEALTH: '/api/service/mileage/health',
-                        ADMIN_FUEL: '/api/admin/fuel'
+                        MILEAGE_HEALTH: '/api/service/mileage/health'
                     },
-                    TIMEOUT: 5000,
-                    ADMIN_TOKEN: null
+                    TIMEOUT: 12000  // Increased for Render cold starts
                 },
                 ECONOMIC: {
                     FUEL_PRICE_PETROL: 214.03,
@@ -1215,7 +1292,13 @@
                 rciLabel: document.getElementById('rciLabel'),
                 envGrid: document.getElementById('envGrid'),
                 recList: document.getElementById('recList'),
-                lastUpdated: document.getElementById('lastUpdated')
+                lastUpdated: document.getElementById('lastUpdated'),
+                btnCash: document.getElementById('btnCash'),
+                btnFinanced: document.getElementById('btnFinanced'),
+                financedFields: document.getElementById('financedFields'),
+                downPct: document.getElementById('downPct'),
+                rate: document.getElementById('rate'),
+                term: document.getElementById('term')
             };
 
             // ─── State ──────────────────────────────────────────────────
@@ -1228,6 +1311,8 @@
             let isInitialized = false;
             let currentResult = null;
             let fuelPrices = {};
+            let isFinanced = false;
+            let debounceTimer = null;
 
             // ─── Helpers ─────────────────────────────────────────────────
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
@@ -1243,6 +1328,14 @@
             function formatNumber(val) {
                 if (val === undefined || val === null || isNaN(val)) return '0';
                 return Number(val).toLocaleString('en-KE');
+            }
+
+            // ─── Sanitize HTML ──────────────────────────────────────────
+            function escapeHTML(str) {
+                if (!str) return '';
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
             }
 
             function showToast(message, type = 'info') {
@@ -1274,36 +1367,41 @@
                 return bands['10+'];
             }
 
-            // ─── Fetch Fuel Prices from Admin ──────────────────────────
+            // ─── Validate Inputs ───────────────────────────────────────
+            function validateInputs(distance, annualKm, fuelPrice) {
+                if (distance <= 0) {
+                    showToast('Please enter a valid distance greater than 0', 'error');
+                    return false;
+                }
+                if (annualKm <= 0) {
+                    showToast('Please enter a valid annual mileage', 'error');
+                    return false;
+                }
+                if (fuelPrice <= 0) {
+                    showToast('Please enter a valid fuel price', 'error');
+                    return false;
+                }
+                return true;
+            }
+
+            // ─── Fetch Fuel Prices ─────────────────────────────────────
             async function fetchFuelPrices() {
                 try {
-                    const response = await fetch(`${CONFIG.API.BASE_URL}${CONFIG.API.ENDPOINTS.ADMIN_FUEL}`, {
-                        headers: {
-                            'Authorization': `Bearer ${CONFIG.API.ADMIN_TOKEN || ''}`
-                        }
-                    });
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.success && data.data) {
-                            fuelPrices = data.data;
-                            if (fuelPrices.petrol && fuelPrices.petrol.price) {
-                                const price = fuelPrices.petrol.price;
-                                elements.fuelPriceInput.value = price;
-                                CONFIG.ECONOMIC.FUEL_PRICE_PETROL = price;
-                                elements.fuelPriceDisplay.textContent = `Petrol: KES ${price.toFixed(2)}`;
-                            }
-                            if (fuelPrices.diesel && fuelPrices.diesel.price) {
-                                CONFIG.ECONOMIC.FUEL_PRICE_DIESEL = fuelPrices.diesel.price;
-                            }
-                            if (fuelPrices.lpg && fuelPrices.lpg.price) {
-                                CONFIG.ECONOMIC.FUEL_PRICE_LPG = fuelPrices.lpg.price;
-                            }
-                            if (fuelPrices.electric && fuelPrices.electric.price) {
-                                CONFIG.ECONOMIC.FUEL_PRICE_ELECTRIC = fuelPrices.electric.price;
+                    // Try health endpoint first (public)
+                    const healthResponse = await fetch(`${CONFIG.API.BASE_URL}${CONFIG.API.ENDPOINTS.MILEAGE_HEALTH}`);
+                    if (healthResponse.ok) {
+                        const data = await healthResponse.json();
+                        if (data.fuel_prices) {
+                            const prices = data.fuel_prices;
+                            if (prices.petrol) {
+                                elements.fuelPriceInput.value = prices.petrol;
+                                CONFIG.ECONOMIC.FUEL_PRICE_PETROL = prices.petrol;
+                                elements.fuelPriceDisplay.textContent = `Petrol: KES ${prices.petrol.toFixed(2)}`;
                             }
                             return true;
                         }
                     }
+                    // Fallback to default
                     elements.fuelPriceDisplay.textContent = `Petrol: KES ${CONFIG.ECONOMIC.FUEL_PRICE_PETROL.toFixed(2)}`;
                     return false;
                 } catch (e) {
@@ -1355,7 +1453,8 @@
                     drivingStyle,
                     tripType,
                     usageType,
-                    year
+                    year,
+                    financed
                 } = inputs;
 
                 if (!variant || !distance || distance <= 0) return null;
@@ -1460,23 +1559,31 @@
                 const depreciationAnnual = depreciationPerKm * annual;
                 const depreciationMonthly = depreciationPerKm * monthlyKm;
 
+                // ─── Financing Logic ──────────────────────────────────
                 let loanAmount = variant.loan_amount || purchasePrice * 0.8;
-                let financingTrip, financingAnnual, financingMonthly, financingPerKm;
+                let financingTrip = 0, financingAnnual = 0, financingMonthly = 0, financingPerKm = 0;
                 
-                if (usageType === 'private' && !variant.loan_amount) {
-                    const opportunityRate = 0.10;
-                    const interestAnnual = purchasePrice * opportunityRate;
+                if (financed) {
+                    // User selected financed - use interest rate
+                    const downPct = num(elements.downPct.value) / 100 || 0.3;
+                    const interestRate = num(elements.rate.value) / 100 || 0.16;
+                    const loanTerm = num(elements.term.value) || 4;
+                    const loanBalance = purchasePrice * (1 - downPct);
+                    const interestAnnual = loanBalance * interestRate;
                     financingPerKm = interestAnnual / annual;
                     financingTrip = financingPerKm * d;
                     financingAnnual = interestAnnual;
                     financingMonthly = interestAnnual / 12;
                 } else {
-                    const interestRate = CONFIG.ECONOMIC.INTEREST_RATE;
-                    const interestAnnual = loanAmount * interestRate;
-                    financingPerKm = interestAnnual / annual;
-                    financingTrip = financingPerKm * d;
-                    financingAnnual = interestAnnual;
-                    financingMonthly = interestAnnual / 12;
+                    // Cash purchase - only opportunity cost for private owners
+                    if (usageType === 'private') {
+                        const opportunityRate = 0.10;
+                        const interestAnnual = purchasePrice * opportunityRate;
+                        financingPerKm = interestAnnual / annual;
+                        financingTrip = financingPerKm * d;
+                        financingAnnual = interestAnnual;
+                        financingMonthly = interestAnnual / 12;
+                    }
                 }
 
                 let feesAnnual = variant.tax_annual || 8000;
@@ -1592,10 +1699,11 @@
                     case 'electric': co2Factor = CONFIG.ECONOMIC.CO2_ELECTRIC; break;
                     default: co2Factor = CONFIG.ECONOMIC.CO2_PETROL;
                 }
-                const co2PerKm = co2Factor / actualConsumption;
-                const co2Trip = co2PerKm * d;
-                const co2Annual = co2PerKm * annual;
-                const treesToOffset = co2Annual / 20;
+                // CO2 in kg/km, display as g/km in UI (multiply by 1000)
+                const co2PerKm = (co2Factor / actualConsumption) * 1000;
+                const co2Trip = co2PerKm * d / 1000; // kg
+                const co2Annual = co2PerKm * annual / 1000; // kg
+                const treesToOffset = (co2Annual / 1000) / 20; // trees per year
 
                 const recommendations = [];
 
@@ -1783,7 +1891,8 @@
                     insurance: variant.insurance_annual || 60000,
                     tax: variant.tax_annual || 8000,
                     initial_cost: variant.initial_cost || 0,
-                    current_value: variant.current_value || 0
+                    current_value: variant.current_value || 0,
+                    financed: inputs.financed || false
                 };
 
                 try {
@@ -1808,19 +1917,26 @@
 
             // ─── Render Results ─────────────────────────────────────────
             function renderResults(result, variant) {
+                // Use textContent for security
                 elements.vehicleLabel.textContent = variant.label || 'Unnamed variant';
                 elements.fuelPill.textContent = result.fuelTypeDisplay || '—';
-                elements.vehicleSpecs.innerHTML = `
-                    <span class="spec-item">💰 <span class="spec-value">KES ${formatCurrency(result.initialCost)}</span></span>
-                    <span class="spec-item">📅 <span class="spec-value">${result.age} years old</span></span>
-                    <span class="spec-item">⚡ <span class="spec-value">${formatNumber(result.fuelConsumption)} ${result.fuelType === 'electric' ? 'kWh/100km' : 'km/L'}</span></span>
-                    <span class="spec-item">📊 <span class="spec-value">${formatNumber(result.annualKm)} km/year</span></span>
-                    <span class="spec-item">🏷️ <span class="spec-value">${result.usageType.replace('_', ' ').toUpperCase()}</span></span>
-                `;
+                
+                // Build specs with textContent
+                const specItems = [
+                    { label: '💰', value: `KES ${formatCurrency(result.initialCost)}` },
+                    { label: '📅', value: `${result.age} years old` },
+                    { label: '⚡', value: `${formatNumber(result.fuelConsumption)} ${result.fuelType === 'electric' ? 'kWh/100km' : 'km/L'}` },
+                    { label: '📊', value: `${formatNumber(result.annualKm)} km/year` },
+                    { label: '🏷️', value: result.usageType.replace('_', ' ').toUpperCase() }
+                ];
+                elements.vehicleSpecs.innerHTML = specItems.map(item => 
+                    `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
+                ).join('');
 
                 elements.tripTotal.textContent = formatCurrency(result.tripTotal);
                 elements.tripSub.textContent = `at ${formatCurrency(result.tripCostPerKm)} KES/km over ${formatNumber(result.distance)} km`;
 
+                // Trip Components - sanitized
                 let tripHtml = '';
                 const tripComponents = result.tripComponents || {};
                 Object.entries(tripComponents).forEach(([key, data]) => {
@@ -1828,19 +1944,20 @@
                     const cls = typeof data === 'object' ? (data.class || '') : '';
                     tripHtml += `
                         <div class="cost-item">
-                            <span class="label">${key}</span>
-                            <span class="value ${cls}">KES ${formatCurrency(value)}</span>
+                            <span class="label">${escapeHTML(key)}</span>
+                            <span class="value ${escapeHTML(cls)}">KES ${escapeHTML(formatCurrency(value))}</span>
                         </div>
                     `;
                 });
                 tripHtml += `
                     <div class="cost-item total-item" style="grid-column: 1 / -1;">
                         <span class="label">TOTAL</span>
-                        <span class="value" style="color:var(--amber);">KES ${formatCurrency(result.tripTotal)}</span>
+                        <span class="value" style="color:var(--amber);">KES ${escapeHTML(formatCurrency(result.tripTotal))}</span>
                     </div>
                 `;
                 elements.tripCostGrid.innerHTML = tripHtml;
 
+                // Per km - sanitized
                 let perkmHtml = '';
                 const perkm = result.perkmComponents || {};
                 Object.entries(perkm).forEach(([key, value]) => {
@@ -1850,49 +1967,50 @@
                                      key === 'Tyres' ? 'blue' : 'red';
                     perkmHtml += `
                         <div class="perkm-item">
-                            <span class="label">${key}</span>
-                            <span class="value ${colorClass}">KES ${formatCurrency(value)}</span>
+                            <span class="label">${escapeHTML(key)}</span>
+                            <span class="value ${escapeHTML(colorClass)}">KES ${escapeHTML(formatCurrency(value))}</span>
                         </div>
                     `;
                 });
                 perkmHtml += `
                     <div class="perkm-item" style="border-color:var(--amber);background:rgba(234,179,8,0.05);grid-column:1/-1;">
                         <span class="label" style="font-weight:700;color:var(--amber);">TOTAL</span>
-                        <span class="value" style="font-weight:700;color:var(--amber);">KES ${formatCurrency(result.tripCostPerKm)}</span>
+                        <span class="value" style="font-weight:700;color:var(--amber);">KES ${escapeHTML(formatCurrency(result.tripCostPerKm))}</span>
                     </div>
                 `;
                 elements.perkmGrid.innerHTML = perkmHtml;
 
+                // Commercial - sanitized
                 elements.commercialGrid.innerHTML = `
                     <div class="commercial-card">
                         <div class="commercial-label">Private Owner</div>
-                        <div class="commercial-value"><span class="currency">KES</span> ${formatCurrency(result.privateCost)} <span style="font-size:11px;color:var(--text-muted);">/km</span></div>
+                        <div class="commercial-value"><span class="currency">KES</span> ${escapeHTML(formatCurrency(result.privateCost))} <span style="font-size:11px;color:var(--text-muted);">/km</span></div>
                         <div class="commercial-sub">Actual ownership cost</div>
                     </div>
                     <div class="commercial-card highlight">
                         <div class="commercial-label">Recommended Charge</div>
-                        <div class="commercial-value"><span class="currency">KES</span> ${formatCurrency(result.recommendedRate)} <span style="font-size:11px;color:var(--text-muted);">/km</span></div>
+                        <div class="commercial-value"><span class="currency">KES</span> ${escapeHTML(formatCurrency(result.recommendedRate))} <span style="font-size:11px;color:var(--text-muted);">/km</span></div>
                         <div class="commercial-sub">${Math.round(CONFIG.ECONOMIC.PROFIT_MARGIN * 100)}% margin</div>
                     </div>
                     <div class="commercial-card">
                         <div class="commercial-label">Business/Fleet</div>
-                        <div class="commercial-value"><span class="currency">KES</span> ${formatCurrency(result.fleetCost)} <span style="font-size:11px;color:var(--text-muted);">/km</span></div>
+                        <div class="commercial-value"><span class="currency">KES</span> ${escapeHTML(formatCurrency(result.fleetCost))} <span style="font-size:11px;color:var(--text-muted);">/km</span></div>
                         <div class="commercial-sub">Includes overhead</div>
                     </div>
                     <div class="commercial-card">
                         <div class="commercial-label">Taxi/Uber/Bolt</div>
-                        <div class="commercial-value"><span class="currency">KES</span> ${formatCurrency(result.taxiRate)} <span style="font-size:11px;color:var(--text-muted);">/km</span></div>
+                        <div class="commercial-value"><span class="currency">KES</span> ${escapeHTML(formatCurrency(result.taxiRate))} <span style="font-size:11px;color:var(--text-muted);">/km</span></div>
                         <div class="commercial-sub">Minimum profitable</div>
                     </div>
                     <div class="commercial-card">
                         <div class="commercial-label">Delivery Per Parcel</div>
-                        <div class="commercial-value"><span class="currency">KES</span> ${formatCurrency(result.deliveryPerParcel)}</div>
+                        <div class="commercial-value"><span class="currency">KES</span> ${escapeHTML(formatCurrency(result.deliveryPerParcel))}</div>
                         <div class="commercial-sub">15km average delivery</div>
                     </div>
                     <div class="commercial-card">
                         <div class="commercial-label">Current Value</div>
-                        <div class="commercial-value"><span class="currency">KES</span> ${formatCurrency(result.currentValue)}</div>
-                        <div class="commercial-sub">${result.age} years old</div>
+                        <div class="commercial-value"><span class="currency">KES</span> ${escapeHTML(formatCurrency(result.currentValue))}</div>
+                        <div class="commercial-sub">${escapeHTML(result.age)} years old</div>
                     </div>
                 `;
 
@@ -1901,78 +2019,82 @@
                 elements.rciStars.textContent = result.rciStars || '—';
                 elements.rciLabel.textContent = result.rciLabel || '—';
 
+                // Monthly - sanitized
                 let monthlyHtml = '';
                 const monthly = result.monthlyComponents || {};
                 Object.entries(monthly).forEach(([key, value]) => {
                     monthlyHtml += `
                         <div class="cost-item">
-                            <span class="label">${key}</span>
-                            <span class="value">KES ${formatCurrency(value)}</span>
+                            <span class="label">${escapeHTML(key)}</span>
+                            <span class="value">KES ${escapeHTML(formatCurrency(value))}</span>
                         </div>
                     `;
                 });
                 monthlyHtml += `
                     <div class="cost-item total-item" style="grid-column:1/-1;">
                         <span class="label">Monthly Total</span>
-                        <span class="value" style="color:var(--amber);">KES ${formatCurrency(result.monthlyTotal)}</span>
+                        <span class="value" style="color:var(--amber);">KES ${escapeHTML(formatCurrency(result.monthlyTotal))}</span>
                     </div>
                 `;
                 elements.monthlyGrid.innerHTML = monthlyHtml;
 
+                // Annual - sanitized
                 let annualHtml = '';
                 const annual = result.annualComponents || {};
                 Object.entries(annual).forEach(([key, value]) => {
                     annualHtml += `
                         <div class="cost-item">
-                            <span class="label">${key}</span>
-                            <span class="value">KES ${formatCurrency(value)}</span>
+                            <span class="label">${escapeHTML(key)}</span>
+                            <span class="value">KES ${escapeHTML(formatCurrency(value))}</span>
                         </div>
                     `;
                 });
                 annualHtml += `
                     <div class="cost-item total-item" style="grid-column:1/-1;">
                         <span class="label">Annual Total</span>
-                        <span class="value" style="color:var(--amber);">KES ${formatCurrency(result.annualTotal)}</span>
+                        <span class="value" style="color:var(--amber);">KES ${escapeHTML(formatCurrency(result.annualTotal))}</span>
                     </div>
                 `;
                 elements.annualGrid.innerHTML = annualHtml;
 
+                // Environmental - sanitized
                 elements.envGrid.innerHTML = `
                     <div class="env-item">
-                        <div class="env-value">${formatNumber(result.co2Trip)} kg</div>
+                        <div class="env-value">${escapeHTML(formatNumber(result.co2Trip))} kg</div>
                         <div class="env-label">CO₂ per Trip</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${formatNumber(result.co2Annual / 1000)} t</div>
+                        <div class="env-value">${escapeHTML(formatNumber(result.co2Annual / 1000))} t</div>
                         <div class="env-label">CO₂ per Year</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${formatNumber(result.co2PerKm)} g/km</div>
+                        <div class="env-value">${escapeHTML(formatNumber(result.co2PerKm))} g/km</div>
                         <div class="env-label">CO₂ per km</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${formatNumber(result.treesToOffset)}</div>
-                        <div class="env-label">Trees to Offset</div>
+                        <div class="env-value">${escapeHTML(formatNumber(result.treesToOffset))}</div>
+                        <div class="env-label">Trees to Offset/Year</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${result.fuelTypeDisplay || '—'}</div>
+                        <div class="env-value">${escapeHTML(result.fuelTypeDisplay || '—')}</div>
                         <div class="env-label">Fuel Type</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${formatNumber(result.fuelConsumption)} ${result.fuelType === 'electric' ? 'kWh/100km' : 'km/L'}</div>
+                        <div class="env-value">${escapeHTML(formatNumber(result.fuelConsumption))} ${result.fuelType === 'electric' ? 'kWh/100km' : 'km/L'}</div>
                         <div class="env-label">Efficiency</div>
                     </div>
                 `;
 
+                // Recommendations - sanitized
                 const recs = result.recommendations || [];
                 let recHtml = '';
                 recs.forEach(rec => {
                     const typeClass = rec.type || 'info';
                     recHtml += `
-                        <div class="rec-item ${typeClass}">
-                            <span class="icon">${rec.icon || '💡'}</span>
-                            <span class="rec-text">${rec.text}</span>
-                            <span class="rec-tag">${rec.tag || 'Info'}</span>
+                        <div class="rec-item ${escapeHTML(typeClass)}">
+                            <span class="icon">${escapeHTML(rec.icon || '💡')}</span>
+                            <span class="rec-text">${escapeHTML(rec.text)}</span>
+                            <span class="rec-tag">${escapeHTML(rec.tag || 'Info')}</span>
                         </div>
                     `;
                 });
@@ -1984,7 +2106,7 @@
                 });
             }
 
-            // ─── Main Calculation Handler ──────────────────────────────
+            // ─── Main Calculation Handler with Debounce ────────────────
             async function calculateAndRender() {
                 const variant = currentVariant();
                 if (!variant) {
@@ -1993,19 +2115,22 @@
                 }
 
                 const distance = num(elements.distanceInput.value);
-                if (distance <= 0) {
-                    showToast('Please enter a valid distance', 'error');
+                const annualKm = num(elements.annualKmInput.value) || 20000;
+                const fuelPrice = num(elements.fuelPriceInput.value) || 0;
+
+                if (!validateInputs(distance, annualKm, fuelPrice)) {
                     return;
                 }
 
                 const inputs = {
                     distance: distance,
-                    annualKm: num(elements.annualKmInput.value) || 20000,
-                    fuelPrice: num(elements.fuelPriceInput.value) || 0,
+                    annualKm: annualKm,
+                    fuelPrice: fuelPrice,
                     drivingStyle: elements.drivingStyle.value,
                     tripType: elements.tripType.value,
                     usageType: elements.usageType.value,
-                    year: elements.yearSelect.value
+                    year: elements.yearSelect.value,
+                    financed: isFinanced
                 };
 
                 elements.calculateBtn.disabled = true;
@@ -2029,6 +2154,16 @@
                     elements.calculateBtn.disabled = false;
                     elements.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate';
                 }
+            }
+
+            // ─── Debounced Version ──────────────────────────────────────
+            function debouncedCalculate() {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    if (currentVariant() && num(elements.distanceInput.value) > 0) {
+                        calculateAndRender();
+                    }
+                }, 400);
             }
 
             // ─── UI Population ──────────────────────────────────────────
@@ -2056,6 +2191,7 @@
 
             function applyVariantFilter() {
                 const showAll = elements.showAllClasses.checked;
+                // Show all variants by default
                 filteredVariants = showAll ? allVariants : allVariants.slice(0, 1);
                 populateVariants();
             }
@@ -2103,8 +2239,18 @@
                 return filteredVariants.find(v => v.id === elements.variantSelect.value) || null;
             }
 
+            // ─── Slider Bindings ──────────────────────────────────────
+            function bindSlider(id, valId, formatter) {
+                const el = document.getElementById(id);
+                const out = document.getElementById(valId);
+                const update = () => out.textContent = formatter(el.value);
+                el.addEventListener("input", update);
+                update();
+            }
+
             // ─── Event Listeners ──────────────────────────────────────
             function initEventListeners() {
+                // Fuel filter
                 elements.fuelFilterGroup.addEventListener('click', function(e) {
                     const btn = e.target.closest('.fuel-filter-btn');
                     if (!btn) return;
@@ -2120,6 +2266,7 @@
                     applyVariantFilter();
                 });
 
+                // Category change
                 elements.categorySelect.addEventListener('change', function() {
                     const catId = this.value;
                     if (!catId || isLoading) {
@@ -2142,34 +2289,58 @@
                     }
                 });
 
+                // Show all classes toggle - default checked
                 elements.showAllClasses.addEventListener('change', applyVariantFilter);
 
+                // Auto-calculate with debounce
                 ['change', 'input'].forEach(evt => {
                     [elements.variantSelect, elements.distanceInput, elements.annualKmInput,
                      elements.fuelPriceInput, elements.drivingStyle, elements.tripType,
                      elements.usageType, elements.yearSelect].forEach(el => {
-                        el.addEventListener(evt, function() {
-                            if (currentVariant() && num(elements.distanceInput.value) > 0) {
-                                calculateAndRender();
-                            }
-                        });
+                        el.addEventListener(evt, debouncedCalculate);
                     });
                 });
 
+                // Route chips
                 elements.routeChips.addEventListener('click', function(e) {
                     const chip = e.target.closest('.chip');
                     if (!chip) return;
                     const km = parseInt(chip.dataset.km, 10);
                     if (!isNaN(km) && km > 0) {
                         elements.distanceInput.value = km;
-                        elements.distanceInput.dispatchEvent(new Event('input'));
+                        debouncedCalculate();
                     }
                 });
 
+                // Calculate button
                 elements.calculateBtn.addEventListener('click', calculateAndRender);
 
+                // ─── Financing Toggle ──────────────────────────────────
+                elements.btnCash.addEventListener('click', function() {
+                    this.classList.add('active');
+                    elements.btnFinanced.classList.remove('active');
+                    elements.financedFields.classList.remove('show');
+                    isFinanced = false;
+                    debouncedCalculate();
+                });
+
+                elements.btnFinanced.addEventListener('click', function() {
+                    this.classList.add('active');
+                    elements.btnCash.classList.remove('active');
+                    elements.financedFields.classList.add('show');
+                    isFinanced = true;
+                    debouncedCalculate();
+                });
+
+                // Slider bindings
+                bindSlider("downPct", "valDown", v => v + "%");
+                bindSlider("rate", "valRate", v => v + "%");
+                bindSlider("term", "valTerm", v => v + (v == 1 ? " year" : " years"));
+
+                // Print
                 document.getElementById('printBtn').addEventListener('click', function() { window.print(); });
 
+                // Share
                 document.getElementById('shareBtn').addEventListener('click', function() {
                     const url = window.location.href;
                     const text = `Auto-D Kenya Mileage Rate Report\nVehicle: ${elements.vehicleLabel.textContent}\nTotal: KES ${elements.tripTotal.textContent}\nRCI: ${elements.rciValue.textContent}`;
@@ -2182,6 +2353,7 @@
                     }
                 });
 
+                // Export CSV
                 document.getElementById('exportBtn').addEventListener('click', function() {
                     if (!currentResult) { showToast('No data to export', 'error'); return; }
                     const r = currentResult;
@@ -2221,6 +2393,7 @@
                     showToast('CSV exported!', 'success');
                 });
 
+                // Export JSON
                 document.getElementById('exportFullBtn').addEventListener('click', function() {
                     if (!currentResult) { showToast('No data to export', 'error'); return; }
                     const data = {
@@ -2259,7 +2432,7 @@
                             tyre_cost: 80000, tyre_life: 50000,
                             insurance_annual: 60000, tax_annual: 8000,
                             initial_cost: 1500000, current_value: 1200000, expected_resale: 600000,
-                            years_remaining: 8, loan_amount: 1200000 },
+                            years_remaining: 8, loan_amount: 0 },
                         { id: 'v2', label: '2.0L Petrol - Premium', fuel_type: 'Petrol', fuel_consumption: 10.0,
                             oil_interval: 10000, oil_cost: 7000,
                             minor_service_interval: 10000, minor_service_cost: 20000,
@@ -2267,7 +2440,7 @@
                             tyre_cost: 120000, tyre_life: 45000,
                             insurance_annual: 80000, tax_annual: 10000,
                             initial_cost: 2500000, current_value: 2000000, expected_resale: 1000000,
-                            years_remaining: 7, loan_amount: 2000000 }
+                            years_remaining: 7, loan_amount: 0 }
                     ],
                     'cat2': [
                         { id: 'v3', label: '1.6L Diesel - Standard', fuel_type: 'Diesel', fuel_consumption: 15.0,
@@ -2277,7 +2450,7 @@
                             tyre_cost: 90000, tyre_life: 55000,
                             insurance_annual: 65000, tax_annual: 9000,
                             initial_cost: 1800000, current_value: 1450000, expected_resale: 720000,
-                            years_remaining: 7, loan_amount: 1440000 }
+                            years_remaining: 7, loan_amount: 0 }
                     ],
                     'cat3': [
                         { id: 'v4', label: '2.8L Diesel - 4x4', fuel_type: 'Diesel', fuel_consumption: 10.0,
@@ -2287,7 +2460,7 @@
                             tyre_cost: 150000, tyre_life: 40000,
                             insurance_annual: 100000, tax_annual: 12000,
                             initial_cost: 3500000, current_value: 2800000, expected_resale: 1400000,
-                            years_remaining: 6, loan_amount: 2800000 }
+                            years_remaining: 6, loan_amount: 0 }
                     ],
                     'cat4': [
                         { id: 'v5', label: '3.0L Diesel - 4x4', fuel_type: 'Diesel', fuel_consumption: 8.0,
@@ -2297,7 +2470,7 @@
                             tyre_cost: 180000, tyre_life: 35000,
                             insurance_annual: 120000, tax_annual: 15000,
                             initial_cost: 4500000, current_value: 3600000, expected_resale: 1800000,
-                            years_remaining: 5, loan_amount: 3600000 }
+                            years_remaining: 5, loan_amount: 0 }
                     ],
                     'cat5': [
                         { id: 'v6', label: 'EV Standard Range', fuel_type: 'Electric', fuel_consumption: 6.5,
@@ -2307,7 +2480,7 @@
                             tyre_cost: 100000, tyre_life: 50000,
                             insurance_annual: 70000, tax_annual: 2000,
                             initial_cost: 4000000, current_value: 3500000, expected_resale: 2000000,
-                            years_remaining: 9, loan_amount: 3200000,
+                            years_remaining: 9, loan_amount: 0,
                             battery_cost: 1200000, battery_life: 250000 }
                     ],
                     'cat6': [
@@ -2318,7 +2491,7 @@
                             tyre_cost: 6000, tyre_life: 15000,
                             insurance_annual: 5000, tax_annual: 1500,
                             initial_cost: 180000, current_value: 140000, expected_resale: 70000,
-                            years_remaining: 5, loan_amount: 144000 }
+                            years_remaining: 5, loan_amount: 0 }
                     ],
                     'cat7': [
                         { id: 'v8', label: '1.6L LPG - Standard', fuel_type: 'LPG', fuel_consumption: 11.0,
@@ -2328,7 +2501,7 @@
                             tyre_cost: 85000, tyre_life: 50000,
                             insurance_annual: 55000, tax_annual: 7500,
                             initial_cost: 1600000, current_value: 1300000, expected_resale: 650000,
-                            years_remaining: 7, loan_amount: 1280000 }
+                            years_remaining: 7, loan_amount: 0 }
                     ]
                 },
                 routes: [
@@ -2363,10 +2536,14 @@
                     populateCategories();
                     renderRouteChips();
 
+                    // Default to first category
                     if (categories.length > 0) {
                         elements.categorySelect.value = categories[0].id;
                         elements.categorySelect.dispatchEvent(new Event('change'));
                     }
+
+                    // Show all variants by default
+                    elements.showAllClasses.checked = true;
 
                     setTimeout(() => {
                         if (currentVariant() && num(elements.distanceInput.value) > 0) {
