@@ -55,6 +55,33 @@
             padding: 28px 32px 60px;
         }
 
+        /* ─── Watermark for Print ──────────────────────────────────── */
+        .watermark {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-30deg);
+            font-size: 80px;
+            font-weight: 900;
+            color: rgba(234, 179, 8, 0.06);
+            font-family: var(--font-heading);
+            letter-spacing: 8px;
+            pointer-events: none;
+            z-index: 9999;
+            white-space: nowrap;
+            user-select: none;
+        }
+
+        @media print {
+            .watermark {
+                display: block !important;
+            }
+            .watermark .watermark-text {
+                color: rgba(0, 0, 0, 0.05) !important;
+            }
+        }
+
         .report-header {
             background: linear-gradient(135deg, var(--bg-secondary), var(--bg-primary));
             border: 1px solid var(--border);
@@ -316,7 +343,6 @@
         .chip:hover { border-color: var(--amber); color: var(--amber); background: rgba(234, 179, 8, 0.08); }
         .chip .km-badge { font-size: 7px; opacity: 0.6; margin-left: 3px; }
 
-        /* ─── Toggle Group ──────────────────────────────────────────── */
         .toggle-group {
             display: flex;
             gap: 6px;
@@ -783,7 +809,6 @@
             to { opacity: 1; transform: translateX(0); }
         }
 
-        /* ─── Disclaimer ────────────────────────────────────────────── */
         .disclaimer {
             font-size: 10px;
             color: var(--text-muted);
@@ -793,6 +818,12 @@
             line-height: 1.5;
         }
         .disclaimer strong { color: var(--amber); }
+
+        /* ─── Recommendation Tags ──────────────────────────────────── */
+        .rec-tag-urgency { background: rgba(239, 68, 68, 0.15) !important; color: var(--red) !important; }
+        .rec-tag-savings { background: rgba(34, 197, 94, 0.15) !important; color: var(--green) !important; }
+        .rec-tag-insight { background: rgba(59, 130, 246, 0.15) !important; color: var(--blue) !important; }
+        .rec-tag-tip { background: rgba(234, 179, 8, 0.15) !important; color: var(--amber) !important; }
 
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
@@ -816,6 +847,7 @@
             .action-btn { justify-content: center; }
             .vehicle-tag { flex-direction: column; align-items: flex-start; }
             .vehicle-specs { flex-direction: column; gap: 4px; }
+            .commercial-grid { grid-template-columns: 1fr; }
         }
 
         @media print {
@@ -851,10 +883,16 @@
             .metrics-grid { display: block !important; }
             .rci-display, .health-score { margin-bottom: 10px; }
             .disclaimer { display: none; }
+            .watermark { display: block !important; }
         }
     </style>
 </head>
 <body>
+
+    <!-- ─── Watermark for Print ───────────────────────────────────── -->
+    <div class="watermark">
+        <span class="watermark-text">AUTO-D KENYA</span>
+    </div>
 
     <div class="wrap">
 
@@ -909,6 +947,9 @@
                         </button>
                         <button type="button" class="fuel-filter-btn" data-fuel="Electric" aria-pressed="false">
                             <span class="fuel-dot electric"></span> Electric
+                        </button>
+                        <button type="button" class="fuel-filter-btn" data-fuel="Hybrid" aria-pressed="false">
+                            <span class="fuel-dot" style="background:linear-gradient(135deg,#eab308,#22c55e);"></span> Hybrid
                         </button>
                     </div>
                 </div>
@@ -1155,10 +1196,10 @@
                     </div>
                 </div>
 
-                <!-- AI Recommendations -->
+                <!-- AI Recommendations - Improved -->
                 <div class="result-card">
                     <div class="card-title">
-                        💡 Recommendations
+                        💡 Smart Recommendations
                         <span class="badge">AI</span>
                     </div>
                     <div class="rec-list" id="recList">
@@ -1173,10 +1214,8 @@
                 <!-- Actions -->
                 <div class="result-card">
                     <div class="action-bar">
-                        <button class="action-btn print" id="printBtn">🖨️ Print</button>
+                        <button class="action-btn print" id="printBtn">🖨️ Print Report</button>
                         <button class="action-btn share" id="shareBtn">📤 Share</button>
-                        <button class="action-btn" id="exportBtn">📊 CSV</button>
-                        <button class="action-btn" id="exportFullBtn">📋 JSON</button>
                     </div>
                 </div>
 
@@ -1214,13 +1253,14 @@
                         MILEAGE: '/api/service/mileage',
                         MILEAGE_HEALTH: '/api/service/mileage/health'
                     },
-                    TIMEOUT: 12000  // Increased for Render cold starts
+                    TIMEOUT: 12000
                 },
                 ECONOMIC: {
                     FUEL_PRICE_PETROL: 214.03,
                     FUEL_PRICE_DIESEL: 222.86,
                     FUEL_PRICE_LPG: 120.00,
                     FUEL_PRICE_ELECTRIC: 30.00,
+                    FUEL_PRICE_HYBRID: 150.00,
                     INFLATION_RATE: 0.05,
                     DEPRECIATION_RATE: 0.15,
                     MAINTENANCE_SCALING: 0.08,
@@ -1232,6 +1272,7 @@
                     CO2_DIESEL: 2.68,
                     CO2_LPG: 1.50,
                     CO2_ELECTRIC: 0.20,
+                    CO2_HYBRID: 1.80,
                     PROFIT_MARGIN: 0.20,
                     DRIVING_STYLE: {
                         eco: { fuel: -0.10, maintenance: -0.05, repairs: -0.08 },
@@ -1330,7 +1371,6 @@
                 return Number(val).toLocaleString('en-KE');
             }
 
-            // ─── Sanitize HTML ──────────────────────────────────────────
             function escapeHTML(str) {
                 if (!str) return '';
                 const div = document.createElement('div');
@@ -1367,6 +1407,28 @@
                 return bands['10+'];
             }
 
+            // ─── Current Value Formula ──────────────────────────────────
+            function calculateCurrentValue(purchasePrice, age, condition = 'Good', mileage = 0) {
+                const baseRates = {
+                    'Excellent': 0.08,
+                    'Good': 0.12,
+                    'Fair': 0.18,
+                    'Poor': 0.25
+                };
+                let rate = baseRates[condition] || 0.12;
+                if (mileage > 100000) rate += 0.05;
+                else if (mileage > 60000) rate += 0.03;
+                else if (mileage > 30000) rate += 0.015;
+
+                let currentValue = purchasePrice;
+                for (let year = 1; year <= age; year++) {
+                    const yearRate = rate * (1 + (year - 1) * 0.08);
+                    const depAmount = currentValue * Math.min(yearRate, 0.40);
+                    currentValue -= depAmount;
+                }
+                return Math.max(currentValue, purchasePrice * 0.05);
+            }
+
             // ─── Validate Inputs ───────────────────────────────────────
             function validateInputs(distance, annualKm, fuelPrice) {
                 if (distance <= 0) {
@@ -1387,7 +1449,6 @@
             // ─── Fetch Fuel Prices ─────────────────────────────────────
             async function fetchFuelPrices() {
                 try {
-                    // Try health endpoint first (public)
                     const healthResponse = await fetch(`${CONFIG.API.BASE_URL}${CONFIG.API.ENDPOINTS.MILEAGE_HEALTH}`);
                     if (healthResponse.ok) {
                         const data = await healthResponse.json();
@@ -1401,7 +1462,6 @@
                             return true;
                         }
                     }
-                    // Fallback to default
                     elements.fuelPriceDisplay.textContent = `Petrol: KES ${CONFIG.ECONOMIC.FUEL_PRICE_PETROL.toFixed(2)}`;
                     return false;
                 } catch (e) {
@@ -1476,6 +1536,7 @@
                         case 'diesel': fuelPricePerUnit = CONFIG.ECONOMIC.FUEL_PRICE_DIESEL; break;
                         case 'lpg': fuelPricePerUnit = CONFIG.ECONOMIC.FUEL_PRICE_LPG; break;
                         case 'electric': fuelPricePerUnit = CONFIG.ECONOMIC.FUEL_PRICE_ELECTRIC; break;
+                        case 'hybrid': fuelPricePerUnit = CONFIG.ECONOMIC.FUEL_PRICE_HYBRID; break;
                     }
                 }
 
@@ -1548,7 +1609,9 @@
                 const insuranceMonthly = insuranceAnnual / 12;
 
                 const purchasePrice = variant.initial_cost || 5000000;
-                const currentValue = variant.current_value || (purchasePrice * (1 - 0.15 * Math.min(age, 5)));
+                
+                // ─── Current Value Formula ──────────────────────────────
+                const currentValue = calculateCurrentValue(purchasePrice, age, 'Good', annual * age);
                 const expectedResale = variant.expected_resale || (purchasePrice * 0.4);
                 const yearsRemaining = variant.years_remaining || Math.max(1, 10 - age);
                 const totalLoss = currentValue - expectedResale;
@@ -1564,7 +1627,6 @@
                 let financingTrip = 0, financingAnnual = 0, financingMonthly = 0, financingPerKm = 0;
                 
                 if (financed) {
-                    // User selected financed - use interest rate
                     const downPct = num(elements.downPct.value) / 100 || 0.3;
                     const interestRate = num(elements.rate.value) / 100 || 0.16;
                     const loanTerm = num(elements.term.value) || 4;
@@ -1575,7 +1637,6 @@
                     financingAnnual = interestAnnual;
                     financingMonthly = interestAnnual / 12;
                 } else {
-                    // Cash purchase - only opportunity cost for private owners
                     if (usageType === 'private') {
                         const opportunityRate = 0.10;
                         const interestAnnual = purchasePrice * opportunityRate;
@@ -1697,94 +1758,179 @@
                     case 'diesel': co2Factor = CONFIG.ECONOMIC.CO2_DIESEL; break;
                     case 'lpg': co2Factor = CONFIG.ECONOMIC.CO2_LPG; break;
                     case 'electric': co2Factor = CONFIG.ECONOMIC.CO2_ELECTRIC; break;
+                    case 'hybrid': co2Factor = CONFIG.ECONOMIC.CO2_HYBRID; break;
                     default: co2Factor = CONFIG.ECONOMIC.CO2_PETROL;
                 }
-                // CO2 in kg/km, display as g/km in UI (multiply by 1000)
                 const co2PerKm = (co2Factor / actualConsumption) * 1000;
-                const co2Trip = co2PerKm * d / 1000; // kg
-                const co2Annual = co2PerKm * annual / 1000; // kg
-                const treesToOffset = (co2Annual / 1000) / 20; // trees per year
+                const co2Trip = co2PerKm * d / 1000;
+                const co2Annual = co2PerKm * annual / 1000;
+                const treesToOffset = (co2Annual / 1000) / 20;
 
+                // ─── Improved Recommendations ───────────────────────────
                 const recommendations = [];
 
-                if (fuelCostPerKm > 20) {
+                // Fuel efficiency
+                if (fuelCostPerKm > 25) {
                     recommendations.push({
                         icon: '⛽',
-                        text: `Fuel cost (${formatCurrency(fuelCostPerKm)}/km) is high. Switch to diesel or EV if feasible.`,
+                        text: `🔴 Fuel cost (${formatCurrency(fuelCostPerKm)}/km) is critically high. Switching to diesel or EV could save ${formatCurrency(fuelCostPerKm * 0.4)}/km.`,
                         type: 'warning',
-                        tag: 'Fuel'
+                        tag: 'Urgent',
+                        tagClass: 'rec-tag-urgency'
+                    });
+                } else if (fuelCostPerKm > 18) {
+                    recommendations.push({
+                        icon: '⛽',
+                        text: `Fuel cost (${formatCurrency(fuelCostPerKm)}/km) is above average. Consider a more fuel-efficient vehicle.`,
+                        type: 'warning',
+                        tag: 'Tip',
+                        tagClass: 'rec-tag-tip'
+                    });
+                } else if (fuelCostPerKm < 10) {
+                    recommendations.push({
+                        icon: '✅',
+                        text: `Excellent fuel efficiency (${formatCurrency(fuelCostPerKm)}/km). You're saving ${formatCurrency(18 - fuelCostPerKm)}/km compared to average.`,
+                        type: 'success',
+                        tag: 'Savings',
+                        tagClass: 'rec-tag-savings'
                     });
                 }
 
-                if (servicePerKm > 3) {
+                // Service/Maintenance
+                if (servicePerKm > 4) {
                     recommendations.push({
                         icon: '🔧',
-                        text: `Service cost (${formatCurrency(servicePerKm)}/km) is high. Consider extended service intervals.`,
+                        text: `🔴 Service cost (${formatCurrency(servicePerKm)}/km) is very high. Consider negotiating service rates or using independent workshops.`,
                         type: 'warning',
-                        tag: 'Service'
+                        tag: 'Urgent',
+                        tagClass: 'rec-tag-urgency'
+                    });
+                } else if (servicePerKm > 2.5) {
+                    recommendations.push({
+                        icon: '🔧',
+                        text: `Service cost (${formatCurrency(servicePerKm)}/km) is above average. Compare service providers for better rates.`,
+                        type: 'info',
+                        tag: 'Tip',
+                        tagClass: 'rec-tag-tip'
                     });
                 }
 
+                // Depreciation
                 if (depreciationPerKm > 20) {
                     recommendations.push({
                         icon: '📉',
-                        text: `Depreciation (${formatCurrency(depreciationPerKm)}/km) is high. Consider buying used or different model.`,
+                        text: `🔴 High depreciation (${formatCurrency(depreciationPerKm)}/km). This vehicle loses value quickly. Consider a used model or different brand.`,
                         type: 'warning',
-                        tag: 'Depreciation'
+                        tag: 'Insight',
+                        tagClass: 'rec-tag-insight'
+                    });
+                } else if (depreciationPerKm < 8) {
+                    recommendations.push({
+                        icon: '📈',
+                        text: `✅ Low depreciation (${formatCurrency(depreciationPerKm)}/km). This vehicle holds value well - great for resale.`,
+                        type: 'success',
+                        tag: 'Savings',
+                        tagClass: 'rec-tag-savings'
                     });
                 }
 
+                // Age
                 if (age > 10) {
                     recommendations.push({
                         icon: '🏥',
-                        text: `Vehicle is ${age} years old. Repair costs (${formatCurrency(repairPerKm)}/km) are rising. Consider replacement.`,
+                        text: `🔴 Vehicle is ${age} years old. Repair costs (${formatCurrency(repairPerKm)}/km) are rising. Consider replacement within 2 years.`,
                         type: 'warning',
-                        tag: 'Age'
+                        tag: 'Urgent',
+                        tagClass: 'rec-tag-urgency'
+                    });
+                } else if (age > 7) {
+                    recommendations.push({
+                        icon: '🏥',
+                        text: `Vehicle is ${age} years old. Start budgeting for major repairs in the next 2-3 years.`,
+                        type: 'info',
+                        tag: 'Insight',
+                        tagClass: 'rec-tag-insight'
                     });
                 }
 
+                // EV Recommendation
                 if (fuelType === 'electric') {
                     recommendations.push({
                         icon: '🌱',
-                        text: `Great EV choice! Save ${formatCurrency(Math.max(0, fuelCostPerKm - 5))}/km vs petrol. Zero tailpipe emissions.`,
+                        text: `✅ Great EV choice! Save ${formatCurrency(Math.max(0, fuelCostPerKm - 5))}/km vs petrol. Zero tailpipe emissions.`,
                         type: 'success',
-                        tag: 'Green'
+                        tag: 'Green',
+                        tagClass: 'rec-tag-savings'
+                    });
+                } else if (fuelType === 'hybrid') {
+                    recommendations.push({
+                        icon: '⚡',
+                        text: `✅ Hybrid vehicle. You're saving ${formatCurrency(Math.max(0, CONFIG.ECONOMIC.FUEL_PRICE_PETROL / 10 - fuelCostPerKm))}/km vs pure petrol.`,
+                        type: 'success',
+                        tag: 'Green',
+                        tagClass: 'rec-tag-savings'
                     });
                 }
 
+                // Usage-specific
                 if (usageType === 'taxi' && tripCostPerKm > 30) {
                     recommendations.push({
                         icon: '🚖',
-                        text: `Operating cost (${formatCurrency(tripCostPerKm)}/km) is high for taxi. Consider LPG or EV conversion.`,
+                        text: `🔴 Operating cost (${formatCurrency(tripCostPerKm)}/km) is too high for taxi. LPG or EV conversion could reduce costs by ${formatCurrency(tripCostPerKm * 0.3)}/km.`,
                         type: 'warning',
-                        tag: 'Taxi'
+                        tag: 'Urgent',
+                        tagClass: 'rec-tag-urgency'
                     });
                 }
 
                 if (usageType === 'commercial_freight' && tripCostPerKm > 40) {
                     recommendations.push({
                         icon: '📦',
-                        text: `High operating cost (${formatCurrency(tripCostPerKm)}/km) for freight. Consider fleet optimization.`,
+                        text: `🔴 High operating cost (${formatCurrency(tripCostPerKm)}/km) for freight. Consider fleet fuel contracts or route optimization.`,
                         type: 'warning',
-                        tag: 'Freight'
+                        tag: 'Insight',
+                        tagClass: 'rec-tag-insight'
                     });
                 }
 
+                // RCI
                 if (rci > 50) {
                     recommendations.push({
                         icon: '💰',
-                        text: `RCI (${formatCurrency(rci)}) in "${rciLabel}" range. Review all cost categories.`,
+                        text: `🔴 RCI (${formatCurrency(rci)}) in "${rciLabel}" range. Review all cost categories for savings opportunities.`,
                         type: 'warning',
-                        tag: 'Cost'
+                        tag: 'Urgent',
+                        tagClass: 'rec-tag-urgency'
+                    });
+                } else if (rci <= 25) {
+                    recommendations.push({
+                        icon: '🌟',
+                        text: `✅ Excellent RCI (${formatCurrency(rci)})! Your vehicle is very cost-efficient.`,
+                        type: 'success',
+                        tag: 'Savings',
+                        tagClass: 'rec-tag-savings'
                     });
                 }
 
+                // Financing
+                if (financed && financingTrip > 0 && financingTrip > tripTotal * 0.2) {
+                    recommendations.push({
+                        icon: '🏦',
+                        text: `🔴 Financing represents ${Math.round((financingTrip / tripTotal) * 100)}% of trip cost. Consider refinancing or larger down payment.`,
+                        type: 'warning',
+                        tag: 'Insight',
+                        tagClass: 'rec-tag-insight'
+                    });
+                }
+
+                // Default recommendation
                 if (recommendations.length === 0) {
                     recommendations.push({
                         icon: '✅',
-                        text: 'Vehicle performing well. Continue regular maintenance.',
+                        text: 'Your vehicle is performing well across all metrics. Continue regular maintenance to maintain this performance.',
                         type: 'success',
-                        tag: 'All Good'
+                        tag: 'All Good',
+                        tagClass: 'rec-tag-savings'
                     });
                 }
 
@@ -1917,17 +2063,16 @@
 
             // ─── Render Results ─────────────────────────────────────────
             function renderResults(result, variant) {
-                // Use textContent for security
                 elements.vehicleLabel.textContent = variant.label || 'Unnamed variant';
                 elements.fuelPill.textContent = result.fuelTypeDisplay || '—';
                 
-                // Build specs with textContent
                 const specItems = [
                     { label: '💰', value: `KES ${formatCurrency(result.initialCost)}` },
                     { label: '📅', value: `${result.age} years old` },
                     { label: '⚡', value: `${formatNumber(result.fuelConsumption)} ${result.fuelType === 'electric' ? 'kWh/100km' : 'km/L'}` },
                     { label: '📊', value: `${formatNumber(result.annualKm)} km/year` },
-                    { label: '🏷️', value: result.usageType.replace('_', ' ').toUpperCase() }
+                    { label: '🏷️', value: result.usageType.replace('_', ' ').toUpperCase() },
+                    { label: '💰', value: `Current Value: KES ${formatCurrency(result.currentValue)}` }
                 ];
                 elements.vehicleSpecs.innerHTML = specItems.map(item => 
                     `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
@@ -1936,7 +2081,6 @@
                 elements.tripTotal.textContent = formatCurrency(result.tripTotal);
                 elements.tripSub.textContent = `at ${formatCurrency(result.tripCostPerKm)} KES/km over ${formatNumber(result.distance)} km`;
 
-                // Trip Components - sanitized
                 let tripHtml = '';
                 const tripComponents = result.tripComponents || {};
                 Object.entries(tripComponents).forEach(([key, data]) => {
@@ -1957,7 +2101,6 @@
                 `;
                 elements.tripCostGrid.innerHTML = tripHtml;
 
-                // Per km - sanitized
                 let perkmHtml = '';
                 const perkm = result.perkmComponents || {};
                 Object.entries(perkm).forEach(([key, value]) => {
@@ -1980,7 +2123,6 @@
                 `;
                 elements.perkmGrid.innerHTML = perkmHtml;
 
-                // Commercial - sanitized
                 elements.commercialGrid.innerHTML = `
                     <div class="commercial-card">
                         <div class="commercial-label">Private Owner</div>
@@ -2019,7 +2161,6 @@
                 elements.rciStars.textContent = result.rciStars || '—';
                 elements.rciLabel.textContent = result.rciLabel || '—';
 
-                // Monthly - sanitized
                 let monthlyHtml = '';
                 const monthly = result.monthlyComponents || {};
                 Object.entries(monthly).forEach(([key, value]) => {
@@ -2038,7 +2179,6 @@
                 `;
                 elements.monthlyGrid.innerHTML = monthlyHtml;
 
-                // Annual - sanitized
                 let annualHtml = '';
                 const annual = result.annualComponents || {};
                 Object.entries(annual).forEach(([key, value]) => {
@@ -2057,7 +2197,6 @@
                 `;
                 elements.annualGrid.innerHTML = annualHtml;
 
-                // Environmental - sanitized
                 elements.envGrid.innerHTML = `
                     <div class="env-item">
                         <div class="env-value">${escapeHTML(formatNumber(result.co2Trip))} kg</div>
@@ -2085,16 +2224,16 @@
                     </div>
                 `;
 
-                // Recommendations - sanitized
                 const recs = result.recommendations || [];
                 let recHtml = '';
                 recs.forEach(rec => {
                     const typeClass = rec.type || 'info';
+                    const tagClass = rec.tagClass || '';
                     recHtml += `
                         <div class="rec-item ${escapeHTML(typeClass)}">
                             <span class="icon">${escapeHTML(rec.icon || '💡')}</span>
                             <span class="rec-text">${escapeHTML(rec.text)}</span>
-                            <span class="rec-tag">${escapeHTML(rec.tag || 'Info')}</span>
+                            <span class="rec-tag ${escapeHTML(tagClass)}">${escapeHTML(rec.tag || 'Info')}</span>
                         </div>
                     `;
                 });
@@ -2106,7 +2245,7 @@
                 });
             }
 
-            // ─── Main Calculation Handler with Debounce ────────────────
+            // ─── Main Calculation Handler ──────────────────────────────
             async function calculateAndRender() {
                 const variant = currentVariant();
                 if (!variant) {
@@ -2191,7 +2330,6 @@
 
             function applyVariantFilter() {
                 const showAll = elements.showAllClasses.checked;
-                // Show all variants by default
                 filteredVariants = showAll ? allVariants : allVariants.slice(0, 1);
                 populateVariants();
             }
@@ -2239,7 +2377,6 @@
                 return filteredVariants.find(v => v.id === elements.variantSelect.value) || null;
             }
 
-            // ─── Slider Bindings ──────────────────────────────────────
             function bindSlider(id, valId, formatter) {
                 const el = document.getElementById(id);
                 const out = document.getElementById(valId);
@@ -2250,7 +2387,6 @@
 
             // ─── Event Listeners ──────────────────────────────────────
             function initEventListeners() {
-                // Fuel filter
                 elements.fuelFilterGroup.addEventListener('click', function(e) {
                     const btn = e.target.closest('.fuel-filter-btn');
                     if (!btn) return;
@@ -2266,7 +2402,6 @@
                     applyVariantFilter();
                 });
 
-                // Category change
                 elements.categorySelect.addEventListener('change', function() {
                     const catId = this.value;
                     if (!catId || isLoading) {
@@ -2289,10 +2424,8 @@
                     }
                 });
 
-                // Show all classes toggle - default checked
                 elements.showAllClasses.addEventListener('change', applyVariantFilter);
 
-                // Auto-calculate with debounce
                 ['change', 'input'].forEach(evt => {
                     [elements.variantSelect, elements.distanceInput, elements.annualKmInput,
                      elements.fuelPriceInput, elements.drivingStyle, elements.tripType,
@@ -2301,7 +2434,6 @@
                     });
                 });
 
-                // Route chips
                 elements.routeChips.addEventListener('click', function(e) {
                     const chip = e.target.closest('.chip');
                     if (!chip) return;
@@ -2312,10 +2444,8 @@
                     }
                 });
 
-                // Calculate button
                 elements.calculateBtn.addEventListener('click', calculateAndRender);
 
-                // ─── Financing Toggle ──────────────────────────────────
                 elements.btnCash.addEventListener('click', function() {
                     this.classList.add('active');
                     elements.btnFinanced.classList.remove('active');
@@ -2332,15 +2462,12 @@
                     debouncedCalculate();
                 });
 
-                // Slider bindings
                 bindSlider("downPct", "valDown", v => v + "%");
                 bindSlider("rate", "valRate", v => v + "%");
                 bindSlider("term", "valTerm", v => v + (v == 1 ? " year" : " years"));
 
-                // Print
                 document.getElementById('printBtn').addEventListener('click', function() { window.print(); });
 
-                // Share
                 document.getElementById('shareBtn').addEventListener('click', function() {
                     const url = window.location.href;
                     const text = `Auto-D Kenya Mileage Rate Report\nVehicle: ${elements.vehicleLabel.textContent}\nTotal: KES ${elements.tripTotal.textContent}\nRCI: ${elements.rciValue.textContent}`;
@@ -2351,64 +2478,6 @@
                             showToast('Report copied to clipboard!', 'success');
                         }).catch(() => { showToast('Share not available', 'error'); });
                     }
-                });
-
-                // Export CSV
-                document.getElementById('exportBtn').addEventListener('click', function() {
-                    if (!currentResult) { showToast('No data to export', 'error'); return; }
-                    const r = currentResult;
-                    const rows = [
-                        ['Metric', 'Value'],
-                        ['Vehicle', r.vehicleName || 'Unknown'],
-                        ['Year', r.age || 0],
-                        ['Usage Type', r.usageType || '—'],
-                        ['Trip Distance (km)', r.distance || 0],
-                        ['Annual Mileage (km)', r.annualKm || 0],
-                        ['Total Running Cost (KES)', formatCurrency(r.tripTotal)],
-                        ['Cost per km (KES)', formatCurrency(r.tripCostPerKm)],
-                        ['Running Cost Index', formatCurrency(r.rci)],
-                        ['RCI Rating', r.rciLabel || '—'],
-                        ['Private Owner (KES/km)', formatCurrency(r.privateCost)],
-                        ['Recommended Rate (KES/km)', formatCurrency(r.recommendedRate)],
-                        ['Fleet Cost (KES/km)', formatCurrency(r.fleetCost)],
-                        ['Taxi Rate (KES/km)', formatCurrency(r.taxiRate)],
-                        ['Delivery Per Parcel (KES)', formatCurrency(r.deliveryPerParcel)],
-                        ['Current Value (KES)', formatCurrency(r.currentValue)],
-                        ['Monthly Total (KES)', formatCurrency(r.monthlyTotal)],
-                        ['Annual Total (KES)', formatCurrency(r.annualTotal)],
-                        ['CO₂ per Trip (kg)', formatNumber(r.co2Trip)],
-                        ['CO₂ per Year (kg)', formatNumber(r.co2Annual)],
-                        ['Trees to Offset', formatNumber(r.treesToOffset)],
-                        ['Fuel Type', r.fuelTypeDisplay || '—'],
-                        ['Efficiency', `${formatNumber(r.fuelConsumption)} ${r.fuelType === 'electric' ? 'kWh/100km' : 'km/L'}`]
-                    ];
-                    const csv = rows.map(row => row.join(',')).join('\n');
-                    const blob = new Blob([csv], { type: 'text/csv' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `auto-d-mileage-${Date.now()}.csv`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    showToast('CSV exported!', 'success');
-                });
-
-                // Export JSON
-                document.getElementById('exportFullBtn').addEventListener('click', function() {
-                    if (!currentResult) { showToast('No data to export', 'error'); return; }
-                    const data = {
-                        timestamp: new Date().toISOString(),
-                        vehicle: currentResult.vehicleName,
-                        result: currentResult
-                    };
-                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `auto-d-mileage-full-${Date.now()}.json`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    showToast('JSON exported!', 'success');
                 });
             }
 
@@ -2421,7 +2490,11 @@
                     { id: 'cat4', name: 'Pickups & Vans', fuel_type: 'Diesel' },
                     { id: 'cat5', name: 'Electric Vehicles', fuel_type: 'Electric' },
                     { id: 'cat6', name: 'Motorcycles', fuel_type: 'Petrol' },
-                    { id: 'cat7', name: 'LPG / Gas Vehicles', fuel_type: 'LPG' }
+                    { id: 'cat7', name: 'LPG / Gas Vehicles', fuel_type: 'LPG' },
+                    { id: 'cat8', name: 'Hybrid Vehicles', fuel_type: 'Hybrid' },
+                    { id: 'cat9', name: 'Luxury Saloons', fuel_type: 'Petrol' },
+                    { id: 'cat10', name: 'Commercial Trucks', fuel_type: 'Diesel' },
+                    { id: 'cat11', name: 'Mini Buses (Matatus)', fuel_type: 'Diesel' }
                 ],
                 variants: {
                     'cat1': [
@@ -2431,16 +2504,24 @@
                             major_service_interval: 40000, major_service_cost: 45000,
                             tyre_cost: 80000, tyre_life: 50000,
                             insurance_annual: 60000, tax_annual: 8000,
-                            initial_cost: 1500000, current_value: 1200000, expected_resale: 600000,
+                            initial_cost: 1500000, expected_resale: 600000,
                             years_remaining: 8, loan_amount: 0 },
-                        { id: 'v2', label: '2.0L Petrol - Premium', fuel_type: 'Petrol', fuel_consumption: 10.0,
+                        { id: 'v2', label: '1.8L Petrol - Premium', fuel_type: 'Petrol', fuel_consumption: 10.0,
                             oil_interval: 10000, oil_cost: 7000,
                             minor_service_interval: 10000, minor_service_cost: 20000,
                             major_service_interval: 40000, major_service_cost: 60000,
                             tyre_cost: 120000, tyre_life: 45000,
                             insurance_annual: 80000, tax_annual: 10000,
-                            initial_cost: 2500000, current_value: 2000000, expected_resale: 1000000,
-                            years_remaining: 7, loan_amount: 0 }
+                            initial_cost: 2500000, expected_resale: 1000000,
+                            years_remaining: 7, loan_amount: 0 },
+                        { id: 'v2b', label: '2.0L Petrol - Executive', fuel_type: 'Petrol', fuel_consumption: 9.0,
+                            oil_interval: 10000, oil_cost: 8000,
+                            minor_service_interval: 10000, minor_service_cost: 25000,
+                            major_service_interval: 40000, major_service_cost: 70000,
+                            tyre_cost: 140000, tyre_life: 40000,
+                            insurance_annual: 100000, tax_annual: 12000,
+                            initial_cost: 3500000, expected_resale: 1400000,
+                            years_remaining: 6, loan_amount: 0 }
                     ],
                     'cat2': [
                         { id: 'v3', label: '1.6L Diesel - Standard', fuel_type: 'Diesel', fuel_consumption: 15.0,
@@ -2449,8 +2530,16 @@
                             major_service_interval: 48000, major_service_cost: 55000,
                             tyre_cost: 90000, tyre_life: 55000,
                             insurance_annual: 65000, tax_annual: 9000,
-                            initial_cost: 1800000, current_value: 1450000, expected_resale: 720000,
-                            years_remaining: 7, loan_amount: 0 }
+                            initial_cost: 1800000, expected_resale: 720000,
+                            years_remaining: 7, loan_amount: 0 },
+                        { id: 'v3b', label: '2.0L Diesel - Premium', fuel_type: 'Diesel', fuel_consumption: 13.0,
+                            oil_interval: 12000, oil_cost: 8000,
+                            minor_service_interval: 12000, minor_service_cost: 22000,
+                            major_service_interval: 48000, major_service_cost: 65000,
+                            tyre_cost: 110000, tyre_life: 50000,
+                            insurance_annual: 75000, tax_annual: 10000,
+                            initial_cost: 2500000, expected_resale: 1000000,
+                            years_remaining: 6, loan_amount: 0 }
                     ],
                     'cat3': [
                         { id: 'v4', label: '2.8L Diesel - 4x4', fuel_type: 'Diesel', fuel_consumption: 10.0,
@@ -2459,18 +2548,34 @@
                             major_service_interval: 40000, major_service_cost: 70000,
                             tyre_cost: 150000, tyre_life: 40000,
                             insurance_annual: 100000, tax_annual: 12000,
-                            initial_cost: 3500000, current_value: 2800000, expected_resale: 1400000,
-                            years_remaining: 6, loan_amount: 0 }
-                    ],
-                    'cat4': [
-                        { id: 'v5', label: '3.0L Diesel - 4x4', fuel_type: 'Diesel', fuel_consumption: 8.0,
+                            initial_cost: 3500000, expected_resale: 1400000,
+                            years_remaining: 6, loan_amount: 0 },
+                        { id: 'v4b', label: '3.0L Diesel - 4x4 Premium', fuel_type: 'Diesel', fuel_consumption: 8.5,
                             oil_interval: 10000, oil_cost: 9000,
                             minor_service_interval: 10000, minor_service_cost: 30000,
                             major_service_interval: 40000, major_service_cost: 80000,
                             tyre_cost: 180000, tyre_life: 35000,
                             insurance_annual: 120000, tax_annual: 15000,
-                            initial_cost: 4500000, current_value: 3600000, expected_resale: 1800000,
+                            initial_cost: 4500000, expected_resale: 1800000,
                             years_remaining: 5, loan_amount: 0 }
+                    ],
+                    'cat4': [
+                        { id: 'v5', label: '3.0L Diesel - Single Cab', fuel_type: 'Diesel', fuel_consumption: 8.0,
+                            oil_interval: 10000, oil_cost: 9000,
+                            minor_service_interval: 10000, minor_service_cost: 30000,
+                            major_service_interval: 40000, major_service_cost: 80000,
+                            tyre_cost: 180000, tyre_life: 35000,
+                            insurance_annual: 120000, tax_annual: 15000,
+                            initial_cost: 4500000, expected_resale: 1800000,
+                            years_remaining: 5, loan_amount: 0 },
+                        { id: 'v5b', label: '3.5L Diesel - Double Cab', fuel_type: 'Diesel', fuel_consumption: 7.5,
+                            oil_interval: 10000, oil_cost: 10000,
+                            minor_service_interval: 10000, minor_service_cost: 35000,
+                            major_service_interval: 40000, major_service_cost: 90000,
+                            tyre_cost: 200000, tyre_life: 30000,
+                            insurance_annual: 150000, tax_annual: 18000,
+                            initial_cost: 5500000, expected_resale: 2200000,
+                            years_remaining: 4, loan_amount: 0 }
                     ],
                     'cat5': [
                         { id: 'v6', label: 'EV Standard Range', fuel_type: 'Electric', fuel_consumption: 6.5,
@@ -2479,9 +2584,18 @@
                             major_service_interval: 80000, major_service_cost: 20000,
                             tyre_cost: 100000, tyre_life: 50000,
                             insurance_annual: 70000, tax_annual: 2000,
-                            initial_cost: 4000000, current_value: 3500000, expected_resale: 2000000,
+                            initial_cost: 4000000, expected_resale: 2000000,
                             years_remaining: 9, loan_amount: 0,
-                            battery_cost: 1200000, battery_life: 250000 }
+                            battery_cost: 1200000, battery_life: 250000 },
+                        { id: 'v6b', label: 'EV Long Range', fuel_type: 'Electric', fuel_consumption: 5.5,
+                            oil_interval: 20000, oil_cost: 2500,
+                            minor_service_interval: 20000, minor_service_cost: 10000,
+                            major_service_interval: 80000, major_service_cost: 25000,
+                            tyre_cost: 120000, tyre_life: 45000,
+                            insurance_annual: 80000, tax_annual: 2500,
+                            initial_cost: 5000000, expected_resale: 2500000,
+                            years_remaining: 8, loan_amount: 0,
+                            battery_cost: 1500000, battery_life: 300000 }
                     ],
                     'cat6': [
                         { id: 'v7', label: '150cc Motorcycle', fuel_type: 'Petrol', fuel_consumption: 35.0,
@@ -2490,8 +2604,16 @@
                             major_service_interval: 20000, major_service_cost: 8000,
                             tyre_cost: 6000, tyre_life: 15000,
                             insurance_annual: 5000, tax_annual: 1500,
-                            initial_cost: 180000, current_value: 140000, expected_resale: 70000,
-                            years_remaining: 5, loan_amount: 0 }
+                            initial_cost: 180000, expected_resale: 70000,
+                            years_remaining: 5, loan_amount: 0 },
+                        { id: 'v7b', label: '250cc Motorcycle', fuel_type: 'Petrol', fuel_consumption: 30.0,
+                            oil_interval: 5000, oil_cost: 2000,
+                            minor_service_interval: 5000, minor_service_cost: 4000,
+                            major_service_interval: 20000, major_service_cost: 10000,
+                            tyre_cost: 8000, tyre_life: 12000,
+                            insurance_annual: 7000, tax_annual: 2000,
+                            initial_cost: 280000, expected_resale: 120000,
+                            years_remaining: 4, loan_amount: 0 }
                     ],
                     'cat7': [
                         { id: 'v8', label: '1.6L LPG - Standard', fuel_type: 'LPG', fuel_consumption: 11.0,
@@ -2500,8 +2622,72 @@
                             major_service_interval: 40000, major_service_cost: 48000,
                             tyre_cost: 85000, tyre_life: 50000,
                             insurance_annual: 55000, tax_annual: 7500,
-                            initial_cost: 1600000, current_value: 1300000, expected_resale: 650000,
+                            initial_cost: 1600000, expected_resale: 650000,
+                            years_remaining: 7, loan_amount: 0 },
+                        { id: 'v8b', label: '2.0L LPG - Premium', fuel_type: 'LPG', fuel_consumption: 9.0,
+                            oil_interval: 10000, oil_cost: 7000,
+                            minor_service_interval: 10000, minor_service_cost: 20000,
+                            major_service_interval: 40000, major_service_cost: 60000,
+                            tyre_cost: 100000, tyre_life: 45000,
+                            insurance_annual: 65000, tax_annual: 9000,
+                            initial_cost: 2200000, expected_resale: 900000,
+                            years_remaining: 6, loan_amount: 0 }
+                    ],
+                    'cat8': [
+                        { id: 'v9', label: '1.8L Hybrid - Standard', fuel_type: 'Hybrid', fuel_consumption: 18.0,
+                            oil_interval: 15000, oil_cost: 5000,
+                            minor_service_interval: 15000, minor_service_cost: 12000,
+                            major_service_interval: 60000, major_service_cost: 35000,
+                            tyre_cost: 90000, tyre_life: 50000,
+                            insurance_annual: 60000, tax_annual: 6000,
+                            initial_cost: 2800000, expected_resale: 1400000,
+                            years_remaining: 8, loan_amount: 0 },
+                        { id: 'v9b', label: '2.0L Hybrid - Premium', fuel_type: 'Hybrid', fuel_consumption: 16.0,
+                            oil_interval: 15000, oil_cost: 6000,
+                            minor_service_interval: 15000, minor_service_cost: 15000,
+                            major_service_interval: 60000, major_service_cost: 40000,
+                            tyre_cost: 110000, tyre_life: 45000,
+                            insurance_annual: 75000, tax_annual: 7000,
+                            initial_cost: 3800000, expected_resale: 1900000,
                             years_remaining: 7, loan_amount: 0 }
+                    ],
+                    'cat9': [
+                        { id: 'v10', label: '3.0L Petrol - Luxury', fuel_type: 'Petrol', fuel_consumption: 8.0,
+                            oil_interval: 10000, oil_cost: 10000,
+                            minor_service_interval: 10000, minor_service_cost: 35000,
+                            major_service_interval: 40000, major_service_cost: 100000,
+                            tyre_cost: 200000, tyre_life: 30000,
+                            insurance_annual: 150000, tax_annual: 20000,
+                            initial_cost: 8000000, expected_resale: 3200000,
+                            years_remaining: 5, loan_amount: 0 },
+                        { id: 'v10b', label: '4.0L Petrol - Super Luxury', fuel_type: 'Petrol', fuel_consumption: 6.5,
+                            oil_interval: 10000, oil_cost: 12000,
+                            minor_service_interval: 10000, minor_service_cost: 45000,
+                            major_service_interval: 40000, major_service_cost: 130000,
+                            tyre_cost: 250000, tyre_life: 25000,
+                            insurance_annual: 200000, tax_annual: 25000,
+                            initial_cost: 12000000, expected_resale: 4800000,
+                            years_remaining: 4, loan_amount: 0 }
+                    ],
+                    'cat10': [
+                        { id: 'v11', label: '5.0L Diesel - Light Truck', fuel_type: 'Diesel', fuel_consumption: 5.0,
+                            oil_interval: 8000, oil_cost: 12000,
+                            minor_service_interval: 8000, minor_service_cost: 40000,
+                            major_service_interval: 32000, major_service_cost: 120000,
+                            tyre_cost: 250000, tyre_life: 25000,
+                            insurance_annual: 180000, tax_annual: 25000,
+                            initial_cost: 6000000, expected_resale: 2400000,
+                            years_remaining: 5, loan_amount: 0 }
+                    ],
+                    'cat11': [
+                        { id: 'v12', label: '3.0L Diesel - Mini Bus', fuel_type: 'Diesel', fuel_consumption: 6.0,
+                            oil_interval: 8000, oil_cost: 10000,
+                            minor_service_interval: 8000, minor_service_cost: 35000,
+                            major_service_interval: 32000, major_service_cost: 100000,
+                            tyre_cost: 200000, tyre_life: 30000,
+                            insurance_annual: 150000, tax_annual: 20000,
+                            initial_cost: 5000000, expected_resale: 2000000,
+                            years_remaining: 5, loan_amount: 0 }
                     ]
                 },
                 routes: [
@@ -2510,7 +2696,9 @@
                     { from_city: 'Nairobi', to_city: 'Nakuru', km: 160 },
                     { from_city: 'Nairobi', to_city: 'Eldoret', km: 315 },
                     { from_city: 'Nairobi', to_city: 'Malindi', km: 500 },
-                    { from_city: 'Nairobi', to_city: 'Nanyuki', km: 210 }
+                    { from_city: 'Nairobi', to_city: 'Nanyuki', km: 210 },
+                    { from_city: 'Nairobi', to_city: 'Meru', km: 230 },
+                    { from_city: 'Nairobi', to_city: 'Thika', km: 45 }
                 ]
             };
 
@@ -2536,13 +2724,11 @@
                     populateCategories();
                     renderRouteChips();
 
-                    // Default to first category
                     if (categories.length > 0) {
                         elements.categorySelect.value = categories[0].id;
                         elements.categorySelect.dispatchEvent(new Event('change'));
                     }
 
-                    // Show all variants by default
                     elements.showAllClasses.checked = true;
 
                     setTimeout(() => {
@@ -2570,7 +2756,6 @@
                 initEventListeners();
             }
 
-            // ─── Start ──────────────────────────────────────────────────
             document.addEventListener('DOMContentLoaded', init);
         })();
     </script>
