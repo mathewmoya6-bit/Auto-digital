@@ -76,16 +76,16 @@ def calculate_mileage_simple(data):
     insurance = data.get("insurance", 0)
     tax = data.get("tax", 0)
     
-    # Fuel prices (KES per litre/unit)
+    # Fuel prices (KES per litre/unit) - Use admin prices if available
     fuel_prices = {
-        "petrol": 214.03,
-        "diesel": 222.86,
-        "electric": 30.00,
-        "lpg": 120.00,
+        "petrol": FUEL_PRICES.get("petrol", {}).get("price", 214.03) if 'FUEL_PRICES' in globals() else 214.03,
+        "diesel": FUEL_PRICES.get("diesel", {}).get("price", 222.86) if 'FUEL_PRICES' in globals() else 222.86,
+        "electric": FUEL_PRICES.get("electric", {}).get("price", 30.00) if 'FUEL_PRICES' in globals() else 30.00,
+        "lpg": FUEL_PRICES.get("lpg", {}).get("price", 120.00) if 'FUEL_PRICES' in globals() else 120.00,
         "hybrid": 150.00,
         "cng": 100.00
     }
-    fuel_price = fuel_prices.get(fuel_type, 214.03)
+    fuel_price = data.get("fuel_price", fuel_prices.get(fuel_type, 214.03))
     
     # Calculate costs
     fuel_used = (distance_km / 100) * fuel_consumption
@@ -109,7 +109,15 @@ def calculate_mileage_simple(data):
         "cost_per_km": round(cost_per_km, 2)
     }
 
-# ─── Import Services (with fallback for missing modules) ──────────
+# ─── Import RunningCostEngine ─────────────────────────────────────
+try:
+    from engines.running_cost_engine import RunningCostEngine
+    logger.info("✅ RunningCostEngine imported successfully")
+except ImportError as e:
+    logger.warning(f"⚠️ RunningCostEngine import failed: {e}")
+    RunningCostEngine = None
+
+# ─── Import Services ─────────────────────────────────────────────
 try:
     from services.mileage_service import MileageService
     logger.info("✅ MileageService imported successfully")
@@ -194,9 +202,24 @@ CORS(
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
 
-# ─── Initialize Services (with fallback) ──────────────────────────
+# ─── Initialize Services ──────────────────────────────────────────
+
+# Initialize RunningCostEngine first
+running_cost_engine = RunningCostEngine() if RunningCostEngine else None
+if running_cost_engine:
+    logger.info("✅ RunningCostEngine initialized")
+
+# Initialize MileageService with RunningCostEngine
 if MileageService:
-    mileage_service = MileageService()
+    try:
+        mileage_service = MileageService()
+        # If MileageService accepts engine as parameter, pass it
+        if hasattr(mileage_service, 'engine') and running_cost_engine:
+            mileage_service.engine = running_cost_engine
+        logger.info("✅ MileageService initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ MileageService initialization failed: {e}")
+        mileage_service = None
 else:
     mileage_service = None
     logger.warning("⚠️ MileageService not available")
@@ -208,21 +231,18 @@ else:
     logger.warning("⚠️ ValuationService not available")
 
 if OwnershipService:
-    # Check if it's a class or function
     if callable(OwnershipService) and not isinstance(OwnershipService, type):
-        # It's a function, not a class
         ownership_service = OwnershipService
     else:
         try:
             ownership_service = OwnershipService()
         except TypeError:
-            # It's a function
             ownership_service = OwnershipService
 else:
     ownership_service = None
     logger.warning("⚠️ OwnershipService not available")
 
-logger.info("✅ Services initialized")
+logger.info("✅ All services initialized")
 
 # ─── Temporary Storage ──────────────────────────────────────────
 transactions = {}
@@ -382,17 +402,98 @@ def mileage():
     # Try using the service first
     if mileage_service:
         try:
-            result = mileage_service.calculate(data)
-            if "error" in result:
+            # Check if mileage_service has calculate method
+            if hasattr(mileage_service, 'calculate'):
+                result = mileage_service.calculate(data)
+            elif hasattr(mileage_service, 'calculate_trip_cost'):
+                # Extract variant and distance from data
+                variant_id = data.get('variant_id') or data.get('id')
+                distance_km = data.get('distance_km')
+                
+                # Find variant data
+                variant = None
+                try:
+                    from data import find_variant
+                    variant = find_variant(variant_id)
+                except ImportError:
+                    variant = {
+                        "id": variant_id,
+                        "label": data.get("label", "Unknown"),
+                        "fuel_type": data.get("fuel_type", "petrol"),
+                        "fuel_consumption": data.get("fuel_consumption", 8.0),
+                        "initial_cost": data.get("initial_cost", 0),
+                        "current_value": data.get("current_value", 0),
+                        "insurance_annual": data.get("insurance", 60000),
+                        "tax_annual": data.get("tax", 8000),
+                        "tyre_cost": data.get("tyre_cost", 120000),
+                        "tyre_life": data.get("tyre_life", 50000),
+                        "year": data.get("year", 2020),
+                        "annual_km": data.get("annual_km", 20000)
+                    }
+                
+                if variant:
+                    # Build vehicle data
+                    vehicle_data = {
+                        "id": variant.get("id", variant_id),
+                        "label": variant.get("label", "Unknown"),
+                        "fuel_type": variant.get("fuel_type", "petrol"),
+                        "fuel_consumption": float(variant.get("fuel_consumption", 8.0)),
+                        "initial_cost": float(variant.get("initial_cost", 0)),
+                        "current_value": float(variant.get("current_value", 0)),
+                        "insurance_annual": float(variant.get("insurance_annual", 60000)),
+                        "tax_annual": float(variant.get("tax_annual", 8000)),
+                        "tyre_cost": float(variant.get("tyre_cost", 120000)),
+                        "tyre_life": float(variant.get("tyre_life", 50000)),
+                        "oil_interval": float(variant.get("oil_interval", 10000)),
+                        "oil_cost": float(variant.get("oil_cost", 6000)),
+                        "minor_service_interval": float(variant.get("minor_service_interval", 10000)),
+                        "minor_service_cost": float(variant.get("minor_service_cost", 15000)),
+                        "major_service_interval": float(variant.get("major_service_interval", 40000)),
+                        "major_service_cost": float(variant.get("major_service_cost", 45000)),
+                        "expected_resale": float(variant.get("expected_resale", 0)),
+                        "years_remaining": float(variant.get("years_remaining", 8)),
+                        "loan_amount": float(variant.get("loan_amount", 0)),
+                        "battery_cost": float(variant.get("battery_cost", 0)),
+                        "battery_life": float(variant.get("battery_life", 0)),
+                        "condition": variant.get("condition", "Good"),
+                        "distance_km": float(distance_km)
+                    }
+                    
+                    # Build trip inputs
+                    trip_inputs = {
+                        "annual_km": float(data.get("annual_km", 20000)),
+                        "driving_style": data.get("driving_style", "normal"),
+                        "trip_type": data.get("trip_type", "mixed"),
+                        "usage_type": data.get("usage_type", "private"),
+                        "year": int(data.get("year", 2020)),
+                        "fuel_price": float(data.get("fuel_price", 0)) if data.get("fuel_price") else None
+                    }
+                    
+                    result = mileage_service.calculate_trip_cost(
+                        vehicle_data=vehicle_data,
+                        distance_km=float(distance_km),
+                        trip_inputs=trip_inputs
+                    )
+                    
+                    # If result is a RunningCostResult, convert to dict
+                    if hasattr(result, 'to_frontend_format'):
+                        result = result.to_frontend_format()
+                else:
+                    result = {"error": "Variant not found"}
+            else:
+                result = {"error": "MileageService not properly configured"}
+            
+            if result and "error" in result:
                 return jsonify(result), 400
+            
             return jsonify({
                 "success": True,
-                "data": result,
+                "data": result.get("data", result),
                 "service": "mileage",
                 "timestamp": datetime.utcnow().isoformat()
             })
         except Exception as e:
-            logger.error(f"Mileage service error: {e}")
+            logger.error(f"Mileage service error: {e}", exc_info=True)
             # Fall through to simple calculation
     
     # Fallback to simple calculation
@@ -826,6 +927,7 @@ def health():
         "vehicle_categories": get_categories(),
         "mpesa_available": MPESA_AVAILABLE,
         "admin_enabled": True,
+        "fuel_prices": FUEL_PRICES,
         "timestamp": datetime.utcnow().isoformat()
     })
 
@@ -958,4 +1060,5 @@ if __name__ == "__main__":
     logger.info(f"📡 Services: Mileage, Valuation, Ownership")
     logger.info(f"🔌 M-Pesa: {'Available' if MPESA_AVAILABLE else 'Unavailable'}")
     logger.info(f"🔑 Admin: Enabled at /api/admin/login")
+    logger.info(f"⛽ Fuel Prices: {FUEL_PRICES}")
     app.run(host="0.0.0.0", port=port, debug=False)
