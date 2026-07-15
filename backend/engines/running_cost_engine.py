@@ -734,10 +734,103 @@ class RunningCostEngine:
                 "tag": "Service"
             })
         
-        # Depreciation
-        dep = fixed_costs.get("depreciation", 0)
-        dep_per_km = dep / (vehicle_data.get("distance_km", 100)) if vehicle_data.get("distance_km", 0) > 0 else 0
-        if dep_per_km > 20:
-            recommendations.append({
-                "icon": "📉",
-                "text": f"
+         # Depreciation
+    dep = fixed_costs.get("depreciation", 0)
+    dep_per_km = dep / distance_km if distance_km > 0 else 0
+    if dep_per_km > 20:
+        recommendations.append({
+            "icon": "📉",
+            "text": f"Depreciation ({dep_per_km:.2f} KES/km) is high. Consider buying used or different model.",
+            "type": "warning",
+            "tag": "Depreciation"
+        })
+    
+    # Age-based recommendation
+    if age > 10:
+        repair = operating_costs.get("repairs", 0)
+        repair_per_km = repair / distance_km if distance_km > 0 else 0
+        recommendations.append({
+            "icon": "🏥",
+            "text": f"Vehicle is {age} years old. Repair costs ({repair_per_km:.2f} KES/km) are rising. Consider replacement.",
+            "type": "warning",
+            "tag": "Age"
+        })
+    
+    # EV recommendation
+    if fuel_type == "electric":
+        savings = max(0, energy_per_km - 5)
+        recommendations.append({
+            "icon": "🌱",
+            "text": f"Great EV choice! Save {savings:.2f} KES/km vs petrol. Zero tailpipe emissions.",
+            "type": "success",
+            "tag": "Green"
+        })
+    elif fuel_type in ["petrol", "diesel"] and energy_per_km > 15:
+        recommendations.append({
+            "icon": "⚡",
+            "text": f"Consider switching to electric. You could save up to {energy_per_km - 5:.2f} KES/km on fuel costs.",
+            "type": "info",
+            "tag": "EV"
+        })
+    
+    # Usage-specific recommendations
+    if usage_type == "taxi" and total_per_km > 30:
+        recommendations.append({
+            "icon": "🚖",
+            "text": f"Operating cost ({total_per_km:.2f} KES/km) is high for taxi. Consider LPG or EV conversion.",
+            "type": "warning",
+            "tag": "Taxi"
+        })
+    
+    if usage_type == "commercial_freight" and total_per_km > 40:
+        recommendations.append({
+            "icon": "📦",
+            "text": f"High operating cost ({total_per_km:.2f} KES/km) for freight. Consider fleet optimization.",
+            "type": "warning",
+            "tag": "Freight"
+        })
+    
+    if usage_type == "fleet" and total_per_km > 35:
+        recommendations.append({
+            "icon": "🏢",
+            "text": f"Fleet cost ({total_per_km:.2f} KES/km) is above average. Review maintenance schedules and fuel contracts.",
+            "type": "warning",
+            "tag": "Fleet"
+        })
+    
+    # RCI-based recommendation
+    if total_per_km > 50:
+        recommendations.append({
+            "icon": "💰",
+            "text": f"RCI ({total_per_km:.2f} KES/km) is in the 'Expensive' range. Review all cost categories.",
+            "type": "warning",
+            "tag": "Cost"
+        })
+    elif total_per_km <= 20:
+        recommendations.append({
+            "icon": "🌟",
+            "text": f"Excellent RCI ({total_per_km:.2f} KES/km)! Your vehicle is very cost-efficient.",
+            "type": "success",
+            "tag": "Excellent"
+        })
+    
+    # Health score recommendation
+    health_score = self._calculate_health_score()
+    if health_score < 50:
+        recommendations.append({
+            "icon": "🏥",
+            "text": f"Vehicle health score ({health_score}/100) is low. Schedule comprehensive inspection.",
+            "type": "warning",
+            "tag": "Health"
+        })
+    
+    # Default if no recommendations
+    if not recommendations:
+        recommendations.append({
+            "icon": "✅",
+            "text": "Vehicle performing well across all metrics. Continue regular maintenance.",
+            "type": "success",
+            "tag": "All Good"
+        })
+    
+    return recommendations
