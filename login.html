@@ -1,0 +1,342 @@
+/******************************************************************************
+ * AUTO-D
+ * Authentication - Complete Auth Module
+ * Registration, Login, Logout, Session Management
+ ******************************************************************************/
+
+import { supabase } from "./supabase.js";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CONFIGURATION
+// ──────────────────────────────────────────────────────────────────────────────
+
+const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+let sessionCheckInterval = null;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// REGISTRATION FUNCTIONS
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Register User - Base registration
+ * 
+ * @param {Object} params - Registration parameters
+ * @param {string} params.email - User email
+ * @param {string} params.password - User password
+ * @param {string} params.accountType - 'individual' or 'corporate'
+ * @param {Object} params.options - Additional options
+ * @returns {Promise<Object>} Registration result
+ */
+export async function register({ 
+    email, 
+    password, 
+    accountType = "individual",
+    options = {} 
+}) {
+    try {
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                data: {
+                    account_type: accountType,
+                    ...options
+                }
+            }
+        });
+
+        if (error) throw error;
+
+        return {
+            success: true,
+            user: data.user,
+            session: data.session,
+            message: "Registration successful. Please verify your email."
+        };
+    } catch (err) {
+        return {
+            success: false,
+            message: err.message
+        };
+    }
+}
+
+/**
+ * Register Individual User
+ * 
+ * @param {Object} form - Individual registration form data
+ * @param {string} form.email - User email
+ * @param {string} form.password - User password
+ * @param {string} form.firstName - User first name
+ * @param {string} form.lastName - User last name
+ * @param {string} form.phone - User phone number
+ * @param {string} form.nationalId - User national ID
+ * @param {string} form.dateOfBirth - User date of birth
+ * @returns {Promise<Object>} Registration result
+ */
+export async function registerIndividual(form) {
+    const result = await register({
+        email: form.email,
+        password: form.password,
+        accountType: "individual"
+    });
+
+    if (!result.success) return result;
+
+    const { data: appUser, error } = await supabase
+        .from("users")
+        .select("id")
+        .eq("auth_user_id", result.user.id)
+        .single();
+
+    if (error) {
+        return {
+            success: false,
+            message: error.message
+        };
+    }
+
+    const { error: profileError } = await supabase
+        .from("individual_profiles")
+        .update({
+            first_name: form.firstName,
+            last_name: form.lastName,
+            phone: form.phone,
+            national_id: form.nationalId,
+            date_of_birth: form.dateOfBirth
+        })
+        .eq("user_id", appUser.id);
+
+    if (profileError) {
+        return {
+            success: false,
+            message: profileError.message
+        };
+    }
+
+    return result;
+}
+
+/**
+ * Register Corporate User
+ * 
+ * @param {Object} form - Corporate registration form data
+ * @param {string} form.email - Company email
+ * @param {string} form.password - Account password
+ * @param {string} form.companyName - Company name
+ * @param {string} form.registrationNumber - Company registration number
+ * @param {string} form.kraPin - KRA PIN
+ * @param {string} form.phone - Company phone
+ * @returns {Promise<Object>} Registration result
+ */
+export async function registerCorporate(form) {
+    const result = await register({
+        email: form.email,
+        password: form.password,
+        accountType: "corporate"
+    });
+
+    if (!result.success) return result;
+
+    const { data: appUser, error } = await supabase
+        .from("users")
+        .select("id")
+        .eq("auth_user_id", result.user.id)
+        .single();
+
+    if (error) {
+        return {
+            success: false,
+            message: error.message
+        };
+    }
+
+    const { error: profileError } = await supabase
+        .from("corporate_profiles")
+        .update({
+            company_name: form.companyName,
+            registration_number: form.registrationNumber,
+            kra_pin: form.kraPin,
+            company_phone: form.phone,
+            company_email: form.email
+        })
+        .eq("user_id", appUser.id);
+
+    if (profileError) {
+        return {
+            success: false,
+            message: profileError.message
+        };
+    }
+
+    return result;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// LOGIN FUNCTIONS
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Login with Email and Password
+ * 
+ * @param {Object} params - Login parameters
+ * @param {string} params.email - User email
+ * @param {string} params.password - User password
+ * @param {boolean} params.rememberMe - Keep session active
+ * @returns {Promise<Object>} Login result
+ */
+export async function login({ email, password, rememberMe = false }) {
+    try {
+        // Validate inputs
+        if (!email || !password) {
+            return {
+                success: false,
+                message: "Email and password are required."
+            };
+        }
+
+        // Attempt login
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email: email.trim().toLowerCase(),
+            password: password
+        });
+
+        if (error) {
+            // Handle specific error types
+            if (error.message.includes("Invalid login credentials")) {
+                return {
+                    success: false,
+                    message: "Invalid email or password. Please try again."
+                };
+            }
+            if (error.message.includes("Email not confirmed")) {
+                return {
+                    success: false,
+                    message: "Please verify your email address before logging in.",
+                    needsVerification: true
+                };
+            }
+            if (error.message.includes("rate limit")) {
+                return {
+                    success: false,
+                    message: "Too many login attempts. Please try again later."
+                };
+            }
+            throw error;
+        }
+
+        // Update session persistence
+        if (rememberMe) {
+            await supabase.auth.updateUser({
+                data: { remember_me: true }
+            });
+        }
+
+        // Update last login timestamp
+        await updateLastLogin(data.user.id);
+
+        // Start session monitoring
+        startSessionMonitoring();
+
+        return {
+            success: true,
+            user: data.user,
+            session: data.session,
+            message: "Login successful.",
+            accountType: data.user.user_metadata?.account_type || "individual"
+        };
+
+    } catch (err) {
+        console.error("Login error:", err);
+        return {
+            success: false,
+            message: err.message || "An error occurred during login. Please try again."
+        };
+    }
+}
+
+/**
+ * Login with Magic Link (Passwordless)
+ * 
+ * @param {Object} params - Magic link parameters
+ * @param {string} params.email - User email
+ * @param {string} params.redirectTo - Redirect URL after confirmation
+ * @returns {Promise<Object>} Magic link result
+ */
+export async function sendMagicLink({ email, redirectTo = window.location.origin + "/dashboard" }) {
+    try {
+        if (!email) {
+            return {
+                success: false,
+                message: "Email is required."
+            };
+        }
+
+        const { data, error } = await supabase.auth.signInWithOtp({
+            email: email.trim().toLowerCase(),
+            options: {
+                emailRedirectTo: redirectTo
+            }
+        });
+
+        if (error) throw error;
+
+        return {
+            success: true,
+            message: "Magic link sent to your email. Please check your inbox."
+        };
+
+    } catch (err) {
+        console.error("Magic link error:", err);
+        return {
+            success: false,
+            message: err.message || "Failed to send magic link. Please try again."
+        };
+    }
+}
+
+/**
+ * Login with OAuth Provider
+ * 
+ * @param {Object} params - OAuth parameters
+ * @param {string} params.provider - OAuth provider ('google', 'github', etc.)
+ * @param {string} params.redirectTo - Redirect URL after authentication
+ * @returns {Promise<Object>} OAuth result
+ */
+export async function loginWithOAuth({ provider, redirectTo = window.location.origin + "/dashboard" }) {
+    try {
+        if (!provider) {
+            return {
+                success: false,
+                message: "Provider is required."
+            };
+        }
+
+        const { data, error } = await supabase.auth.signInWithOAuth({
+            provider: provider,
+            options: {
+                redirectTo: redirectTo
+            }
+        });
+
+        if (error) throw error;
+
+        return {
+            success: true,
+            url: data.url,
+            provider: provider,
+            message: `Redirecting to ${provider}...`
+        };
+
+    } catch (err) {
+        console.error("OAuth login error:", err);
+        return {
+            success: false,
+            message: err.message || "Failed to login with provider. Please try again."
+        };
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// LOGOUT FUNCTIONS
+// ─────────────────────────────────────────────────────────────────────────
