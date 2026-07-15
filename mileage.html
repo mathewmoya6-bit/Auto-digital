@@ -1202,6 +1202,15 @@
 
             // ─── Configuration ──────────────────────────────────────────
             const CONFIG = {
+                // API Configuration - set to empty string to use client-side only
+                API: {
+                    BASE_URL: 'https://auto-digital.onrender.com',  // Your backend URL
+                    ENDPOINTS: {
+                        MILEAGE: '/api/service/mileage',
+                        MILEAGE_HEALTH: '/api/service/mileage/health'
+                    },
+                    TIMEOUT: 3000  // 3 second timeout
+                },
                 ECONOMIC: {
                     FUEL_PRICE_PETROL: 189.00,
                     FUEL_PRICE_DIESEL: 176.00,
@@ -1344,6 +1353,39 @@
                 return bands['10+'];
             }
 
+            // ─── API Communication ──────────────────────────────────────
+            async function callBackend(endpoint, payload) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), CONFIG.API.TIMEOUT);
+                    
+                    const response = await fetch(`${CONFIG.API.BASE_URL}${endpoint}`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json', 
+                            'Accept': 'application/json' 
+                        },
+                        body: JSON.stringify(payload),
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
+                    }
+                    return await response.json();
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        console.warn('⚠️ Backend call timed out');
+                    } else {
+                        console.warn('⚠️ Backend call failed:', error.message);
+                    }
+                    return null;
+                }
+            }
+
             // ─── Core Cost Engine ────────────────────────────────────────
             function calculateRunningCost(variant, inputs) {
                 const {
@@ -1382,12 +1424,9 @@
 
                 // ─── 3. Fuel Consumption Engine ──────────────────────
                 const baseConsumption = variant.fuel_consumption || 8;
-                // Apply adjustments: driving style + trip type
                 let adjustedConsumption = baseConsumption * (1 + styleAdj.fuel + tripAdj.fuel);
-                // Additional adjustment for usage
                 if (usageType === 'commercial_freight') adjustedConsumption *= 1.08;
                 if (usageType === 'taxi') adjustedConsumption *= 1.05;
-                // Age adjustment (older vehicles less efficient)
                 adjustedConsumption *= (1 + age * 0.003);
                 
                 const actualConsumption = adjustedConsumption;
@@ -1415,7 +1454,6 @@
                 const tyreCost = variant.tyre_cost || 120000;
                 const tyreLife = variant.tyre_life || 50000;
                 let tyrePerKm = tyreCost / tyreLife;
-                // Apply trip and usage adjustments
                 tyrePerKm *= (1 + tripAdj.tyres);
                 if (usageType === 'commercial_freight') tyrePerKm *= 1.15;
                 if (usageType === 'taxi') tyrePerKm *= 1.20;
@@ -1433,9 +1471,7 @@
                 const minorPerKm = minorServiceCost / minorServiceInterval;
                 const majorPerKm = majorServiceCost / majorServiceInterval;
                 let servicePerKm = minorPerKm + majorPerKm;
-                // Apply adjustments
                 servicePerKm *= (1 + styleAdj.maintenance + tripAdj.maintenance + (usageAdj.maintenance - 1));
-                // Age adjustment
                 servicePerKm *= (1 + age * 0.015);
                 
                 const serviceTrip = servicePerKm * d;
@@ -1444,9 +1480,7 @@
 
                 // ─── 8. Repairs Reserve ──────────────────────────────
                 let repairPerKm = getRepairRate(age);
-                // Apply adjustments
                 repairPerKm *= (1 + styleAdj.repairs + tripAdj.repairs + (usageAdj.repairs - 1));
-                // Mileage adjustment
                 repairPerKm *= (1 + (annual / 30000) * 0.1);
                 
                 const repairTrip = repairPerKm * d;
@@ -1455,9 +1489,7 @@
 
                 // ─── 9. Insurance Reserve ────────────────────────────
                 let insuranceAnnual = variant.insurance_annual || 120000;
-                // Apply usage adjustment
                 insuranceAnnual *= usageAdj.insurance;
-                // Age adjustment (insurance decreases as vehicle ages)
                 insuranceAnnual *= (1 - age * 0.02);
                 insuranceAnnual = Math.max(insuranceAnnual, insuranceAnnual * 0.5);
                 
@@ -1480,33 +1512,26 @@
 
                 // ─── 11. Financing Cost ──────────────────────────────
                 let loanAmount = variant.loan_amount || purchasePrice * 0.8;
-                // If no loan (private cash purchase), use opportunity cost
+                let financingTrip, financingAnnual, financingMonthly, financingPerKm;
+                
                 if (usageType === 'private' && !variant.loan_amount) {
-                    const opportunityRate = 0.10; // 10% opportunity cost
+                    const opportunityRate = 0.10;
                     const interestAnnual = purchasePrice * opportunityRate;
-                    const interestPerKm = interestAnnual / annual;
-                    const interestTrip = interestPerKm * d;
-                    const interestMonthly = interestAnnual / 12;
-                    var financingTrip = interestTrip;
-                    var financingAnnual = interestAnnual;
-                    var financingMonthly = interestMonthly;
-                    var financingPerKm = interestPerKm;
+                    financingPerKm = interestAnnual / annual;
+                    financingTrip = financingPerKm * d;
+                    financingAnnual = interestAnnual;
+                    financingMonthly = interestAnnual / 12;
                 } else {
                     const interestRate = CONFIG.ECONOMIC.INTEREST_RATE;
                     const interestAnnual = loanAmount * interestRate;
-                    const interestPerKm = interestAnnual / annual;
-                    const financingTrip = interestPerKm * d;
-                    const financingAnnual = interestAnnual;
-                    const financingMonthly = interestAnnual / 12;
-                    var financingTrip = financingTrip;
-                    var financingAnnual = financingAnnual;
-                    var financingMonthly = financingMonthly;
-                    var financingPerKm = interestPerKm;
+                    financingPerKm = interestAnnual / annual;
+                    financingTrip = financingPerKm * d;
+                    financingAnnual = interestAnnual;
+                    financingMonthly = interestAnnual / 12;
                 }
 
                 // ─── 12. Annual Fees ──────────────────────────────────
                 let feesAnnual = variant.tax_annual || 8000;
-                // Add usage-based fees
                 if (usageType === 'commercial_passenger') feesAnnual += 5000;
                 if (usageType === 'commercial_freight') feesAnnual += 8000;
                 if (usageType === 'taxi') feesAnnual += 10000;
@@ -1722,7 +1747,7 @@
                 if (fuelType === 'electric') {
                     recommendations.push({
                         icon: '🌱',
-                        text: `Great EV choice! Save ${formatCurrency(fuelCostPerKm - 5)}/km vs petrol. Zero tailpipe emissions.`,
+                        text: `Great EV choice! Save ${formatCurrency(Math.max(0, fuelCostPerKm - 5))}/km vs petrol. Zero tailpipe emissions.`,
                         type: 'success',
                         tag: 'Green'
                     });
@@ -1775,42 +1800,27 @@
 
                 // ─── Return ────────────────────────────────────────────
                 return {
-                    // Trip
                     tripTotal,
                     tripCostPerKm,
                     tripComponents,
                     perkmComponents,
                     distance: d,
-                    
-                    // Commercial
                     privateCost,
                     fleetCost,
                     taxiRate,
                     recommendedRate,
                     deliveryPerParcel,
-                    
-                    // Metrics
                     rci, rciLabel, rciStars, rciClass,
                     healthScore, healthLabel, healthColor,
-                    
-                    // Monthly & Annual
                     monthlyTotal,
                     annualTotal,
                     monthlyComponents,
                     annualComponents,
-                    
-                    // Projection
                     projection,
-                    
-                    // Environmental
                     co2PerKm, co2Trip, co2Annual, treesToOffset,
                     fuelType, fuelConsumption: actualConsumption,
                     fuelPricePerUnit,
-                    
-                    // Recommendations
                     recommendations,
-                    
-                    // Raw
                     vehicleName: variant.label,
                     fuelTypeDisplay: variant.fuel_type,
                     initialCost: variant.initial_cost,
@@ -1824,9 +1834,92 @@
                 };
             }
 
+            // ─── Transform Backend Result ──────────────────────────────
+            function transformBackendResult(data, variant, inputs) {
+                return {
+                    tripTotal: data.totalCost || data.total_cost || 0,
+                    tripCostPerKm: data.totalRate || data.total_per_km || 0,
+                    tripComponents: data.components || {},
+                    perkmComponents: data.perKmComponents || {},
+                    distance: data.distance_km || inputs.distance,
+                    privateCost: data.privateCost || 0,
+                    fleetCost: data.fleetCost || 0,
+                    taxiRate: data.taxiRate || 0,
+                    recommendedRate: data.recommendedRate || 0,
+                    deliveryPerParcel: data.deliveryPerParcel || 0,
+                    rci: data.rci || data.totalRate || 0,
+                    rciLabel: data.rciLabel || 'Good',
+                    rciStars: data.rciStars || '★★★★',
+                    rciClass: data.rciClass || 'good',
+                    healthScore: data.healthScore || 75,
+                    healthLabel: data.healthLabel || '★★★★ Good',
+                    healthColor: 'var(--blue)',
+                    monthlyTotal: data.monthlyTotal || 0,
+                    annualTotal: data.annualTotal || 0,
+                    monthlyComponents: data.monthlyComponents || {},
+                    annualComponents: data.annualComponents || {},
+                    projection: data.projection || [],
+                    co2PerKm: data.co2PerKm || 0,
+                    co2Trip: data.co2Trip || 0,
+                    co2Annual: data.co2Annual || 0,
+                    treesToOffset: data.treesToOffset || 0,
+                    fuelType: data.fuelType || variant.fuel_type || 'petrol',
+                    fuelConsumption: data.fuelConsumption || variant.fuel_consumption || 8,
+                    fuelPricePerUnit: data.fuelPricePerUnit || inputs.fuelPrice || 189,
+                    vehicleName: data.vehicleName || variant.label || 'Unknown',
+                    fuelTypeDisplay: data.fuelTypeDisplay || variant.fuel_type || 'Unknown',
+                    initialCost: data.initialCost || variant.initial_cost || 0,
+                    currentValue: data.currentValue || variant.current_value || 0,
+                    annualKm: inputs.annualKm || 20000,
+                    monthlyKm: (inputs.annualKm || 20000) / 12,
+                    age: inputs.year ? new Date().getFullYear() - parseInt(inputs.year) : 0,
+                    usageType: inputs.usageType || 'private',
+                    drivingStyle: inputs.drivingStyle || 'normal',
+                    tripType: inputs.tripType || 'mixed',
+                    recommendations: data.recommendations || []
+                };
+            }
+
+            // ─── Main Calculation ──────────────────────────────────────
+            async function calculateMileage(variant, inputs) {
+                if (!variant || !inputs.distance || inputs.distance <= 0) return null;
+
+                const payload = {
+                    variant_id: variant.id,
+                    distance_km: inputs.distance,
+                    annual_km: inputs.annualKm || 20000,
+                    fuel_price: inputs.fuelPrice || 0,
+                    driving_style: inputs.drivingStyle || 'normal',
+                    trip_type: inputs.tripType || 'mixed',
+                    usage_type: inputs.usageType || 'private',
+                    year: inputs.year || 2020,
+                    fuel_type: variant.fuel_type || 'petrol',
+                    fuel_consumption: variant.fuel_consumption || 8,
+                    insurance: variant.insurance_annual || 60000,
+                    tax: variant.tax_annual || 8000,
+                    initial_cost: variant.initial_cost || 0,
+                    current_value: variant.current_value || 0
+                };
+
+                try {
+                    const result = await callBackend(CONFIG.API.ENDPOINTS.MILEAGE, payload);
+                    if (result && result.success && result.data) {
+                        elements.calcMethod.textContent = 'Flask API ✓ (Backend)';
+                        setApiStatus('● Connected to Flask API', true);
+                        return transformBackendResult(result.data, variant, inputs);
+                    }
+                } catch (e) {
+                    console.log('⚠️ Backend unavailable, using client engine');
+                }
+
+                // Fallback to client-side calculation
+                elements.calcMethod.textContent = 'Engine v4.0 (Client)';
+                setApiStatus('● Offline mode', false);
+                return calculateRunningCost(variant, inputs);
+            }
+
             // ─── Render Results ─────────────────────────────────────────
             function renderResults(result, variant) {
-                // ─── Vehicle Profile ──────────────────────────────────
                 elements.vehicleLabel.textContent = variant.label || 'Unnamed variant';
                 elements.fuelPill.textContent = result.fuelTypeDisplay || '—';
                 elements.vehicleSpecs.innerHTML = `
@@ -1837,18 +1930,18 @@
                     <span class="spec-item">🏷️ <span class="spec-value">${result.usageType.replace('_', ' ').toUpperCase()}</span></span>
                 `;
 
-                // ─── Trip Total ──────────────────────────────────────
                 elements.tripTotal.textContent = formatCurrency(result.tripTotal);
                 elements.tripSub.textContent = `at ${formatCurrency(result.tripCostPerKm)} KES/km over ${formatNumber(result.distance)} km`;
 
-                // ─── Trip Components ──────────────────────────────────
                 let tripHtml = '';
                 const tripComponents = result.tripComponents || {};
                 Object.entries(tripComponents).forEach(([key, data]) => {
+                    const value = typeof data === 'object' ? data.value : data;
+                    const cls = typeof data === 'object' ? (data.class || '') : '';
                     tripHtml += `
                         <div class="cost-item">
                             <span class="label">${key}</span>
-                            <span class="value ${data.class || ''}">KES ${formatCurrency(data.value)}</span>
+                            <span class="value ${cls}">KES ${formatCurrency(value)}</span>
                         </div>
                     `;
                 });
@@ -1860,7 +1953,6 @@
                 `;
                 elements.tripCostGrid.innerHTML = tripHtml;
 
-                // ─── Per km Breakdown ──────────────────────────────────
                 let perkmHtml = '';
                 const perkm = result.perkmComponents || {};
                 Object.entries(perkm).forEach(([key, value]) => {
@@ -1883,7 +1975,6 @@
                 `;
                 elements.perkmGrid.innerHTML = perkmHtml;
 
-                // ─── Commercial ──────────────────────────────────────
                 elements.commercialGrid.innerHTML = `
                     <div class="commercial-card">
                         <div class="commercial-label">Private Owner</div>
@@ -1917,13 +2008,11 @@
                     </div>
                 `;
 
-                // ─── RCI ──────────────────────────────────────────────
                 elements.rciValue.textContent = formatCurrency(result.rci) + ' KES/km';
                 elements.rciValue.className = 'rci-value ' + (result.rciClass || '');
                 elements.rciStars.textContent = result.rciStars || '—';
                 elements.rciLabel.textContent = result.rciLabel || '—';
 
-                // ─── Health ───────────────────────────────────────────
                 const score = result.healthScore || 0;
                 const pct = Math.min(100, Math.max(0, score));
                 elements.healthRing.style.setProperty('--pct', pct + '%');
@@ -1931,7 +2020,6 @@
                 elements.healthScore.textContent = Math.round(score);
                 elements.healthLabel.textContent = result.healthLabel || '—';
 
-                // ─── Monthly ──────────────────────────────────────────
                 let monthlyHtml = '';
                 const monthly = result.monthlyComponents || {};
                 Object.entries(monthly).forEach(([key, value]) => {
@@ -1950,7 +2038,6 @@
                 `;
                 elements.monthlyGrid.innerHTML = monthlyHtml;
 
-                // ─── Annual ────────────────────────────────────────────
                 let annualHtml = '';
                 const annual = result.annualComponents || {};
                 Object.entries(annual).forEach(([key, value]) => {
@@ -1969,7 +2056,6 @@
                 `;
                 elements.annualGrid.innerHTML = annualHtml;
 
-                // ─── Projection ────────────────────────────────────────
                 const proj = result.projection || [];
                 projIds.forEach((id, idx) => {
                     const el = document.getElementById(id);
@@ -1978,7 +2064,6 @@
                     }
                 });
 
-                // ─── Environmental ────────────────────────────────────
                 elements.envGrid.innerHTML = `
                     <div class="env-item">
                         <div class="env-value">${formatNumber(result.co2Trip)} kg</div>
@@ -2006,7 +2091,6 @@
                     </div>
                 `;
 
-                // ─── Recommendations ───────────────────────────────────
                 const recs = result.recommendations || [];
                 let recHtml = '';
                 recs.forEach(rec => {
@@ -2021,15 +2105,14 @@
                 });
                 elements.recList.innerHTML = recHtml;
 
-                // Update timestamp
                 elements.lastUpdated.textContent = new Date().toLocaleString('en-KE', {
                     year: 'numeric', month: 'short', day: 'numeric',
                     hour: '2-digit', minute: '2-digit'
                 });
             }
 
-            // ─── Main Calculation ──────────────────────────────────────
-            function calculateAndRender() {
+            // ─── Main Calculation Handler ──────────────────────────────
+            async function calculateAndRender() {
                 const variant = currentVariant();
                 if (!variant) {
                     showToast('Please select a vehicle', 'error');
@@ -2056,7 +2139,7 @@
                 elements.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
 
                 try {
-                    const result = calculateRunningCost(variant, inputs);
+                    const result = await calculateMileage(variant, inputs);
                     if (!result) {
                         showToast('Calculation failed', 'error');
                         return;
@@ -2064,8 +2147,6 @@
 
                     currentResult = result;
                     renderResults(result, variant);
-                    elements.calcMethod.textContent = 'Engine v4.0 (Client)';
-                    setApiStatus('● Professional Engine Active', true);
                     showToast('✅ Analysis complete!', 'success');
 
                 } catch (error) {
@@ -2151,7 +2232,6 @@
 
             // ─── Event Listeners ──────────────────────────────────────
             function initEventListeners() {
-                // Fuel filter
                 elements.fuelFilterGroup.addEventListener('click', function(e) {
                     const btn = e.target.closest('.fuel-filter-btn');
                     if (!btn) return;
@@ -2167,7 +2247,6 @@
                     applyVariantFilter();
                 });
 
-                // Category change
                 elements.categorySelect.addEventListener('change', function() {
                     const catId = this.value;
                     if (!catId || isLoading) {
@@ -2190,10 +2269,8 @@
                     }
                 });
 
-                // Show all classes toggle
                 elements.showAllClasses.addEventListener('change', applyVariantFilter);
 
-                // Auto-calculate
                 ['change', 'input'].forEach(evt => {
                     [elements.variantSelect, elements.distanceInput, elements.annualKmInput,
                      elements.fuelPriceInput, elements.drivingStyle, elements.tripType,
@@ -2206,7 +2283,6 @@
                     });
                 });
 
-                // Route chips
                 elements.routeChips.addEventListener('click', function(e) {
                     const chip = e.target.closest('.chip');
                     if (!chip) return;
@@ -2217,13 +2293,10 @@
                     }
                 });
 
-                // Calculate button
                 elements.calculateBtn.addEventListener('click', calculateAndRender);
 
-                // Print
                 document.getElementById('printBtn').addEventListener('click', function() { window.print(); });
 
-                // Share
                 document.getElementById('shareBtn').addEventListener('click', function() {
                     const url = window.location.href;
                     const text = `Auto-D Kenya Running Cost Report\nVehicle: ${elements.vehicleLabel.textContent}\nTotal: KES ${elements.tripTotal.textContent}\nRCI: ${elements.rciValue.textContent}`;
@@ -2236,7 +2309,6 @@
                     }
                 });
 
-                // Export CSV
                 document.getElementById('exportBtn').addEventListener('click', function() {
                     if (!currentResult) { showToast('No data to export', 'error'); return; }
                     const r = currentResult;
@@ -2277,7 +2349,6 @@
                     showToast('CSV exported!', 'success');
                 });
 
-                // Export JSON
                 document.getElementById('exportFullBtn').addEventListener('click', function() {
                     if (!currentResult) { showToast('No data to export', 'error'); return; }
                     const data = {
