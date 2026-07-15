@@ -1,34 +1,29 @@
 /******************************************************************************
- * AUTO-D ENTERPRISE PLATFORM
- * File: /js/auth.js
- * Part 1 - Registration
+ * AUTO-D
+ * Registration
  ******************************************************************************/
 
 import { supabase } from "./supabase.js";
 
-/******************************************************************************
+/**
  * Register User
- ******************************************************************************/
+ *
+ * accountType:
+ * individual
+ * corporate
+ */
 
-export async function registerUser(formData) {
+export async function register({
+
+    email,
+    password,
+    accountType = "individual"
+
+}) {
 
     try {
 
-        const {
-            email,
-            password,
-            phone,
-            accountType,
-            firstName,
-            lastName,
-            companyName
-        } = formData;
-
-        // ----------------------------------------------------
-        // 1. Create Auth User
-        // ----------------------------------------------------
-
-        const { data: authData, error: authError } =
+        const { data, error } =
             await supabase.auth.signUp({
 
                 email,
@@ -47,95 +42,16 @@ export async function registerUser(formData) {
 
             });
 
-        if (authError)
-            throw authError;
-
-        if (!authData.user)
-            throw new Error("Registration failed.");
-
-        // ----------------------------------------------------
-        // 2. Create users table record
-        // ----------------------------------------------------
-
-        const { data: userRow, error: userError } =
-            await supabase
-                .from("users")
-                .insert({
-
-                    auth_user_id: authData.user.id,
-
-                    email,
-
-                    phone,
-
-                    account_type: accountType,
-
-                    account_status: "active"
-
-                })
-                .select()
-                .single();
-
-        if (userError)
-            throw userError;
-
-        // ----------------------------------------------------
-        // 3. Create Profile
-        // ----------------------------------------------------
-
-        if (accountType === "individual") {
-
-            const { error } =
-                await supabase
-                    .from("individual_profiles")
-                    .insert({
-
-                        user_id: userRow.id,
-
-                        first_name: firstName,
-
-                        last_name: lastName,
-
-                        preferred_currency: "KES",
-
-                        default_annual_mileage: 20000
-
-                    });
-
-            if (error)
-                throw error;
-
-        }
-
-        else if (accountType === "corporate") {
-
-            const { error } =
-                await supabase
-                    .from("corporate_profiles")
-                    .insert({
-
-                        user_id: userRow.id,
-
-                        company_name: companyName,
-
-                        fleet_size: 0,
-
-                        employee_count: 1,
-
-                        verified: false
-
-                    });
-
-            if (error)
-                throw error;
-
-        }
+        if (error)
+            throw error;
 
         return {
 
             success: true,
 
-            user: authData.user,
+            user: data.user,
+
+            session: data.session,
 
             message:
                 "Registration successful. Please verify your email."
@@ -144,15 +60,13 @@ export async function registerUser(formData) {
 
     }
 
-    catch (error) {
-
-        console.error(error);
+    catch (err) {
 
         return {
 
             success: false,
 
-            message: error.message
+            message: err.message
 
         };
 
@@ -164,35 +78,66 @@ export async function registerUser(formData) {
  * Register Individual
  ******************************************************************************/
 
-export async function registerIndividual({
+export async function registerIndividual(form) {
 
-    firstName,
+    const result =
+        await register({
 
-    lastName,
+            email: form.email,
 
-    phone,
+            password: form.password,
 
-    email,
+            accountType: "individual"
 
-    password
+        });
 
-}) {
+    if (!result.success)
+        return result;
 
-    return registerUser({
+    const { data: appUser, error } =
+        await supabase
+            .from("users")
+            .select("id")
+            .eq("auth_user_id", result.user.id)
+            .single();
 
-        firstName,
+    if (error)
+        return {
 
-        lastName,
+            success: false,
 
-        phone,
+            message: error.message
 
-        email,
+        };
 
-        password,
+    const { error: profileError } =
+        await supabase
+            .from("individual_profiles")
+            .update({
 
-        accountType: "individual"
+                first_name: form.firstName,
 
-    });
+                last_name: form.lastName,
+
+                phone: form.phone,
+
+                national_id: form.nationalId,
+
+                date_of_birth: form.dateOfBirth
+
+            })
+            .eq("user_id", appUser.id);
+
+    if (profileError)
+        return {
+
+            success: false,
+
+            message: profileError.message
+
+        };
+
+    return result;
 
 }
 
@@ -200,30 +145,65 @@ export async function registerIndividual({
  * Register Corporate
  ******************************************************************************/
 
-export async function registerCorporate({
+export async function registerCorporate(form) {
 
-    companyName,
+    const result =
+        await register({
 
-    phone,
+            email: form.email,
 
-    email,
+            password: form.password,
 
-    password
+            accountType: "corporate"
 
-}) {
+        });
 
-    return registerUser({
+    if (!result.success)
+        return result;
 
-        companyName,
+    const { data: appUser, error } =
+        await supabase
+            .from("users")
+            .select("id")
+            .eq("auth_user_id", result.user.id)
+            .single();
 
-        phone,
+    if (error)
+        return {
 
-        email,
+            success: false,
 
-        password,
+            message: error.message
 
-        accountType: "corporate"
+        };
 
-    });
+    const { error: profileError } =
+        await supabase
+            .from("corporate_profiles")
+            .update({
+
+                company_name: form.companyName,
+
+                registration_number: form.registrationNumber,
+
+                kra_pin: form.kraPin,
+
+                company_phone: form.phone,
+
+                company_email: form.email
+
+            })
+            .eq("user_id", appUser.id);
+
+    if (profileError)
+        return {
+
+            success: false,
+
+            message: profileError.message
+
+        };
+
+    return result;
 
 }
