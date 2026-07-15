@@ -1120,18 +1120,15 @@
             }
 
             // ─── Main Calculation ──────────────────────────────────────
+            // ─── Main Calculation ──────────────────────────────────────
+            // ─── Main Calculation ──────────────────────────────────────
             async function calculateMileage(variant, distance) {
                 if (!variant || !distance || distance <= 0) return null;
 
-                // Payload aligned with mileage_service.calculate_mileage(variant_id, distance_km).
-                // The backend looks the variant up server-side by id via find_variant(), so
-                // variant_id is the one field it actually requires — everything else it derives
-                // from its own stored record. The remaining fields are sent only as context for
-                // the client-side fallback path, not used by the real endpoint.
+                // Build payload exactly as calculate_mileage_simple() expects it
                 const payload = {
-                    variant_id: variant.id,
                     distance_km: distance,
-                    fuel_type: variant.fuel_type || 'petrol',
+                    fuel_type: (variant.fuel_type || 'petrol').toLowerCase(),
                     fuel_consumption: variant.fuel_consumption || 8,
                     maintenance_per_km: variant.maintenance_per_km || 2,
                     insurance: variant.insurance_annual || 5000,
@@ -1140,15 +1137,60 @@
 
                 try {
                     const result = await callBackend(CONFIG.API.ENDPOINTS.MILEAGE, payload);
-                    if (result && result.data) {
-                        elements.calcMethod.textContent = 'Flask API ✓';
+                    
+                    // Check if we got a valid response with data
+                    if (result && result.data && typeof result.data.total_cost === 'number') {
+                        const d = result.data;
+                        elements.calcMethod.textContent = `Flask API ✓ (${result.service || 'mileage'})`;
                         setApiStatus('● Connected', true);
-                        return result.data;
+
+                        // Calculate fixed vs operating split from backend data
+                        // Backend returns: fuel_cost, maintenance_cost, insurance_cost, tax_cost, total_cost, cost_per_km
+                        const fixedCost = (d.insurance_cost || 0) + (d.tax_cost || 0);
+                        const operatingCost = (d.fuel_cost || 0) + (d.maintenance_cost || 0);
+                        const totalRate = d.cost_per_km || 0;
+
+                        // Build component costs - use backend values where available, fallback to local estimates
+                        const localComponents = variant.components || {};
+                        const componentCosts = {
+                            Insurance: d.insurance_cost || 0,
+                            Licences: d.tax_cost || 0,
+                            Fuel: d.fuel_cost || 0,
+                            Servicing: d.maintenance_cost || 0,
+                            Depreciation: (localComponents.Depreciation || 0) * distance,
+                            Interest: (localComponents.Interest || 0) * distance,
+                            Repairs: (localComponents.Repairs || 0) * distance,
+                            Tyres: (localComponents.Tyres || 0) * distance
+                        };
+
+                        // Yearly projections - use local data, scaled to match backend rate
+                        const baseRate = totalRate || parseFloat(variant.total_per_km) || 0;
+                        const yearly = {
+                            year1: variant.year1 || baseRate * 0.9,
+                            year2: variant.year2 || baseRate * 0.95,
+                            year3: variant.year3 || baseRate,
+                            year4: variant.year4 || baseRate * 1.08,
+                            year5: variant.year5 || baseRate * 1.15
+                        };
+
+                        return {
+                            totalCost: d.total_cost || 0,
+                            totalRate: totalRate,
+                            fixedCost: fixedCost,
+                            operatingCost: operatingCost,
+                            fixedRate: distance > 0 ? fixedCost / distance : 0,
+                            operatingRate: distance > 0 ? operatingCost / distance : 0,
+                            components: componentCosts,
+                            yearly: yearly,
+                            initialCost: variant.initial_cost || 0,
+                            method: 'backend-simple'
+                        };
                     }
                 } catch (e) {
-                    console.log('⚠️ Backend unavailable, using fallback');
+                    console.log('⚠️ Backend error, using fallback:', e.message);
                 }
 
+                // Fallback to client-side calculation
                 elements.calcMethod.textContent = 'Client-side (fallback)';
                 setApiStatus('⚠️ Offline mode', false);
                 return calculateClientSide(variant, distance);
@@ -1453,8 +1495,7 @@
                 try {
                     console.log('🔄 Loading initial data...');
                     
-                    // Check backend health (mileage service's own health route,
-                    // not a generic /api/health that doesn't exist on this blueprint)
+                    // Check backend health
                     try {
                         const healthCheck = await fetch(`${CONFIG.API.BASE_URL}${CONFIG.API.ENDPOINTS.MILEAGE_HEALTH}`);
                         if (healthCheck.ok) {
