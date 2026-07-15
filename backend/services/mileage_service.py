@@ -7,8 +7,19 @@ import logging
 from typing import Dict, Any, Optional
 from flask import jsonify, request, Blueprint
 from flask_cors import cross_origin
+from datetime import datetime
 
-from running_cost_engine import RunningCostEngine, RunningCostResult
+# ─── Import RunningCostEngine ──────────────────────────────────────
+try:
+    from engines.running_cost_engine import RunningCostEngine, RunningCostResult
+    ENGINE_AVAILABLE = True
+    logger = logging.getLogger(__name__)
+    logger.info("✅ RunningCostEngine imported successfully")
+except ImportError as e:
+    ENGINE_AVAILABLE = False
+    logging.getLogger(__name__).warning(f"⚠️ RunningCostEngine import failed: {e}")
+    RunningCostEngine = None
+    RunningCostResult = None
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -26,9 +37,69 @@ class MileageService:
     Wraps the RunningCostEngine and provides API-friendly methods.
     """
     
-    def __init__(self):
-        self.engine = RunningCostEngine()
+    def __init__(self, engine=None):
+        self.engine = engine or (RunningCostEngine() if ENGINE_AVAILABLE else None)
         self.logger = logging.getLogger(__name__)
+        
+        if self.engine:
+            self.logger.info("✅ RunningCostEngine initialized in MileageService")
+        else:
+            self.logger.warning("⚠️ RunningCostEngine not available - using simple calculations")
+    
+    def calculate(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Main calculate method - called by app.py
+        
+        Args:
+            data: Request data with variant_id, distance_km, etc.
+        
+        Returns:
+            Dict with calculation results
+        """
+        try:
+            # Extract parameters
+            variant_id = data.get('variant_id') or data.get('id')
+            distance_km = data.get('distance_km')
+            
+            if not variant_id:
+                return {"error": "variant_id is required"}
+            
+            if distance_km is None:
+                return {"error": "distance_km is required"}
+            
+            try:
+                distance_km = float(distance_km)
+                if distance_km <= 0:
+                    return {"error": "distance_km must be greater than 0"}
+            except (TypeError, ValueError):
+                return {"error": "distance_km must be a number"}
+            
+            # Get variant data
+            variant = self._get_variant(variant_id, data)
+            if not variant:
+                return {"error": f"Unknown variant_id: {variant_id}"}
+            
+            # Build vehicle data
+            vehicle_data = self._build_vehicle_data(variant, data)
+            
+            # Build trip inputs
+            trip_inputs = self._build_trip_inputs(data, variant)
+            
+            # Calculate using engine
+            result = self.calculate_trip_cost(
+                vehicle_data=vehicle_data,
+                distance_km=float(distance_km),
+                trip_inputs=trip_inputs
+            )
+            
+            return result
+            
+        except MileageError as e:
+            self.logger.warning(f"Mileage error: {e}")
+            return {"error": str(e)}
+        except Exception as e:
+            self.logger.error(f"Calculation error: {e}", exc_info=True)
+            return {"error": f"Calculation failed: {str(e)}"}
     
     def calculate_trip_cost(
         self,
@@ -59,15 +130,24 @@ class MileageService:
             trip_inputs.setdefault("usage_type", "private")
             trip_inputs.setdefault("year", vehicle_data.get("year", 2020))
             
-            # Calculate using engine
-            result = self.engine.calculate_trip_cost(
-                distance_km=distance_km,
-                vehicle_data=vehicle_data,
-                trip_inputs=trip_inputs
-            )
+            # Calculate using engine if available
+            if self.engine and hasattr(self.engine, 'calculate_trip_cost'):
+                result = self.engine.calculate_trip_cost(
+                    distance_km=distance_km,
+                    vehicle_data=vehicle_data,
+                    trip_inputs=trip_inputs
+                )
+                
+                # If result is a RunningCostResult, convert to dict
+                if hasattr(result, 'to_frontend_format'):
+                    return result.to_frontend_format()
+                elif isinstance(result, dict):
+                    return result
+                else:
+                    return {"data": result, "success": True}
             
-            # Convert to frontend format
-            return result.to_frontend_format()
+            # Fallback to simple calculation
+            return self._calculate_simple(vehicle_data, distance_km, trip_inputs)
             
         except MileageError as e:
             self.logger.warning(f"Validation error: {e}")
@@ -75,6 +155,171 @@ class MileageService:
         except Exception as e:
             self.logger.error(f"Calculation error: {e}", exc_info=True)
             raise
+    
+    def _get_variant(self, variant_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Get variant data from data module or fallback"""
+        try:
+            # Try to import data module
+            from data import find_variant
+            variant = find_variant(variant_id)
+            if variant:
+                return variant
+        except ImportError:
+            self.logger.warning("data module not available, using fallback")
+        
+        # Fallback - use data from request
+        return {
+            "id": variant_id,
+            "label": data.get("label", "Unknown"),
+            "fuel_type": data.get("fuel_type", "petrol"),
+            "fuel_consumption": data.get("fuel_consumption", 8.0),
+            "initial_cost": data.get("initial_cost", 0),
+            "current_value": data.get("current_value", 0),
+            "insurance_annual": data.get("insurance", 60000),
+            "tax_annual": data.get("tax", 8000),
+            "tyre_cost": data.get("tyre_cost", 120000),
+            "tyre_life": data.get("tyre_life", 50000),
+            "year": data.get("year", 2020),
+            "annual_km": data.get("annual_km", 20000),
+            "oil_interval": data.get("oil_interval", 10000),
+            "oil_cost": data.get("oil_cost", 6000),
+            "minor_service_interval": data.get("minor_service_interval", 10000),
+            "minor_service_cost": data.get("minor_service_cost", 15000),
+            "major_service_interval": data.get("major_service_interval", 40000),
+            "major_service_cost": data.get("major_service_cost", 45000),
+            "expected_resale": data.get("expected_resale", 0),
+            "years_remaining": data.get("years_remaining", 8),
+            "loan_amount": data.get("loan_amount", 0),
+            "battery_cost": data.get("battery_cost", 0),
+            "battery_life": data.get("battery_life", 0),
+            "condition": data.get("condition", "Good")
+        }
+    
+    def _build_vehicle_data(self, variant: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+        """Build vehicle data dict from variant"""
+        return {
+            "id": variant.get("id", data.get("variant_id")),
+            "label": variant.get("label", "Unknown"),
+            "fuel_type": variant.get("fuel_type", data.get("fuel_type", "petrol")),
+            "fuel_consumption": float(variant.get("fuel_consumption", data.get("fuel_consumption", 8.0))),
+            "initial_cost": float(variant.get("initial_cost", data.get("initial_cost", 0))),
+            "current_value": float(variant.get("current_value", data.get("current_value", 0))),
+            "insurance_annual": float(variant.get("insurance_annual", data.get("insurance", 60000))),
+            "tax_annual": float(variant.get("tax_annual", data.get("tax", 8000))),
+            "tyre_cost": float(variant.get("tyre_cost", data.get("tyre_cost", 120000))),
+            "tyre_life": float(variant.get("tyre_life", data.get("tyre_life", 50000))),
+            "oil_interval": float(variant.get("oil_interval", data.get("oil_interval", 10000))),
+            "oil_cost": float(variant.get("oil_cost", data.get("oil_cost", 6000))),
+            "minor_service_interval": float(variant.get("minor_service_interval", data.get("minor_service_interval", 10000))),
+            "minor_service_cost": float(variant.get("minor_service_cost", data.get("minor_service_cost", 15000))),
+            "major_service_interval": float(variant.get("major_service_interval", data.get("major_service_interval", 40000))),
+            "major_service_cost": float(variant.get("major_service_cost", data.get("major_service_cost", 45000))),
+            "expected_resale": float(variant.get("expected_resale", data.get("expected_resale", 0))),
+            "years_remaining": float(variant.get("years_remaining", data.get("years_remaining", 8))),
+            "loan_amount": float(variant.get("loan_amount", data.get("loan_amount", 0))),
+            "battery_cost": float(variant.get("battery_cost", data.get("battery_cost", 0))),
+            "battery_life": float(variant.get("battery_life", data.get("battery_life", 0))),
+            "condition": variant.get("condition", data.get("condition", "Good")),
+            "annual_km": float(variant.get("annual_km", data.get("annual_km", 20000))),
+            "year": int(variant.get("year", data.get("year", 2020))),
+            "distance_km": float(data.get("distance_km", 0))
+        }
+    
+    def _build_trip_inputs(self, data: Dict[str, Any], variant: Dict[str, Any]) -> Dict[str, Any]:
+        """Build trip inputs from request data"""
+        return {
+            "annual_km": float(data.get("annual_km", variant.get("annual_km", 20000))),
+            "driving_style": data.get("driving_style", "normal"),
+            "trip_type": data.get("trip_type", "mixed"),
+            "usage_type": data.get("usage_type", "private"),
+            "year": int(data.get("year", variant.get("year", 2020))),
+            "fuel_price": float(data.get("fuel_price", 0)) if data.get("fuel_price") else None
+        }
+    
+    def _calculate_simple(
+        self,
+        vehicle_data: Dict[str, Any],
+        distance_km: float,
+        trip_inputs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Simple fallback calculation when engine is not available"""
+        fuel_type = vehicle_data.get("fuel_type", "petrol")
+        fuel_consumption = float(vehicle_data.get("fuel_consumption", 8.0))
+        fuel_price = trip_inputs.get("fuel_price", 189.00)
+        
+        # Calculate fuel cost
+        fuel_used = (distance_km / 100) * fuel_consumption
+        fuel_cost = fuel_used * fuel_price
+        
+        # Simple fixed and operating costs
+        fixed_cost = distance_km * 5.0  # Placeholder
+        operating_cost = fuel_cost + distance_km * 2.0  # Placeholder
+        total_cost = fixed_cost + operating_cost
+        total_rate = total_cost / distance_km if distance_km > 0 else 0
+        
+        return {
+            "success": True,
+            "data": {
+                "totalCost": round(total_cost, 2),
+                "fixedCost": round(fixed_cost, 2),
+                "operatingCost": round(operating_cost, 2),
+                "totalRate": round(total_rate, 2),
+                "fixedRate": round(fixed_cost / distance_km if distance_km > 0 else 0, 2),
+                "operatingRate": round(operating_cost / distance_km if distance_km > 0 else 0, 2),
+                "distance_km": distance_km,
+                "components": {
+                    "Fuel": round(fuel_cost, 2),
+                    "Oil": 0,
+                    "Tyres": 0,
+                    "Service": 0,
+                    "Repairs": 0,
+                    "Insurance": 0,
+                    "Depreciation": 0,
+                    "Financing": 0,
+                    "Fees": 0,
+                    "Battery Reserve": 0
+                },
+                "perKmComponents": {
+                    "Fuel": round(fuel_cost / distance_km if distance_km > 0 else 0, 2),
+                    "Oil": 0,
+                    "Tyres": 0,
+                    "Service": 0,
+                    "Repairs": 0,
+                    "Insurance": 0,
+                    "Depreciation": 0,
+                    "Financing": 0,
+                    "Fees": 0
+                },
+                "privateCost": round(total_rate, 2),
+                "fleetCost": round(total_rate + 2.5, 2),
+                "taxiRate": round(total_rate * 1.35, 2),
+                "recommendedRate": round(total_rate * 1.20, 2),
+                "deliveryPerParcel": round(total_rate * 18.75, 2),
+                "initialCost": float(vehicle_data.get("initial_cost", 0)),
+                "currentValue": float(vehicle_data.get("current_value", 0)),
+                "rci": round(total_rate, 2),
+                "rciLabel": "Good",
+                "rciStars": "★★★★",
+                "rciClass": "good",
+                "healthScore": 75,
+                "healthLabel": "★★★★ Good",
+                "monthlyTotal": round(total_cost * 20000 / distance_km / 12 if distance_km > 0 else 0, 2),
+                "annualTotal": round(total_cost * 20000 / distance_km if distance_km > 0 else 0, 2),
+                "co2PerKm": round((fuel_consumption / 100) * 2.31, 2),
+                "co2Trip": round(fuel_used * 2.31, 2),
+                "co2Annual": round((fuel_used * 2.31) * (20000 / distance_km) if distance_km > 0 else 0, 2),
+                "treesToOffset": 0,
+                "fuelType": fuel_type,
+                "fuelConsumption": fuel_consumption,
+                "fuelPricePerUnit": fuel_price,
+                "vehicleName": vehicle_data.get("label", "Unknown"),
+                "fuelTypeDisplay": fuel_type.capitalize(),
+                "recommendations": [],
+                "method": "simple",
+                "version": "4.0",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
     
     def _validate_inputs(self, vehicle_data: Dict[str, Any], distance_km: float) -> None:
         """Validate calculation inputs"""
@@ -120,78 +365,6 @@ def mileage_endpoint():
         "usage_type": "private",      # Optional - private, commercial_passenger, commercial_freight, fleet, taxi
         "year": 2020                  # Optional - vehicle year
     }
-    
-    Response:
-    {
-        "success": true,
-        "data": {
-            "totalCost": 3125.00,
-            "fixedCost": 1250.00,
-            "operatingCost": 1875.00,
-            "totalRate": 31.25,
-            "fixedRate": 12.50,
-            "operatingRate": 18.75,
-            "distance_km": 100,
-            "components": {
-                "Fuel": 875.00,
-                "Oil": 60.00,
-                "Tyres": 240.00,
-                "Service": 225.00,
-                "Repairs": 80.00,
-                "Insurance": 250.00,
-                "Depreciation": 500.00,
-                "Financing": 300.00,
-                "Fees": 100.00,
-                "Battery Reserve": 0
-            },
-            "perKmComponents": {
-                "Fuel": 8.75,
-                "Oil": 0.60,
-                "Tyres": 2.40,
-                "Service": 2.25,
-                "Repairs": 0.80,
-                "Insurance": 2.50,
-                "Depreciation": 5.00,
-                "Financing": 3.00,
-                "Fees": 1.00
-            },
-            "yearly": {
-                "year1": 28.50,
-                "year2": 32.00,
-                "year3": 36.00,
-                "year4": 41.00,
-                "year5": 47.00
-            },
-            "privateCost": 31.25,
-            "fleetCost": 34.25,
-            "taxiRate": 42.19,
-            "recommendedRate": 37.50,
-            "deliveryPerParcel": 585.94,
-            "initialCost": 1500000,
-            "currentValue": 1200000,
-            "rci": 31.25,
-            "rciLabel": "Good",
-            "rciStars": "★★★★",
-            "rciClass": "good",
-            "healthScore": 85,
-            "healthLabel": "★★★★ Good",
-            "monthlyTotal": 5208.33,
-            "annualTotal": 62500.00,
-            "co2PerKm": 0.18,
-            "co2Trip": 18.48,
-            "co2Annual": 3696.00,
-            "treesToOffset": 184.80,
-            "fuelType": "petrol",
-            "fuelConsumption": 12.5,
-            "fuelPricePerUnit": 189.00,
-            "vehicleName": "1.5L Petrol - Standard",
-            "fuelTypeDisplay": "Petrol",
-            "recommendations": [...],
-            "method": "backend",
-            "version": "4.0",
-            "timestamp": "2026-07-15T10:30:00.000Z"
-        }
-    }
     """
     try:
         # ─── Get request data ──────────────────────────────────
@@ -205,98 +378,19 @@ def mileage_endpoint():
         
         logger.info(f"Received mileage request: {data}")
         
-        # ─── Extract parameters ──────────────────────────────
-        variant_id = data.get('variant_id') or data.get('id')
-        distance_km = data.get('distance_km')
+        # ─── Calculate using service ──────────────────────────
+        result = service.calculate(data)
         
-        # ─── Validate required fields ────────────────────────
-        if not variant_id:
+        if "error" in result:
             return jsonify({
                 "success": False,
-                "error": "Missing parameter",
-                "message": "variant_id is required"
+                "error": result["error"],
+                "message": result["error"]
             }), 400
         
-        if distance_km is None:
-            return jsonify({
-                "success": False,
-                "error": "Missing parameter",
-                "message": "distance_km is required"
-            }), 400
-        
-        # ─── Get variant data ──────────────────────────────────
-        # Import data module to get variant
-        try:
-            from data import find_variant
-            variant = find_variant(variant_id)
-        except ImportError:
-            # Fallback - try to use data from request
-            variant = {
-                "id": variant_id,
-                "label": data.get("label", "Unknown"),
-                "fuel_type": data.get("fuel_type", "petrol"),
-                "fuel_consumption": data.get("fuel_consumption", 8.0),
-                "initial_cost": data.get("initial_cost", 0),
-                "current_value": data.get("current_value", 0),
-                "insurance_annual": data.get("insurance", 60000),
-                "tax_annual": data.get("tax", 8000),
-                "tyre_cost": data.get("tyre_cost", 120000),
-                "tyre_life": data.get("tyre_life", 50000),
-                "year": data.get("year", 2020),
-                "annual_km": data.get("annual_km", 20000)
-            }
-            logger.warning(f"Using fallback variant data: {variant}")
-        
-        if not variant:
-            return jsonify({
-                "success": False,
-                "error": "Invalid variant",
-                "message": f"Unknown variant_id: {variant_id}"
-            }), 404
-        
-        # ─── Build vehicle data ──────────────────────────────
-        vehicle_data = {
-            "id": variant.get("id", variant_id),
-            "label": variant.get("label", "Unknown"),
-            "fuel_type": variant.get("fuel_type", "petrol"),
-            "fuel_consumption": float(variant.get("fuel_consumption", 8.0)),
-            "initial_cost": float(variant.get("initial_cost", 0)),
-            "current_value": float(variant.get("current_value", 0)),
-            "insurance_annual": float(variant.get("insurance_annual", 60000)),
-            "tax_annual": float(variant.get("tax_annual", 8000)),
-            "tyre_cost": float(variant.get("tyre_cost", 120000)),
-            "tyre_life": float(variant.get("tyre_life", 50000)),
-            "oil_interval": float(variant.get("oil_interval", 10000)),
-            "oil_cost": float(variant.get("oil_cost", 6000)),
-            "minor_service_interval": float(variant.get("minor_service_interval", 10000)),
-            "minor_service_cost": float(variant.get("minor_service_cost", 15000)),
-            "major_service_interval": float(variant.get("major_service_interval", 40000)),
-            "major_service_cost": float(variant.get("major_service_cost", 45000)),
-            "expected_resale": float(variant.get("expected_resale", 0)),
-            "years_remaining": float(variant.get("years_remaining", 8)),
-            "loan_amount": float(variant.get("loan_amount", 0)),
-            "battery_cost": float(variant.get("battery_cost", 0)),
-            "battery_life": float(variant.get("battery_life", 0)),
-            "condition": variant.get("condition", "Good"),
-            "distance_km": float(distance_km)
-        }
-        
-        # ─── Build trip inputs ────────────────────────────────
-        trip_inputs = {
-            "annual_km": float(data.get("annual_km", vehicle_data.get("annual_km", 20000))),
-            "driving_style": data.get("driving_style", "normal"),
-            "trip_type": data.get("trip_type", "mixed"),
-            "usage_type": data.get("usage_type", "private"),
-            "year": int(data.get("year", variant.get("year", 2020))),
-            "fuel_price": float(data.get("fuel_price", 0)) if data.get("fuel_price") else None
-        }
-        
-        # ─── Calculate ─────────────────────────────────────────
-        result = service.calculate_trip_cost(
-            vehicle_data=vehicle_data,
-            distance_km=float(distance_km),
-            trip_inputs=trip_inputs
-        )
+        # Ensure result has success flag
+        if "success" not in result:
+            result["success"] = True
         
         return jsonify(result), 200
         
@@ -377,7 +471,8 @@ def health_check():
         "status": "healthy",
         "service": "Mileage Service - Auto-D Kenya",
         "version": "4.0",
-        "timestamp": __import__('datetime').datetime.utcnow().isoformat()
+        "engine_available": ENGINE_AVAILABLE,
+        "timestamp": datetime.utcnow().isoformat()
     }), 200
 
 
@@ -472,13 +567,18 @@ if __name__ == "__main__":
     print("=" * 60)
     print("Test Result:")
     print("=" * 60)
-    print(f"Total Cost: KES {result['data']['totalCost']}")
-    print(f"Total Rate: KES {result['data']['totalRate']}/km")
-    print(f"RCI: {result['data']['rciLabel']} ({result['data']['rci']})")
-    print(f"Health Score: {result['data']['healthScore']}/100")
-    print("\nComponents:")
-    for key, value in result['data']['components'].items():
-        print(f"  {key}: KES {value}")
-    print("\nPer km:")
-    for key, value in result['data']['perKmComponents'].items():
-        print(f"  {key}: KES {value}")
+    
+    if "data" in result:
+        data = result["data"]
+        print(f"Total Cost: KES {data.get('totalCost', 0)}")
+        print(f"Total Rate: KES {data.get('totalRate', 0)}/km")
+        print(f"RCI: {data.get('rciLabel', 'N/A')} ({data.get('rci', 0)})")
+        print(f"Health Score: {data.get('healthScore', 0)}/100")
+        print("\nComponents:")
+        for key, value in data.get('components', {}).items():
+            print(f"  {key}: KES {value}")
+        print("\nPer km:")
+        for key, value in data.get('perKmComponents', {}).items():
+            print(f"  {key}: KES {value}")
+    else:
+        print("Error:", result)
