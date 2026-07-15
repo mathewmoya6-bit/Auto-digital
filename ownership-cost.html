@@ -65,7 +65,6 @@
             padding: 28px 32px 60px;
         }
 
-        /* ─── Header ────────────────────────────────────────────────── */
         .report-header {
             background: linear-gradient(135deg, var(--bg-secondary), var(--bg-primary));
             border: 1px solid var(--border);
@@ -145,7 +144,6 @@
             color: var(--red);
         }
 
-        /* ─── Main Grid ─────────────────────────────────────────────── */
         .main-grid {
             display: grid;
             grid-template-columns: 420px 1fr;
@@ -153,7 +151,6 @@
         }
         @media (max-width: 1024px) { .main-grid { grid-template-columns: 1fr; } }
 
-        /* ─── Calculator Panel ──────────────────────────────────────── */
         .calculator-panel {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
@@ -340,7 +337,6 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* ─── Results Panel ──────────────────────────────────────────── */
         .results-panel {
             display: flex;
             flex-direction: column;
@@ -414,7 +410,6 @@
         }
         .vehicle-specs .spec-item .spec-value { color: var(--text-secondary); }
 
-        /* ─── Stats Grid ────────────────────────────────────────────── */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -447,7 +442,6 @@
         .stat-card .num.green { color: var(--green); }
         .stat-card .num.blue { color: var(--blue); }
 
-        /* ─── Yearly Breakdown ──────────────────────────────────────── */
         .breakdown-panel {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
@@ -518,7 +512,6 @@
             .bar-track { height: 18px; }
         }
 
-        /* ─── Table ──────────────────────────────────────────────────── */
         .table-wrap { overflow-x: auto; }
         table {
             width: 100%;
@@ -543,7 +536,6 @@
         td { border-bottom: 1px solid rgba(51,65,85,0.4); }
         tr:last-child td { border-bottom: none; font-weight: 700; color: var(--amber); }
 
-        /* ─── RCI & Health ───────────────────────────────────────────── */
         .metrics-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -620,7 +612,6 @@
         }
         .health-score .score-details strong { color: var(--text-primary); }
 
-        /* ─── Environmental ──────────────────────────────────────────── */
         .env-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -646,7 +637,6 @@
             text-transform: uppercase;
         }
 
-        /* ─── Recommendations ────────────────────────────────────────── */
         .rec-list {
             display: flex;
             flex-direction: column;
@@ -683,7 +673,6 @@
         .rec-item.info { border-left-color: var(--blue); }
         .rec-item.info .rec-tag { background: rgba(59, 130, 246, 0.12); color: var(--blue); }
 
-        /* ─── Action Buttons ────────────────────────────────────────── */
         .action-bar {
             display: flex;
             gap: 6px;
@@ -716,7 +705,6 @@
         .action-btn.share { border-color: var(--green); color: var(--green); }
         .action-btn.share:hover:not(:disabled) { background: rgba(34, 197, 94, 0.08); }
 
-        /* ─── Footer ─────────────────────────────────────────────────── */
         .report-footer {
             border-top: 1px solid var(--border);
             padding-top: 20px;
@@ -742,7 +730,6 @@
         }
         .report-footer .meta strong { color: var(--text-secondary); }
 
-        /* ─── Toast ──────────────────────────────────────────────────── */
         .toast {
             position: fixed;
             bottom: 20px;
@@ -765,7 +752,6 @@
             to { opacity: 1; transform: translateX(0); }
         }
 
-        /* ─── Responsive ────────────────────────────────────────────── */
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
             .report-header { padding: 20px 18px; flex-direction: column; }
@@ -1031,7 +1017,7 @@
                 <button class="calc-btn" id="calcBtn">🚀 Calculate Ownership Cost</button>
 
                 <div style="margin-top:12px;font-size:10px;color:var(--text-muted);text-align:center;">
-                    Powered by <strong style="color:var(--amber);">Auto-D Kenya</strong> · Flask API
+                    Powered by <strong style="color:var(--amber);">Auto-D Kenya</strong> · Supabase + FastAPI
                 </div>
             </section>
 
@@ -1197,943 +1183,1124 @@
         </div>
     </div>
 
-    <!-- ─── JavaScript ───────────────────────────────────────────────── -->
-    <script>
-        (function() {
-            "use strict";
+    <script type="module">
+        // ═══════════════════════════════════════════════════════════════
+        // Auto-D Kenya - COST OF OWNERSHIP
+        // Supabase Single Source of Truth + FastAPI Business Logic
+        // ═══════════════════════════════════════════════════════════════
 
-            // ─── Configuration ──────────────────────────────────────────
-            const API_BASE = 'https://auto-digital.onrender.com';
-            const FUEL_PRICES = {
-                petrol: 214.03,
-                diesel: 222.86,
-                hybrid: 150.00,
-                electric: 30.00,
-                lpg: 120.00
-            };
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
-            const LOCATION_MULTIPLIERS = {
-                nairobi: { fuel: 0.9, maintenance: 1.1, tyres: 1.0, insurance: 1.0 },
-                mombasa: { fuel: 1.1, maintenance: 1.1, tyres: 1.1, insurance: 1.05 },
-                rural: { fuel: 1.15, maintenance: 1.3, tyres: 1.3, insurance: 1.1 },
-                highway: { fuel: 0.95, maintenance: 1.0, tyres: 1.0, insurance: 0.95 }
-            };
+        // ─── Supabase Configuration ──────────────────────────────────
+        const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-            const COLORS = {
-                depreciation: "var(--c-depreciation)",
-                financing: "var(--c-financing)",
-                insurance: "var(--c-insurance)",
-                fuel: "var(--c-fuel)",
-                maintenance: "var(--c-maintenance)",
-                tyres: "var(--c-tyres)",
-                licensing: "var(--c-licensing)"
-            };
+        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-            // ─── COMPLETE VEHICLE DATABASE ──────────────────────────
-            const VEHICLE_DB = {
-                toyota: {
-                    label: 'Toyota',
-                    type: 'Car',
-                    models: {
-                        prado: { price: 5200000, fuel: 11, serviceInterval: 10000, minor: 18000, major: 65000, tyres: "265/65R17", maintenancePerKm: 14 },
-                        hilux: { price: 3800000, fuel: 12, serviceInterval: 10000, minor: 15000, major: 55000, tyres: "265/70R16", maintenancePerKm: 12 },
-                        fortuner: { price: 4500000, fuel: 10, serviceInterval: 10000, minor: 16000, major: 58000, tyres: "265/60R18", maintenancePerKm: 13 },
-                        corolla: { price: 2000000, fuel: 15, serviceInterval: 15000, minor: 10000, major: 35000, tyres: "195/65R15", maintenancePerKm: 6 },
-                        rav4: { price: 3500000, fuel: 13, serviceInterval: 15000, minor: 12000, major: 40000, tyres: "225/65R17", maintenancePerKm: 8 }
-                    }
-                },
-                nissan: {
-                    label: 'Nissan',
-                    type: 'Car',
-                    models: {
-                        xtrail: { price: 3200000, fuel: 12, serviceInterval: 15000, minor: 12000, major: 42000, tyres: "225/60R17", maintenancePerKm: 8 },
-                        patrol: { price: 8000000, fuel: 7, serviceInterval: 10000, minor: 20000, major: 75000, tyres: "265/70R18", maintenancePerKm: 15 },
-                        note: { price: 1500000, fuel: 18, serviceInterval: 15000, minor: 8000, major: 28000, tyres: "185/65R15", maintenancePerKm: 5 }
-                    }
-                },
-                isuzu: {
-                    label: 'Isuzu',
-                    type: 'Car',
-                    models: {
-                        dmax: { price: 4000000, fuel: 12, serviceInterval: 10000, minor: 16000, major: 60000, tyres: "245/70R16", maintenancePerKm: 12 },
-                        mu_x: { price: 4800000, fuel: 10, serviceInterval: 10000, minor: 17000, major: 62000, tyres: "265/60R18", maintenancePerKm: 14 }
-                    }
-                },
-                mitsubishi: {
-                    label: 'Mitsubishi',
-                    type: 'Car',
-                    models: {
-                        pajero: { price: 4800000, fuel: 10, serviceInterval: 10000, minor: 17000, major: 62000, tyres: "265/65R17", maintenancePerKm: 14 },
-                        outlander: { price: 3000000, fuel: 12, serviceInterval: 15000, minor: 11000, major: 38000, tyres: "225/55R18", maintenancePerKm: 8 },
-                        l300: { price: 2200000, fuel: 10, serviceInterval: 8000, minor: 15000, major: 50000, tyres: "195/70R15", maintenancePerKm: 14 }
-                    }
-                },
-                subaru: {
-                    label: 'Subaru',
-                    type: 'Car',
-                    models: {
-                        forester: { price: 3500000, fuel: 11, serviceInterval: 15000, minor: 13000, major: 45000, tyres: "225/55R17", maintenancePerKm: 9 },
-                        outback: { price: 4200000, fuel: 10, serviceInterval: 15000, minor: 14000, major: 48000, tyres: "225/60R17", maintenancePerKm: 10 }
-                    }
-                },
-                mercedes: {
-                    label: 'Mercedes-Benz',
-                    type: 'Car',
-                    models: {
-                        c_class: { price: 6000000, fuel: 13, serviceInterval: 15000, minor: 22000, major: 80000, tyres: "225/45R17", maintenancePerKm: 16 },
-                        e_class: { price: 8000000, fuel: 12, serviceInterval: 15000, minor: 25000, major: 90000, tyres: "245/45R18", maintenancePerKm: 18 }
-                    }
-                },
-                bmw: {
-                    label: 'BMW',
-                    type: 'Car',
-                    models: {
-                        x3: { price: 5500000, fuel: 12, serviceInterval: 15000, minor: 20000, major: 75000, tyres: "225/60R17", maintenancePerKm: 15 },
-                        x5: { price: 9000000, fuel: 10, serviceInterval: 15000, minor: 25000, major: 90000, tyres: "255/55R18", maintenancePerKm: 18 },
-                        '3_series': { price: 4800000, fuel: 14, serviceInterval: 15000, minor: 18000, major: 65000, tyres: "205/55R17", maintenancePerKm: 13 }
-                    }
-                },
-                volkswagen: {
-                    label: 'Volkswagen',
-                    type: 'Car',
-                    models: {
-                        golf: { price: 2800000, fuel: 14, serviceInterval: 15000, minor: 12000, major: 40000, tyres: "205/55R16", maintenancePerKm: 8 },
-                        tiguan: { price: 3800000, fuel: 12, serviceInterval: 15000, minor: 15000, major: 50000, tyres: "215/65R17", maintenancePerKm: 10 },
-                        polo: { price: 1800000, fuel: 16, serviceInterval: 15000, minor: 8000, major: 28000, tyres: "195/55R15", maintenancePerKm: 5 }
-                    }
-                },
-                hyundai: {
-                    label: 'Hyundai',
-                    type: 'Car',
-                    models: {
-                        tucson: { price: 3200000, fuel: 13, serviceInterval: 15000, minor: 11000, major: 38000, tyres: "225/60R17", maintenancePerKm: 8 },
-                        santa_fe: { price: 4500000, fuel: 11, serviceInterval: 15000, minor: 14000, major: 48000, tyres: "235/60R18", maintenancePerKm: 10 },
-                        i10: { price: 1200000, fuel: 18, serviceInterval: 15000, minor: 6000, major: 22000, tyres: "175/65R14", maintenancePerKm: 4 }
-                    }
-                },
-                ford: {
-                    label: 'Ford',
-                    type: 'Car',
-                    models: {
-                        ranger: { price: 4200000, fuel: 11, serviceInterval: 10000, minor: 16000, major: 60000, tyres: "265/70R16", maintenancePerKm: 12 },
-                        everest: { price: 5000000, fuel: 10, serviceInterval: 10000, minor: 18000, major: 65000, tyres: "265/60R18", maintenancePerKm: 14 },
-                        fiesta: { price: 1800000, fuel: 15, serviceInterval: 15000, minor: 9000, major: 32000, tyres: "195/60R15", maintenancePerKm: 6 }
-                    }
-                },
-                honda: {
-                    label: 'Honda',
-                    type: 'Car',
-                    models: {
-                        civic: { price: 2800000, fuel: 14, serviceInterval: 15000, minor: 11000, major: 38000, tyres: "215/55R16", maintenancePerKm: 7 },
-                        accord: { price: 3800000, fuel: 13, serviceInterval: 15000, minor: 13000, major: 45000, tyres: "225/50R17", maintenancePerKm: 8 },
-                        crv: { price: 3500000, fuel: 12, serviceInterval: 15000, minor: 12000, major: 40000, tyres: "235/65R17", maintenancePerKm: 9 }
-                    }
-                },
-                // ─── BIKES ─────────────────────────────────────────────
-                honda_bike: {
-                    label: 'Honda Motorcycles',
-                    type: 'Bike',
-                    models: {
-                        cbr1000rr: { price: 2000000, fuel: 20, serviceInterval: 8000, minor: 15000, major: 45000, tyres: "120/70ZR17", maintenancePerKm: 5 },
-                        cbr600rr: { price: 1500000, fuel: 22, serviceInterval: 8000, minor: 12000, major: 35000, tyres: "120/70ZR17", maintenancePerKm: 4 },
-                        africa_twin: { price: 1800000, fuel: 22, serviceInterval: 8000, minor: 18000, major: 50000, tyres: "90/90-21", maintenancePerKm: 5 }
-                    }
-                },
-                yamaha_bike: {
-                    label: 'Yamaha Motorcycles',
-                    type: 'Bike',
-                    models: {
-                        yzf_r1: { price: 2200000, fuel: 18, serviceInterval: 8000, minor: 18000, major: 55000, tyres: "120/70ZR17", maintenancePerKm: 5 },
-                        mt_07: { price: 700000, fuel: 28, serviceInterval: 8000, minor: 8000, major: 25000, tyres: "120/70ZR17", maintenancePerKm: 3 },
-                        tracer_9: { price: 1200000, fuel: 24, serviceInterval: 8000, minor: 12000, major: 35000, tyres: "120/70ZR17", maintenancePerKm: 4 }
-                    }
-                },
-                // ─── TRICYCLES ──────────────────────────────────────────
-                bajaj_tuktuk: {
-                    label: 'Bajaj Tricycles',
-                    type: 'Tricycle',
-                    models: {
-                        re_60: { price: 250000, fuel: 40, serviceInterval: 5000, minor: 3000, major: 10000, tyres: "4.00-8", maintenancePerKm: 2 },
-                        re_75: { price: 280000, fuel: 38, serviceInterval: 5000, minor: 3500, major: 12000, tyres: "4.00-8", maintenancePerKm: 2 }
-                    }
-                },
-                piaggio_tuktuk: {
-                    label: 'Piaggio Tricycles',
-                    type: 'Tricycle',
-                    models: {
-                        ape_50: { price: 200000, fuel: 45, serviceInterval: 5000, minor: 3000, major: 10000, tyres: "4.00-8", maintenancePerKm: 1.8 },
-                        ape_70: { price: 220000, fuel: 42, serviceInterval: 5000, minor: 3200, major: 11000, tyres: "4.00-8", maintenancePerKm: 1.8 }
-                    }
-                }
-            };
+        // ─── FastAPI Backend ──────────────────────────────────────────
+        const API_BASE = 'https://auto-digital.onrender.com';
+        const API_ENDPOINTS = {
+            OWNERSHIP: '/api/service/ownership',
+            HEALTH: '/api/health'
+        };
 
-            // ─── DOM References ─────────────────────────────────────────
-            const elements = {
-                vehicleType: document.getElementById('vehicleType'),
-                vehicleMake: document.getElementById('vehicleMake'),
-                vehicleModel: document.getElementById('vehicleModel'),
-                vehicleYear: document.getElementById('vehicleYear'),
-                vehicleEngine: document.getElementById('vehicleEngine'),
-                vehicleFuel: document.getElementById('vehicleFuel'),
-                vehicleTransmission: document.getElementById('vehicleTransmission'),
-                mileage: document.getElementById('mileage'),
-                years: document.getElementById('years'),
-                insuranceRate: document.getElementById('insuranceRate'),
-                insuranceType: document.getElementById('insuranceType'),
-                downPct: document.getElementById('downPct'),
-                rate: document.getElementById('rate'),
-                term: document.getElementById('term'),
-                btnCash: document.getElementById('btnCash'),
-                btnFinanced: document.getElementById('btnFinanced'),
-                financedFields: document.getElementById('financedFields'),
-                calcBtn: document.getElementById('calcBtn'),
-                apiStatus: document.getElementById('apiStatus'),
-                calcMethod: document.getElementById('calcMethod'),
-                lastUpdated: document.getElementById('lastUpdated'),
-                vehicleLabel: document.getElementById('vehicleLabel'),
-                fuelPill: document.getElementById('fuelPill'),
-                vehicleSpecs: document.getElementById('vehicleSpecs'),
-                outTotal: document.getElementById('outTotal'),
-                outMonthly: document.getElementById('outMonthly'),
-                outPerKm: document.getElementById('outPerKm'),
-                outResale: document.getElementById('outResale'),
-                stackedBars: document.getElementById('stackedBars'),
-                resultsBody: document.getElementById('resultsBody'),
-                rciValue: document.getElementById('rciValue'),
-                rciStars: document.getElementById('rciStars'),
-                rciLabel: document.getElementById('rciLabel'),
-                healthRing: document.getElementById('healthRing'),
-                healthScore: document.getElementById('healthScore'),
-                healthLabel: document.getElementById('healthLabel'),
-                envGrid: document.getElementById('envGrid'),
-                recList: document.getElementById('recList')
-            };
+        // ─── Configuration ──────────────────────────────────────────
+        const FUEL_PRICES = {
+            petrol: 214.03,
+            diesel: 222.86,
+            hybrid: 150.00,
+            electric: 30.00,
+            lpg: 120.00
+        };
 
-            // ─── Helpers ─────────────────────────────────────────────────
-            function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+        const LOCATION_MULTIPLIERS = {
+            nairobi: { fuel: 0.9, maintenance: 1.1, tyres: 1.0, insurance: 1.0 },
+            mombasa: { fuel: 1.1, maintenance: 1.1, tyres: 1.1, insurance: 1.05 },
+            rural: { fuel: 1.15, maintenance: 1.3, tyres: 1.3, insurance: 1.1 },
+            highway: { fuel: 0.95, maintenance: 1.0, tyres: 1.0, insurance: 0.95 }
+        };
 
-            function fmt(n) { return "KES " + Math.round(n).toLocaleString("en-KE"); }
+        const COLORS = {
+            depreciation: "var(--c-depreciation)",
+            financing: "var(--c-financing)",
+            insurance: "var(--c-insurance)",
+            fuel: "var(--c-fuel)",
+            maintenance: "var(--c-maintenance)",
+            tyres: "var(--c-tyres)",
+            licensing: "var(--c-licensing)"
+        };
 
-            function formatCurrency(val) {
-                if (val === undefined || val === null || isNaN(val)) return '0.00';
-                return Number(val).toLocaleString('en-KE', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                });
-            }
+        // ─── DOM References ─────────────────────────────────────────
+        const elements = {
+            vehicleType: document.getElementById('vehicleType'),
+            vehicleMake: document.getElementById('vehicleMake'),
+            vehicleModel: document.getElementById('vehicleModel'),
+            vehicleYear: document.getElementById('vehicleYear'),
+            vehicleEngine: document.getElementById('vehicleEngine'),
+            vehicleFuel: document.getElementById('vehicleFuel'),
+            vehicleTransmission: document.getElementById('vehicleTransmission'),
+            mileage: document.getElementById('mileage'),
+            years: document.getElementById('years'),
+            insuranceRate: document.getElementById('insuranceRate'),
+            insuranceType: document.getElementById('insuranceType'),
+            downPct: document.getElementById('downPct'),
+            rate: document.getElementById('rate'),
+            term: document.getElementById('term'),
+            btnCash: document.getElementById('btnCash'),
+            btnFinanced: document.getElementById('btnFinanced'),
+            financedFields: document.getElementById('financedFields'),
+            calcBtn: document.getElementById('calcBtn'),
+            apiStatus: document.getElementById('apiStatus'),
+            calcMethod: document.getElementById('calcMethod'),
+            lastUpdated: document.getElementById('lastUpdated'),
+            vehicleLabel: document.getElementById('vehicleLabel'),
+            fuelPill: document.getElementById('fuelPill'),
+            vehicleSpecs: document.getElementById('vehicleSpecs'),
+            outTotal: document.getElementById('outTotal'),
+            outMonthly: document.getElementById('outMonthly'),
+            outPerKm: document.getElementById('outPerKm'),
+            outResale: document.getElementById('outResale'),
+            stackedBars: document.getElementById('stackedBars'),
+            resultsBody: document.getElementById('resultsBody'),
+            rciValue: document.getElementById('rciValue'),
+            rciStars: document.getElementById('rciStars'),
+            rciLabel: document.getElementById('rciLabel'),
+            healthRing: document.getElementById('healthRing'),
+            healthScore: document.getElementById('healthScore'),
+            healthLabel: document.getElementById('healthLabel'),
+            envGrid: document.getElementById('envGrid'),
+            recList: document.getElementById('recList')
+        };
 
-            function formatNumber(val) {
-                if (val === undefined || val === null || isNaN(val)) return '0';
-                return Number(val).toLocaleString('en-KE');
-            }
+        // ─── State ──────────────────────────────────────────────────
+        let currentUser = null;
+        let vehicleData = [];
+        let isBackendAvailable = false;
 
-            function showToast(message, type = 'info') {
-                const existing = document.querySelector('.toast');
-                if (existing) existing.remove();
-                const toast = document.createElement('div');
-                toast.className = `toast toast-${type}`;
-                toast.textContent = message;
-                document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 4000);
-            }
+        // ─── Helpers ─────────────────────────────────────────────────
+        function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
 
-            function setApiStatus(text, isGood = true) {
-                elements.apiStatus.textContent = text;
-                elements.apiStatus.className = 'status' + (isGood ? '' : ' degraded');
-                elements.apiStatus.style.color = isGood ? 'var(--green)' : 'var(--red)';
-            }
+        function fmt(n) { return "KES " + Math.round(n).toLocaleString("en-KE"); }
 
-            // ─── Get Makes by Type ─────────────────────────────────────
-            function getMakesByType(type) {
-                const makes = [];
-                for (const [key, data] of Object.entries(VEHICLE_DB)) {
-                    if (data.type === type) {
-                        makes.push({ key: key, label: data.label });
-                    }
-                }
-                return makes;
-            }
+        function formatCurrency(val) {
+            if (val === undefined || val === null || isNaN(val)) return '0.00';
+            return Number(val).toLocaleString('en-KE', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        }
 
-            // ─── Populate Makes ───────────────────────────────────────
-            function populateMakes() {
-                const type = elements.vehicleType.value;
-                const makeSelect = elements.vehicleMake;
-                makeSelect.innerHTML = '<option value="">-- Select Make --</option>';
+        function formatNumber(val) {
+            if (val === undefined || val === null || isNaN(val)) return '0';
+            return Number(val).toLocaleString('en-KE');
+        }
 
-                const makes = getMakesByType(type);
-                makes.forEach(m => {
-                    const opt = document.createElement('option');
-                    opt.value = m.key;
-                    opt.textContent = m.label;
-                    makeSelect.appendChild(opt);
-                });
+        function showToast(message, type = 'info') {
+            const existing = document.querySelector('.toast');
+            if (existing) existing.remove();
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
 
-                makeSelect.disabled = makes.length === 0;
-                elements.vehicleModel.innerHTML = '<option value="">-- Select Model --</option>';
-                elements.vehicleModel.disabled = true;
-                updateVehiclePreview();
-            }
+        function setApiStatus(text, isGood = true) {
+            elements.apiStatus.textContent = text;
+            elements.apiStatus.className = 'status' + (isGood ? '' : ' degraded');
+            elements.apiStatus.style.color = isGood ? 'var(--green)' : 'var(--red)';
+        }
 
-            // ─── Populate Models ──────────────────────────────────────
-            function populateModels() {
-                const make = elements.vehicleMake.value;
-                const modelSelect = elements.vehicleModel;
-                modelSelect.innerHTML = '<option value="">-- Select Model --</option>';
+        // ─── Fetch Vehicle Data from Supabase ──────────────────────
+        async function fetchVehicleData() {
+            try {
+                // Fetch vehicle makes
+                const { data: makes, error: makesError } = await supabase
+                    .from('vehicle_makes')
+                    .select('*')
+                    .eq('is_active', true)
+                    .order('display_order');
 
-                if (!make || !VEHICLE_DB[make]) {
-                    modelSelect.disabled = true;
-                    return;
-                }
+                if (makesError) throw makesError;
 
-                const models = VEHICLE_DB[make].models;
-                Object.keys(models).forEach(modelKey => {
-                    const opt = document.createElement('option');
-                    opt.value = modelKey;
-                    const modelLabel = modelKey.split('_').map(word => 
-                        word.charAt(0).toUpperCase() + word.slice(1)
-                    ).join(' ');
-                    opt.textContent = modelLabel;
-                    modelSelect.appendChild(opt);
-                });
-                modelSelect.disabled = false;
-                modelSelect.value = '';
-                updateVehiclePreview();
-            }
+                // Fetch vehicle models with their makes
+                const { data: models, error: modelsError } = await supabase
+                    .from('vehicle_models')
+                    .select('*, vehicle_makes(name, code)')
+                    .eq('is_active', true)
+                    .order('display_order');
 
-            // ─── Update Vehicle Preview ──────────────────────────────
-            function updateVehiclePreview() {
-                const make = elements.vehicleMake.value;
-                const model = elements.vehicleModel.value;
+                if (modelsError) throw modelsError;
+
+                // Fetch vehicle variants
+                const { data: variants, error: variantsError } = await supabase
+                    .from('vehicle_variants')
+                    .select('*, vehicle_models(name, code, vehicle_makes(name, code))')
+                    .eq('is_active', true);
+
+                if (variantsError) throw variantsError;
+
+                // Build vehicle data structure
+                const vehicleDB = {};
                 
-                if (!make || !model) {
-                    document.getElementById('previewPrice').textContent = '—';
-                    document.getElementById('previewFuel').textContent = '—';
-                    document.getElementById('previewService').textContent = '—';
-                    document.getElementById('previewMinor').textContent = '—';
-                    document.getElementById('previewMajor').textContent = '—';
-                    document.getElementById('previewTyres').textContent = '—';
+                makes.forEach(make => {
+                    vehicleDB[make.code.toLowerCase()] = {
+                        label: make.name,
+                        type: 'Car',
+                        models: {}
+                    };
+                });
+
+                models.forEach(model => {
+                    const makeKey = model.vehicle_makes?.code?.toLowerCase();
+                    if (makeKey && vehicleDB[makeKey]) {
+                        const modelKey = model.code.toLowerCase();
+                        const variant = variants.find(v => v.vehicle_models?.code === model.code);
+                        vehicleDB[makeKey].models[modelKey] = {
+                            price: variant?.base_price || 0,
+                            fuel: variant?.fuel_consumption || 15,
+                            serviceInterval: 10000,
+                            minor: 15000,
+                            major: 45000,
+                            tyres: "225/60R17",
+                            maintenancePerKm: 5,
+                            fuel_type: variant?.fuel_type || 'petrol'
+                        };
+                    }
+                });
+
+                return vehicleDB;
+
+            } catch (error) {
+                console.warn('Supabase fetch error, using fallback:', error.message);
+                return FALLBACK_VEHICLE_DB;
+            }
+        }
+
+        // ─── Fallback Vehicle Data ──────────────────────────────────
+        const FALLBACK_VEHICLE_DB = {
+            toyota: {
+                label: 'Toyota',
+                type: 'Car',
+                models: {
+                    prado: { price: 5200000, fuel: 11, serviceInterval: 10000, minor: 18000, major: 65000, tyres: "265/65R17", maintenancePerKm: 14 },
+                    hilux: { price: 3800000, fuel: 12, serviceInterval: 10000, minor: 15000, major: 55000, tyres: "265/70R16", maintenancePerKm: 12 },
+                    corolla: { price: 2000000, fuel: 15, serviceInterval: 15000, minor: 10000, major: 35000, tyres: "195/65R15", maintenancePerKm: 6 },
+                    rav4: { price: 3500000, fuel: 13, serviceInterval: 15000, minor: 12000, major: 40000, tyres: "225/65R17", maintenancePerKm: 8 }
+                }
+            },
+            nissan: {
+                label: 'Nissan',
+                type: 'Car',
+                models: {
+                    xtrail: { price: 3200000, fuel: 12, serviceInterval: 15000, minor: 12000, major: 42000, tyres: "225/60R17", maintenancePerKm: 8 },
+                    patrol: { price: 8000000, fuel: 7, serviceInterval: 10000, minor: 20000, major: 75000, tyres: "265/70R18", maintenancePerKm: 15 }
+                }
+            },
+            // Add other makes as needed
+        };
+
+        // ─── Get Vehicle Data ──────────────────────────────────────
+        function getVehicleData(make, model) {
+            const makeData = vehicleData[make.toLowerCase()];
+            if (!makeData) return null;
+            return makeData.models[model.toLowerCase()] || null;
+        }
+
+        // ─── Get Makes by Type ─────────────────────────────────────
+        function getMakesByType(type) {
+            const makes = [];
+            for (const [key, data] of Object.entries(vehicleData)) {
+                if (data.type === type) {
+                    makes.push({ key: key, label: data.label });
+                }
+            }
+            return makes;
+        }
+
+        // ─── Populate Makes ───────────────────────────────────────
+        function populateMakes() {
+            const type = elements.vehicleType.value;
+            const makeSelect = elements.vehicleMake;
+            makeSelect.innerHTML = '<option value="">-- Select Make --</option>';
+
+            const makes = getMakesByType(type);
+            makes.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.key;
+                opt.textContent = m.label;
+                makeSelect.appendChild(opt);
+            });
+
+            makeSelect.disabled = makes.length === 0;
+            elements.vehicleModel.innerHTML = '<option value="">-- Select Model --</option>';
+            elements.vehicleModel.disabled = true;
+            updateVehiclePreview();
+        }
+
+        // ─── Populate Models ──────────────────────────────────────
+        function populateModels() {
+            const make = elements.vehicleMake.value;
+            const modelSelect = elements.vehicleModel;
+            modelSelect.innerHTML = '<option value="">-- Select Model --</option>';
+
+            if (!make || !vehicleData[make]) {
+                modelSelect.disabled = true;
+                return;
+            }
+
+            const models = vehicleData[make].models || {};
+            Object.keys(models).forEach(modelKey => {
+                const opt = document.createElement('option');
+                opt.value = modelKey;
+                const modelLabel = modelKey.split('_').map(word => 
+                    word.charAt(0).toUpperCase() + word.slice(1)
+                ).join(' ');
+                opt.textContent = modelLabel;
+                modelSelect.appendChild(opt);
+            });
+            modelSelect.disabled = false;
+            modelSelect.value = '';
+            updateVehiclePreview();
+        }
+
+        // ─── Update Vehicle Preview ──────────────────────────────
+        function updateVehiclePreview() {
+            const make = elements.vehicleMake.value;
+            const model = elements.vehicleModel.value;
+            
+            if (!make || !model) {
+                document.getElementById('previewPrice').textContent = '—';
+                document.getElementById('previewFuel').textContent = '—';
+                document.getElementById('previewService').textContent = '—';
+                document.getElementById('previewMinor').textContent = '—';
+                document.getElementById('previewMajor').textContent = '—';
+                document.getElementById('previewTyres').textContent = '—';
+                return;
+            }
+
+            const data = getVehicleData(make, model);
+            if (data) {
+                document.getElementById('previewPrice').textContent = fmt(data.price);
+                document.getElementById('previewFuel').textContent = data.fuel + ' km/l';
+                document.getElementById('previewService').textContent = data.serviceInterval.toLocaleString() + ' km';
+                document.getElementById('previewMinor').textContent = fmt(data.minor);
+                document.getElementById('previewMajor').textContent = fmt(data.major);
+                document.getElementById('previewTyres').textContent = data.tyres || 'N/A';
+            }
+        }
+
+        // ─── Real Depreciation Calculator ────────────────────────
+        function calculateRealDepreciation(purchasePrice, ageYears, condition = 'Good', mileage = 0) {
+            const baseRates = { 'Excellent': 0.08, 'Good': 0.12, 'Fair': 0.18, 'Poor': 0.25 };
+            let rate = baseRates[condition] || 0.12;
+            if (mileage > 100000) rate += 0.05;
+            else if (mileage > 60000) rate += 0.03;
+            else if (mileage > 30000) rate += 0.015;
+
+            let currentValue = purchasePrice;
+            let yearlyDepreciation = [];
+            for (let year = 1; year <= ageYears; year++) {
+                const yearRate = rate * (1 + (year - 1) * 0.08);
+                const depAmount = currentValue * Math.min(yearRate, 0.40);
+                currentValue -= depAmount;
+                yearlyDepreciation.push({
+                    year: year,
+                    value: Math.max(currentValue, purchasePrice * 0.05),
+                    depreciation: depAmount,
+                    rate: yearRate
+                });
+            }
+            return {
+                currentValue: Math.max(currentValue, purchasePrice * 0.05),
+                totalDepreciation: purchasePrice - Math.max(currentValue, purchasePrice * 0.05),
+                valueRetained: (Math.max(currentValue, purchasePrice * 0.05) / purchasePrice) * 100,
+                yearlyBreakdown: yearlyDepreciation
+            };
+        }
+
+        // ─── Loan Amortization ────────────────────────────────────
+        function calculateLoanAmortization(principal, annualRate, years) {
+            const monthlyRate = annualRate / 12;
+            const numPayments = years * 12;
+            if (monthlyRate === 0) {
+                return { monthlyPayment: principal / numPayments, totalPayment: principal, totalInterest: 0 };
+            }
+            const monthlyPayment = principal * (monthlyRate * Math.pow(1 + monthlyRate, numPayments)) /
+                (Math.pow(1 + monthlyRate, numPayments) - 1);
+            const totalPayment = monthlyPayment * numPayments;
+            const totalInterest = totalPayment - principal;
+            return { monthlyPayment, totalPayment, totalInterest };
+        }
+
+        // ─── Call FastAPI Backend ──────────────────────────────────
+        async function callBackend(data) {
+            try {
+                const response = await fetch(`${API_BASE}${API_ENDPOINTS.OWNERSHIP}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Authorization': `Bearer ${supabase.auth.session()?.access_token || ''}`
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || errorData.message || `HTTP ${response.status}`);
+                }
+
+                return await response.json();
+            } catch (error) {
+                console.warn('Backend call failed:', error.message);
+                return null;
+            }
+        }
+
+        // ─── Main Calculation Engine ─────────────────────────────
+        function calculateOwnership() {
+            const make = elements.vehicleMake.value;
+            const model = elements.vehicleModel.value;
+            
+            if (!make || !model) {
+                return null;
+            }
+
+            const vehicleData = getVehicleData(make, model);
+            if (!vehicleData) {
+                showToast('Vehicle not found in database', 'error');
+                return null;
+            }
+
+            const basePrice = vehicleData.price;
+            const fuelEfficiency = vehicleData.fuel || 15;
+            const baseMaintenancePerKm = vehicleData.maintenancePerKm || 5;
+
+            const years = Number(elements.years.value);
+            const mileage = Number(elements.mileage.value);
+
+            const locations = [];
+            document.querySelectorAll('#drivingLocations input[type="checkbox"]:checked').forEach(cb => {
+                locations.push(cb.value);
+            });
+
+            let fuelMult = 1.0, maintMult = 1.0, tyreMult = 1.0, insMult = 1.0;
+            locations.forEach(loc => {
+                const m = LOCATION_MULTIPLIERS[loc] || {};
+                fuelMult *= m.fuel || 1.0;
+                maintMult *= m.maintenance || 1.0;
+                tyreMult *= m.tyres || 1.0;
+                insMult *= m.insurance || 1.0;
+            });
+
+            const insRateSlider = num(elements.insuranceRate.value) / 100;
+            let financed = elements.btnFinanced.classList.contains('active');
+            let financingAnnual = 0;
+            if (financed) {
+                const downPct = Number(elements.downPct.value) / 100;
+                const rate = Number(elements.rate.value) / 100;
+                const loanTerm = Number(elements.term.value);
+                const loanBalance = basePrice * (1 - downPct);
+                const amort = calculateLoanAmortization(loanBalance, rate, loanTerm);
+                financingAnnual = amort.monthlyPayment * 12;
+            }
+
+            const depResult = calculateRealDepreciation(basePrice, years, 'Good', mileage);
+            const fuelType = elements.vehicleFuel.value;
+            const fuelPrice = FUEL_PRICES[fuelType] || 214.03;
+
+            let vehicleValue = basePrice;
+            let totalCost = 0;
+            const rows = [];
+
+            for (let y = 1; y <= years; y++) {
+                const depYear = depResult.yearlyBreakdown[y - 1];
+                const depreciation = depYear ? depYear.depreciation : vehicleValue * 0.12;
+                vehicleValue = depYear ? depYear.value : (vehicleValue - depreciation);
+
+                const financing = financed ? financingAnnual : 0;
+                const insurance = Math.max(vehicleValue, basePrice * 0.15) * insRateSlider * insMult;
+
+                const litres = mileage / Math.max(fuelEfficiency, 0.1);
+                const fuel = litres * fuelPrice * fuelMult;
+
+                const ageMultiplier = 1 + (y - 1) * 0.08;
+                const maintenance = mileage * baseMaintenancePerKm * maintMult * ageMultiplier;
+
+                const tyreCost = vehicleData.tyres ? 20000 : 32000;
+                const tyreLifespan = 45000;
+                const tyres = (mileage / tyreLifespan) * tyreCost * tyreMult;
+
+                const licensing = 5000 + (y > 1 ? 1000 : 0);
+
+                const yearTotal = depreciation + financing + insurance + fuel + maintenance + tyres + licensing;
+                totalCost += yearTotal;
+
+                rows.push({
+                    year: y,
+                    depreciation,
+                    financing,
+                    insurance,
+                    fuel,
+                    maintenance,
+                    tyres,
+                    licensing,
+                    total: yearTotal,
+                    vehicleValue: Math.max(vehicleValue, basePrice * 0.1)
+                });
+            }
+
+            const totalKm = mileage * years;
+            const costPerKm = totalKm ? totalCost / totalKm : 0;
+            const costPerMonth = totalCost / (years * 12);
+            const resale = Math.max(vehicleValue, basePrice * 0.1);
+
+            let rci = costPerKm;
+            let rciLabel, rciStars, rciClass;
+            if (rci <= 20) { rciLabel = 'Excellent'; rciStars = '★★★★★'; rciClass = 'excellent'; }
+            else if (rci <= 35) { rciLabel = 'Good'; rciStars = '★★★★'; rciClass = 'good'; }
+            else if (rci <= 50) { rciLabel = 'Average'; rciStars = '★★★'; rciClass = 'average'; }
+            else if (rci <= 70) { rciLabel = 'Expensive'; rciStars = '★★'; rciClass = 'expensive'; }
+            else { rciLabel = 'Very Expensive'; rciStars = '★'; rciClass = 'very-expensive'; }
+
+            const age = new Date().getFullYear() - Number(elements.vehicleYear.value);
+            let healthScore = 100;
+            healthScore -= age * 3;
+            const idealConsumption = fuelType === 'electric' ? 20 : (fuelType === 'diesel' ? 6 : 8);
+            if (fuelEfficiency < idealConsumption * 0.7) healthScore += 5;
+            else if (fuelEfficiency > idealConsumption * 1.3) healthScore -= 5;
+            if (baseMaintenancePerKm > 4) healthScore -= 8;
+            else if (baseMaintenancePerKm > 3) healthScore -= 3;
+            if (fuelType === 'electric') healthScore += 5;
+            healthScore = Math.max(0, Math.min(100, healthScore));
+
+            let healthLabel, healthColor;
+            if (healthScore >= 80) { healthLabel = '★★★★★ Excellent'; healthColor = 'var(--green)'; }
+            else if (healthScore >= 60) { healthLabel = '★★★★ Good'; healthColor = 'var(--blue)'; }
+            else if (healthScore >= 40) { healthLabel = '★★★ Average'; healthColor = 'var(--amber)'; }
+            else if (healthScore >= 20) { healthLabel = '★★ Needs Attention'; healthColor = 'var(--red)'; }
+            else { healthLabel = '★ Critical'; healthColor = 'var(--red-dark)'; }
+
+            let co2Factor;
+            switch (fuelType) {
+                case 'petrol': co2Factor = 2.31; break;
+                case 'diesel': co2Factor = 2.68; break;
+                case 'lpg': co2Factor = 1.50; break;
+                case 'electric': co2Factor = 0.20; break;
+                default: co2Factor = 2.31;
+            }
+            const co2PerKm = co2Factor / Math.max(fuelEfficiency, 0.1);
+            const co2Annual = co2PerKm * mileage;
+            const treesToOffset = co2Annual / 20;
+
+            const recommendations = [];
+
+            if (costPerKm > 30) {
+                recommendations.push({
+                    icon: '💰',
+                    text: `Cost per km (${formatCurrency(costPerKm)}) is high. Consider a more fuel-efficient vehicle.`,
+                    type: 'warning',
+                    tag: 'Cost'
+                });
+            }
+
+            if (depResult.valueRetained < 40) {
+                recommendations.push({
+                    icon: '📉',
+                    text: `Vehicle retains only ${depResult.valueRetained.toFixed(1)}% of value. Consider a model with better resale.`,
+                    type: 'warning',
+                    tag: 'Depreciation'
+                });
+            }
+
+            if (age > 10) {
+                recommendations.push({
+                    icon: '🏥',
+                    text: `Vehicle is ${age} years old. Maintenance costs are increasing. Consider replacement.`,
+                    type: 'warning',
+                    tag: 'Age'
+                });
+            }
+
+            if (fuelType === 'electric') {
+                recommendations.push({
+                    icon: '🌱',
+                    text: `Great EV choice! Zero tailpipe emissions and lower running costs.`,
+                    type: 'success',
+                    tag: 'Green'
+                });
+            }
+
+            if (financed && financingAnnual > totalCost * 0.15) {
+                recommendations.push({
+                    icon: '🏦',
+                    text: `Financing represents ${((financingAnnual * years) / totalCost * 100).toFixed(0)}% of total cost. Consider a larger down payment.`,
+                    type: 'info',
+                    tag: 'Financing'
+                });
+            }
+
+            if (healthScore < 50) {
+                recommendations.push({
+                    icon: '🏥',
+                    text: `Vehicle health score (${Math.round(healthScore)}) is low. Schedule comprehensive inspection.`,
+                    type: 'warning',
+                    tag: 'Health'
+                });
+            }
+
+            if (recommendations.length === 0) {
+                recommendations.push({
+                    icon: '✅',
+                    text: 'Vehicle performing well across all metrics. Good ownership value.',
+                    type: 'success',
+                    tag: 'All Good'
+                });
+            }
+
+            return {
+                rows,
+                totalCost,
+                costPerKm,
+                costPerMonth,
+                resale,
+                vehicleData,
+                basePrice,
+                depreciation: depResult,
+                financed,
+                locations,
+                insRate: insRateSlider,
+                rci, rciLabel, rciStars, rciClass,
+                healthScore, healthLabel, healthColor,
+                co2PerKm, co2Annual, treesToOffset,
+                fuelType, fuelEfficiency,
+                recommendations,
+                years,
+                mileage,
+                age,
+                vehicleName: `${vehicleData.label || make.charAt(0).toUpperCase() + make.slice(1)} ${model.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}`,
+                fuelTypeDisplay: fuelType.charAt(0).toUpperCase() + fuelType.slice(1)
+            };
+        }
+
+        // ─── Render Results ──────────────────────────────────────
+        function render() {
+            const result = calculateOwnership();
+            if (!result) {
+                elements.outTotal.textContent = '—';
+                elements.outMonthly.textContent = '—';
+                elements.outPerKm.textContent = '—';
+                elements.outResale.textContent = '—';
+                elements.rciValue.textContent = '—';
+                elements.vehicleLabel.textContent = 'Select a vehicle to begin';
+                return;
+            }
+
+            const { rows, totalCost, costPerKm, costPerMonth, resale, 
+                    rci, rciLabel, rciStars, rciClass, healthScore, healthLabel, healthColor,
+                    co2PerKm, co2Annual, treesToOffset, fuelType, fuelEfficiency,
+                    recommendations, years, mileage, age, vehicleName, fuelTypeDisplay } = result;
+
+            elements.vehicleLabel.textContent = vehicleName || 'Unnamed';
+            elements.fuelPill.textContent = fuelTypeDisplay || '—';
+            const purchaseYear = elements.vehicleYear.value;
+            elements.vehicleSpecs.innerHTML = `
+                <span class="spec-item">💰 <span class="spec-value">${fmt(result.basePrice)}</span></span>
+                <span class="spec-item">📅 <span class="spec-value">${purchaseYear} (${age} years old)</span></span>
+                <span class="spec-item">⚡ <span class="spec-value">${fuelEfficiency || '—'} km/L</span></span>
+                <span class="spec-item">📊 <span class="spec-value">${formatNumber(mileage)} km/year</span></span>
+                <span class="spec-item">🏷️ <span class="spec-value">${elements.vehicleType.value.toUpperCase()}</span></span>
+            `;
+
+            elements.outTotal.textContent = fmt(totalCost);
+            elements.outMonthly.textContent = fmt(costPerMonth);
+            elements.outPerKm.textContent = "KES " + costPerKm.toFixed(1);
+            elements.outResale.textContent = fmt(resale);
+
+            const barsWrap = elements.stackedBars;
+            barsWrap.innerHTML = "";
+            const maxTotal = Math.max(...rows.map(r => r.total));
+            rows.forEach(r => {
+                const segs = ["depreciation", "financing", "insurance", "fuel", "maintenance", "tyres", "licensing"];
+                const trackWidthPct = (r.total / maxTotal) * 100;
+                const segHtml = segs.map(k => {
+                    const pct = (r[k] / r.total) * 100;
+                    return `<div class="bar-seg" style="width:${pct}%; background:${COLORS[k]};" title="${k.charAt(0).toUpperCase() + k.slice(1)}: ${fmt(r[k])}"></div>`;
+                }).join("");
+                const row = document.createElement("div");
+                row.className = "year-row";
+                row.innerHTML = `
+                    <div class="yr-label">Year ${r.year}</div>
+                    <div class="bar-track" style="width:${Math.max(trackWidthPct, 8)}%;">${segHtml}</div>
+                    <div class="yr-total">${fmt(r.total)}</div>
+                `;
+                barsWrap.appendChild(row);
+            });
+
+            const tbody = elements.resultsBody;
+            tbody.innerHTML = "";
+            rows.forEach(r => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>Year ${r.year}</td>
+                    <td>${fmt(r.depreciation)}</td>
+                    <td>${fmt(r.financing)}</td>
+                    <td>${fmt(r.insurance)}</td>
+                    <td>${fmt(r.fuel)}</td>
+                    <td>${fmt(r.maintenance)}</td>
+                    <td>${fmt(r.tyres)}</td>
+                    <td>${fmt(r.licensing)}</td>
+                    <td>${fmt(r.total)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+            const totalRow = document.createElement("tr");
+            const sums = rows.reduce((acc, r) => {
+                ["depreciation","financing","insurance","fuel","maintenance","tyres","licensing","total"].forEach(k => acc[k] = (acc[k]||0) + r[k]);
+                return acc;
+            }, {});
+            totalRow.innerHTML = `
+                <td><strong>Total</strong></td>
+                <td>${fmt(sums.depreciation)}</td><td>${fmt(sums.financing)}</td><td>${fmt(sums.insurance)}</td>
+                <td>${fmt(sums.fuel)}</td><td>${fmt(sums.maintenance)}</td><td>${fmt(sums.tyres)}</td>
+                <td>${fmt(sums.licensing)}</td><td>${fmt(sums.total)}</td>
+            `;
+            tbody.appendChild(totalRow);
+
+            elements.rciValue.textContent = formatCurrency(rci) + ' KES/km';
+            elements.rciValue.className = 'rci-value ' + (rciClass || '');
+            elements.rciStars.textContent = rciStars || '—';
+            elements.rciLabel.textContent = rciLabel || '—';
+
+            const score = healthScore || 0;
+            const pct = Math.min(100, Math.max(0, score));
+            elements.healthRing.style.setProperty('--pct', pct + '%');
+            elements.healthRing.style.background = `conic-gradient(${healthColor || 'var(--green)'} ${pct}%, var(--bg-card) ${pct}%)`;
+            elements.healthScore.textContent = Math.round(score);
+            elements.healthLabel.textContent = healthLabel || '—';
+
+            elements.envGrid.innerHTML = `
+                <div class="env-item">
+                    <div class="env-value">${formatNumber(co2Annual / 1000)} t</div>
+                    <div class="env-label">CO₂ per Year</div>
+                </div>
+                <div class="env-item">
+                    <div class="env-value">${formatNumber(co2PerKm)} g/km</div>
+                    <div class="env-label">CO₂ per km</div>
+                </div>
+                <div class="env-item">
+                    <div class="env-value">${formatNumber(treesToOffset)}</div>
+                    <div class="env-label">Trees to Offset/Year</div>
+                </div>
+                <div class="env-item">
+                    <div class="env-value">${fuelTypeDisplay || '—'}</div>
+                    <div class="env-label">Fuel Type</div>
+                </div>
+                <div class="env-item">
+                    <div class="env-value">${fuelEfficiency || '—'} km/L</div>
+                    <div class="env-label">Efficiency</div>
+                </div>
+                <div class="env-item">
+                    <div class="env-value">${formatNumber(mileage)} km</div>
+                    <div class="env-label">Annual Mileage</div>
+                </div>
+            `;
+
+            const recs = recommendations || [];
+            let recHtml = '';
+            recs.forEach(rec => {
+                const typeClass = rec.type || 'info';
+                recHtml += `
+                    <div class="rec-item ${typeClass}">
+                        <span class="icon">${rec.icon || '💡'}</span>
+                        <span class="rec-text">${rec.text}</span>
+                        <span class="rec-tag">${rec.tag || 'Info'}</span>
+                    </div>
+                `;
+            });
+            elements.recList.innerHTML = recHtml;
+
+            elements.lastUpdated.textContent = new Date().toLocaleString('en-KE', {
+                year: 'numeric', month: 'short', day: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
+
+            elements.calcMethod.textContent = '✅ Engine v4.0';
+            setApiStatus('● Engine Active', true);
+        }
+
+        // ─── Async Calculate with Backend ──────────────────────────
+        async function calculateAndRender() {
+            const make = elements.vehicleMake.value;
+            const model = elements.vehicleModel.value;
+            
+            if (!make || !model) {
+                showToast('Please select a vehicle', 'error');
+                return;
+            }
+
+            const vehicleData = getVehicleData(make, model);
+            if (!vehicleData) {
+                showToast('Vehicle not found in database', 'error');
+                return;
+            }
+
+            const years = Number(elements.years.value);
+            const mileage = Number(elements.mileage.value);
+            const financed = elements.btnFinanced.classList.contains('active');
+
+            const payload = {
+                make: make,
+                model: model,
+                years_owned: years,
+                annual_mileage: mileage,
+                financed: financed,
+                down_pct: Number(elements.downPct.value),
+                interest_rate: Number(elements.rate.value),
+                loan_term: Number(elements.term.value),
+                fuel_type: elements.vehicleFuel.value,
+                insurance_rate: num(elements.insuranceRate.value),
+                year: Number(elements.vehicleYear.value),
+                engine_capacity: Number(elements.vehicleEngine.value),
+                transmission: elements.vehicleTransmission.value,
+                vehicle_type: elements.vehicleType.value
+            };
+
+            elements.calcBtn.disabled = true;
+            elements.calcBtn.innerHTML = '<span class="spinner"></span> Calculating...';
+
+            try {
+                // Try FastAPI backend first
+                const result = await callBackend(payload);
+                if (result && result.success) {
+                    elements.calcMethod.textContent = '✅ FastAPI Backend';
+                    setApiStatus('● Connected to FastAPI', true);
+                    // Use backend result
+                    renderBackendResult(result.data);
+                    showToast('✅ Analysis complete!', 'success');
                     return;
                 }
-
-                const data = VEHICLE_DB[make]?.models?.[model];
-                if (data) {
-                    document.getElementById('previewPrice').textContent = fmt(data.price);
-                    document.getElementById('previewFuel').textContent = data.fuel + ' km/l';
-                    document.getElementById('previewService').textContent = data.serviceInterval.toLocaleString() + ' km';
-                    document.getElementById('previewMinor').textContent = fmt(data.minor);
-                    document.getElementById('previewMajor').textContent = fmt(data.major);
-                    document.getElementById('previewTyres').textContent = data.tyres || 'N/A';
-                }
+            } catch (error) {
+                console.warn('Backend failed, using client engine:', error.message);
             }
 
-            // ─── Real Depreciation Calculator ────────────────────────
-            function calculateRealDepreciation(purchasePrice, ageYears, condition = 'Good', mileage = 0) {
-                const baseRates = { 'Excellent': 0.08, 'Good': 0.12, 'Fair': 0.18, 'Poor': 0.25 };
-                let rate = baseRates[condition] || 0.12;
-                if (mileage > 100000) rate += 0.05;
-                else if (mileage > 60000) rate += 0.03;
-                else if (mileage > 30000) rate += 0.015;
+            // Fallback to client-side
+            elements.calcMethod.textContent = '⚠️ Client-side (fallback)';
+            setApiStatus('⚠️ Offline mode', false);
+            render();
+            showToast('✅ Analysis complete (offline mode)', 'warning');
+            
+            elements.calcBtn.disabled = false;
+            elements.calcBtn.innerHTML = '🚀 Calculate Ownership Cost';
+        }
 
-                let currentValue = purchasePrice;
-                let yearlyDepreciation = [];
-                for (let year = 1; year <= ageYears; year++) {
-                    const yearRate = rate * (1 + (year - 1) * 0.08);
-                    const depAmount = currentValue * Math.min(yearRate, 0.40);
-                    currentValue -= depAmount;
-                    yearlyDepreciation.push({
-                        year: year,
-                        value: Math.max(currentValue, purchasePrice * 0.05),
-                        depreciation: depAmount,
-                        rate: yearRate
-                    });
-                }
-                return {
-                    currentValue: Math.max(currentValue, purchasePrice * 0.05),
-                    totalDepreciation: purchasePrice - Math.max(currentValue, purchasePrice * 0.05),
-                    valueRetained: (Math.max(currentValue, purchasePrice * 0.05) / purchasePrice) * 100,
-                    yearlyBreakdown: yearlyDepreciation
-                };
-            }
+        // ─── Render Backend Result ──────────────────────────────────
+        function renderBackendResult(data) {
+            // Map backend result to frontend format
+            const result = {
+                rows: data.yearly_breakdown || [],
+                totalCost: data.total_cost || 0,
+                costPerKm: data.cost_per_km || 0,
+                costPerMonth: data.cost_per_month || 0,
+                resale: data.resale_value || 0,
+                rci: data.cost_per_km || 0,
+                rciLabel: 'Good',
+                rciStars: '★★★★',
+                rciClass: 'good',
+                healthScore: 75,
+                healthLabel: '★★★★ Good',
+                healthColor: 'var(--blue)',
+                co2PerKm: 0,
+                co2Annual: 0,
+                treesToOffset: 0,
+                fuelType: 'petrol',
+                fuelEfficiency: 0,
+                recommendations: [],
+                years: Number(elements.years.value),
+                mileage: Number(elements.mileage.value),
+                age: new Date().getFullYear() - Number(elements.vehicleYear.value),
+                vehicleName: `${elements.vehicleMake.value} ${elements.vehicleModel.value}`,
+                fuelTypeDisplay: elements.vehicleFuel.value,
+                basePrice: 0
+            };
 
-            // ─── Loan Amortization ────────────────────────────────────
-            function calculateLoanAmortization(principal, annualRate, years) {
-                const monthlyRate = annualRate / 12;
-                const numPayments = years * 12;
-                if (monthlyRate === 0) {
-                    return { monthlyPayment: principal / numPayments, totalPayment: principal, totalInterest: 0 };
-                }
-                const monthlyPayment = principal * (monthlyRate * Math.pow(1 + monthlyRate, numPayments)) /
-                    (Math.pow(1 + monthlyRate, numPayments) - 1);
-                const totalPayment = monthlyPayment * numPayments;
-                const totalInterest = totalPayment - principal;
-                return { monthlyPayment, totalPayment, totalInterest };
-            }
+            // Update UI
+            elements.outTotal.textContent = fmt(result.totalCost);
+            elements.outMonthly.textContent = fmt(result.costPerMonth);
+            elements.outPerKm.textContent = "KES " + result.costPerKm.toFixed(1);
+            elements.outResale.textContent = fmt(result.resale);
 
-            // ─── Main Calculation Engine ─────────────────────────────
-            function calculateOwnership() {
-                const make = elements.vehicleMake.value;
-                const model = elements.vehicleModel.value;
-                
-                if (!make || !model) {
-                    return null;
-                }
-
-                const vehicleData = VEHICLE_DB[make]?.models?.[model];
-                if (!vehicleData) {
-                    showToast('Vehicle not found in database', 'error');
-                    return null;
-                }
-
-                const basePrice = vehicleData.price;
-                const fuelEfficiency = vehicleData.fuel || 15;
-                const baseMaintenancePerKm = vehicleData.maintenancePerKm || 5;
-
-                const years = Number(elements.years.value);
-                const mileage = Number(elements.mileage.value);
-
-                // Get driving locations
-                const locations = [];
-                document.querySelectorAll('#drivingLocations input[type="checkbox"]:checked').forEach(cb => {
-                    locations.push(cb.value);
-                });
-
-                // Calculate location multipliers
-                let fuelMult = 1.0, maintMult = 1.0, tyreMult = 1.0, insMult = 1.0;
-                locations.forEach(loc => {
-                    const m = LOCATION_MULTIPLIERS[loc] || {};
-                    fuelMult *= m.fuel || 1.0;
-                    maintMult *= m.maintenance || 1.0;
-                    tyreMult *= m.tyres || 1.0;
-                    insMult *= m.insurance || 1.0;
-                });
-
-                // Insurance
-                const insRateSlider = num(elements.insuranceRate.value) / 100;
-
-                // Financing
-                let financed = elements.btnFinanced.classList.contains('active');
-                let financingAnnual = 0;
-                if (financed) {
-                    const downPct = Number(elements.downPct.value) / 100;
-                    const rate = Number(elements.rate.value) / 100;
-                    const loanTerm = Number(elements.term.value);
-                    const loanBalance = basePrice * (1 - downPct);
-                    const amort = calculateLoanAmortization(loanBalance, rate, loanTerm);
-                    financingAnnual = amort.monthlyPayment * 12;
-                }
-
-                // Depreciation calculation
-                const depResult = calculateRealDepreciation(basePrice, years, 'Good', mileage);
-
-                // Fuel price based on fuel type
-                const fuelType = elements.vehicleFuel.value;
-                const fuelPrice = FUEL_PRICES[fuelType] || 214.03;
-
-                // Yearly breakdown
-                let vehicleValue = basePrice;
-                let totalCost = 0;
-                const rows = [];
-
-                for (let y = 1; y <= years; y++) {
-                    const depYear = depResult.yearlyBreakdown[y - 1];
-                    const depreciation = depYear ? depYear.depreciation : vehicleValue * 0.12;
-                    vehicleValue = depYear ? depYear.value : (vehicleValue - depreciation);
-
-                    const financing = financed ? financingAnnual : 0;
-                    const insurance = Math.max(vehicleValue, basePrice * 0.15) * insRateSlider * insMult;
-
-                    const litres = mileage / Math.max(fuelEfficiency, 0.1);
-                    const fuel = litres * fuelPrice * fuelMult;
-
-                    const ageMultiplier = 1 + (y - 1) * 0.08;
-                    const maintenance = mileage * baseMaintenancePerKm * maintMult * ageMultiplier;
-
-                    const tyreCost = vehicleData.tyres ? 20000 : 32000;
-                    const tyreLifespan = 45000;
-                    const tyres = (mileage / tyreLifespan) * tyreCost * tyreMult;
-
-                    const licensing = 5000 + (y > 1 ? 1000 : 0);
-
-                    const yearTotal = depreciation + financing + insurance + fuel + maintenance + tyres + licensing;
-                    totalCost += yearTotal;
-
-                    rows.push({
-                        year: y,
-                        depreciation,
-                        financing,
-                        insurance,
-                        fuel,
-                        maintenance,
-                        tyres,
-                        licensing,
-                        total: yearTotal,
-                        vehicleValue: Math.max(vehicleValue, basePrice * 0.1)
-                    });
-                }
-
-                const totalKm = mileage * years;
-                const costPerKm = totalKm ? totalCost / totalKm : 0;
-                const costPerMonth = totalCost / (years * 12);
-                const resale = Math.max(vehicleValue, basePrice * 0.1);
-
-                // ─── RCI ──────────────────────────────────────────────
-                let rci = costPerKm;
-                let rciLabel, rciStars, rciClass;
-                if (rci <= 20) { rciLabel = 'Excellent'; rciStars = '★★★★★'; rciClass = 'excellent'; }
-                else if (rci <= 35) { rciLabel = 'Good'; rciStars = '★★★★'; rciClass = 'good'; }
-                else if (rci <= 50) { rciLabel = 'Average'; rciStars = '★★★'; rciClass = 'average'; }
-                else if (rci <= 70) { rciLabel = 'Expensive'; rciStars = '★★'; rciClass = 'expensive'; }
-                else { rciLabel = 'Very Expensive'; rciStars = '★'; rciClass = 'very-expensive'; }
-
-                // ─── Health Score ─────────────────────────────────────
-                let healthScore = 100;
-                const age = new Date().getFullYear() - Number(elements.vehicleYear.value);
-                healthScore -= age * 3;
-                const idealConsumption = fuelType === 'electric' ? 20 : (fuelType === 'diesel' ? 6 : 8);
-                if (fuelEfficiency < idealConsumption * 0.7) healthScore += 5;
-                else if (fuelEfficiency > idealConsumption * 1.3) healthScore -= 5;
-                if (baseMaintenancePerKm > 4) healthScore -= 8;
-                else if (baseMaintenancePerKm > 3) healthScore -= 3;
-                if (fuelType === 'electric') healthScore += 5;
-                healthScore = Math.max(0, Math.min(100, healthScore));
-
-                let healthLabel, healthColor;
-                if (healthScore >= 80) { healthLabel = '★★★★★ Excellent'; healthColor = 'var(--green)'; }
-                else if (healthScore >= 60) { healthLabel = '★★★★ Good'; healthColor = 'var(--blue)'; }
-                else if (healthScore >= 40) { healthLabel = '★★★ Average'; healthColor = 'var(--amber)'; }
-                else if (healthScore >= 20) { healthLabel = '★★ Needs Attention'; healthColor = 'var(--red)'; }
-                else { healthLabel = '★ Critical'; healthColor = 'var(--red-dark)'; }
-
-                // ─── Environmental ────────────────────────────────────
-                let co2Factor;
-                switch (fuelType) {
-                    case 'petrol': co2Factor = 2.31; break;
-                    case 'diesel': co2Factor = 2.68; break;
-                    case 'lpg': co2Factor = 1.50; break;
-                    case 'electric': co2Factor = 0.20; break;
-                    default: co2Factor = 2.31;
-                }
-                const co2PerKm = co2Factor / Math.max(fuelEfficiency, 0.1);
-                const co2Annual = co2PerKm * mileage;
-                const treesToOffset = co2Annual / 20;
-
-                // ─── Recommendations ──────────────────────────────────
-                const recommendations = [];
-
-                if (costPerKm > 30) {
-                    recommendations.push({
-                        icon: '💰',
-                        text: `Cost per km (${formatCurrency(costPerKm)}) is high. Consider a more fuel-efficient vehicle.`,
-                        type: 'warning',
-                        tag: 'Cost'
-                    });
-                }
-
-                if (depResult.valueRetained < 40) {
-                    recommendations.push({
-                        icon: '📉',
-                        text: `Vehicle retains only ${depResult.valueRetained.toFixed(1)}% of value. Consider a model with better resale.`,
-                        type: 'warning',
-                        tag: 'Depreciation'
-                    });
-                }
-
-                if (age > 10) {
-                    recommendations.push({
-                        icon: '🏥',
-                        text: `Vehicle is ${age} years old. Maintenance costs are increasing. Consider replacement.`,
-                        type: 'warning',
-                        tag: 'Age'
-                    });
-                }
-
-                if (fuelType === 'electric') {
-                    recommendations.push({
-                        icon: '🌱',
-                        text: `Great EV choice! Zero tailpipe emissions and lower running costs.`,
-                        type: 'success',
-                        tag: 'Green'
-                    });
-                }
-
-                if (financed && financingAnnual > totalCost * 0.15) {
-                    recommendations.push({
-                        icon: '🏦',
-                        text: `Financing represents ${((financingAnnual * years) / totalCost * 100).toFixed(0)}% of total cost. Consider a larger down payment.`,
-                        type: 'info',
-                        tag: 'Financing'
-                    });
-                }
-
-                if (healthScore < 50) {
-                    recommendations.push({
-                        icon: '🏥',
-                        text: `Vehicle health score (${Math.round(healthScore)}) is low. Schedule comprehensive inspection.`,
-                        type: 'warning',
-                        tag: 'Health'
-                    });
-                }
-
-                if (recommendations.length === 0) {
-                    recommendations.push({
-                        icon: '✅',
-                        text: 'Vehicle performing well across all metrics. Good ownership value.',
-                        type: 'success',
-                        tag: 'All Good'
-                    });
-                }
-
-                return {
-                    rows,
-                    totalCost,
-                    costPerKm,
-                    costPerMonth,
-                    resale,
-                    vehicleData,
-                    basePrice,
-                    depreciation: depResult,
-                    financed,
-                    locations,
-                    insRate: insRateSlider,
-                    rci, rciLabel, rciStars, rciClass,
-                    healthScore, healthLabel, healthColor,
-                    co2PerKm, co2Annual, treesToOffset,
-                    fuelType, fuelEfficiency,
-                    recommendations,
-                    years,
-                    mileage,
-                    age,
-                    vehicleName: `${VEHICLE_DB[make].label} ${model.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}`,
-                    fuelTypeDisplay: fuelType.charAt(0).toUpperCase() + fuelType.slice(1)
-                };
-            }
-
-            // ─── Render Results ──────────────────────────────────────
-            function render() {
-                const result = calculateOwnership();
-                if (!result) {
-                    elements.outTotal.textContent = '—';
-                    elements.outMonthly.textContent = '—';
-                    elements.outPerKm.textContent = '—';
-                    elements.outResale.textContent = '—';
-                    elements.rciValue.textContent = '—';
-                    elements.vehicleLabel.textContent = 'Select a vehicle to begin';
-                    return;
-                }
-
-                const { rows, totalCost, costPerKm, costPerMonth, resale, vehicleData, basePrice, 
-                        rci, rciLabel, rciStars, rciClass, healthScore, healthLabel, healthColor,
-                        co2PerKm, co2Annual, treesToOffset, fuelType, fuelEfficiency,
-                        recommendations, years, mileage, age, vehicleName, fuelTypeDisplay } = result;
-
-                // ─── Vehicle Profile ──────────────────────────────────
-                elements.vehicleLabel.textContent = vehicleName || 'Unnamed';
-                elements.fuelPill.textContent = fuelTypeDisplay || '—';
-                const purchaseYear = elements.vehicleYear.value;
-                elements.vehicleSpecs.innerHTML = `
-                    <span class="spec-item">💰 <span class="spec-value">${fmt(basePrice)}</span></span>
-                    <span class="spec-item">📅 <span class="spec-value">${purchaseYear} (${age} years old)</span></span>
-                    <span class="spec-item">⚡ <span class="spec-value">${fuelEfficiency || '—'} km/L</span></span>
-                    <span class="spec-item">📊 <span class="spec-value">${formatNumber(mileage)} km/year</span></span>
-                    <span class="spec-item">🏷️ <span class="spec-value">${elements.vehicleType.value.toUpperCase()}</span></span>
+            // Render rows
+            const barsWrap = elements.stackedBars;
+            barsWrap.innerHTML = "";
+            const rows = result.rows || [];
+            const maxTotal = Math.max(...rows.map(r => r.total || 0), 1);
+            rows.forEach(r => {
+                const segs = ["depreciation", "financing", "insurance", "fuel", "maintenance", "tyres", "licensing"];
+                const trackWidthPct = ((r.total || 0) / maxTotal) * 100;
+                const segHtml = segs.map(k => {
+                    const val = r[k] || 0;
+                    const pct = (val / (r.total || 1)) * 100;
+                    return `<div class="bar-seg" style="width:${pct}%; background:${COLORS[k]};" title="${k.charAt(0).toUpperCase() + k.slice(1)}: ${fmt(val)}"></div>`;
+                }).join("");
+                const row = document.createElement("div");
+                row.className = "year-row";
+                row.innerHTML = `
+                    <div class="yr-label">Year ${r.year || '?'}</div>
+                    <div class="bar-track" style="width:${Math.max(trackWidthPct, 8)}%;">${segHtml}</div>
+                    <div class="yr-total">${fmt(r.total || 0)}</div>
                 `;
+                barsWrap.appendChild(row);
+            });
 
-                // ─── Stats ────────────────────────────────────────────
-                elements.outTotal.textContent = fmt(totalCost);
-                elements.outMonthly.textContent = fmt(costPerMonth);
-                elements.outPerKm.textContent = "KES " + costPerKm.toFixed(1);
-                elements.outResale.textContent = fmt(resale);
-
-                // ─── Stacked Bars ─────────────────────────────────────
-                const barsWrap = elements.stackedBars;
-                barsWrap.innerHTML = "";
-                const maxTotal = Math.max(...rows.map(r => r.total));
-                rows.forEach(r => {
-                    const segs = ["depreciation", "financing", "insurance", "fuel", "maintenance", "tyres", "licensing"];
-                    const trackWidthPct = (r.total / maxTotal) * 100;
-                    const segHtml = segs.map(k => {
-                        const pct = (r[k] / r.total) * 100;
-                        return `<div class="bar-seg" style="width:${pct}%; background:${COLORS[k]};" title="${k.charAt(0).toUpperCase() + k.slice(1)}: ${fmt(r[k])}"></div>`;
-                    }).join("");
-                    const row = document.createElement("div");
-                    row.className = "year-row";
-                    row.innerHTML = `
-                        <div class="yr-label">Year ${r.year}</div>
-                        <div class="bar-track" style="width:${Math.max(trackWidthPct, 8)}%;">${segHtml}</div>
-                        <div class="yr-total">${fmt(r.total)}</div>
-                    `;
-                    barsWrap.appendChild(row);
-                });
-
-                // ─── Table ────────────────────────────────────────────
-                const tbody = elements.resultsBody;
-                tbody.innerHTML = "";
-                rows.forEach(r => {
-                    const tr = document.createElement("tr");
-                    tr.innerHTML = `
-                        <td>Year ${r.year}</td>
-                        <td>${fmt(r.depreciation)}</td>
-                        <td>${fmt(r.financing)}</td>
-                        <td>${fmt(r.insurance)}</td>
-                        <td>${fmt(r.fuel)}</td>
-                        <td>${fmt(r.maintenance)}</td>
-                        <td>${fmt(r.tyres)}</td>
-                        <td>${fmt(r.licensing)}</td>
-                        <td>${fmt(r.total)}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-                const totalRow = document.createElement("tr");
-                const sums = rows.reduce((acc, r) => {
-                    ["depreciation","financing","insurance","fuel","maintenance","tyres","licensing","total"].forEach(k => acc[k] = (acc[k]||0) + r[k]);
-                    return acc;
-                }, {});
-                totalRow.innerHTML = `
-                    <td><strong>Total</strong></td>
-                    <td>${fmt(sums.depreciation)}</td><td>${fmt(sums.financing)}</td><td>${fmt(sums.insurance)}</td>
-                    <td>${fmt(sums.fuel)}</td><td>${fmt(sums.maintenance)}</td><td>${fmt(sums.tyres)}</td>
-                    <td>${fmt(sums.licensing)}</td><td>${fmt(sums.total)}</td>
+            // Render table
+            const tbody = elements.resultsBody;
+            tbody.innerHTML = "";
+            rows.forEach(r => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>Year ${r.year || '?'}</td>
+                    <td>${fmt(r.depreciation || 0)}</td>
+                    <td>${fmt(r.financing || 0)}</td>
+                    <td>${fmt(r.insurance || 0)}</td>
+                    <td>${fmt(r.fuel || 0)}</td>
+                    <td>${fmt(r.maintenance || 0)}</td>
+                    <td>${fmt(r.tyres || 0)}</td>
+                    <td>${fmt(r.licensing || 0)}</td>
+                    <td>${fmt(r.total || 0)}</td>
                 `;
-                tbody.appendChild(totalRow);
+                tbody.appendChild(tr);
+            });
+            const totalRow = document.createElement("tr");
+            const sums = rows.reduce((acc, r) => {
+                ["depreciation","financing","insurance","fuel","maintenance","tyres","licensing","total"].forEach(k => acc[k] = (acc[k]||0) + (r[k]||0));
+                return acc;
+            }, {});
+            totalRow.innerHTML = `
+                <td><strong>Total</strong></td>
+                <td>${fmt(sums.depreciation || 0)}</td><td>${fmt(sums.financing || 0)}</td><td>${fmt(sums.insurance || 0)}</td>
+                <td>${fmt(sums.fuel || 0)}</td><td>${fmt(sums.maintenance || 0)}</td><td>${fmt(sums.tyres || 0)}</td>
+                <td>${fmt(sums.licensing || 0)}</td><td>${fmt(sums.total || 0)}</td>
+            `;
+            tbody.appendChild(totalRow);
 
-                // ─── RCI ──────────────────────────────────────────────
-                elements.rciValue.textContent = formatCurrency(rci) + ' KES/km';
-                elements.rciValue.className = 'rci-value ' + (rciClass || '');
-                elements.rciStars.textContent = rciStars || '—';
-                elements.rciLabel.textContent = rciLabel || '—';
+            // RCI
+            elements.rciValue.textContent = formatCurrency(result.rci) + ' KES/km';
+            elements.rciValue.className = 'rci-value ' + (result.rciClass || '');
+            elements.rciStars.textContent = result.rciStars || '—';
+            elements.rciLabel.textContent = result.rciLabel || '—';
 
-                // ─── Health ───────────────────────────────────────────
-                const score = healthScore || 0;
-                const pct = Math.min(100, Math.max(0, score));
-                elements.healthRing.style.setProperty('--pct', pct + '%');
-                elements.healthRing.style.background = `conic-gradient(${healthColor || 'var(--green)'} ${pct}%, var(--bg-card) ${pct}%)`;
-                elements.healthScore.textContent = Math.round(score);
-                elements.healthLabel.textContent = healthLabel || '—';
+            // Health
+            const score = result.healthScore || 0;
+            const pct = Math.min(100, Math.max(0, score));
+            elements.healthRing.style.setProperty('--pct', pct + '%');
+            elements.healthRing.style.background = `conic-gradient(${result.healthColor || 'var(--green)'} ${pct}%, var(--bg-card) ${pct}%)`;
+            elements.healthScore.textContent = Math.round(score);
+            elements.healthLabel.textContent = result.healthLabel || '—';
+        }
 
-                // ─── Environmental ────────────────────────────────────
-                elements.envGrid.innerHTML = `
-                    <div class="env-item">
-                        <div class="env-value">${formatNumber(co2Annual / 1000)} t</div>
-                        <div class="env-label">CO₂ per Year</div>
-                    </div>
-                    <div class="env-item">
-                        <div class="env-value">${formatNumber(co2PerKm)} g/km</div>
-                        <div class="env-label">CO₂ per km</div>
-                    </div>
-                    <div class="env-item">
-                        <div class="env-value">${formatNumber(treesToOffset)}</div>
-                        <div class="env-label">Trees to Offset/Year</div>
-                    </div>
-                    <div class="env-item">
-                        <div class="env-value">${fuelTypeDisplay || '—'}</div>
-                        <div class="env-label">Fuel Type</div>
-                    </div>
-                    <div class="env-item">
-                        <div class="env-value">${fuelEfficiency || '—'} km/L</div>
-                        <div class="env-label">Efficiency</div>
-                    </div>
-                    <div class="env-item">
-                        <div class="env-value">${formatNumber(mileage)} km</div>
-                        <div class="env-label">Annual Mileage</div>
-                    </div>
-                `;
+        // ─── Slider Bindings ─────────────────────────────────────
+        function bindSlider(id, valId, formatter) {
+            const el = document.getElementById(id);
+            const out = document.getElementById(valId);
+            const update = () => out.textContent = formatter(el.value);
+            el.addEventListener("input", update);
+            update();
+        }
+        bindSlider("mileage", "valMileage", v => Number(v).toLocaleString("en-KE") + " km");
+        bindSlider("years", "valYears", v => v + (v == 1 ? " year" : " years"));
+        bindSlider("downPct", "valDown", v => v + "%");
+        bindSlider("rate", "valRate", v => v + "%");
+        bindSlider("term", "valTerm", v => v + (v == 1 ? " year" : " years"));
+        bindSlider("insuranceRate", "valInsuranceRate", v => v + "%");
 
-                // ─── Recommendations ──────────────────────────────────
-                const recs = recommendations || [];
-                let recHtml = '';
-                recs.forEach(rec => {
-                    const typeClass = rec.type || 'info';
-                    recHtml += `
-                        <div class="rec-item ${typeClass}">
-                            <span class="icon">${rec.icon || '💡'}</span>
-                            <span class="rec-text">${rec.text}</span>
-                            <span class="rec-tag">${rec.tag || 'Info'}</span>
-                        </div>
-                    `;
-                });
-                elements.recList.innerHTML = recHtml;
+        // ─── Checkbox Toggle ──────────────────────────────────────
+        document.querySelectorAll('.checkbox-item input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', function() {
+                this.closest('.checkbox-item').classList.toggle('checked', this.checked);
+            });
+        });
 
-                // Update timestamp
-                elements.lastUpdated.textContent = new Date().toLocaleString('en-KE', {
-                    year: 'numeric', month: 'short', day: 'numeric',
-                    hour: '2-digit', minute: '2-digit'
-                });
+        // ─── Financing Toggle ────────────────────────────────────
+        elements.btnCash.addEventListener("click", () => {
+            elements.btnCash.classList.add("active");
+            elements.btnFinanced.classList.remove("active");
+            elements.financedFields.classList.remove("show");
+            render();
+        });
+        elements.btnFinanced.addEventListener("click", () => {
+            elements.btnFinanced.classList.add("active");
+            elements.btnCash.classList.remove("active");
+            elements.financedFields.classList.add("show");
+            render();
+        });
 
-                elements.calcMethod.textContent = '✅ Client-side (v4.0)';
-                setApiStatus('● Engine Active', true);
+        // ─── Event Listeners ──────────────────────────────────────
+        elements.vehicleType.addEventListener('change', function() {
+            populateMakes();
+            render();
+        });
+
+        elements.vehicleMake.addEventListener('change', function() {
+            populateModels();
+            render();
+        });
+
+        elements.vehicleModel.addEventListener('change', function() {
+            updateVehiclePreview();
+            render();
+        });
+
+        document.querySelectorAll('#vehicleYear, #vehicleEngine, #vehicleFuel, #vehicleTransmission').forEach(el => {
+            el.addEventListener('change', render);
+        });
+
+        document.querySelectorAll('input[type="range"], select, input[type="checkbox"]').forEach(el => {
+            el.addEventListener("change", render);
+            el.addEventListener("input", render);
+        });
+
+        elements.calcBtn.addEventListener("click", calculateAndRender);
+
+        // ─── Print ─────────────────────────────────────────────────
+        document.getElementById('printBtn').addEventListener('click', function() { window.print(); });
+
+        // ─── Share ────────────────────────────────────────────────
+        document.getElementById('shareBtn').addEventListener('click', function() {
+            const url = window.location.href;
+            const text = `Auto-D Kenya Ownership Cost Report\nVehicle: ${elements.vehicleLabel.textContent}\nTotal: ${elements.outTotal.textContent}\nRCI: ${elements.rciValue.textContent}`;
+            if (navigator.share) {
+                navigator.share({ title: 'Auto-D Kenya Ownership Report', text: text, url: url }).catch(() => {});
+            } else {
+                navigator.clipboard.writeText(`${text}\n${url}`).then(() => {
+                    showToast('Report copied to clipboard!', 'success');
+                }).catch(() => { showToast('Share not available', 'error'); });
             }
+        });
 
-            // ─── Slider Bindings ─────────────────────────────────────
-            function bindSlider(id, valId, formatter) {
-                const el = document.getElementById(id);
-                const out = document.getElementById(valId);
-                const update = () => out.textContent = formatter(el.value);
-                el.addEventListener("input", update);
-                update();
+        // ─── Export CSV ───────────────────────────────────────────
+        document.getElementById('exportBtn').addEventListener('click', function() {
+            const result = calculateOwnership();
+            if (!result) { showToast('No data to export', 'error'); return; }
+            const r = result;
+            const rows = [
+                ['Metric', 'Value'],
+                ['Vehicle', r.vehicleName || 'Unknown'],
+                ['Year', r.age || 0],
+                ['Total Cost (KES)', formatCurrency(r.totalCost)],
+                ['Cost per Month (KES)', formatCurrency(r.costPerMonth)],
+                ['Cost per km (KES)', formatCurrency(r.costPerKm)],
+                ['Resale Value (KES)', formatCurrency(r.resale)],
+                ['Running Cost Index', formatCurrency(r.rci)],
+                ['RCI Rating', r.rciLabel || '—'],
+                ['Vehicle Health Score', Math.round(r.healthScore || 0)],
+                ['Fuel Type', r.fuelTypeDisplay || '—'],
+                ['Efficiency', `${r.fuelEfficiency || '—'} km/L`],
+                ['Annual Mileage', formatNumber(r.mileage)]
+            ];
+            r.rows.forEach(row => {
+                rows.push([`Year ${row.year} Total`, formatCurrency(row.total)]);
+                rows.push([`Year ${row.year} Depreciation`, formatCurrency(row.depreciation)]);
+                rows.push([`Year ${row.year} Financing`, formatCurrency(row.financing)]);
+                rows.push([`Year ${row.year} Insurance`, formatCurrency(row.insurance)]);
+                rows.push([`Year ${row.year} Fuel`, formatCurrency(row.fuel)]);
+                rows.push([`Year ${row.year} Maintenance`, formatCurrency(row.maintenance)]);
+                rows.push([`Year ${row.year} Tyres`, formatCurrency(row.tyres)]);
+                rows.push([`Year ${row.year} Licensing`, formatCurrency(row.licensing)]);
+            });
+            const csv = rows.map(row => row.join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `auto-d-ownership-${Date.now()}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('CSV exported!', 'success');
+        });
+
+        // ─── Export JSON ──────────────────────────────────────────
+        document.getElementById('exportFullBtn').addEventListener('click', function() {
+            const result = calculateOwnership();
+            if (!result) { showToast('No data to export', 'error'); return; }
+            const data = {
+                timestamp: new Date().toISOString(),
+                vehicle: result.vehicleName,
+                result: result
+            };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `auto-d-ownership-full-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('JSON exported!', 'success');
+        });
+
+        // ─── Check Auth Status ──────────────────────────────────────
+        async function checkAuth() {
+            const { data: { session }, error } = await supabase.auth.getSession();
+            if (session?.user) {
+                currentUser = session.user;
+                console.log('✅ User authenticated:', currentUser.email);
+                // Enable save functionality
+                document.querySelectorAll('.action-btn').forEach(btn => btn.disabled = false);
+            } else {
+                console.log('ℹ️ Not logged in - guest mode');
             }
-            bindSlider("mileage", "valMileage", v => Number(v).toLocaleString("en-KE") + " km");
-            bindSlider("years", "valYears", v => v + (v == 1 ? " year" : " years"));
-            bindSlider("downPct", "valDown", v => v + "%");
-            bindSlider("rate", "valRate", v => v + "%");
-            bindSlider("term", "valTerm", v => v + (v == 1 ? " year" : " years"));
-            bindSlider("insuranceRate", "valInsuranceRate", v => v + "%");
+        }
 
-            // ─── Checkbox Toggle ──────────────────────────────────────
-            document.querySelectorAll('.checkbox-item input[type="checkbox"]').forEach(cb => {
-                cb.addEventListener('change', function() {
-                    this.closest('.checkbox-item').classList.toggle('checked', this.checked);
+        // ─── Check Backend Health ────────────────────────────────
+        async function checkBackendHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/api/health`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
                 });
-            });
-
-            // ─── Financing Toggle ────────────────────────────────────
-            elements.btnCash.addEventListener("click", () => {
-                elements.btnCash.classList.add("active");
-                elements.btnFinanced.classList.remove("active");
-                elements.financedFields.classList.remove("show");
-                render();
-            });
-            elements.btnFinanced.addEventListener("click", () => {
-                elements.btnFinanced.classList.add("active");
-                elements.btnCash.classList.remove("active");
-                elements.financedFields.classList.add("show");
-                render();
-            });
-
-            // ─── Event Listeners ──────────────────────────────────────
-            elements.vehicleType.addEventListener('change', function() {
-                populateMakes();
-                render();
-            });
-
-            elements.vehicleMake.addEventListener('change', function() {
-                populateModels();
-                render();
-            });
-
-            elements.vehicleModel.addEventListener('change', function() {
-                updateVehiclePreview();
-                render();
-            });
-
-            document.querySelectorAll('#vehicleYear, #vehicleEngine, #vehicleFuel, #vehicleTransmission').forEach(el => {
-                el.addEventListener('change', render);
-            });
-
-            document.querySelectorAll('input[type="range"], select, input[type="checkbox"]').forEach(el => {
-                el.addEventListener("change", render);
-                el.addEventListener("input", render);
-            });
-
-            elements.calcBtn.addEventListener("click", render);
-
-            // ─── Print ─────────────────────────────────────────────────
-            document.getElementById('printBtn').addEventListener('click', function() { window.print(); });
-
-            // ─── Share ────────────────────────────────────────────────
-            document.getElementById('shareBtn').addEventListener('click', function() {
-                const url = window.location.href;
-                const text = `Auto-D Kenya Ownership Cost Report\nVehicle: ${elements.vehicleLabel.textContent}\nTotal: ${elements.outTotal.textContent}\nRCI: ${elements.rciValue.textContent}`;
-                if (navigator.share) {
-                    navigator.share({ title: 'Auto-D Kenya Ownership Report', text: text, url: url }).catch(() => {});
+                if (response.ok) {
+                    isBackendAvailable = true;
+                    console.log('✅ FastAPI Backend healthy');
+                    setApiStatus('● Connected to FastAPI', true);
+                    elements.calcMethod.textContent = '✅ FastAPI Backend';
                 } else {
-                    navigator.clipboard.writeText(`${text}\n${url}`).then(() => {
-                        showToast('Report copied to clipboard!', 'success');
-                    }).catch(() => { showToast('Share not available', 'error'); });
+                    isBackendAvailable = false;
+                    setApiStatus('⚠️ Backend degraded', false);
+                    elements.calcMethod.textContent = '⚠️ Degraded (client-side)';
                 }
-            });
+            } catch (error) {
+                isBackendAvailable = false;
+                setApiStatus('⚠️ Backend unavailable', false);
+                elements.calcMethod.textContent = '⚠️ Offline mode (client-side)';
+                console.warn('Backend unavailable:', error.message);
+            }
+        }
 
-            // ─── Export CSV ───────────────────────────────────────────
-            document.getElementById('exportBtn').addEventListener('click', function() {
-                const result = calculateOwnership();
-                if (!result) { showToast('No data to export', 'error'); return; }
-                const r = result;
-                const rows = [
-                    ['Metric', 'Value'],
-                    ['Vehicle', r.vehicleName || 'Unknown'],
-                    ['Year', r.age || 0],
-                    ['Total Cost (KES)', formatCurrency(r.totalCost)],
-                    ['Cost per Month (KES)', formatCurrency(r.costPerMonth)],
-                    ['Cost per km (KES)', formatCurrency(r.costPerKm)],
-                    ['Resale Value (KES)', formatCurrency(r.resale)],
-                    ['Running Cost Index', formatCurrency(r.rci)],
-                    ['RCI Rating', r.rciLabel || '—'],
-                    ['Vehicle Health Score', Math.round(r.healthScore || 0)],
-                    ['Fuel Type', r.fuelTypeDisplay || '—'],
-                    ['Efficiency', `${r.fuelEfficiency || '—'} km/L`],
-                    ['Annual Mileage', formatNumber(r.mileage)]
-                ];
-                // Add yearly breakdown
-                r.rows.forEach(row => {
-                    rows.push([`Year ${row.year} Total`, formatCurrency(row.total)]);
-                    rows.push([`Year ${row.year} Depreciation`, formatCurrency(row.depreciation)]);
-                    rows.push([`Year ${row.year} Financing`, formatCurrency(row.financing)]);
-                    rows.push([`Year ${row.year} Insurance`, formatCurrency(row.insurance)]);
-                    rows.push([`Year ${row.year} Fuel`, formatCurrency(row.fuel)]);
-                    rows.push([`Year ${row.year} Maintenance`, formatCurrency(row.maintenance)]);
-                    rows.push([`Year ${row.year} Tyres`, formatCurrency(row.tyres)]);
-                    rows.push([`Year ${row.year} Licensing`, formatCurrency(row.licensing)]);
-                });
-                const csv = rows.map(row => row.join(',')).join('\n');
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `auto-d-ownership-${Date.now()}.csv`;
-                a.click();
-                URL.revokeObjectURL(url);
-                showToast('CSV exported!', 'success');
-            });
+        // ─── Init ──────────────────────────────────────────────────
+        async function init() {
+            console.log('🚗 Auto-D Kenya Ownership Calculator (Supabase + FastAPI)');
+            console.log('🔐 Supabase:', SUPABASE_URL);
+            console.log('📡 FastAPI:', API_BASE);
 
-            // ─── Export JSON ──────────────────────────────────────────
-            document.getElementById('exportFullBtn').addEventListener('click', function() {
-                const result = calculateOwnership();
-                if (!result) { showToast('No data to export', 'error'); return; }
-                const data = {
-                    timestamp: new Date().toISOString(),
-                    vehicle: result.vehicleName,
-                    result: result
-                };
-                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `auto-d-ownership-full-${Date.now()}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-                showToast('JSON exported!', 'success');
-            });
-
-            // ─── Init ──────────────────────────────────────────────────
+            // Load vehicle data from Supabase
+            vehicleData = await fetchVehicleData();
+            
             populateMakes();
             updateVehiclePreview();
             render();
 
-            // ─── Backend Health Check ────────────────────────────────
-            async function checkBackendHealth() {
-                try {
-                    const response = await fetch(`${API_BASE}/api/health`, {
-                        method: 'GET',
-                        headers: { 'Accept': 'application/json' }
-                    });
-                    if (response.ok) {
-                        console.log('✅ Backend healthy');
-                        setApiStatus('● Connected to Flask API', true);
-                        elements.calcMethod.textContent = '✅ Connected to Flask API';
-                    } else {
-                        setApiStatus('⚠️ Backend degraded', false);
-                        elements.calcMethod.textContent = '⚠️ Backend degraded (client-side)';
-                    }
-                } catch (error) {
-                    setApiStatus('⚠️ Backend unavailable', false);
-                    elements.calcMethod.textContent = '⚠️ Offline mode (client-side)';
-                }
-            }
-            checkBackendHealth();
+            await checkAuth();
+            await checkBackendHealth();
 
-            console.log('🚗 Auto-D Kenya Ownership Calculator loaded');
-            console.log(`📡 API Base: ${API_BASE}`);
+            // Update last updated
+            elements.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
+                year: 'numeric', month: 'short', day: 'numeric'
+            });
+        }
 
-        })();
+        document.addEventListener('DOMContentLoaded', init);
+
     </script>
 </body>
 </html>
