@@ -717,7 +717,6 @@
             .main-grid { display: block !important; }
             .results-panel { margin-top: 20px !important; }
             .cost-detail-grid .item { border-bottom-color: #ddd !important; }
-            .cost-detail-grid .item .label { color: #666 !important; }
             .fuel-filter-group, .all-classes-toggle { display: none !important; }
         }
     </style>
@@ -919,7 +918,9 @@
                     BASE_URL: 'https://auto-digital.onrender.com',
                     ENDPOINTS: {
                         MILEAGE: '/api/service/mileage',
-                        VALUATION: '/api/service/valuation',
+                        MILEAGE_HEALTH: '/api/service/mileage/health',
+                        VALUATION: '/api/valuation/calculate',
+                        VALUATION_HEALTH: '/api/valuation/health',
                         OWNERSHIP: '/api/service/ownership'
                     }
                 }
@@ -1074,7 +1075,7 @@
                     });
                     if (!response.ok) {
                         const errorData = await response.json().catch(() => ({}));
-                        throw new Error(errorData.error || `HTTP ${response.status}`);
+                        throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
                     }
                     return await response.json();
                 } catch (error) {
@@ -1122,7 +1123,13 @@
             async function calculateMileage(variant, distance) {
                 if (!variant || !distance || distance <= 0) return null;
 
+                // Payload aligned with mileage_service.calculate_mileage(variant_id, distance_km).
+                // The backend looks the variant up server-side by id via find_variant(), so
+                // variant_id is the one field it actually requires — everything else it derives
+                // from its own stored record. The remaining fields are sent only as context for
+                // the client-side fallback path, not used by the real endpoint.
                 const payload = {
+                    variant_id: variant.id,
                     distance_km: distance,
                     fuel_type: variant.fuel_type || 'petrol',
                     fuel_consumption: variant.fuel_consumption || 8,
@@ -1446,9 +1453,10 @@
                 try {
                     console.log('🔄 Loading initial data...');
                     
-                    // Check backend health
+                    // Check backend health (mileage service's own health route,
+                    // not a generic /api/health that doesn't exist on this blueprint)
                     try {
-                        const healthCheck = await fetch(`${CONFIG.API.BASE_URL}/api/health`);
+                        const healthCheck = await fetch(`${CONFIG.API.BASE_URL}${CONFIG.API.ENDPOINTS.MILEAGE_HEALTH}`);
                         if (healthCheck.ok) {
                             setApiStatus('● Connected to Flask API', true);
                             console.log('✅ Backend is healthy');
