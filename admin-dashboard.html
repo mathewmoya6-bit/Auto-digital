@@ -16,6 +16,9 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
     </script>
     
+    <!-- ─── SUPABASE CLIENT ──────────────────────────────────────── -->
+    <script src="supabase-client.js"></script>
+    
     <style>
         /* ─── CSS Variables ────────────────────────────────────────── */
         :root {
@@ -797,7 +800,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // Auto-D Kenya - ADMIN DASHBOARD (Supabase + Local Storage)
+        // Auto-D Kenya - ADMIN DASHBOARD (Using AutoDClient)
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -806,13 +809,7 @@
             if (window.autoDAdminInitialized) return;
             window.autoDAdminInitialized = true;
 
-            // ─── SUPABASE CONFIG ──────────────────────────────────────
-            const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
-            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
-
             // ─── STATE ──────────────────────────────────────────────────
-            let supabaseClient = null;
-            let currentUser = null;
             let isLoggedIn = false;
             let activityLogs = [];
 
@@ -838,56 +835,22 @@
                 setTimeout(() => toast.remove(), 4000);
             }
 
-            // ─── Supabase Client ──────────────────────────────────────
-            function initSupabase() {
-                try {
-                    if (typeof supabase === 'undefined') {
-                        console.warn('⚠️ Supabase SDK not loaded');
-                        return false;
-                    }
-                    const { createClient } = supabase;
-                    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                    console.log('✅ Supabase client initialized');
-                    return true;
-                } catch (error) {
-                    console.error('❌ Supabase init error:', error);
-                    return false;
-                }
-            }
-
             // ─── Check Auth ────────────────────────────────────────────
             async function checkAuth() {
                 try {
-                    if (!supabaseClient) {
-                        if (!initSupabase()) return false;
-                    }
-
-                    const { data: { session }, error } = await supabaseClient.auth.getSession();
-                    if (error) throw error;
-
-                    if (session?.user) {
-                        currentUser = session.user;
+                    const user = await AutoDClient.getCurrentUser();
+                    if (user) {
+                        // Check if user is admin
+                        const isAdmin = await AutoDClient.isAdmin(user.id);
+                        if (!isAdmin) {
+                            await AutoDClient.signOut();
+                            return false;
+                        }
                         isLoggedIn = true;
-                        localStorage.setItem('admin_session', JSON.stringify({
-                            user: currentUser,
-                            timestamp: Date.now()
-                        }));
+                        document.getElementById('adminName').textContent = user.user_metadata?.full_name || 'Administrator';
+                        document.getElementById('adminAvatar').textContent = (user.user_metadata?.full_name || 'A')[0].toUpperCase();
                         return true;
                     }
-
-                    // Check local storage
-                    const stored = localStorage.getItem('admin_session');
-                    if (stored) {
-                        try {
-                            const parsed = JSON.parse(stored);
-                            if (parsed.user && (Date.now() - parsed.timestamp) < 86400000) { // 24 hours
-                                currentUser = parsed.user;
-                                isLoggedIn = true;
-                                return true;
-                            }
-                        } catch (e) { /* ignore */ }
-                    }
-
                     return false;
                 } catch (error) {
                     console.warn('⚠️ Auth check error:', error.message);
@@ -905,78 +868,25 @@
                 loginBtn.textContent = '⏳ Logging in...';
 
                 try {
-                    if (!supabaseClient) {
-                        if (!initSupabase()) {
-                            throw new Error('Supabase initialization failed');
-                        }
+                    const result = await AutoDClient.signIn(email, password);
+                    
+                    if (!result.success) {
+                        throw new Error(result.error || 'Login failed');
                     }
 
-                    // Check if user is admin (check admin_users table)
-                    const { data: adminCheck, error: adminError } = await supabaseClient
-                        .from('admin_users')
-                        .select('*')
-                        .eq('email', email.toLowerCase())
-                        .single();
-
-                    if (adminError || !adminCheck) {
-                        // Try to login anyway, then check role
-                        const { data, error } = await supabaseClient.auth.signInWithPassword({
-                            email: email.toLowerCase(),
-                            password: password
-                        });
-
-                        if (error) throw error;
-
-                        // Check if this user is an admin
-                        const { data: userAdmin, error: roleError } = await supabaseClient
-                            .from('admin_users')
-                            .select('*')
-                            .eq('user_id', data.user.id)
-                            .single();
-
-                        if (roleError || !userAdmin) {
-                            // User is not an admin
-                            await supabaseClient.auth.signOut();
-                            throw new Error('Unauthorized: Admin access required');
-                        }
-
-                        currentUser = data.user;
-                        isLoggedIn = true;
-                        loginError.classList.remove('show');
-                        loginScreen.classList.add('hidden');
-                        dashboardScreen.classList.remove('hidden');
-                        document.getElementById('adminName').textContent = userAdmin.full_name || email;
-                        document.getElementById('adminAvatar').textContent = (userAdmin.full_name || email)[0].toUpperCase();
-                        localStorage.setItem('admin_session', JSON.stringify({
-                            user: currentUser,
-                            timestamp: Date.now()
-                        }));
-                        showToast('✅ Login successful!', 'success');
-                        await loadDashboardData();
-                        loginBtn.disabled = false;
-                        loginBtn.textContent = '🔓 Login to Dashboard';
-                        return;
+                    // Check if user is admin
+                    const isAdmin = await AutoDClient.isAdmin(result.user.id);
+                    if (!isAdmin) {
+                        await AutoDClient.signOut();
+                        throw new Error('Unauthorized: Admin access required');
                     }
 
-                    // If admin user exists, proceed with login
-                    const { data, error } = await supabaseClient.auth.signInWithPassword({
-                        email: email.toLowerCase(),
-                        password: password
-                    });
-
-                    if (error) throw error;
-
-                    currentUser = data.user;
                     isLoggedIn = true;
                     loginError.classList.remove('show');
                     loginScreen.classList.add('hidden');
                     dashboardScreen.classList.remove('hidden');
-                    document.getElementById('adminName').textContent = adminCheck.full_name || email;
-                    document.getElementById('adminAvatar').textContent = (adminCheck.full_name || email)[0].toUpperCase();
-                    localStorage.setItem('admin_session', JSON.stringify({
-                        user: currentUser,
-                        timestamp: Date.now()
-                    }));
+                    document.getElementById('adminName').textContent = result.user.user_metadata?.full_name || email;
+                    document.getElementById('adminAvatar').textContent = (result.user.user_metadata?.full_name || email)[0].toUpperCase();
                     showToast('✅ Login successful!', 'success');
                     await loadDashboardData();
 
@@ -992,17 +902,11 @@
 
             // ─── Logout ──────────────────────────────────────────────────
             logoutBtn.addEventListener('click', async function() {
-                try {
-                    if (supabaseClient) {
-                        await supabaseClient.auth.signOut();
-                    }
-                } catch (e) { /* ignore */ }
+                await AutoDClient.signOut();
                 isLoggedIn = false;
-                currentUser = null;
                 dashboardScreen.classList.add('hidden');
                 loginScreen.classList.remove('hidden');
                 document.getElementById('adminPassword').value = '';
-                localStorage.removeItem('admin_session');
                 showToast('👋 Logged out', 'info');
             });
 
@@ -1021,63 +925,28 @@
             // ─── Fetch Stats ───────────────────────────────────────────
             async function fetchStats() {
                 try {
-                    if (!supabaseClient) return;
-                    
-                    // Get total valuations
-                    const { count: valuations } = await supabaseClient
-                        .from('valuations')
-                        .select('*', { count: 'exact', head: true });
-                    
-                    // Get total users
-                    const { count: users } = await supabaseClient
-                        .from('users')
-                        .select('*', { count: 'exact', head: true });
-                    
-                    // Get total revenue (sum of payments)
-                    const { data: payments } = await supabaseClient
-                        .from('payments')
-                        .select('amount');
-                    
-                    const totalRevenue = payments ? payments.reduce((sum, p) => sum + (p.amount || 0), 0) : 0;
-
-                    document.getElementById('statValuations').textContent = (valuations || 0).toLocaleString();
-                    document.getElementById('statRevenue').textContent = 'KES ' + totalRevenue.toLocaleString();
-                    document.getElementById('statUsers').textContent = (users || 0).toLocaleString();
-                    document.getElementById('statApiCalls').textContent = (valuations || 0).toLocaleString();
+                    const result = await AutoDClient.getDashboardStats();
+                    if (result.success) {
+                        const stats = result.data;
+                        document.getElementById('statValuations').textContent = (stats.vehicles || 0).toLocaleString();
+                        document.getElementById('statRevenue').textContent = 'KES ' + (stats.amount_spent || 0).toLocaleString();
+                        document.getElementById('statUsers').textContent = '0';
+                        document.getElementById('statApiCalls').textContent = (stats.reports || 0).toLocaleString();
+                    }
                 } catch (error) {
                     console.warn('⚠️ Stats fetch error:', error.message);
-                    // Keep default values
                 }
             }
 
             // ─── Fetch Fuel Prices ─────────────────────────────────────
             async function fetchFuelPrices() {
                 try {
-                    if (!supabaseClient) {
-                        renderFallbackFuelPrices();
-                        return;
-                    }
-
-                    const { data, error } = await supabaseClient
-                        .from('fuel_prices')
-                        .select('*')
-                        .order('created_at', { ascending: false });
-
-                    if (error) throw error;
-
-                    if (data && data.length > 0) {
-                        // Get latest prices for each fuel type
-                        const latest = {};
-                        data.forEach(item => {
-                            if (!latest[item.fuel_type] || new Date(item.created_at) > new Date(latest[item.fuel_type].created_at)) {
-                                latest[item.fuel_type] = item;
-                            }
-                        });
-                        renderFuelPrices(latest);
+                    const result = await AutoDClient.getFuelPrices();
+                    if (result.success && result.data) {
+                        renderFuelPrices(result.data);
                         document.getElementById('fuelStatus').textContent = '● Connected';
                         document.getElementById('fuelStatus').className = 'badge badge-success';
                     } else {
-                        // No data in database, use fallback
                         renderFallbackFuelPrices();
                         document.getElementById('fuelStatus').textContent = '● No Data';
                         document.getElementById('fuelStatus').className = 'badge badge-warning';
@@ -1092,10 +961,10 @@
 
             function renderFallbackFuelPrices() {
                 const fallback = {
-                    petrol: { price: 189.00, created_at: new Date().toISOString().split('T')[0] },
-                    diesel: { price: 175.00, created_at: new Date().toISOString().split('T')[0] },
-                    electric: { price: 30.00, created_at: new Date().toISOString().split('T')[0] },
-                    lpg: { price: 120.00, created_at: new Date().toISOString().split('T')[0] }
+                    petrol: { price: 189.00, date: new Date().toISOString().split('T')[0] },
+                    diesel: { price: 175.00, date: new Date().toISOString().split('T')[0] },
+                    electric: { price: 30.00, date: new Date().toISOString().split('T')[0] },
+                    lpg: { price: 120.00, date: new Date().toISOString().split('T')[0] }
                 };
                 renderFuelPrices(fallback);
                 document.getElementById('fuelStatus').textContent = '● Fallback';
@@ -1111,9 +980,9 @@
                 ];
 
                 fuelGrid.innerHTML = fuelTypes.map(f => {
-                    const data = fuels[f.key] || { price: 0, created_at: '—' };
+                    const data = fuels[f.key] || { price: 0, date: '—' };
                     const price = data.price || 0;
-                    const date = data.created_at ? new Date(data.created_at).toLocaleDateString() : '—';
+                    const date = data.date ? new Date(data.date).toLocaleDateString() : '—';
                     const statusClass = price > 0 ? 'synced' : 'pending';
                     const statusText = price > 0 ? '✓ Synced' : '⟳ Pending';
                     
@@ -1137,8 +1006,6 @@
                 }).join('');
             }
 
-            window.fetchFuelPrices = fetchFuelPrices;
-
             // ─── Update Fuel ────────────────────────────────────────────
             window.updateFuel = async function(type) {
                 const input = document.getElementById('edit' + type.charAt(0).toUpperCase() + type.slice(1));
@@ -1150,28 +1017,16 @@
 
                 const statusEl = document.getElementById(type + 'Status');
                 statusEl.className = 'status-badge pending';
-                statusEl.textContent = '⟳ Pending';
+                statusEl.textContent = '⟳ Updating...';
 
                 try {
-                    if (!supabaseClient) {
-                        throw new Error('Database not connected');
-                    }
-
-                    const { error } = await supabaseClient
-                        .from('fuel_prices')
-                        .insert({
-                            fuel_type: type,
-                            price: price,
-                            currency: 'KES',
-                            created_at: new Date().toISOString()
-                        });
-
-                    if (error) throw error;
+                    const result = await AutoDClient.updateFuelPrice(type, price);
+                    if (!result.success) throw new Error(result.error);
 
                     statusEl.className = 'status-badge synced';
                     statusEl.textContent = '✓ Synced';
                     await fetchFuelPrices();
-                    addLog(`⛽ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated to KES ${price.toFixed(2)}`, 'admin');
+                    await addLog(`⛽ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated to KES ${price.toFixed(2)}`, 'admin');
                     showToast(`✅ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated!`, 'success');
                 } catch (error) {
                     statusEl.className = 'status-badge error';
@@ -1184,26 +1039,9 @@
             // ─── Fetch Service Prices ──────────────────────────────────
             async function fetchServicePrices() {
                 try {
-                    if (!supabaseClient) {
-                        renderFallbackServicePrices();
-                        return;
-                    }
-
-                    const { data, error } = await supabaseClient
-                        .from('service_prices')
-                        .select('*')
-                        .order('created_at', { ascending: false });
-
-                    if (error) throw error;
-
-                    if (data && data.length > 0) {
-                        const latest = {};
-                        data.forEach(item => {
-                            if (!latest[item.service_type] || new Date(item.created_at) > new Date(latest[item.service_type].created_at)) {
-                                latest[item.service_type] = item;
-                            }
-                        });
-                        renderServicePrices(latest);
+                    const result = await AutoDClient.getServicePrices();
+                    if (result.success && result.data) {
+                        renderServicePrices(result.data);
                     } else {
                         renderFallbackServicePrices();
                     }
@@ -1232,7 +1070,7 @@
                 ];
 
                 serviceList.innerHTML = serviceItems.map(s => {
-                    const price = services[s.key]?.price || services[s.key] || 0;
+                    const price = services[s.key] || 0;
                     return `
                         <div class="service-item">
                             <span class="service-name">${s.label}</span>
@@ -1246,9 +1084,7 @@
                 }).join('');
             }
 
-            window.fetchServicePrices = fetchServicePrices;
-
-            // ─── Update Service ─────────────────────────────────────────
+            // ─── Update Service (FIXED - No .catch() on query builder) ──
             window.updateService = async function(type) {
                 const idMap = {
                     valuation: 'editValuation',
@@ -1263,21 +1099,16 @@
                     return;
                 }
 
+                // Show loading state
+                const btn = input.parentElement.querySelector('.update-btn');
+                const originalText = btn.textContent;
+                btn.textContent = '⏳ Updating...';
+                btn.disabled = true;
+
                 try {
-                    if (!supabaseClient) {
-                        throw new Error('Database not connected');
-                    }
-
-                    const { error } = await supabaseClient
-                        .from('service_prices')
-                        .insert({
-                            service_type: type,
-                            price: price,
-                            currency: 'KES',
-                            created_at: new Date().toISOString()
-                        });
-
-                    if (error) throw error;
+                    // ✅ CORRECT: Using AutoDClient with async/await
+                    const result = await AutoDClient.updateServicePrice(type, price);
+                    if (!result.success) throw new Error(result.error);
 
                     await fetchServicePrices();
                     const names = {
@@ -1286,37 +1117,24 @@
                         mileage: 'Mileage Report',
                         full_report: 'Full Vehicle Report'
                     };
-                    addLog(`💳 ${names[type]} price updated to KES ${price}`, 'admin');
+                    await addLog(`💳 ${names[type]} price updated to KES ${price}`, 'admin');
                     showToast(`✅ ${names[type]} price updated!`, 'success');
+
                 } catch (error) {
-                    showToast(`❌ Failed to update service: ${error.message}`, 'error');
                     console.error('Update service error:', error);
+                    showToast(`❌ Failed to update service: ${error.message}`, 'error');
+                } finally {
+                    btn.textContent = originalText;
+                    btn.disabled = false;
                 }
             };
 
             // ─── Fetch Engine Settings ─────────────────────────────────
             async function fetchEngineSettings() {
                 try {
-                    if (!supabaseClient) {
-                        // Use localStorage for settings
-                        const settings = JSON.parse(localStorage.getItem('auto_d_settings') || '{}');
-                        document.getElementById('depreciationRate').value = settings.depreciation_rate || 0.15;
-                        document.getElementById('insuranceRate').value = settings.insurance_rate || 0.045;
-                        document.getElementById('annualMileage').value = settings.annual_mileage || 20000;
-                        document.getElementById('tyreLifespan').value = settings.tyre_lifespan || 45000;
-                        return;
-                    }
-
-                    const { data, error } = await supabaseClient
-                        .from('settings')
-                        .select('*')
-                        .eq('key', 'engine_settings')
-                        .single();
-
-                    if (error) throw error;
-
-                    if (data) {
-                        const settings = data.value || {};
+                    const result = await AutoDClient.getEngineSettings();
+                    if (result.success) {
+                        const settings = result.data;
                         document.getElementById('depreciationRate').value = settings.depreciation_rate || 0.15;
                         document.getElementById('insuranceRate').value = settings.insurance_rate || 0.045;
                         document.getElementById('annualMileage').value = settings.annual_mileage || 20000;
@@ -1324,15 +1142,12 @@
                     }
                 } catch (error) {
                     console.warn('⚠️ Settings fetch error:', error.message);
-                    // Use defaults
                     document.getElementById('depreciationRate').value = 0.15;
                     document.getElementById('insuranceRate').value = 0.045;
                     document.getElementById('annualMileage').value = 20000;
                     document.getElementById('tyreLifespan').value = 45000;
                 }
             }
-
-            window.fetchEngineSettings = fetchEngineSettings;
 
             // ─── Update Setting ─────────────────────────────────────────
             window.updateSetting = async function(setting) {
@@ -1349,6 +1164,10 @@
                     return;
                 }
 
+                const btn = input.parentElement.querySelector('.update-btn');
+                btn.textContent = '⏳...';
+                btn.disabled = true;
+
                 const keyMap = {
                     depreciation: 'depreciation_rate',
                     insurance: 'insurance_rate',
@@ -1358,33 +1177,15 @@
 
                 try {
                     // Get current settings
-                    let settings = {};
-                    if (supabaseClient) {
-                        const { data } = await supabaseClient
-                            .from('settings')
-                            .select('value')
-                            .eq('key', 'engine_settings')
-                            .single();
-                        settings = data?.value || {};
-                    } else {
-                        settings = JSON.parse(localStorage.getItem('auto_d_settings') || '{}');
-                    }
-
-                    // Update setting
+                    const currentResult = await AutoDClient.getEngineSettings();
+                    if (!currentResult.success) throw new Error(currentResult.error);
+                    
+                    const settings = currentResult.data || {};
                     settings[keyMap[setting]] = value;
 
-                    if (supabaseClient) {
-                        const { error } = await supabaseClient
-                            .from('settings')
-                            .upsert({
-                                key: 'engine_settings',
-                                value: settings,
-                                updated_at: new Date().toISOString()
-                            });
-                        if (error) throw error;
-                    } else {
-                        localStorage.setItem('auto_d_settings', JSON.stringify(settings));
-                    }
+                    // Update settings
+                    const result = await AutoDClient.updateEngineSettings(settings);
+                    if (!result.success) throw new Error(result.error);
 
                     const names = {
                         depreciation: 'Depreciation Rate',
@@ -1392,37 +1193,26 @@
                         mileage: 'Annual Mileage',
                         tyre: 'Tyre Lifespan'
                     };
-                    addLog(`⚙️ ${names[setting]} updated to ${value}`, 'admin');
+                    await addLog(`⚙️ ${names[setting]} updated to ${value}`, 'admin');
                     showToast(`✅ ${names[setting]} updated!`, 'success');
+
                 } catch (error) {
                     showToast(`❌ Failed to update setting: ${error.message}`, 'error');
                     console.error('Update setting error:', error);
+                } finally {
+                    btn.textContent = 'Update';
+                    btn.disabled = false;
                 }
             };
 
             // ─── Activity Log ──────────────────────────────────────────
             async function fetchLogs() {
                 try {
-                    if (!supabaseClient) {
-                        // Use local logs
-                        const logs = JSON.parse(localStorage.getItem('auto_d_logs') || '[]');
-                        activityLogs = logs;
-                        renderLogs();
-                        return;
-                    }
-
-                    const { data, error } = await supabaseClient
-                        .from('admin_logs')
-                        .select('*')
-                        .order('created_at', { ascending: false })
-                        .limit(20);
-
-                    if (error) throw error;
-
-                    if (data) {
-                        activityLogs = data.map(log => ({
+                    const result = await AutoDClient.getAdminLogs(20);
+                    if (result.success && result.data) {
+                        activityLogs = result.data.map(log => ({
                             action: log.action,
-                            user: log.user || 'system',
+                            user: log.username || 'system',
                             time: new Date(log.created_at).toLocaleTimeString()
                         }));
                         renderLogs();
@@ -1435,18 +1225,17 @@
                 }
             }
 
-            function addLog(action, user = 'system') {
+            async function addLog(action, user = 'system') {
                 const time = new Date().toLocaleTimeString();
                 activityLogs.unshift({ action, user, time });
                 renderLogs();
                 localStorage.setItem('auto_d_logs', JSON.stringify(activityLogs.slice(0, 50)));
 
-                // Try to save to Supabase
-                if (supabaseClient) {
-                    supabaseClient
-                        .from('admin_logs')
-                        .insert({ action, user, created_at: new Date().toISOString() })
-                        .catch(() => {});
+                // ✅ CORRECT: Using AutoDClient with async/await (no .catch())
+                try {
+                    await AutoDClient.addAdminLog(action, user);
+                } catch (error) {
+                    console.warn('Could not save log to Supabase:', error);
                 }
             }
 
@@ -1465,6 +1254,7 @@
                 `).join('');
             }
 
+            // ─── Other Functions ────────────────────────────────────────
             window.refreshLogs = function() {
                 fetchLogs();
                 showToast('✅ Logs refreshed', 'success');
@@ -1480,7 +1270,6 @@
                 }
             };
 
-            // ─── Sync All ──────────────────────────────────────────────
             window.syncAll = async function() {
                 showToast('🔄 Syncing all data...', 'info');
                 try {
@@ -1491,14 +1280,13 @@
                         fetchEngineSettings(),
                         fetchLogs()
                     ]);
-                    addLog('🔄 All data synced successfully', 'admin');
+                    await addLog('🔄 All data synced successfully', 'admin');
                     showToast('✅ All data synced!', 'success');
                 } catch (error) {
                     showToast('❌ Sync failed: ' + error.message, 'error');
                 }
             };
 
-            // ─── Backup ──────────────────────────────────────────────────
             window.backupData = function() {
                 try {
                     const data = {
@@ -1520,7 +1308,6 @@
                 }
             };
 
-            // ─── Clear Cache ────────────────────────────────────────────
             window.clearCache = function() {
                 if (confirm('Clear application cache?')) {
                     localStorage.removeItem('auto_d_settings');
@@ -1530,7 +1317,6 @@
                 }
             };
 
-            // ─── Reset Settings ─────────────────────────────────────────
             window.resetSettings = function() {
                 if (confirm('⚠️ This will reset all settings to default. Continue?')) {
                     const defaults = {
@@ -1561,10 +1347,10 @@
             // ─── Init ──────────────────────────────────────────────────
             async function init() {
                 console.log('🚗 Auto-D Kenya Admin Dashboard v3.0');
-                console.log('📡 Supabase URL:', SUPABASE_URL);
+                console.log('📡 Using AutoDClient');
 
                 // Initialize Supabase
-                initSupabase();
+                AutoDClient.init();
 
                 // Check for saved session
                 const isAuth = await checkAuth();
@@ -1572,8 +1358,6 @@
                 if (isAuth) {
                     loginScreen.classList.add('hidden');
                     dashboardScreen.classList.remove('hidden');
-                    document.getElementById('adminName').textContent = currentUser?.user_metadata?.full_name || 'Administrator';
-                    document.getElementById('adminAvatar').textContent = (currentUser?.user_metadata?.full_name || 'A')[0].toUpperCase();
                     await loadDashboardData();
                 } else {
                     loginScreen.classList.remove('hidden');
@@ -1581,16 +1365,18 @@
                 }
 
                 // Listen for auth changes
-                if (supabaseClient) {
-                    supabaseClient.auth.onAuthStateChange((event, session) => {
-                        if (event === 'SIGNED_OUT') {
-                            isLoggedIn = false;
-                            currentUser = null;
-                            dashboardScreen.classList.add('hidden');
-                            loginScreen.classList.remove('hidden');
-                            localStorage.removeItem('admin_session');
-                        }
-                    });
+                if (window.AutoDClient) {
+                    const client = AutoDClient.getClient();
+                    if (client) {
+                        client.auth.onAuthStateChange((event, session) => {
+                            if (event === 'SIGNED_OUT') {
+                                isLoggedIn = false;
+                                dashboardScreen.classList.add('hidden');
+                                loginScreen.classList.remove('hidden');
+                                localStorage.removeItem('admin_session');
+                            }
+                        });
+                    }
                 }
             }
 
