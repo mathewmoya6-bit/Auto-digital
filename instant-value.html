@@ -1056,7 +1056,8 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // Auto-D Kenya - INSTANT VALUE CHECK with FastAPI Backend
+        // Auto-D Kenya - INSTANT VALUE CHECK with Flask Backend
+        // Endpoint: POST /api/service/valuation
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1066,7 +1067,8 @@
             window.autoDInstantCheckInitialized = true;
 
             // ─── API CONFIG ──────────────────────────────────────────
-            const API_BASE = 'https://auto-digital.onrender.com/api/valuation';
+            const API_BASE = 'https://auto-digital.onrender.com/api';
+            const VALUATION_ENDPOINT = '/service/valuation';
 
             // ─── PHOTO REQUIREMENTS BY VEHICLE TYPE ────────────────
             const PHOTO_REQUIREMENTS = {
@@ -1655,8 +1657,10 @@
                 });
             }
 
-            // ─── CALL FASTAPI BACKEND ──────────────────────────────────
+            // ─── CALL FLASK BACKEND ──────────────────────────────────
             async function callValuationAPI(formData) {
+                const url = `${API_BASE}${VALUATION_ENDPOINT}`;
+                
                 const payload = {
                     purchase_price: formData.purchase_price || 3000000,
                     age_years: formData.age_years || 0,
@@ -1668,16 +1672,10 @@
                     location: formData.location || 'Nairobi',
                     accident_history: formData.accident_history || 'None',
                     previous_owners: formData.previous_owners || 1,
-                    year: formData.year,
-                    engine_capacity: formData.engine_capacity,
-                    fuel_type: formData.fuel_type,
-                    transmission: formData.transmission,
-                    body_type: formData.body_type,
-                    body_color: formData.body_color,
-                    usage_type: formData.usage_type
+                    depreciation_rate: formData.depreciation_rate || 0.15
                 };
 
-                const response = await fetch(`${API_BASE}/calculate`, {
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1946,7 +1944,10 @@
                     previous_owners: parseInt(document.getElementById('previousOwners').value),
                     usage_type: document.getElementById('usageType').value,
                     purchase_price: 3000000,
-                    age_years: ageYears
+                    age_years: ageYears,
+                    depreciation_rate: condition === 'Excellent' ? 0.08 : 
+                                     condition === 'Good' ? 0.12 : 
+                                     condition === 'Fair' ? 0.18 : 0.25
                 };
 
                 statusBox.style.display = 'none';
@@ -2019,7 +2020,7 @@
                 }
 
                 console.log('🚗 Auto-D Kenya Instant Value Check loaded');
-                console.log(`📡 API: ${API_BASE}/calculate`);
+                console.log(`📡 API: ${API_BASE}${VALUATION_ENDPOINT}`);
                 console.log(`📸 Dynamic Photo Requirements loaded for ${currentVehicleType}`);
             }
 
