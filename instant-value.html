@@ -48,6 +48,8 @@
             border-radius: 12px;
             margin-bottom: 20px;
             border: 1px solid #334155;
+            flex-wrap: wrap;
+            gap: 10px;
         }
         .auth-section .user-info {
             display: flex;
@@ -104,6 +106,7 @@
             font-size: 14px;
             font-weight: 500;
             transition: color 0.2s;
+            cursor: pointer;
         }
         .back-link:hover { color: #eab308; }
         .header {
@@ -225,7 +228,6 @@
         .vehicle-preview .info h4 { color: #eab308; font-size: 16px; font-weight: 600; }
         .vehicle-preview .info p { color: #94a3b8; font-size: 13px; }
 
-        /* ─── IMAGE UPLOAD SECTION - DYNAMIC REQUIREMENTS ────────── */
         .image-upload-section {
             background: #1e293b;
             border-radius: 12px;
@@ -389,7 +391,6 @@
         .photo-count .count { color: #eab308; font-weight: 700; }
         .photo-count .required { color: #ef4444; }
 
-        /* ─── Camera Modal ─────────────────────────────────────────── */
         .camera-modal {
             display: none;
             position: fixed;
@@ -797,7 +798,7 @@
 <body>
 
     <div class="container">
-        <a href="index.html" class="back-link">← Back to Auto-D</a>
+        <a href="index.html" class="back-link" onclick="window.location.href='/index.html'">← Back to Auto-D</a>
 
         <!-- ─── AUTH SECTION ─────────────────────────────────────────── -->
         <div class="auth-section" id="authSection">
@@ -996,7 +997,6 @@
                     <span class="required-note" id="photoRequirementNote">(8 mandatory angles)</span>
                 </h4>
                 
-                <!-- Photo Requirements Info -->
                 <div class="photo-requirements-info">
                     <div class="row">
                         <span>📷 Required Photos</span>
@@ -1155,8 +1155,6 @@
             const API_ENDPOINTS = {
                 VALUATION: '/api/valuation/calculate',
                 HEALTH: '/api/valuation/health',
-                SAVE_VEHICLE: '/api/valuation/save-vehicle',
-                HISTORY: '/api/valuation/history'
             };
 
             // ─── SUPABASE CLIENT ──────────────────────────────────────
@@ -1167,6 +1165,7 @@
             try {
                 const { createClient } = supabaseJs;
                 supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('✅ Supabase client initialized');
             } catch (e) {
                 console.error('Failed to initialize Supabase:', e);
             }
@@ -1298,7 +1297,7 @@
 
             // ─── STATE ──────────────────────────────────────────────────
             let currentVehicleType = 'Car';
-            let isBackendAvailable = true;
+            let isBackendAvailable = false;
             let capturedPhotos = {};
             let currentStream = null;
             let currentAngle = null;
@@ -1390,18 +1389,12 @@
                     userAvatar.textContent = (currentUser.email || 'U')[0].toUpperCase();
                     loginBtn.style.display = 'none';
                     logoutBtn.style.display = 'inline-block';
-                    // Enable form
-                    document.querySelectorAll('#instantForm input, #instantForm select, #instantForm button').forEach(el => {
-                        el.disabled = false;
-                    });
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '🚀 Get AI Valuation';
                 } else {
                     userInfo.style.display = 'none';
                     loginBtn.style.display = 'inline-block';
                     logoutBtn.style.display = 'none';
-                    // Disable form (read-only mode)
-                    document.querySelectorAll('#instantForm input, #instantForm select, #instantForm button').forEach(el => {
-                        if (el.id !== 'submitBtn') el.disabled = true;
-                    });
                     submitBtn.disabled = true;
                     submitBtn.innerHTML = '🔒 Sign in to value';
                 }
@@ -1414,7 +1407,6 @@
                 }
 
                 try {
-                    // Simple email/password login with magic link fallback
                     const email = prompt('Enter your email:');
                     if (!email) return;
                     
@@ -1426,10 +1418,10 @@
                     });
 
                     if (error) {
-                        // Try sign up if login fails
+                        const password = prompt('Create a password (min 6 characters):') || 'password123';
                         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
                             email: email,
-                            password: prompt('Create a password (min 6 characters):') || 'password123'
+                            password: password
                         });
                         if (signUpError) throw signUpError;
                         showToast('📧 Check your email for confirmation!', 'success');
@@ -1451,54 +1443,14 @@
                 }
             }
 
-            // ─── SUPABASE DATA FUNCTIONS ─────────────────────────────
-
-            async function saveValuationHistory(vehicleData, valuationResult) {
-                if (!supabase || !currentUser) return;
-
-                try {
-                    const { data, error } = await supabase
-                        .from('valuation_history')
-                        .insert({
-                            user_id: currentUser.id,
-                            vehicle_data: vehicleData,
-                            valuation_result: valuationResult,
-                            created_at: new Date().toISOString()
-                        });
-
-                    if (error) throw error;
-                    console.log('✅ Valuation saved to Supabase');
-                } catch (error) {
-                    console.error('Failed to save valuation:', error);
-                }
-            }
-
-            async function getValuationHistory() {
-                if (!supabase || !currentUser) return [];
-
-                try {
-                    const { data, error } = await supabase
-                        .from('valuation_history')
-                        .select('*')
-                        .eq('user_id', currentUser.id)
-                        .order('created_at', { ascending: false })
-                        .limit(10);
-
-                    if (error) throw error;
-                    return data || [];
-                } catch (error) {
-                    console.error('Failed to get history:', error);
-                    return [];
-                }
-            }
-
             // ─── CHECK BACKEND HEALTH ──────────────────────────────────
             async function checkBackendHealth() {
                 try {
                     const response = await fetch(`${API_BASE}${API_ENDPOINTS.HEALTH}`);
                     if (response.ok) {
+                        const data = await response.json();
                         isBackendAvailable = true;
-                        console.log('✅ Backend is healthy');
+                        console.log('✅ Backend is healthy:', data);
                         return true;
                     }
                 } catch (error) {
@@ -1588,7 +1540,6 @@
                         if (file) {
                             markPhotoUploaded(angle, file);
                             updateProgress();
-                            saveDraft();
                             
                             const item = document.querySelector(`.image-upload-item[data-angle="${angle}"]`);
                             if (item && item.classList.contains('mandatory')) {
@@ -1952,7 +1903,6 @@
                     return false;
                 }
 
-                // Check if user is logged in
                 if (!currentUser) {
                     showToast('🔒 Please sign in to get a valuation', 'warning');
                     handleLogin();
@@ -2003,75 +1953,146 @@
 
             // ─── CALL BACKEND API ──────────────────────────────────
             async function callValuationAPI(formData) {
-                const payload = {
-                    purchase_price: formData.purchase_price,
-                    age_years: formData.age_years,
-                    vehicle_type: formData.type,
-                    make: formData.make,
-                    model: formData.model,
-                    condition: formData.condition,
-                    mileage: formData.mileage,
-                    location: formData.location,
-                    accident_history: formData.accident_history,
-                    previous_owners: formData.previous_owners
-                };
-
-                const headers = {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                };
-
-                // Add auth token if available
-                if (supabaseSession?.access_token) {
-                    headers['Authorization'] = `Bearer ${supabaseSession.access_token}`;
+                // If backend is unavailable, use offline calculation
+                if (!isBackendAvailable) {
+                    console.log('Using offline valuation calculation');
+                    return calculateOfflineValuation(formData);
                 }
 
-                const response = await fetch(`${API_BASE}${API_ENDPOINTS.VALUATION}`, {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify(payload)
-                });
+                try {
+                    const payload = {
+                        purchase_price: formData.purchase_price || 3000000,
+                        age_years: formData.age_years || 0,
+                        vehicle_type: formData.type || 'Car',
+                        make: formData.make || 'Toyota',
+                        model: formData.model || 'Corolla',
+                        condition: formData.condition || 'Good',
+                        mileage: formData.mileage || 0,
+                        location: formData.location || 'Nairobi',
+                        accident_history: formData.accident_history || 'None',
+                        previous_owners: formData.previous_owners || 1,
+                        year: formData.year,
+                        engine_capacity: formData.engine_capacity,
+                        fuel_type: formData.fuel_type,
+                        transmission: formData.transmission,
+                        body_type: formData.body_type,
+                        body_color: formData.body_color
+                    };
 
-                if (!response.ok) {
-                    let errorData = {};
-                    try { errorData = await response.json(); } catch (e) {}
-                    throw new Error(errorData.message || errorData.error || `Valuation failed (${response.status})`);
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    };
+
+                    if (supabaseSession?.access_token) {
+                        headers['Authorization'] = `Bearer ${supabaseSession.access_token}`;
+                    }
+
+                    const response = await fetch(`${API_BASE}${API_ENDPOINTS.VALUATION}`, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        let errorData = {};
+                        try { errorData = await response.json(); } catch (e) {}
+                        throw new Error(errorData.message || errorData.error || `Valuation failed (${response.status})`);
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.warn('API call failed, using offline calculation:', error.message);
+                    return calculateOfflineValuation(formData);
                 }
-
-                return await response.json();
             }
 
-            // ─── HELPER: Get depreciation rate ──────────────────────
-            function getDepreciationRate(condition, mileage) {
-                const baseRates = {
-                    'Excellent': 0.10,
-                    'Good': 0.15,
-                    'Fair': 0.20,
-                    'Poor': 0.30
+            // ─── OFFLINE VALUATION CALCULATION ────────────────────────
+            function calculateOfflineValuation(formData) {
+                const basePrices = {
+                    'Car': { 'Toyota': 3500000, 'BMW': 5000000, 'Mercedes-Benz': 5500000, 'Honda': 2800000, 'Nissan': 2500000, 'default': 3000000 },
+                    'Bike': { 'Honda': 250000, 'Yamaha': 300000, 'Kawasaki': 350000, 'default': 200000 },
+                    'Tricycle': { 'default': 300000 }
                 };
                 
-                let rate = baseRates[condition] || 0.15;
+                const typePrices = basePrices[formData.type] || basePrices['Car'];
+                let basePrice = typePrices[formData.make] || typePrices['default'] || 3000000;
                 
-                if (mileage > 100000) rate += 0.05;
-                else if (mileage > 50000) rate += 0.02;
+                // Adjust for year
+                const currentYear = new Date().getFullYear();
+                const ageYears = formData.age_years || (currentYear - (formData.year || currentYear));
+                if (ageYears > 0) {
+                    basePrice = basePrice * Math.pow(0.88, ageYears);
+                }
                 
-                return Math.min(rate, 0.50);
+                // Adjust for condition
+                const conditionMultipliers = {
+                    'Excellent': 1.0,
+                    'Good': 0.9,
+                    'Fair': 0.75,
+                    'Poor': 0.5
+                };
+                const conditionMultiplier = conditionMultipliers[formData.condition] || 0.85;
+                
+                // Adjust for mileage
+                const mileage = formData.mileage || 0;
+                let mileageMultiplier = 1.0;
+                if (mileage > 100000) mileageMultiplier = 0.85;
+                else if (mileage > 50000) mileageMultiplier = 0.92;
+                else if (mileage > 20000) mileageMultiplier = 0.97;
+                
+                // Adjust for accident history
+                const accidentMultipliers = {
+                    'None': 1.0,
+                    'Minor': 0.9,
+                    'Major': 0.65,
+                    'WriteOff': 0.3
+                };
+                const accidentMultiplier = accidentMultipliers[formData.accident_history] || 0.95;
+                
+                // Adjust for previous owners
+                let ownersMultiplier = 1.0;
+                if (formData.previous_owners > 1) {
+                    ownersMultiplier = Math.max(0.85, 1 - (formData.previous_owners - 1) * 0.03);
+                }
+                
+                const estimatedValue = Math.round(basePrice * conditionMultiplier * mileageMultiplier * accidentMultiplier * ownersMultiplier);
+                
+                return {
+                    success: true,
+                    data: {
+                        current_value: estimatedValue,
+                        estimated_value: estimatedValue,
+                        market_value: estimatedValue,
+                        confidence_score: 75,
+                        valuation_range: {
+                            min: Math.round(estimatedValue * 0.85),
+                            max: Math.round(estimatedValue * 1.05)
+                        },
+                        depreciation_rate: 1 - conditionMultiplier,
+                        age_years: ageYears,
+                        base_price: basePrice,
+                        adjusted_value: estimatedValue
+                    },
+                    message: 'Offline calculation (backend unavailable)',
+                    offline: true
+                };
             }
 
             // ─── SHOW RESULT ──────────────────────────────────────────
             function showResult(data) {
                 const resultData = data.data || data;
                 const marketValue = resultData.current_value || resultData.estimated_value || 0;
-                const rangeMin = resultData.valuation_range?.min ?? Math.round(marketValue * 0.88);
+                const rangeMin = resultData.valuation_range?.min ?? Math.round(marketValue * 0.85);
                 const rangeMax = resultData.valuation_range?.max ?? Math.round(marketValue * 1.05);
 
                 let confidence = resultData.confidence_score;
                 if (typeof confidence !== 'number' || Number.isNaN(confidence)) {
-                    confidence = 80;
+                    confidence = 75;
                 } else if (confidence <= 1) {
                     confidence = confidence * 100;
                 }
-                confidence = Math.min(98, Math.max(50, Math.round(confidence)));
+                confidence = Math.min(98, Math.max(40, Math.round(confidence)));
 
                 const el = document.getElementById('resultMarketValue');
                 el.textContent = 'KES 0';
@@ -2116,7 +2137,7 @@
                 setTimeout(() => toast.remove(), 4000);
             }
 
-            // ─── AUTO-SAVE DRAFT ──────────────────────────────────────
+            // ─── SAVE DRAFT ──────────────────────────────────────────
             function saveDraft() {
                 const formData = {
                     vehicleType: vehicleTypeSelect.value,
@@ -2302,13 +2323,8 @@
                     return;
                 }
 
-                const backendHealthy = await checkBackendHealth();
-                if (!backendHealthy) {
-                    statusBox.className = 'status-box status-error';
-                    statusBox.textContent = '❌ Backend service unavailable. Please try again later.';
-                    statusBox.style.display = 'flex';
-                    return;
-                }
+                // Check backend health but continue anyway
+                await checkBackendHealth();
 
                 if (!validateAll()) {
                     statusBox.className = 'status-box status-error';
@@ -2318,31 +2334,15 @@
                 }
 
                 const year = parseInt(document.getElementById('year').value);
+                const currentYear = new Date().getFullYear();
+                const ageYears = currentYear - year;
                 const mileage = parseInt(document.getElementById('mileage').value);
                 const condition = document.getElementById('condition').value;
 
-                let estimatedPrice = 3000000;
-                const vehicleType = vehicleTypeSelect.value;
-                const make = makeSelect.value;
-                
-                const priceMap = {
-                    'Car': { 'Toyota': 3500000, 'BMW': 5000000, 'Mercedes-Benz': 5500000, 'Honda': 2800000, 'Nissan': 2500000, 'default': 3000000 },
-                    'Bike': { 'Honda': 250000, 'Yamaha': 300000, 'Kawasaki': 350000, 'default': 200000 },
-                    'Tricycle': { 'default': 300000 }
-                };
-                
-                const typePrices = priceMap[vehicleType] || {};
-                estimatedPrice = typePrices[make] || typePrices['default'] || 3000000;
-                
-                const currentYear = new Date().getFullYear();
-                const ageYears = currentYear - year;
-                if (ageYears > 0) {
-                    estimatedPrice = estimatedPrice * Math.pow(0.88, ageYears);
-                }
-
+                // Build form data
                 const formData = {
-                    type: vehicleType,
-                    make: make,
+                    type: vehicleTypeSelect.value,
+                    make: makeSelect.value,
                     model: modelSelect.value,
                     year: year,
                     engine_capacity: parseInt(engineCapacitySelect.value),
@@ -2358,9 +2358,7 @@
                     usage_type: document.getElementById('usageType').value,
                     phone: document.getElementById('mpesaPhone').value.trim(),
                     photos: capturedPhotos,
-                    purchase_price: Math.round(estimatedPrice),
                     age_years: ageYears,
-                    depreciation_rate: getDepreciationRate(condition, mileage),
                     user_id: currentUser?.id || null
                 };
 
@@ -2387,12 +2385,15 @@
                     updateLoadingStep(4);
                     loadingSteps.classList.remove('show');
 
-                    // Save to Supabase
-                    await saveValuationHistory(formData, result);
-
-                    statusBox.className = 'status-box status-success';
-                    statusBox.textContent = '✅ Valuation complete! Your result is ready below.';
-                    statusBox.style.display = 'flex';
+                    if (result.offline) {
+                        statusBox.className = 'status-box status-info';
+                        statusBox.textContent = 'ℹ️ Using offline valuation (backend unavailable)';
+                        statusBox.style.display = 'flex';
+                    } else {
+                        statusBox.className = 'status-box status-success';
+                        statusBox.textContent = '✅ Valuation complete! Your result is ready below.';
+                        statusBox.style.display = 'flex';
+                    }
 
                     showResult(result);
 
@@ -2442,15 +2443,17 @@
                     showToast('📷 Camera not supported. Use file upload.', 'info');
                 }
 
-                if (!isBackendAvailable) {
-                    statusBox.className = 'status-box status-error';
-                    statusBox.textContent = '⚠️ Backend service unavailable. Using offline mode with limited features.';
-                    statusBox.style.display = 'flex';
-                } else if (currentUser) {
+                // Show status message
+                if (isBackendAvailable) {
                     statusBox.className = 'status-box status-info';
                     statusBox.textContent = '✅ Backend connected. Ready for valuation.';
                     statusBox.style.display = 'flex';
                     setTimeout(() => { statusBox.style.display = 'none'; }, 3000);
+                } else {
+                    statusBox.className = 'status-box status-info';
+                    statusBox.textContent = '⚠️ Backend service unavailable. Using offline mode with limited features.';
+                    statusBox.style.display = 'flex';
+                    // Don't auto-hide, let user know
                 }
 
                 console.log('🚗 Auto-D Kenya Instant Value Check loaded');
