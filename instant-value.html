@@ -38,64 +38,6 @@
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
         }
         
-        /* ─── AUTH SECTION ──────────────────────────────────────────── */
-        .auth-section {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 16px;
-            background: #1e293b;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            border: 1px solid #334155;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-        .auth-section .user-info {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: #94a3b8;
-            font-size: 13px;
-        }
-        .auth-section .user-info .avatar {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            background: #eab308;
-            color: #0a0c15;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 14px;
-        }
-        .auth-section .user-info .email {
-            color: #eab308;
-            font-weight: 500;
-        }
-        .auth-btn {
-            padding: 8px 20px;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 13px;
-            cursor: pointer;
-            font-family: 'Inter', sans-serif;
-            transition: all 0.2s;
-        }
-        .auth-btn.login {
-            background: #eab308;
-            color: #0a0c15;
-        }
-        .auth-btn.login:hover { background: #facc15; }
-        .auth-btn.logout {
-            background: #ef4444;
-            color: #fff;
-        }
-        .auth-btn.logout:hover { background: #dc2626; }
-        .auth-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-
         .back-link {
             display: inline-flex;
             align-items: center;
@@ -780,8 +722,6 @@
             .vehicle-preview { flex-direction: column; text-align: center; }
             .image-upload-grid { grid-template-columns: repeat(3, 1fr); }
             .camera-modal video { max-height: 50vh; }
-            .auth-section { flex-direction: column; gap: 10px; align-items: stretch; text-align: center; }
-            .auth-section .user-info { justify-content: center; }
         }
         @media (max-width: 480px) {
             body { padding: 10px; }
@@ -798,19 +738,7 @@
 <body>
 
     <div class="container">
-        <a href="index.html" class="back-link" onclick="window.location.href='/index.html'">← Back to Auto-D</a>
-
-        <!-- ─── AUTH SECTION ─────────────────────────────────────────── -->
-        <div class="auth-section" id="authSection">
-            <div class="user-info" id="userInfo" style="display:none;">
-                <span class="avatar" id="userAvatar">👤</span>
-                <span>Welcome, <span class="email" id="userEmail">User</span></span>
-            </div>
-            <div>
-                <button class="auth-btn login" id="loginBtn">🔑 Sign In / Sign Up</button>
-                <button class="auth-btn logout" id="logoutBtn" style="display:none;">🚪 Logout</button>
-            </div>
-        </div>
+        <a href="dashboard.html" class="back-link" onclick="window.location.href='/dashboard.html'">← Back to Dashboard</a>
 
         <div class="header">
             <h1>🚗 Instant Value Check</h1>
@@ -1023,15 +951,6 @@
                 </small>
             </div>
 
-            <div class="form-group">
-                <label>M-Pesa Phone Number <span class="required">*</span></label>
-                <input type="tel" id="mpesaPhone" placeholder="0712345678" required>
-                <div class="error-text" id="phoneError">Please enter a valid phone number</div>
-                <small style="color: #64748b; font-size: 11px; display: block; margin-top: 4px;">
-                    Enter your M-Pesa phone number
-                </small>
-            </div>
-
             <div class="loading-steps" id="loadingSteps">
                 <div class="loading-step" data-step="1">
                     <span class="icon">⏳</span>
@@ -1137,7 +1056,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // Auto-D Kenya - INSTANT VALUE CHECK with Supabase Auth + FastAPI
+        // Auto-D Kenya - INSTANT VALUE CHECK with FastAPI Backend
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1146,29 +1065,8 @@
             if (window.autoDInstantCheckInitialized) return;
             window.autoDInstantCheckInitialized = true;
 
-            // ─── SUPABASE CONFIG ──────────────────────────────────────
-            const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
-            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
-
             // ─── API CONFIG ──────────────────────────────────────────
-            const API_BASE = 'https://auto-digital.onrender.com';
-            const API_ENDPOINTS = {
-                VALUATION: '/api/valuation/calculate',
-                HEALTH: '/api/valuation/health',
-            };
-
-            // ─── SUPABASE CLIENT ──────────────────────────────────────
-            let supabase = null;
-            let currentUser = null;
-            let supabaseSession = null;
-
-            try {
-                const { createClient } = supabaseJs;
-                supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                console.log('✅ Supabase client initialized');
-            } catch (e) {
-                console.error('Failed to initialize Supabase:', e);
-            }
+            const API_BASE = 'https://auto-digital.onrender.com/api/valuation';
 
             // ─── PHOTO REQUIREMENTS BY VEHICLE TYPE ────────────────
             const PHOTO_REQUIREMENTS = {
@@ -1245,49 +1143,33 @@
                         'Honda': ['Accord', 'Civic', 'City', 'Fit', 'CR-V', 'HR-V', 'Pilot', 'Passport', 'Odyssey'],
                         'Mazda': ['Mazda3', 'Mazda6', 'CX-3', 'CX-5', 'CX-9', 'CX-30', 'CX-50', 'MX-5 Miata', 'MX-30'],
                         'Volkswagen': ['Golf', 'Jetta', 'Passat', 'Arteon', 'Tiguan', 'Atlas', 'Taos', 'ID.4', 'ID. Buzz'],
-                        'Mitsubishi': ['Lancer', 'Outlander', 'Pajero', 'ASX', 'Eclipse Cross', 'Triton', 'Delica', 'Mirage'],
-                        'Subaru': ['Impreza', 'Legacy', 'Outback', 'Forester', 'Crosstrek', 'Ascent', 'BRZ', 'WRX'],
-                        'Ford': ['Focus', 'Fiesta', 'Mustang', 'Explorer', 'Escape', 'Bronco', 'F-150', 'Ranger', 'Edge'],
-                        'Hyundai': ['Elantra', 'Sonata', 'Accent', 'Tucson', 'Santa Fe', 'Palisade', 'Kona', 'Ioniq'],
-                        'Audi': ['A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'Q3', 'Q5', 'Q7', 'Q8', 'e-tron'],
-                        'Lexus': ['IS', 'ES', 'LS', 'UX', 'NX', 'RX', 'GX', 'LX', 'RC', 'LC', 'RZ'],
-                        'Jeep': ['Wrangler', 'Cherokee', 'Grand Cherokee', 'Compass', 'Renegade', 'Gladiator'],
-                        'Land Rover': ['Defender', 'Discovery', 'Range Rover', 'Range Rover Sport', 'Range Rover Evoque'],
                         'Other': ['Other Model']
                     },
                     engine_capacities: ['800', '1000', '1200', '1400', '1500', '1600', '1800', '2000', '2200', '2400', 
-                                       '2500', '2800', '3000', '3200', '3500', '4000', '4500', '5000', '5500', '6000'],
+                                       '2500', '2800', '3000', '3200', '3500', '4000', '4500', '5000'],
                     body_types: ['Sedan', 'SUV', 'Hatchback', 'Pickup', 'Van', 'Coupe', 'Convertible', 'Wagon', 'Other']
                 },
                 Bike: {
                     makes: {
-                        'Honda': ['CBR1000RR', 'CBR600RR', 'CBR500R', 'CB650R', 'CB1000R', 'Africa Twin', 'CRF450', 
-                                  'Rebel 500', 'Rebel 1100', 'Gold Wing', 'NC750X', 'X-ADV', 'Forza 350', 'ADV350'],
-                        'Yamaha': ['YZF-R1', 'YZF-R6', 'YZF-R7', 'MT-10', 'MT-09', 'MT-07', 'Tracer 9', 'Ténéré 700',
-                                   'XSR900', 'XSR700', 'Bolt', 'VMAX', 'Niken', 'TMAX'],
-                        'Suzuki': ['GSX-R1000', 'GSX-R750', 'GSX-R600', 'GSX-S1000', 'V-Strom 1050', 'V-Strom 650',
-                                   'Burgman 400', 'Burgman 650', 'Katana', 'Hayabusa', 'GSX-8S'],
-                        'Kawasaki': ['Ninja ZX-10R', 'Ninja ZX-6R', 'Ninja 400', 'Ninja 650', 'Z1000', 'Z900', 'Z650',
-                                     'Vulcan 650', 'Versys 1000', 'Versys 650', 'KLR650', 'H2', 'H2 SX'],
-                        'TVS': ['Apache RTR 200', 'Apache RTR 160', 'Apache RR 310', 'XL100', 'Star City', 'Ntorq 125', 
-                                'Scooty Pep', 'Jupiter', 'iQube Electric', 'Ronin 225'],
-                        'Bajaj': ['Pulsar NS200', 'Pulsar RS200', 'Pulsar N250', 'Pulsar F250', 'Dominar 400', 'Avenger 220',
-                                  'CT100', 'Platina', 'Boxer 150', 'Chetak Electric'],
-                        'Royal Enfield': ['Classic 350', 'Bullet 350', 'Meteor 350', 'Hunter 350', 'Scram 411', 
-                                          'Interceptor 650', 'Continental GT 650', 'Himalayan 411'],
-                        'KTM': ['1290 Super Duke', '890 Duke', '790 Duke', '390 Duke', '250 Duke', '125 Duke', 
-                                '1290 Super Adventure', '890 Adventure', '390 Adventure', '250 Adventure', 'RC 390'],
+                        'Honda': ['CBR1000RR', 'CBR600RR', 'CBR500R', 'CB650R', 'Africa Twin', 'Rebel 500', 'Gold Wing'],
+                        'Yamaha': ['YZF-R1', 'YZF-R6', 'MT-10', 'MT-09', 'MT-07', 'Tracer 9', 'Ténéré 700'],
+                        'Suzuki': ['GSX-R1000', 'GSX-R750', 'V-Strom 1050', 'V-Strom 650', 'Hayabusa'],
+                        'Kawasaki': ['Ninja ZX-10R', 'Ninja ZX-6R', 'Ninja 400', 'Z900', 'Versys 650', 'KLR650'],
+                        'TVS': ['Apache RTR 200', 'Apache RR 310', 'Ntorq 125', 'Jupiter', 'Ronin 225'],
+                        'Bajaj': ['Pulsar NS200', 'Pulsar RS200', 'Dominar 400', 'Avenger 220', 'Chetak Electric'],
+                        'Royal Enfield': ['Classic 350', 'Bullet 350', 'Meteor 350', 'Hunter 350', 'Himalayan 411'],
+                        'KTM': ['390 Duke', '250 Duke', '390 Adventure', 'RC 390'],
                         'Other': ['Other Model']
                     },
-                    engine_capacities: ['50', '80', '100', '125', '150', '200', '250', '300', '350', '400', '450',
-                                       '500', '600', '650', '700', '750', '800', '900', '1000', '1100', '1200', '1300'],
+                    engine_capacities: ['50', '100', '125', '150', '200', '250', '300', '350', '400', '450',
+                                       '500', '600', '650', '700', '800', '900', '1000', '1100', '1200', '1300'],
                     body_types: ['Standard', 'Sport', 'Cruiser', 'Touring', 'Adventure', 'Scooter', 'Off-Road', 'Other']
                 },
                 Tricycle: {
                     makes: {
-                        'Piaggio': ['Ape 50', 'Ape 70', 'Ape 100', 'Ape 150', 'Ape Calessino', 'Ape City', 'Ape TM'],
+                        'Piaggio': ['Ape 50', 'Ape 100', 'Ape 150', 'Ape Calessino', 'Ape City', 'Ape TM'],
                         'TVS': ['King', 'King Deluxe', 'King 150', 'King 200', 'King Cargo', 'King Passenger'],
-                        'Bajaj': ['RE 60', 'RE 75', 'RE 100', 'RE 125', 'RE Cargo', 'RE Passenger', 'RE Auto', 'Qute'],
+                        'Bajaj': ['RE 60', 'RE 100', 'RE 125', 'RE Cargo', 'RE Passenger', 'RE Auto', 'Qute'],
                         'Other': ['Other Model']
                     },
                     engine_capacities: ['50', '100', '125', '150', '200', '250', '300', '350', '400', '500'],
@@ -1310,11 +1192,6 @@
             const engineCapacitySelect = document.getElementById('engineCapacity');
             const bodyTypeSelect = document.getElementById('bodyType');
             const photoGrid = document.getElementById('photoGrid');
-            const photoTypeBadge = document.getElementById('photoTypeBadge');
-            const photoRequirementNote = document.getElementById('photoRequirementNote');
-            const requiredCountBadge = document.getElementById('requiredCountBadge');
-            const totalRequiredPhotos = document.getElementById('totalRequiredPhotos');
-            const photoRequirementDetails = document.getElementById('photoRequirementDetails');
             const form = document.getElementById('instantForm');
             const submitBtn = document.getElementById('submitBtn');
             const statusBox = document.getElementById('statusBox');
@@ -1327,366 +1204,15 @@
             const previewTitle = document.getElementById('previewTitle');
             const previewSubtitle = document.getElementById('previewSubtitle');
 
-            // ─── AUTH DOM ELEMENTS ────────────────────────────────────
-            const authSection = document.getElementById('authSection');
-            const userInfo = document.getElementById('userInfo');
-            const userEmail = document.getElementById('userEmail');
-            const userAvatar = document.getElementById('userAvatar');
-            const loginBtn = document.getElementById('loginBtn');
-            const logoutBtn = document.getElementById('logoutBtn');
-
-            // ─── CAMERA ELEMENTS ──────────────────────────────────────
-            const cameraModal = document.getElementById('cameraModal');
-            const cameraVideo = document.getElementById('cameraVideo');
-            const cameraCanvas = document.getElementById('cameraCanvas');
-            const captureBtn = document.getElementById('captureBtn');
-            const switchCameraBtn = document.getElementById('switchCameraBtn');
-            const closeCameraBtn = document.getElementById('closeCameraBtn');
-            const cameraHint = document.getElementById('cameraHint');
-
-            // ─── AUTH FUNCTIONS ──────────────────────────────────────
-
-            async function initAuth() {
-                if (!supabase) {
-                    console.warn('Supabase not initialized');
-                    return;
-                }
-
-                try {
-                    const { data: { session } } = await supabase.auth.getSession();
-                    if (session) {
-                        currentUser = session.user;
-                        supabaseSession = session;
-                        updateAuthUI(true);
-                    } else {
-                        updateAuthUI(false);
-                    }
-                } catch (error) {
-                    console.error('Auth init error:', error);
-                }
-
-                // Listen for auth changes
-                supabase.auth.onAuthStateChange((event, session) => {
-                    if (event === 'SIGNED_IN' && session) {
-                        currentUser = session.user;
-                        supabaseSession = session;
-                        updateAuthUI(true);
-                        showToast('✅ Signed in successfully!', 'success');
-                    } else if (event === 'SIGNED_OUT') {
-                        currentUser = null;
-                        supabaseSession = null;
-                        updateAuthUI(false);
-                        showToast('👋 Signed out', 'info');
-                    }
-                });
-            }
-
-            function updateAuthUI(isLoggedIn) {
-                if (isLoggedIn && currentUser) {
-                    userInfo.style.display = 'flex';
-                    userEmail.textContent = currentUser.email || 'User';
-                    userAvatar.textContent = (currentUser.email || 'U')[0].toUpperCase();
-                    loginBtn.style.display = 'none';
-                    logoutBtn.style.display = 'inline-block';
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '🚀 Get AI Valuation';
-                } else {
-                    userInfo.style.display = 'none';
-                    loginBtn.style.display = 'inline-block';
-                    logoutBtn.style.display = 'none';
-                    submitBtn.disabled = true;
-                    submitBtn.innerHTML = '🔒 Sign in to value';
-                }
-            }
-
-            async function handleLogin() {
-                if (!supabase) {
-                    showToast('❌ Supabase not available', 'error');
-                    return;
-                }
-
-                try {
-                    const email = prompt('Enter your email:');
-                    if (!email) return;
-                    
-                    const { data, error } = await supabase.auth.signInWithOtp({
-                        email: email,
-                        options: {
-                            emailRedirectTo: window.location.origin + window.location.pathname
-                        }
-                    });
-
-                    if (error) {
-                        const password = prompt('Create a password (min 6 characters):') || 'password123';
-                        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-                            email: email,
-                            password: password
-                        });
-                        if (signUpError) throw signUpError;
-                        showToast('📧 Check your email for confirmation!', 'success');
-                    } else {
-                        showToast('📧 Check your email for login link!', 'success');
-                    }
-                } catch (error) {
-                    console.error('Login error:', error);
-                    showToast(`❌ ${error.message}`, 'error');
-                }
-            }
-
-            async function handleLogout() {
-                if (!supabase) return;
-                try {
-                    await supabase.auth.signOut();
-                } catch (error) {
-                    console.error('Logout error:', error);
-                }
-            }
-
-            // ─── DYNAMIC PHOTO GRID ────────────────────────────────────
-            function renderPhotoGrid(vehicleType) {
-                const req = PHOTO_REQUIREMENTS[vehicleType] || PHOTO_REQUIREMENTS.Car;
-                
-                photoTypeBadge.textContent = req.icon + ' ' + vehicleType;
-                photoRequirementNote.textContent = `(${req.totalRequired} mandatory angles)`;
-                requiredCountBadge.textContent = req.totalRequired;
-                totalRequiredPhotos.textContent = req.totalRequired;
-
-                const mandatoryLabels = req.mandatory.map(a => a.label).join(', ');
-                photoRequirementDetails.innerHTML = `<span style="font-size:11px;color:#64748b;">${mandatoryLabels}</span>`;
-
-                let html = '';
-                
-                req.mandatory.forEach((angle, index) => {
-                    const isUploaded = capturedPhotos[angle.angle] !== undefined;
-                    html += `
-                        <div class="image-upload-item mandatory ${isUploaded ? 'has-image' : ''}" 
-                             data-angle="${angle.angle}" data-required="true">
-                            <span class="required-badge">REQUIRED</span>
-                            <span class="icon">📷</span>
-                            <span class="label">${angle.label}</span>
-                            <span class="angle-badge">${index + 1}/${req.totalRequired}</span>
-                            <button type="button" class="camera-btn" data-angle="${angle.angle}">📸 Capture</button>
-                            <input type="file" accept="image/*" capture="environment" data-angle="${angle.angle}">
-                            <span class="badge">✓</span>
-                            <span class="status-text ${isUploaded ? 'uploaded' : 'missing'}">${isUploaded ? '✓ Uploaded' : 'Missing'}</span>
-                            ${isUploaded ? `<span class="filename">${capturedPhotos[angle.angle]?.name || 'photo.jpg'}</span>` : ''}
-                        </div>
-                    `;
-                });
-
-                html += `
-                    <div style="grid-column: 1 / -1; margin-top: 4px;">
-                        <details style="color:#94a3b8;">
-                            <summary style="cursor:pointer;font-size:11px;font-weight:500;padding:4px 0;">
-                                📎 Additional Photos (Optional) — ${req.optional.length} available
-                            </summary>
-                            <div class="image-upload-grid" style="margin-top:8px;grid-template-columns:repeat(3,1fr);">
-                `;
-                
-                req.optional.forEach(angle => {
-                    const isUploaded = capturedPhotos[angle.angle] !== undefined;
-                    html += `
-                        <div class="image-upload-item ${isUploaded ? 'has-image' : ''}" 
-                             data-angle="${angle.angle}" data-required="false">
-                            <span class="icon">📷</span>
-                            <span class="label">${angle.label}</span>
-                            <button type="button" class="camera-btn" data-angle="${angle.angle}">📸 Capture</button>
-                            <input type="file" accept="image/*" capture="environment" data-angle="${angle.angle}">
-                            <span class="badge">✓</span>
-                            <span class="status-text ${isUploaded ? 'uploaded' : 'missing'}">${isUploaded ? '✓ Uploaded' : 'Optional'}</span>
-                        </div>
-                    `;
-                });
-
-                html += `
-                            </div>
-                        </details>
-                    </div>
-                `;
-
-                photoGrid.innerHTML = html;
-
-                photoGrid.querySelectorAll('.camera-btn').forEach(btn => {
-                    btn.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const angle = this.dataset.angle;
-                        openCamera(angle);
-                    });
-                });
-
-                photoGrid.querySelectorAll('input[type="file"]').forEach(input => {
-                    input.addEventListener('change', function(e) {
-                        const file = this.files[0];
-                        const angle = this.dataset.angle;
-                        if (file) {
-                            markPhotoUploaded(angle, file);
-                            updateProgress();
-                            
-                            const item = document.querySelector(`.image-upload-item[data-angle="${angle}"]`);
-                            if (item && item.classList.contains('mandatory')) {
-                                const req = PHOTO_REQUIREMENTS[currentVehicleType];
-                                const angleData = req.mandatory.find(a => a.angle === angle);
-                                showToast(`✅ ${angleData?.label || angle} photo uploaded`, 'success');
-                                if (isAllMandatoryPhotosCaptured()) {
-                                    showToast('🎉 All mandatory photos captured!', 'success');
-                                }
-                            }
-                        }
-                    });
-                });
-
-                updatePhotoCount();
-            }
-
-            // ─── PHOTO MANAGEMENT ──────────────────────────────────────
-            function updatePhotoCount() {
-                const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
-                const mandatoryAngles = req.mandatory.map(a => a.angle);
-                const mandatoryCaptured = mandatoryAngles.filter(angle => capturedPhotos[angle]).length;
-                
-                document.getElementById('photoCountNum').textContent = mandatoryCaptured;
-                totalRequiredPhotos.textContent = req.totalRequired;
-            }
-
-            function markPhotoUploaded(angle, file) {
-                const item = document.querySelector(`.image-upload-item[data-angle="${angle}"]`);
-                if (!item) return;
-                
-                item.classList.add('has-image');
-                const badge = item.querySelector('.badge');
-                if (badge) badge.style.display = 'flex';
-                
-                const statusText = item.querySelector('.status-text');
-                if (statusText) {
-                    statusText.textContent = '✓ Uploaded';
-                    statusText.className = 'status-text uploaded';
-                }
-                
-                const existingFilename = item.querySelector('.filename');
-                if (existingFilename) existingFilename.remove();
-                
-                const filename = document.createElement('span');
-                filename.className = 'filename';
-                filename.textContent = file.name.length > 12 ? file.name.substring(0, 10) + '…' : file.name;
-                item.appendChild(filename);
-                
-                capturedPhotos[angle] = file;
-                updatePhotoCount();
-            }
-
-            function isAllMandatoryPhotosCaptured() {
-                const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
-                const mandatoryAngles = req.mandatory.map(a => a.angle);
-                let allCaptured = true;
-                mandatoryAngles.forEach(angle => {
-                    if (!capturedPhotos[angle]) {
-                        allCaptured = false;
-                    }
-                });
-                return allCaptured;
-            }
-
-            // ─── CAMERA FUNCTIONALITY ──────────────────────────────────
-            async function openCamera(angle) {
-                currentAngle = angle;
-                const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
-                const allAngles = [...req.mandatory, ...req.optional];
-                const angleData = allAngles.find(a => a.angle === angle);
-                cameraHint.textContent = `📸 Capture: ${angleData?.label || angle}`;
-                cameraModal.classList.add('open');
-                isCameraOpen = true;
-                
-                try {
-                    if (currentStream) {
-                        currentStream.getTracks().forEach(track => track.stop());
-                    }
-                    
-                    const constraints = {
-                        video: {
-                            facingMode: facingMode,
-                            width: { ideal: 1280 },
-                            height: { ideal: 720 }
-                        },
-                        audio: false
-                    };
-                    
-                    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-                    cameraVideo.srcObject = currentStream;
-                    await cameraVideo.play();
-                    
-                } catch (error) {
-                    console.error('Camera error:', error);
-                    showToast('❌ Could not access camera. Please use file upload instead.', 'error');
-                    closeCamera();
-                }
-            }
-
-            function closeCamera() {
-                if (currentStream) {
-                    currentStream.getTracks().forEach(track => track.stop());
-                    currentStream = null;
-                }
-                cameraVideo.srcObject = null;
-                cameraModal.classList.remove('open');
-                isCameraOpen = false;
-                currentAngle = null;
-            }
-
-            function capturePhoto() {
-                if (!currentStream || !cameraVideo.videoWidth) {
-                    showToast('⚠️ Camera not ready. Please wait.', 'warning');
-                    return;
-                }
-                
-                const canvas = cameraCanvas;
-                canvas.width = cameraVideo.videoWidth;
-                canvas.height = cameraVideo.videoHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(cameraVideo, 0, 0, canvas.width, canvas.height);
-                
-                canvas.toBlob(function(blob) {
-                    if (!blob) {
-                        showToast('❌ Failed to capture photo.', 'error');
-                        return;
-                    }
-                    
-                    const file = new File([blob], `${currentAngle}_${Date.now()}.jpg`, { type: 'image/jpeg' });
-                    
-                    const item = document.querySelector(`.image-upload-item[data-angle="${currentAngle}"]`);
-                    if (item) {
-                        const input = item.querySelector('input[type="file"]');
-                        const dataTransfer = new DataTransfer();
-                        dataTransfer.items.add(file);
-                        input.files = dataTransfer.files;
-                        input.dispatchEvent(new Event('change'));
-                    }
-                    
-                    markPhotoUploaded(currentAngle, file);
-                    
-                    const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
-                    const allAngles = [...req.mandatory, ...req.optional];
-                    const angleData = allAngles.find(a => a.angle === currentAngle);
-                    showToast(`✅ ${angleData?.label || currentAngle} captured!`, 'success');
-                    
-                    if (isAllMandatoryPhotosCaptured()) {
-                        showToast('🎉 All mandatory photos captured!', 'success');
-                    }
-                    
-                    setTimeout(closeCamera, 500);
-                    
-                }, 'image/jpeg', 0.9);
-            }
-
-            function switchCamera() {
-                facingMode = facingMode === 'environment' ? 'user' : 'environment';
-                if (currentStream) {
-                    currentStream.getTracks().forEach(track => track.stop());
-                    currentStream = null;
-                }
-                if (isCameraOpen) {
-                    openCamera(currentAngle);
-                }
+            // ─── TOAST ──────────────────────────────────────────────────
+            function showToast(message, type = 'info') {
+                const existing = document.querySelector('.toast');
+                if (existing) existing.remove();
+                const toast = document.createElement('div');
+                toast.className = `toast toast-${type}`;
+                toast.textContent = message;
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 4000);
             }
 
             // ─── VEHICLE DATA HELPERS ───────────────────────────────
@@ -1812,6 +1338,230 @@
                 updateProgress();
             }
 
+            // ─── PHOTO GRID ────────────────────────────────────────────
+            function renderPhotoGrid(vehicleType) {
+                const req = PHOTO_REQUIREMENTS[vehicleType] || PHOTO_REQUIREMENTS.Car;
+                
+                document.getElementById('photoTypeBadge').textContent = req.icon + ' ' + vehicleType;
+                document.getElementById('photoRequirementNote').textContent = `(${req.totalRequired} mandatory angles)`;
+                document.getElementById('requiredCountBadge').textContent = req.totalRequired;
+                document.getElementById('totalRequiredPhotos').textContent = req.totalRequired;
+
+                const mandatoryLabels = req.mandatory.map(a => a.label).join(', ');
+                document.getElementById('photoRequirementDetails').innerHTML = `<span style="font-size:11px;color:#64748b;">${mandatoryLabels}</span>`;
+
+                let html = '';
+                
+                req.mandatory.forEach((angle, index) => {
+                    const isUploaded = capturedPhotos[angle.angle] !== undefined;
+                    html += `
+                        <div class="image-upload-item mandatory ${isUploaded ? 'has-image' : ''}" 
+                             data-angle="${angle.angle}" data-required="true">
+                            <span class="required-badge">REQUIRED</span>
+                            <span class="icon">📷</span>
+                            <span class="label">${angle.label}</span>
+                            <span class="angle-badge">${index + 1}/${req.totalRequired}</span>
+                            <button type="button" class="camera-btn" data-angle="${angle.angle}">📸 Capture</button>
+                            <input type="file" accept="image/*" capture="environment" data-angle="${angle.angle}">
+                            <span class="badge">✓</span>
+                            <span class="status-text ${isUploaded ? 'uploaded' : 'missing'}">${isUploaded ? '✓ Uploaded' : 'Missing'}</span>
+                            ${isUploaded ? `<span class="filename">${capturedPhotos[angle.angle]?.name || 'photo.jpg'}</span>` : ''}
+                        </div>
+                    `;
+                });
+
+                html += `
+                    <div style="grid-column: 1 / -1; margin-top: 4px;">
+                        <details style="color:#94a3b8;">
+                            <summary style="cursor:pointer;font-size:11px;font-weight:500;padding:4px 0;">
+                                📎 Additional Photos (Optional) — ${req.optional.length} available
+                            </summary>
+                            <div class="image-upload-grid" style="margin-top:8px;grid-template-columns:repeat(3,1fr);">
+                `;
+                
+                req.optional.forEach(angle => {
+                    const isUploaded = capturedPhotos[angle.angle] !== undefined;
+                    html += `
+                        <div class="image-upload-item ${isUploaded ? 'has-image' : ''}" 
+                             data-angle="${angle.angle}" data-required="false">
+                            <span class="icon">📷</span>
+                            <span class="label">${angle.label}</span>
+                            <button type="button" class="camera-btn" data-angle="${angle.angle}">📸 Capture</button>
+                            <input type="file" accept="image/*" capture="environment" data-angle="${angle.angle}">
+                            <span class="badge">✓</span>
+                            <span class="status-text ${isUploaded ? 'uploaded' : 'missing'}">${isUploaded ? '✓ Uploaded' : 'Optional'}</span>
+                        </div>
+                    `;
+                });
+
+                html += `
+                            </div>
+                        </details>
+                    </div>
+                `;
+
+                photoGrid.innerHTML = html;
+
+                photoGrid.querySelectorAll('.camera-btn').forEach(btn => {
+                    btn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const angle = this.dataset.angle;
+                        openCamera(angle);
+                    });
+                });
+
+                photoGrid.querySelectorAll('input[type="file"]').forEach(input => {
+                    input.addEventListener('change', function(e) {
+                        const file = this.files[0];
+                        const angle = this.dataset.angle;
+                        if (file) {
+                            markPhotoUploaded(angle, file);
+                            updateProgress();
+                            if (isAllMandatoryPhotosCaptured()) {
+                                showToast('🎉 All mandatory photos captured!', 'success');
+                            }
+                        }
+                    });
+                });
+
+                updatePhotoCount();
+            }
+
+            function markPhotoUploaded(angle, file) {
+                const item = document.querySelector(`.image-upload-item[data-angle="${angle}"]`);
+                if (!item) return;
+                
+                item.classList.add('has-image');
+                const badge = item.querySelector('.badge');
+                if (badge) badge.style.display = 'flex';
+                
+                const statusText = item.querySelector('.status-text');
+                if (statusText) {
+                    statusText.textContent = '✓ Uploaded';
+                    statusText.className = 'status-text uploaded';
+                }
+                
+                capturedPhotos[angle] = file;
+                updatePhotoCount();
+            }
+
+            function updatePhotoCount() {
+                const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
+                const mandatoryAngles = req.mandatory.map(a => a.angle);
+                const mandatoryCaptured = mandatoryAngles.filter(angle => capturedPhotos[angle]).length;
+                
+                document.getElementById('photoCountNum').textContent = mandatoryCaptured;
+            }
+
+            function isAllMandatoryPhotosCaptured() {
+                const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
+                const mandatoryAngles = req.mandatory.map(a => a.angle);
+                return mandatoryAngles.every(angle => capturedPhotos[angle]);
+            }
+
+            // ─── CAMERA FUNCTIONALITY ──────────────────────────────────
+            async function openCamera(angle) {
+                currentAngle = angle;
+                const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
+                const allAngles = [...req.mandatory, ...req.optional];
+                const angleData = allAngles.find(a => a.angle === angle);
+                document.getElementById('cameraHint').textContent = `📸 Capture: ${angleData?.label || angle}`;
+                document.getElementById('cameraModal').classList.add('open');
+                isCameraOpen = true;
+                
+                try {
+                    if (currentStream) {
+                        currentStream.getTracks().forEach(track => track.stop());
+                    }
+                    
+                    const constraints = {
+                        video: {
+                            facingMode: facingMode,
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        },
+                        audio: false
+                    };
+                    
+                    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    document.getElementById('cameraVideo').srcObject = currentStream;
+                    await document.getElementById('cameraVideo').play();
+                    
+                } catch (error) {
+                    console.error('Camera error:', error);
+                    showToast('❌ Could not access camera. Please use file upload instead.', 'error');
+                    closeCamera();
+                }
+            }
+
+            function closeCamera() {
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                    currentStream = null;
+                }
+                document.getElementById('cameraVideo').srcObject = null;
+                document.getElementById('cameraModal').classList.remove('open');
+                isCameraOpen = false;
+                currentAngle = null;
+            }
+
+            function capturePhoto() {
+                if (!currentStream || !document.getElementById('cameraVideo').videoWidth) {
+                    showToast('⚠️ Camera not ready. Please wait.', 'warning');
+                    return;
+                }
+                
+                const canvas = document.getElementById('cameraCanvas');
+                canvas.width = document.getElementById('cameraVideo').videoWidth;
+                canvas.height = document.getElementById('cameraVideo').videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(document.getElementById('cameraVideo'), 0, 0, canvas.width, canvas.height);
+                
+                canvas.toBlob(function(blob) {
+                    if (!blob) {
+                        showToast('❌ Failed to capture photo.', 'error');
+                        return;
+                    }
+                    
+                    const file = new File([blob], `${currentAngle}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    
+                    const item = document.querySelector(`.image-upload-item[data-angle="${currentAngle}"]`);
+                    if (item) {
+                        const input = item.querySelector('input[type="file"]');
+                        const dataTransfer = new DataTransfer();
+                        dataTransfer.items.add(file);
+                        input.files = dataTransfer.files;
+                        input.dispatchEvent(new Event('change'));
+                    }
+                    
+                    markPhotoUploaded(currentAngle, file);
+                    
+                    const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
+                    const allAngles = [...req.mandatory, ...req.optional];
+                    const angleData = allAngles.find(a => a.angle === currentAngle);
+                    showToast(`✅ ${angleData?.label || currentAngle} captured!`, 'success');
+                    
+                    if (isAllMandatoryPhotosCaptured()) {
+                        showToast('🎉 All mandatory photos captured!', 'success');
+                    }
+                    
+                    setTimeout(closeCamera, 500);
+                    
+                }, 'image/jpeg', 0.9);
+            }
+
+            function switchCamera() {
+                facingMode = facingMode === 'environment' ? 'user' : 'environment';
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                    currentStream = null;
+                }
+                if (isCameraOpen) {
+                    openCamera(currentAngle);
+                }
+            }
+
             // ─── PROGRESS ──────────────────────────────────────────────
             function updateProgress() {
                 const fields = [
@@ -1821,7 +1571,7 @@
                     bodyTypeSelect, document.getElementById('mileage'),
                     document.getElementById('previousOwners'), document.getElementById('usageType'),
                     document.getElementById('condition'), document.getElementById('accidentHistory'),
-                    document.getElementById('location'), document.getElementById('mpesaPhone')
+                    document.getElementById('location')
                 ];
 
                 let filled = 0;
@@ -1850,48 +1600,20 @@
             }
 
             // ─── VALIDATION ──────────────────────────────────────────
-            function validateField(field, errorId, condition) {
-                const errorEl = document.getElementById(errorId);
-                if (!condition) {
-                    field.classList.add('input-error');
-                    errorEl.classList.add('show');
-                    return false;
-                }
-                field.classList.remove('input-error');
-                errorEl.classList.remove('show');
-                return true;
-            }
-
             function validateAll() {
                 const year = parseInt(document.getElementById('year').value);
                 const currentYear = new Date().getFullYear();
                 const mileage = parseInt(document.getElementById('mileage').value);
-                const phone = document.getElementById('mpesaPhone').value.trim();
 
-                const validations = [
-                    validateField(makeSelect, 'makeError', !!makeSelect.value),
-                    validateField(modelSelect, 'modelError', !!modelSelect.value),
-                    validateField(document.getElementById('year'), 'yearError', year >= 1980 && year <= currentYear),
-                    validateField(engineCapacitySelect, 'engineError', !!engineCapacitySelect.value),
-                    validateField(bodyTypeSelect, 'bodyTypeError', !!bodyTypeSelect.value),
-                    validateField(document.getElementById('mileage'), 'mileageError', mileage >= 0 && mileage < 1000000),
-                    validateField(document.getElementById('mpesaPhone'), 'phoneError', phone.length >= 10 && /^[0-9]{10,12}$/.test(phone))
-                ];
+                if (!makeSelect.value) return false;
+                if (!modelSelect.value) return false;
+                if (!year || year < 1980 || year > currentYear) return false;
+                if (!engineCapacitySelect.value) return false;
+                if (!bodyTypeSelect.value) return false;
+                if (!mileage || mileage < 0 || mileage > 1000000) return false;
+                if (!isAllMandatoryPhotosCaptured()) return false;
 
-                const allPhotosCaptured = isAllMandatoryPhotosCaptured();
-                if (!allPhotosCaptured) {
-                    const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
-                    showToast(`⚠️ Please capture all ${req.totalRequired} mandatory photos before proceeding.`, 'warning');
-                    return false;
-                }
-
-                if (!currentUser) {
-                    showToast('🔒 Please sign in to get a valuation', 'warning');
-                    handleLogin();
-                    return false;
-                }
-
-                return validations.every(Boolean);
+                return true;
             }
 
             // ─── CONFETTI ──────────────────────────────────────────────
@@ -1933,131 +1655,54 @@
                 });
             }
 
-            // ─── CALL BACKEND API ──────────────────────────────────
+            // ─── CALL FASTAPI BACKEND ──────────────────────────────────
             async function callValuationAPI(formData) {
-                try {
-                    const payload = {
-                        purchase_price: formData.purchase_price || 3000000,
-                        age_years: formData.age_years || 0,
-                        vehicle_type: formData.type || 'Car',
-                        make: formData.make || 'Toyota',
-                        model: formData.model || 'Corolla',
-                        condition: formData.condition || 'Good',
-                        mileage: formData.mileage || 0,
-                        location: formData.location || 'Nairobi',
-                        accident_history: formData.accident_history || 'None',
-                        previous_owners: formData.previous_owners || 1,
-                        year: formData.year,
-                        engine_capacity: formData.engine_capacity,
-                        fuel_type: formData.fuel_type,
-                        transmission: formData.transmission,
-                        body_type: formData.body_type,
-                        body_color: formData.body_color
-                    };
+                const payload = {
+                    purchase_price: formData.purchase_price || 3000000,
+                    age_years: formData.age_years || 0,
+                    vehicle_type: formData.vehicle_type || 'Car',
+                    make: formData.make || 'Toyota',
+                    model: formData.model || 'Corolla',
+                    condition: formData.condition || 'Good',
+                    mileage: formData.mileage || 0,
+                    location: formData.location || 'Nairobi',
+                    accident_history: formData.accident_history || 'None',
+                    previous_owners: formData.previous_owners || 1,
+                    year: formData.year,
+                    engine_capacity: formData.engine_capacity,
+                    fuel_type: formData.fuel_type,
+                    transmission: formData.transmission,
+                    body_type: formData.body_type,
+                    body_color: formData.body_color,
+                    usage_type: formData.usage_type
+                };
 
-                    const headers = {
+                const response = await fetch(`${API_BASE}/calculate`, {
+                    method: 'POST',
+                    headers: {
                         'Content-Type': 'application/json',
                         'Accept': 'application/json'
-                    };
-
-                    if (supabaseSession?.access_token) {
-                        headers['Authorization'] = `Bearer ${supabaseSession.access_token}`;
-                    }
-
-                    const response = await fetch(`${API_BASE}${API_ENDPOINTS.VALUATION}`, {
-                        method: 'POST',
-                        headers: headers,
-                        body: JSON.stringify(payload)
-                    });
-
-                    if (!response.ok) {
-                        let errorData = {};
-                        try { errorData = await response.json(); } catch (e) {}
-                        throw new Error(errorData.message || errorData.error || `Valuation failed (${response.status})`);
-                    }
-
-                    return await response.json();
-                } catch (error) {
-                    console.warn('API call failed, using offline calculation:', error.message);
-                    return calculateOfflineValuation(formData);
-                }
-            }
-
-            // ─── OFFLINE VALUATION CALCULATION ────────────────────────
-            function calculateOfflineValuation(formData) {
-                const basePrices = {
-                    'Car': { 'Toyota': 3500000, 'BMW': 5000000, 'Mercedes-Benz': 5500000, 'Honda': 2800000, 'Nissan': 2500000, 'default': 3000000 },
-                    'Bike': { 'Honda': 250000, 'Yamaha': 300000, 'Kawasaki': 350000, 'default': 200000 },
-                    'Tricycle': { 'default': 300000 }
-                };
-                
-                const typePrices = basePrices[formData.type] || basePrices['Car'];
-                let basePrice = typePrices[formData.make] || typePrices['default'] || 3000000;
-                
-                const currentYear = new Date().getFullYear();
-                const ageYears = formData.age_years || (currentYear - (formData.year || currentYear));
-                if (ageYears > 0) {
-                    basePrice = basePrice * Math.pow(0.88, ageYears);
-                }
-                
-                const conditionMultipliers = {
-                    'Excellent': 1.0,
-                    'Good': 0.9,
-                    'Fair': 0.75,
-                    'Poor': 0.5
-                };
-                const conditionMultiplier = conditionMultipliers[formData.condition] || 0.85;
-                
-                const mileage = formData.mileage || 0;
-                let mileageMultiplier = 1.0;
-                if (mileage > 100000) mileageMultiplier = 0.85;
-                else if (mileage > 50000) mileageMultiplier = 0.92;
-                else if (mileage > 20000) mileageMultiplier = 0.97;
-                
-                const accidentMultipliers = {
-                    'None': 1.0,
-                    'Minor': 0.9,
-                    'Major': 0.65,
-                    'WriteOff': 0.3
-                };
-                const accidentMultiplier = accidentMultipliers[formData.accident_history] || 0.95;
-                
-                let ownersMultiplier = 1.0;
-                if (formData.previous_owners > 1) {
-                    ownersMultiplier = Math.max(0.85, 1 - (formData.previous_owners - 1) * 0.03);
-                }
-                
-                const estimatedValue = Math.round(basePrice * conditionMultiplier * mileageMultiplier * accidentMultiplier * ownersMultiplier);
-                
-                return {
-                    success: true,
-                    data: {
-                        current_value: estimatedValue,
-                        estimated_value: estimatedValue,
-                        market_value: estimatedValue,
-                        confidence_score: 75,
-                        valuation_range: {
-                            min: Math.round(estimatedValue * 0.85),
-                            max: Math.round(estimatedValue * 1.05)
-                        },
-                        depreciation_rate: 1 - conditionMultiplier,
-                        age_years: ageYears,
-                        base_price: basePrice,
-                        adjusted_value: estimatedValue
                     },
-                    message: 'Offline calculation',
-                    offline: true
-                };
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    let errorData = {};
+                    try { errorData = await response.json(); } catch (e) {}
+                    throw new Error(errorData.message || errorData.error || `Valuation failed (${response.status})`);
+                }
+
+                return await response.json();
             }
 
             // ─── SHOW RESULT ──────────────────────────────────────────
-            function showResult(data) {
-                const resultData = data.data || data;
-                const marketValue = resultData.current_value || resultData.estimated_value || 0;
-                const rangeMin = resultData.valuation_range?.min ?? Math.round(marketValue * 0.85);
-                const rangeMax = resultData.valuation_range?.max ?? Math.round(marketValue * 1.05);
+            function showResult(result) {
+                const data = result.data || result;
+                const marketValue = data.current_value || data.estimated_value || 0;
+                const rangeMin = data.valuation_range?.min ?? Math.round(marketValue * 0.85);
+                const rangeMax = data.valuation_range?.max ?? Math.round(marketValue * 1.15);
 
-                let confidence = resultData.confidence_score;
+                let confidence = data.confidence_score || 75;
                 if (typeof confidence !== 'number' || Number.isNaN(confidence)) {
                     confidence = 75;
                 } else if (confidence <= 1) {
@@ -2097,17 +1742,6 @@
                 fireConfetti();
             }
 
-            // ─── TOAST ──────────────────────────────────────────────────
-            function showToast(message, type = 'info') {
-                const existing = document.querySelector('.toast');
-                if (existing) existing.remove();
-                const toast = document.createElement('div');
-                toast.className = `toast toast-${type}`;
-                toast.textContent = message;
-                document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 4000);
-            }
-
             // ─── SAVE DRAFT ──────────────────────────────────────────
             function saveDraft() {
                 const formData = {
@@ -2125,8 +1759,7 @@
                     usageType: document.getElementById('usageType').value,
                     condition: document.getElementById('condition').value,
                     accidentHistory: document.getElementById('accidentHistory').value,
-                    location: document.getElementById('location').value,
-                    phone: document.getElementById('mpesaPhone').value
+                    location: document.getElementById('location').value
                 };
                 try {
                     localStorage.setItem('valuationDraft', JSON.stringify(formData));
@@ -2183,7 +1816,6 @@
                 if (data.condition && conditions.includes(data.condition)) document.getElementById('condition').value = data.condition;
                 if (data.accidentHistory) document.getElementById('accidentHistory').value = data.accidentHistory;
                 if (data.location) document.getElementById('location').value = data.location;
-                if (data.phone) document.getElementById('mpesaPhone').value = data.phone;
 
                 updateVehiclePreview();
                 updateProgress();
@@ -2231,11 +1863,11 @@
             });
 
             // ─── CAMERA MODAL CONTROLS ──────────────────────────────
-            captureBtn.addEventListener('click', capturePhoto);
-            switchCameraBtn.addEventListener('click', switchCamera);
-            closeCameraBtn.addEventListener('click', closeCamera);
+            document.getElementById('captureBtn').addEventListener('click', capturePhoto);
+            document.getElementById('switchCameraBtn').addEventListener('click', switchCamera);
+            document.getElementById('closeCameraBtn').addEventListener('click', closeCamera);
             
-            cameraModal.addEventListener('click', function(e) {
+            document.getElementById('cameraModal').addEventListener('click', function(e) {
                 if (e.target === this) closeCamera();
             });
 
@@ -2280,19 +1912,9 @@
                 }
             });
 
-            // ─── AUTH BUTTONS ──────────────────────────────────────
-            loginBtn.addEventListener('click', handleLogin);
-            logoutBtn.addEventListener('click', handleLogout);
-
             // ─── FORM SUBMISSION ──────────────────────────────────────
             form.addEventListener('submit', async function(e) {
                 e.preventDefault();
-
-                if (!currentUser) {
-                    showToast('🔒 Please sign in first', 'warning');
-                    handleLogin();
-                    return;
-                }
 
                 if (!validateAll()) {
                     statusBox.className = 'status-box status-error';
@@ -2308,7 +1930,7 @@
                 const condition = document.getElementById('condition').value;
 
                 const formData = {
-                    type: vehicleTypeSelect.value,
+                    vehicle_type: vehicleTypeSelect.value,
                     make: makeSelect.value,
                     model: modelSelect.value,
                     year: year,
@@ -2323,10 +1945,8 @@
                     location: document.getElementById('location').value,
                     previous_owners: parseInt(document.getElementById('previousOwners').value),
                     usage_type: document.getElementById('usageType').value,
-                    phone: document.getElementById('mpesaPhone').value.trim(),
-                    photos: capturedPhotos,
-                    age_years: ageYears,
-                    user_id: currentUser?.id || null
+                    purchase_price: 3000000,
+                    age_years: ageYears
                 };
 
                 statusBox.style.display = 'none';
@@ -2377,8 +1997,6 @@
 
             // ─── INIT ──────────────────────────────────────────────────
             async function init() {
-                await initAuth();
-
                 currentVehicleType = vehicleTypeSelect.value;
                 renderPhotoGrid(currentVehicleType);
                 updateEngineDropdown();
@@ -2401,8 +2019,7 @@
                 }
 
                 console.log('🚗 Auto-D Kenya Instant Value Check loaded');
-                console.log(`📡 Supabase: ${SUPABASE_URL}`);
-                console.log(`🔐 Auth: ${currentUser ? 'Logged in' : 'Not logged in'}`);
+                console.log(`📡 API: ${API_BASE}/calculate`);
                 console.log(`📸 Dynamic Photo Requirements loaded for ${currentVehicleType}`);
             }
 
