@@ -30,6 +30,9 @@
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet" />
     </noscript>
     
+    <!-- ─── SUPABASE SDK ────────────────────────────────────────── -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
     <!-- ─── STRUCTURED DATA ────────────────────────────────────── -->
     <script type="application/ld+json">
     {
@@ -121,7 +124,7 @@
             border-radius: 999px;
             border: 1px solid var(--border);
             cursor: pointer;
-            transition: var(--transition);
+            transition: all 0.2s ease;
         }
         .nav-actions .user-badge:hover {
             border-color: var(--primary);
@@ -136,7 +139,7 @@
             justify-content: center;
             font-size: 12px;
             font-weight: 700;
-            color: var(--text-ink);
+            color: #0f172a;
         }
         .nav-actions .user-name {
             font-size: 12px;
@@ -227,6 +230,26 @@
         .btn-outline-light:hover { 
             background: rgba(255, 255, 255, 0.06); 
             border-color: rgba(255, 255, 255, 0.35); 
+        }
+        
+        .btn-service {
+            background: linear-gradient(135deg, var(--primary), #ca8a04);
+            color: #111827;
+            font-weight: 700;
+            font-size: 14.5px;
+            border: none;
+            border-radius: 10px;
+            padding: 14px 26px;
+            cursor: pointer;
+            transition: all .25s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+        .btn-service:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(234, 179, 8, 0.22);
         }
 
         .hero { position: relative; padding: 100px 0 60px; overflow: hidden; }
@@ -436,7 +459,7 @@
             text-transform: uppercase;
             letter-spacing: 0.04em;
         }
-        .auth-modal-content input {
+        .auth-modal-content input, .auth-modal-content select {
             width: 100%;
             padding: 10px 14px;
             background: var(--bg);
@@ -445,7 +468,7 @@
             color: var(--text);
             font-size: 14px;
         }
-        .auth-modal-content input:focus {
+        .auth-modal-content input:focus, .auth-modal-content select:focus {
             outline: none;
             border-color: var(--primary);
         }
@@ -516,6 +539,19 @@
             color: var(--muted);
             cursor: pointer;
         }
+
+        /* Service Navigation Badge */
+        .service-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--primary);
+            background: rgba(234, 179, 8, 0.1);
+            padding: 4px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(234, 179, 8, 0.2);
+        }
     </style>
 </head>
 <body>
@@ -532,9 +568,9 @@
             </a>
             <ul class="nav-links">
                 <li><a href="#features" class="active">Features</a></li>
-                <li><a onclick="navigateTo('mileage')" style="cursor:pointer;">Mileage &amp; Running</a></li>
-                <li><a onclick="navigateTo('value')" style="cursor:pointer;">Instant Value</a></li>
-                <li><a onclick="navigateTo('ownership')" style="cursor:pointer;">Ownership Cost</a></li>
+                <li><a onclick="navigateToService('mileage')" style="cursor:pointer;">Mileage &amp; Running</a></li>
+                <li><a onclick="navigateToService('value')" style="cursor:pointer;">Instant Value</a></li>
+                <li><a onclick="navigateToService('ownership')" style="cursor:pointer;">Ownership Cost</a></li>
                 <li><a href="#how">How It Works</a></li>
             </ul>
             <div class="nav-actions">
@@ -542,8 +578,10 @@
                     <span class="user-avatar" id="userAvatar">A</span>
                     <span class="user-name" id="userName">User</span>
                 </div>
-                <a href="#" onclick="toggleAuthModal('login')" class="btn-primary btn-nav" id="loginBtnNav">Sign In</a>
-                <a href="#" onclick="navigateTo('mileage')" class="btn-primary btn-nav" style="background:var(--surface);color:var(--text);border:1px solid var(--border);">Go to Service →</a>
+                <a href="#" onclick="toggleAuthModal('login')" class="btn-nav" id="loginBtnNav" style="background:var(--primary);color:#111827;">Sign In</a>
+                <a href="#" onclick="navigateToService('mileage')" class="btn-service" id="serviceBtnNav">
+                    🚀 Go to Service
+                </a>
             </div>
             <button 
                 class="menu-toggle" 
@@ -555,11 +593,11 @@
         </nav>
         <div class="mobile-menu" id="mobileMenu" role="navigation" aria-label="Mobile navigation">
             <a href="#features">Features</a>
-            <a onclick="navigateTo('mileage')">Mileage &amp; Running</a>
-            <a onclick="navigateTo('value')">Instant Value</a>
-            <a onclick="navigateTo('ownership')">Ownership Cost</a>
+            <a onclick="navigateToService('mileage')">Mileage &amp; Running</a>
+            <a onclick="navigateToService('value')">Instant Value</a>
+            <a onclick="navigateToService('ownership')">Ownership Cost</a>
             <a href="#how">How It Works</a>
-            <a onclick="navigateTo('mileage')">Go to Service →</a>
+            <a onclick="navigateToService('mileage')" class="btn-service" style="display:block;text-align:center;margin:8px 0;padding:12px;">🚀 Go to Service</a>
             <a onclick="toggleAuthModal('login')" id="mobileLoginBtn">Sign In</a>
         </div>
     </header>
@@ -581,7 +619,7 @@
                         can pay for a report in seconds.
                     </p>
                     <div class="hero-cta">
-                        <a href="#" onclick="navigateTo('mileage')" class="btn-primary">
+                        <a href="#" onclick="navigateToService('value')" class="btn-primary">
                             Get my valuation →
                         </a>
                         <a href="#features" class="btn-secondary">Explore features</a>
@@ -662,7 +700,7 @@
                             Log business trips and automatically apply the recommended KRA mileage rates.
                             Fuel, servicing, insurance, and tyres — all rolled into one live cost-per-kilometre figure.
                         </p>
-                        <a href="#" onclick="navigateTo('mileage')" class="card-link">
+                        <a href="#" onclick="navigateToService('mileage')" class="card-link">
                             Calculate mileage &amp; cost <span class="arrow" aria-hidden="true">→</span>
                         </a>
                         <div class="card-foot">
@@ -680,7 +718,7 @@
                             Get a live trade, private-sale, and retail valuation for any vehicle
                             using current Kenyan market data — in under 30 seconds. No forms, no waiting.
                         </p>
-                        <a href="#" onclick="navigateTo('value')" class="card-link">
+                        <a href="#" onclick="navigateToService('value')" class="card-link">
                             Get instant value <span class="arrow" aria-hidden="true">→</span>
                         </a>
                         <div class="card-foot">
@@ -698,7 +736,7 @@
                             Depreciation, financing, insurance, road tax, and maintenance combined into
                             the true total cost of keeping a vehicle on Kenyan roads. See the full financial picture.
                         </p>
-                        <a href="#" onclick="navigateTo('ownership')" class="card-link">
+                        <a href="#" onclick="navigateToService('ownership')" class="card-link">
                             See ownership cost <span class="arrow" aria-hidden="true">→</span>
                         </a>
                         <div class="card-foot">
@@ -747,7 +785,7 @@
                         <p>Get your KRA-aligned mileage rate, instant valuation, and ownership cost breakdown in under a minute — pay securely with M-Pesa.</p>
                     </div>
                     <div class="cta-buttons">
-                        <a href="#" onclick="navigateTo('mileage')" class="btn-primary">Go to Service →</a>
+                        <a href="#" onclick="navigateToService('value')" class="btn-primary">Go to Service →</a>
                         <a href="#features" class="btn-outline-light">Learn more</a>
                     </div>
                 </div>
@@ -863,9 +901,9 @@
                 <div class="footer-col">
                     <h5>Features</h5>
                     <ul>
-                        <li><a onclick="navigateTo('mileage')">Mileage Rate &amp; Running Cost</a></li>
-                        <li><a onclick="navigateTo('value')">Instant Value</a></li>
-                        <li><a onclick="navigateTo('ownership')">Vehicle Ownership Cost</a></li>
+                        <li><a onclick="navigateToService('mileage')">Mileage Rate &amp; Running Cost</a></li>
+                        <li><a onclick="navigateToService('value')">Instant Value</a></li>
+                        <li><a onclick="navigateToService('ownership')">Vehicle Ownership Cost</a></li>
                     </ul>
                 </div>
                 <div class="footer-col">
@@ -890,30 +928,37 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════════════════
-        // AUTO-D - Supabase Single Source of Truth
+        // AUTO-D KENYA - Single Source of Truth with Supabase & FastAPI
         // ═══════════════════════════════════════════════════════════════════════════
 
-        // ─── Supabase Configuration ──────────────────────────────────────
+        // ─── Configuration ──────────────────────────────────────────────────────────
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+        
+        const SERVICE_PAGES = {
+            'mileage': 'https://auto-d.meipressgroup.com/mileage.html',
+            'value': 'https://auto-d.meipressgroup.com/instant-value.html',
+            'ownership': 'https://auto-d.meipressgroup.com/ownership-cost.html'
+        };
 
-        // ─── State ────────────────────────────────────────────────────────
+        // ─── State ──────────────────────────────────────────────────────────────────
         let currentUser = null;
-        let currentAuthMode = 'login'; // login, register, profile
+        let currentAuthMode = 'login';
+        let supabaseClient = null;
 
-        // ─── DOM References ──────────────────────────────────────────────
+        // ─── DOM References ─────────────────────────────────────────────────────────
         const authModal = document.getElementById('authModal');
         const loginBtnNav = document.getElementById('loginBtnNav');
         const userBadge = document.getElementById('userBadge');
         const userName = document.getElementById('userName');
         const userAvatar = document.getElementById('userAvatar');
+        const serviceBtnNav = document.getElementById('serviceBtnNav');
 
-        // ─── Supabase Client ─────────────────────────────────────────────
-        let supabaseClient = null;
-
+        // ─── Supabase Client ────────────────────────────────────────────────────────
         async function initSupabase() {
             try {
-                const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+                // Using the CDN-loaded Supabase
+                const { createClient } = supabaseJs;
                 supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 console.log('✅ Supabase client initialized');
                 
@@ -925,8 +970,10 @@
                     console.log('🔐 Auth state changed:', event);
                     if (event === 'SIGNED_IN' && session?.user) {
                         updateUserUI(session.user);
+                        showToast('✅ Signed in successfully!', 'success');
                     } else if (event === 'SIGNED_OUT') {
                         clearUserUI();
+                        showToast('👋 Signed out', 'info');
                     } else if (event === 'TOKEN_REFRESHED' && session?.user) {
                         updateUserUI(session.user);
                     }
@@ -944,7 +991,7 @@
             }
         }
 
-        // ─── Session Management ──────────────────────────────────────────
+        // ─── Session Management ────────────────────────────────────────────────────
         async function checkSession() {
             try {
                 if (!supabaseClient) return;
@@ -977,6 +1024,11 @@
             userBadge.style.display = 'flex';
             loginBtnNav.style.display = 'none';
             
+            // Update service button text
+            if (serviceBtnNav) {
+                serviceBtnNav.innerHTML = '👤 My Dashboard';
+            }
+            
             // Store in local storage
             localStorage.setItem('auto_d_user', JSON.stringify(user));
             localStorage.setItem('auto_d_session', 'active');
@@ -986,11 +1038,47 @@
             currentUser = null;
             userBadge.style.display = 'none';
             loginBtnNav.style.display = 'inline-flex';
+            if (serviceBtnNav) {
+                serviceBtnNav.innerHTML = '🚀 Go to Service';
+            }
             localStorage.removeItem('auto_d_user');
             localStorage.removeItem('auto_d_session');
         }
 
-        // ─── Auth Modal ──────────────────────────────────────────────────
+        // ─── Toast Notifications ──────────────────────────────────────────────────
+        function showToast(message, type = 'info') {
+            const existing = document.querySelector('.toast-notification');
+            if (existing) existing.remove();
+            
+            const toast = document.createElement('div');
+            toast.className = 'toast-notification';
+            toast.style.cssText = `
+                position: fixed;
+                bottom: 24px;
+                right: 24px;
+                padding: 14px 24px;
+                border-radius: 10px;
+                font-weight: 500;
+                font-size: 14px;
+                z-index: 9999;
+                animation: slideIn 0.3s ease;
+                max-width: 400px;
+                box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+                font-family: 'Inter', sans-serif;
+                background: ${type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : type === 'warning' ? '#eab308' : '#3b82f6'};
+                color: ${type === 'success' || type === 'warning' ? '#000' : '#fff'};
+            `;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        // ─── Auth Modal ────────────────────────────────────────────────────────────
         function toggleAuthModal(mode) {
             if (mode === 'close') {
                 authModal.classList.remove('open');
@@ -1029,10 +1117,9 @@
             
             authModal.classList.add('open');
         }
-
         window.toggleAuthModal = toggleAuthModal;
 
-        // ─── Password Toggle ─────────────────────────────────────────────
+        // ─── Password Toggle ──────────────────────────────────────────────────────
         window.togglePasswordVisibility = function(inputId, btn) {
             const input = document.getElementById(inputId);
             if (input.type === 'password') {
@@ -1044,7 +1131,7 @@
             }
         };
 
-        // ─── Login ──────────────────────────────────────────────────────
+        // ─── Login ────────────────────────────────────────────────────────────────
         async function handleLogin() {
             const email = document.getElementById('authEmail').value.trim();
             const password = document.getElementById('authPassword').value;
@@ -1083,6 +1170,8 @@
                     status.textContent = '✅ Login successful!';
                     status.style.display = 'block';
                     
+                    showToast('✅ Welcome back, ' + (data.user.user_metadata?.full_name || 'User') + '!', 'success');
+                    
                     setTimeout(() => {
                         status.className = 'status-box';
                         status.textContent = '';
@@ -1094,12 +1183,12 @@
                 status.className = 'status-box error';
                 status.textContent = error.message || 'Login failed. Please try again.';
                 status.style.display = 'block';
+                showToast(error.message || 'Login failed', 'error');
             }
         }
-
         window.handleLogin = handleLogin;
 
-        // ─── Register ────────────────────────────────────────────────────
+        // ─── Register ──────────────────────────────────────────────────────────────
         async function handleRegister() {
             const fullName = document.getElementById('authFullName').value.trim();
             const email = document.getElementById('authRegEmail').value.trim();
@@ -1171,6 +1260,8 @@
                     status.textContent = '✅ Registration successful! Please verify your email.';
                     status.style.display = 'block';
                     
+                    showToast('✅ Registration successful! Please check your email.', 'success');
+                    
                     setTimeout(() => {
                         toggleAuthModal('login');
                         status.className = 'status-box';
@@ -1183,12 +1274,12 @@
                 status.className = 'status-box error';
                 status.textContent = error.message || 'Registration failed. Please try again.';
                 status.style.display = 'block';
+                showToast(error.message || 'Registration failed', 'error');
             }
         }
-
         window.handleRegister = handleRegister;
 
-        // ─── Google Login ──────────────────────────────────────────────
+        // ─── Google Login ──────────────────────────────────────────────────────────
         async function handleGoogleLogin() {
             try {
                 if (!supabaseClient) {
@@ -1205,16 +1296,12 @@
                 if (error) throw error;
             } catch (error) {
                 console.error('Google login error:', error);
-                const status = document.getElementById('authStatus');
-                status.className = 'status-box error';
-                status.textContent = error.message || 'Google login failed. Please try again.';
-                status.style.display = 'block';
+                showToast(error.message || 'Google login failed', 'error');
             }
         }
-
         window.handleGoogleLogin = handleGoogleLogin;
 
-        // ─── Logout ──────────────────────────────────────────────────────
+        // ─── Logout ────────────────────────────────────────────────────────────────
         async function handleLogout() {
             try {
                 if (supabaseClient) {
@@ -1222,25 +1309,14 @@
                 }
                 clearUserUI();
                 authModal.classList.remove('open');
-                
-                const status = document.getElementById('authStatus');
-                status.className = 'status-box success';
-                status.textContent = '✅ Logged out successfully';
-                status.style.display = 'block';
-                
-                setTimeout(() => {
-                    status.className = 'status-box';
-                    status.textContent = '';
-                    status.style.display = 'none';
-                }, 2000);
+                showToast('👋 Logged out successfully', 'info');
             } catch (error) {
                 console.error('Logout error:', error);
             }
         }
-
         window.handleLogout = handleLogout;
 
-        // ─── Update Profile ─────────────────────────────────────────────
+        // ─── Update Profile ─────────────────────────────────────────────────────────
         async function handleUpdateProfile() {
             if (!currentUser) return;
             
@@ -1267,6 +1343,7 @@
                     status.className = 'status-box success';
                     status.textContent = '✅ Profile updated successfully';
                     status.style.display = 'block';
+                    showToast('✅ Profile updated successfully', 'success');
                     
                     setTimeout(() => {
                         status.className = 'status-box';
@@ -1279,30 +1356,33 @@
                 status.className = 'status-box error';
                 status.textContent = error.message || 'Update failed. Please try again.';
                 status.style.display = 'block';
+                showToast(error.message || 'Update failed', 'error');
             }
         }
-
         window.handleUpdateProfile = handleUpdateProfile;
 
-        // ─── Page Navigation ────────────────────────────────────────────
-        const PAGE_ROUTES = {
-            'mileage': 'mileage.html',
-            'value': 'instant-value.html',
-            'ownership': 'ownership-cost.html'
-        };
-
-        function navigateTo(tool) {
-            const page = PAGE_ROUTES[tool];
+        // ─── Service Navigation ────────────────────────────────────────────────────
+        function navigateToService(tool) {
+            const page = SERVICE_PAGES[tool];
             if (!page) {
                 console.error(`❌ Unknown tool: ${tool}`);
                 return;
             }
-            window.location.href = `https://auto-d.meipressgroup.com/${page}`;
+            
+            // If user is logged in, pass session
+            if (currentUser) {
+                const sessionToken = localStorage.getItem('supabase.auth.token');
+                if (sessionToken) {
+                    window.location.href = `${page}?session=${encodeURIComponent(sessionToken)}`;
+                    return;
+                }
+            }
+            
+            window.location.href = page;
         }
+        window.navigateToService = navigateToService;
 
-        window.navigateTo = navigateTo;
-
-        // ─── Mobile Menu ─────────────────────────────────────────────────
+        // ─── Mobile Menu ──────────────────────────────────────────────────────────
         (function() {
             const menuToggle = document.getElementById('menuToggle');
             const mobileMenu = document.getElementById('mobileMenu');
@@ -1322,20 +1402,50 @@
             }
         })();
 
-        // ─── Init ────────────────────────────────────────────────────────
+        // ─── Service Button Navigation Enhancement ──────────────────────────────
+        document.addEventListener('DOMContentLoaded', function() {
+            // Enhance all service navigation buttons
+            document.querySelectorAll('[onclick*="navigateToService"]').forEach(el => {
+                if (el.getAttribute('onclick')) {
+                    el.style.cursor = 'pointer';
+                }
+            });
+            
+            // Add keyboard support for service cards
+            document.querySelectorAll('.card-link').forEach(el => {
+                el.setAttribute('role', 'button');
+                el.setAttribute('tabindex', '0');
+                el.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        this.click();
+                    }
+                });
+            });
+        });
+
+        // ─── Init ──────────────────────────────────────────────────────────────────
         (async function() {
             console.log('🚗 Auto-D Kenya Landing Page (Supabase Single Source of Truth)');
             console.log('🔐 Supabase URL:', SUPABASE_URL);
+            console.log('📄 Service Pages:');
+            console.log('   📄 Mileage →', SERVICE_PAGES.mileage);
+            console.log('   📄 Value →', SERVICE_PAGES.value);
+            console.log('   📄 Ownership →', SERVICE_PAGES.ownership);
+            console.log('💡 Click any "Go to Service" button to navigate');
+            console.log('🔑 Sign in to save your data across devices');
             
             // Initialize Supabase
             await initSupabase();
             
-            console.log('📄 Page Routes:');
-            console.log('   📄 Mileage → mileage.html');
-            console.log('   📄 Value → instant-value.html');
-            console.log('   📄 Ownership → ownership-cost.html');
-            console.log('💡 Click any "Go to Service" button to navigate');
-            console.log('🔑 Sign in to save your data across devices');
+            // Check if user came from service page
+            const urlParams = new URLSearchParams(window.location.search);
+            const sessionParam = urlParams.get('session');
+            if (sessionParam) {
+                try {
+                    localStorage.setItem('supabase.auth.token', sessionParam);
+                } catch (e) { /* ignore */ }
+            }
         })();
     </script>
 
