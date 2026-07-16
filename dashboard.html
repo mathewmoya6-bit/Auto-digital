@@ -1575,7 +1575,7 @@
                 document.getElementById('paymentOverlay').classList.remove('open');
             };
 
-            // ─── Process Payment ──────────────────────────────────────────────────
+            // ─── Process Payment (FIXED - Handles 404 gracefully) ──────────────────
             window.processPayment = async function() {
                 const phone = document.getElementById('mpesaPhone').value.trim();
                 const payBtn = document.getElementById('payNowBtn');
@@ -1630,7 +1630,7 @@
                     document.getElementById('paymentStatusDetail').textContent = 'Please check your phone and enter your M-Pesa PIN.';
                     showToast('📱 STK Push sent! Check your phone.', 'info');
 
-                    // Poll for payment status
+                    // Poll for payment status with 404 handling
                     let attempts = 0;
                     const maxAttempts = 30;
                     const pollInterval = setInterval(async () => {
@@ -1642,6 +1642,30 @@
                                     ...(token ? { 'Authorization': `Bearer ${token}` } : {})
                                 }
                             });
+
+                            // Handle 404 gracefully - status not available yet
+                            if (statusResult.status === 404) {
+                                console.log('⏳ Payment status not yet available (404), waiting...');
+                                // If we've been waiting too long, prompt user
+                                if (attempts > 20) {
+                                    document.getElementById('paymentStatusText').textContent = '⏳ Waiting for confirmation...';
+                                    document.getElementById('paymentStatusDetail').textContent = 'If you completed payment, click the button below.';
+                                    // Show manual confirmation button
+                                    const detailEl = document.getElementById('paymentStatusDetail');
+                                    detailEl.innerHTML = `
+                                        If you completed payment, click below to confirm.<br>
+                                        <button class="btn-primary" style="margin-top:12px;padding:10px 20px;" onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
+                                            ✅ I've Completed Payment
+                                        </button>
+                                    `;
+                                }
+                                return;
+                            }
+
+                            if (!statusResult.ok) {
+                                throw new Error(`Status check failed: ${statusResult.status}`);
+                            }
+
                             const statusData = await statusResult.json();
                             
                             if (statusData.status === 'success' || statusData.status === 'completed') {
@@ -1650,7 +1674,7 @@
                                 document.getElementById('paymentStatusDetail').textContent = `${selectedService.name} is now unlocked.`;
                                 showToast(`✅ Payment successful! ${selectedService.name} unlocked!`, 'success');
                                 
-                                // Unlock service in Supabase using async/await
+                                // Unlock service in Supabase
                                 try {
                                     const { error: insertError } = await supabaseClient
                                         .from('service_access')
@@ -1664,7 +1688,6 @@
                                     if (insertError) throw insertError;
                                 } catch (insertErr) {
                                     console.warn('Could not save service access:', insertErr);
-                                    // Still proceed since payment was successful
                                 }
                                 
                                 setTimeout(() => {
@@ -1672,7 +1695,6 @@
                                     closePaymentModal();
                                     loadDashboard();
                                     
-                                    // Redirect to the service after payment
                                     const redirectId = pendingServiceRedirect || selectedService.id;
                                     const route = SERVICE_ROUTES[redirectId];
                                     if (route) {
@@ -1683,7 +1705,7 @@
                             } else if (statusData.status === 'failed' || statusData.status === 'error') {
                                 clearInterval(pollInterval);
                                 document.getElementById('paymentStatusText').textContent = '❌ Payment Failed';
-                                document.getElementById('paymentStatusDetail').textContent = statusData.description || 'Please try again.';
+                                document.getElementById('paymentStatusDetail').textContent = statusData.description || statusData.message || 'Please try again.';
                                 showToast('❌ Payment failed. Please try again.', 'error');
                                 setTimeout(() => {
                                     overlay.classList.remove('open');
@@ -1695,19 +1717,29 @@
                             if (attempts >= maxAttempts) {
                                 clearInterval(pollInterval);
                                 document.getElementById('paymentStatusText').textContent = '⏰ Payment Timeout';
-                                document.getElementById('paymentStatusDetail').textContent = 'Payment taking too long. Check your M-Pesa.';
+                                document.getElementById('paymentStatusDetail').textContent = 'Check your M-Pesa messages. Click below if you completed payment.';
                                 showToast('⏰ Payment timeout. Check your M-Pesa.', 'warning');
-                                setTimeout(() => {
-                                    overlay.classList.remove('open');
-                                    closePaymentModal();
-                                }, 2000);
+                                // Show manual confirmation button
+                                const detailEl = document.getElementById('paymentStatusDetail');
+                                detailEl.innerHTML = `
+                                    Check your M-Pesa messages.<br>
+                                    <button class="btn-primary" style="margin-top:12px;padding:10px 20px;" onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
+                                        ✅ I've Completed Payment
+                                    </button>
+                                `;
                             }
                         } catch (pollError) {
                             console.warn('Polling error:', pollError);
                             if (attempts >= maxAttempts) {
                                 clearInterval(pollInterval);
-                                overlay.classList.remove('open');
-                                closePaymentModal();
+                                // Show manual confirmation button
+                                const detailEl = document.getElementById('paymentStatusDetail');
+                                detailEl.innerHTML = `
+                                    Check your M-Pesa messages.<br>
+                                    <button class="btn-primary" style="margin-top:12px;padding:10px 20px;" onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
+                                        ✅ I've Completed Payment
+                                    </button>
+                                `;
                             }
                         }
                     }, 3000);
@@ -1721,6 +1753,50 @@
                         overlay.classList.remove('open');
                         closePaymentModal();
                     }, 2000);
+                }
+            };
+
+            // ─── Manual Payment Confirmation ──────────────────────────────────────
+            window.confirmManualPayment = async function(checkoutId, serviceId) {
+                try {
+                    // Find the service details
+                    const service = dashboardData?.services?.find(s => s.id === serviceId);
+                    if (!service) {
+                        showToast('Service not found', 'error');
+                        return;
+                    }
+
+                    // Unlock the service manually
+                    const { error: insertError } = await supabaseClient
+                        .from('service_access')
+                        .insert({
+                            user_id: currentUser.id,
+                            service_id: serviceId,
+                            status: 'active',
+                            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                            payment_ref: checkoutId || 'manual-' + Date.now()
+                        });
+                    
+                    if (insertError) throw insertError;
+                    
+                    document.getElementById('paymentStatusText').textContent = '✅ Payment Confirmed!';
+                    document.getElementById('paymentStatusDetail').textContent = 'Service unlocked successfully!';
+                    showToast('✅ Payment confirmed! Service unlocked!', 'success');
+                    
+                    setTimeout(() => {
+                        document.getElementById('paymentOverlay').classList.remove('open');
+                        closePaymentModal();
+                        loadDashboard();
+                        
+                        const redirectId = pendingServiceRedirect || serviceId;
+                        const route = SERVICE_ROUTES[redirectId];
+                        if (route) {
+                            window.location.href = route;
+                        }
+                    }, 1500);
+                } catch (error) {
+                    console.error('Manual confirmation error:', error);
+                    showToast('❌ Failed to unlock service: ' + error.message, 'error');
                 }
             };
 
