@@ -1297,7 +1297,6 @@
 
             // ─── STATE ──────────────────────────────────────────────────
             let currentVehicleType = 'Car';
-            let isBackendAvailable = false;
             let capturedPhotos = {};
             let currentStream = null;
             let currentAngle = null;
@@ -1441,23 +1440,6 @@
                 } catch (error) {
                     console.error('Logout error:', error);
                 }
-            }
-
-            // ─── CHECK BACKEND HEALTH ──────────────────────────────────
-            async function checkBackendHealth() {
-                try {
-                    const response = await fetch(`${API_BASE}${API_ENDPOINTS.HEALTH}`);
-                    if (response.ok) {
-                        const data = await response.json();
-                        isBackendAvailable = true;
-                        console.log('✅ Backend is healthy:', data);
-                        return true;
-                    }
-                } catch (error) {
-                    console.warn('⚠️ Backend unavailable:', error.message);
-                }
-                isBackendAvailable = false;
-                return false;
             }
 
             // ─── DYNAMIC PHOTO GRID ────────────────────────────────────
@@ -1953,12 +1935,6 @@
 
             // ─── CALL BACKEND API ──────────────────────────────────
             async function callValuationAPI(formData) {
-                // If backend is unavailable, use offline calculation
-                if (!isBackendAvailable) {
-                    console.log('Using offline valuation calculation');
-                    return calculateOfflineValuation(formData);
-                }
-
                 try {
                     const payload = {
                         purchase_price: formData.purchase_price || 3000000,
@@ -2018,14 +1994,12 @@
                 const typePrices = basePrices[formData.type] || basePrices['Car'];
                 let basePrice = typePrices[formData.make] || typePrices['default'] || 3000000;
                 
-                // Adjust for year
                 const currentYear = new Date().getFullYear();
                 const ageYears = formData.age_years || (currentYear - (formData.year || currentYear));
                 if (ageYears > 0) {
                     basePrice = basePrice * Math.pow(0.88, ageYears);
                 }
                 
-                // Adjust for condition
                 const conditionMultipliers = {
                     'Excellent': 1.0,
                     'Good': 0.9,
@@ -2034,14 +2008,12 @@
                 };
                 const conditionMultiplier = conditionMultipliers[formData.condition] || 0.85;
                 
-                // Adjust for mileage
                 const mileage = formData.mileage || 0;
                 let mileageMultiplier = 1.0;
                 if (mileage > 100000) mileageMultiplier = 0.85;
                 else if (mileage > 50000) mileageMultiplier = 0.92;
                 else if (mileage > 20000) mileageMultiplier = 0.97;
                 
-                // Adjust for accident history
                 const accidentMultipliers = {
                     'None': 1.0,
                     'Minor': 0.9,
@@ -2050,7 +2022,6 @@
                 };
                 const accidentMultiplier = accidentMultipliers[formData.accident_history] || 0.95;
                 
-                // Adjust for previous owners
                 let ownersMultiplier = 1.0;
                 if (formData.previous_owners > 1) {
                     ownersMultiplier = Math.max(0.85, 1 - (formData.previous_owners - 1) * 0.03);
@@ -2074,7 +2045,7 @@
                         base_price: basePrice,
                         adjusted_value: estimatedValue
                     },
-                    message: 'Offline calculation (backend unavailable)',
+                    message: 'Offline calculation',
                     offline: true
                 };
             }
@@ -2323,9 +2294,6 @@
                     return;
                 }
 
-                // Check backend health but continue anyway
-                await checkBackendHealth();
-
                 if (!validateAll()) {
                     statusBox.className = 'status-box status-error';
                     statusBox.textContent = '❌ Please fix the highlighted fields and ensure all mandatory photos are captured.';
@@ -2339,7 +2307,6 @@
                 const mileage = parseInt(document.getElementById('mileage').value);
                 const condition = document.getElementById('condition').value;
 
-                // Build form data
                 const formData = {
                     type: vehicleTypeSelect.value,
                     make: makeSelect.value,
@@ -2385,15 +2352,9 @@
                     updateLoadingStep(4);
                     loadingSteps.classList.remove('show');
 
-                    if (result.offline) {
-                        statusBox.className = 'status-box status-info';
-                        statusBox.textContent = 'ℹ️ Using offline valuation (backend unavailable)';
-                        statusBox.style.display = 'flex';
-                    } else {
-                        statusBox.className = 'status-box status-success';
-                        statusBox.textContent = '✅ Valuation complete! Your result is ready below.';
-                        statusBox.style.display = 'flex';
-                    }
+                    statusBox.className = 'status-box status-success';
+                    statusBox.textContent = '✅ Valuation complete! Your result is ready below.';
+                    statusBox.style.display = 'flex';
 
                     showResult(result);
 
@@ -2416,10 +2377,7 @@
 
             // ─── INIT ──────────────────────────────────────────────────
             async function init() {
-                // Initialize auth first
                 await initAuth();
-
-                await checkBackendHealth();
 
                 currentVehicleType = vehicleTypeSelect.value;
                 renderPhotoGrid(currentVehicleType);
@@ -2432,7 +2390,6 @@
                 document.getElementById('year').max = new Date().getFullYear();
                 updateProgress();
 
-                // Check if camera is supported
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                     document.querySelectorAll('.camera-btn').forEach(btn => {
                         btn.style.display = 'none';
@@ -2443,22 +2400,8 @@
                     showToast('📷 Camera not supported. Use file upload.', 'info');
                 }
 
-                // Show status message
-                if (isBackendAvailable) {
-                    statusBox.className = 'status-box status-info';
-                    statusBox.textContent = '✅ Backend connected. Ready for valuation.';
-                    statusBox.style.display = 'flex';
-                    setTimeout(() => { statusBox.style.display = 'none'; }, 3000);
-                } else {
-                    statusBox.className = 'status-box status-info';
-                    statusBox.textContent = '⚠️ Backend service unavailable. Using offline mode with limited features.';
-                    statusBox.style.display = 'flex';
-                    // Don't auto-hide, let user know
-                }
-
                 console.log('🚗 Auto-D Kenya Instant Value Check loaded');
-                console.log(`📡 API Base: ${API_BASE}`);
-                console.log(`📡 Backend Available: ${isBackendAvailable}`);
+                console.log(`📡 Supabase: ${SUPABASE_URL}`);
                 console.log(`🔐 Auth: ${currentUser ? 'Logged in' : 'Not logged in'}`);
                 console.log(`📸 Dynamic Photo Requirements loaded for ${currentVehicleType}`);
             }
