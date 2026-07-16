@@ -587,9 +587,9 @@
             </a>
             <ul class="nav-links">
                 <li><a href="#features" class="active">Features</a></li>
-                <li><a onclick="navigateToService('mileage')" style="cursor:pointer;">Mileage &amp; Running</a></li>
-                <li><a onclick="navigateToService('value')" style="cursor:pointer;">Instant Value</a></li>
-                <li><a onclick="navigateToService('ownership')" style="cursor:pointer;">Ownership Cost</a></li>
+                <li><a href="#" onclick="navigateToService('mileage')" style="cursor:pointer;">Mileage &amp; Running</a></li>
+                <li><a href="#" onclick="navigateToService('value')" style="cursor:pointer;">Instant Value</a></li>
+                <li><a href="#" onclick="navigateToService('ownership')" style="cursor:pointer;">Ownership Cost</a></li>
                 <li><a href="#how">How It Works</a></li>
             </ul>
             <div class="nav-actions">
@@ -612,12 +612,12 @@
         </nav>
         <div class="mobile-menu" id="mobileMenu" role="navigation" aria-label="Mobile navigation">
             <a href="#features">Features</a>
-            <a onclick="navigateToService('mileage')">Mileage &amp; Running</a>
-            <a onclick="navigateToService('value')">Instant Value</a>
-            <a onclick="navigateToService('ownership')">Ownership Cost</a>
+            <a href="#" onclick="navigateToService('mileage')">Mileage &amp; Running</a>
+            <a href="#" onclick="navigateToService('value')">Instant Value</a>
+            <a href="#" onclick="navigateToService('ownership')">Ownership Cost</a>
             <a href="#how">How It Works</a>
-            <a onclick="navigateToService('mileage')" class="btn-service" style="display:block;text-align:center;margin:8px 0;padding:12px;">🚀 Go to Service</a>
-            <a onclick="toggleAuthModal('login')" id="mobileLoginBtn">Sign In</a>
+            <a href="#" onclick="navigateToService('mileage')" class="btn-service" style="display:block;text-align:center;margin:8px 0;padding:12px;">🚀 Go to Service</a>
+            <a href="#" onclick="toggleAuthModal('login')" id="mobileLoginBtn">Sign In</a>
         </div>
     </header>
 
@@ -920,9 +920,9 @@
                 <div class="footer-col">
                     <h5>Features</h5>
                     <ul>
-                        <li><a onclick="navigateToService('mileage')">Mileage Rate &amp; Running Cost</a></li>
-                        <li><a onclick="navigateToService('value')">Instant Value</a></li>
-                        <li><a onclick="navigateToService('ownership')">Vehicle Ownership Cost</a></li>
+                        <li><a href="#" onclick="navigateToService('mileage')">Mileage Rate &amp; Running Cost</a></li>
+                        <li><a href="#" onclick="navigateToService('value')">Instant Value</a></li>
+                        <li><a href="#" onclick="navigateToService('ownership')">Vehicle Ownership Cost</a></li>
                     </ul>
                 </div>
                 <div class="footer-col">
@@ -954,6 +954,7 @@
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
         
+        // ─── Service Page URLs ────────────────────────────────────────────────────
         const SERVICE_PAGES = {
             'mileage': 'https://auto-d.meipressgroup.com/mileage.html',
             'value': 'https://auto-d.meipressgroup.com/instant-value.html',
@@ -1374,18 +1375,36 @@
             const page = SERVICE_PAGES[tool];
             if (!page) {
                 console.error(`❌ Unknown tool: ${tool}`);
+                showToast('Service not found', 'error');
                 return;
             }
             
-            // If user is logged in, pass session
+            console.log(`🚀 Navigating to: ${page}`);
+            
+            // If user is logged in, try to pass session
             if (currentUser) {
-                const sessionToken = localStorage.getItem('supabase.auth.token');
-                if (sessionToken) {
-                    window.location.href = `${page}?session=${encodeURIComponent(sessionToken)}`;
-                    return;
+                try {
+                    // Get session token from local storage
+                    const sessionData = localStorage.getItem('supabase.auth.token');
+                    if (sessionData) {
+                        try {
+                            const parsed = JSON.parse(sessionData);
+                            if (parsed && parsed.access_token) {
+                                window.location.href = `${page}?session=${encodeURIComponent(parsed.access_token)}`;
+                                return;
+                            }
+                        } catch (e) {
+                            // If it's not JSON, use as is
+                            window.location.href = `${page}?session=${encodeURIComponent(sessionData)}`;
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Could not pass session:', e);
                 }
             }
             
+            // Fallback: direct navigation
             window.location.href = page;
         }
         window.navigateToService = navigateToService;
@@ -1432,8 +1451,9 @@
             });
         });
 
-        // ─── Init ──────────────────────────────────────────────────────────────────        (async function() {
-            console.log('🚗 Auto-D Kenya Landing Page (Supabase Single Source of Truth)');
+        // ─── Init ──────────────────────────────────────────────────────────────────
+        (async function() {
+            console.log('🚗 Auto-D Kenya Landing Page');
             console.log('🔐 Supabase URL:', SUPABASE_URL);
             console.log('📄 Service Pages:');
             console.log('   📄 Mileage →', SERVICE_PAGES.mileage);
