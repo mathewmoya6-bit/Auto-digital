@@ -979,7 +979,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (Flask Backend with Admin Auth)
+        // AUTO-D KENYA - DASHBOARD (Supabase Only - No Admin Auth)
         // ═══════════════════════════════════════════════════════════════════════════
 
         (function() {
@@ -997,7 +997,6 @@
             let selectedService = null;
             let isProcessingPayment = false;
             let checkoutRequestId = null;
-            let adminToken = null;
 
             // ─── DOM Refs ──────────────────────────────────────────────────────────
             const vehicleGrid = document.getElementById('vehicleGrid');
@@ -1071,77 +1070,32 @@
                 }
             }
 
-            // ─── Admin Login ──────────────────────────────────────────────────────
-            async function adminLogin() {
+            // ─── Supabase API Request ──────────────────────────────────────────────
+            async function supabaseRequest(table, select = '*', filters = {}, order = null) {
                 try {
-                    // Try to login as admin using the stored credentials or prompt
-                    const username = prompt('Enter admin username:') || 'admin';
-                    const password = prompt('Enter admin password:') || 'admin123';
-
-                    const response = await fetch(`${API_BASE}/admin/login`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ username, password })
-                    });
-
-                    const result = await response.json();
-                    if (result.success) {
-                        adminToken = result.token;
-                        localStorage.setItem('admin_token', adminToken);
-                        showToast('✅ Admin login successful!', 'success');
-                        return true;
-                    } else {
-                        showToast('❌ Admin login failed: ' + (result.error || 'Invalid credentials'), 'error');
-                        return false;
-                    }
-                } catch (error) {
-                    console.error('Admin login error:', error);
-                    showToast('❌ Admin login error: ' + error.message, 'error');
-                    return false;
-                }
-            }
-
-            // ─── Admin API Request ──────────────────────────────────────────────
-            async function adminApiRequest(endpoint, method = 'GET', data = null) {
-                const token = adminToken || localStorage.getItem('admin_token');
-                
-                if (!token) {
-                    // Try to login first
-                    const loggedIn = await adminLogin();
-                    if (!loggedIn) {
-                        throw new Error('Admin authentication required');
-                    }
-                    // Retry with new token
-                    return adminApiRequest(endpoint, method, data);
-                }
-
-                const url = `${API_BASE}${endpoint}`;
-                const options = {
-                    method,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    }
-                };
-                if (data) {
-                    options.body = JSON.stringify(data);
-                }
-                try {
-                    const response = await fetch(url, options);
-                    const result = await response.json();
-                    if (!response.ok) {
-                        // If unauthorized, clear token and retry
-                        if (response.status === 401) {
-                            localStorage.removeItem('admin_token');
-                            adminToken = null;
-                            throw new Error('Unauthorized - Please login again');
+                    if (!supabaseClient) {
+                        if (!initSupabase()) {
+                            throw new Error('Supabase not initialized');
                         }
-                        throw new Error(result.message || result.error || `HTTP ${response.status}`);
                     }
-                    return result;
+
+                    let query = supabaseClient.from(table).select(select);
+                    
+                    // Apply filters
+                    Object.keys(filters).forEach(key => {
+                        query = query.eq(key, filters[key]);
+                    });
+                    
+                    // Apply order
+                    if (order) {
+                        query = query.order(order.column, { ascending: order.ascending || false });
+                    }
+                    
+                    const { data, error } = await query;
+                    if (error) throw error;
+                    return data;
                 } catch (error) {
-                    console.error('Admin API Error:', error);
+                    console.error(`❌ Supabase query error (${table}):`, error);
                     throw error;
                 }
             }
@@ -1201,88 +1155,96 @@
                     paymentsList.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">Loading payments...</div>';
                     notificationsList.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">Loading notifications...</div>';
 
-                    // Check for admin token
-                    adminToken = localStorage.getItem('admin_token');
-
-                    // 1. Get service prices from admin endpoint
+                    // 1. Get service prices from Supabase
                     let servicePrices = {};
                     try {
-                        const servicesResult = await adminApiRequest('/admin/services', 'GET');
-                        if (servicesResult.success) {
-                            servicePrices = servicesResult.data || {};
+                        const servicesData = await supabaseRequest('service_prices');
+                        if (servicesData && servicesData.length > 0) {
+                            // Get the latest prices
+                            const latest = {};
+                            servicesData.forEach(item => {
+                                if (!latest[item.service_type] || new Date(item.created_at) > new Date(latest[item.service_type].created_at)) {
+                                    latest[item.service_type] = item;
+                                }
+                            });
+                            Object.keys(latest).forEach(key => {
+                                servicePrices[key] = latest[key].price;
+                            });
                         }
                     } catch (e) {
                         console.warn('⚠️ Could not fetch service prices:', e.message);
-                        if (e.message.includes('Unauthorized')) {
-                            // Try to login again
-                            adminToken = null;
-                            localStorage.removeItem('admin_token');
-                            const loggedIn = await adminLogin();
-                            if (loggedIn) {
-                                // Retry after login
-                                const retryResult = await adminApiRequest('/admin/services', 'GET');
-                                if (retryResult.success) {
-                                    servicePrices = retryResult.data || {};
-                                }
-                            }
-                        }
                     }
 
-                    // 2. Get stats from admin endpoint
-                    let stats = {};
+                    // 2. Get vehicles
+                    let vehicles = [];
                     try {
-                        const statsResult = await adminApiRequest('/admin/stats', 'GET');
-                        if (statsResult.success) {
-                            stats = statsResult.data || {};
-                        }
+                        vehicles = await supabaseRequest('vehicles', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
                     } catch (e) {
-                        console.warn('⚠️ Could not fetch stats:', e.message);
+                        console.warn('⚠️ Could not fetch vehicles:', e.message);
                     }
 
-                    // 3. Get fuel prices
-                    let fuelPrices = {};
+                    // 3. Get reports
+                    let reports = [];
                     try {
-                        const fuelResult = await adminApiRequest('/admin/fuel', 'GET');
-                        if (fuelResult.success) {
-                            fuelPrices = fuelResult.data || {};
-                        }
+                        reports = await supabaseRequest('reports', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
                     } catch (e) {
-                        console.warn('⚠️ Could not fetch fuel prices:', e.message);
+                        console.warn('⚠️ Could not fetch reports:', e.message);
                     }
+
+                    // 4. Get payments
+                    let payments = [];
+                    try {
+                        payments = await supabaseRequest('payments', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
+                    } catch (e) {
+                        console.warn('⚠️ Could not fetch payments:', e.message);
+                    }
+
+                    // 5. Get notifications
+                    let notifications = [];
+                    try {
+                        notifications = await supabaseRequest('notifications', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
+                    } catch (e) {
+                        console.warn('⚠️ Could not fetch notifications:', e.message);
+                    }
+
+                    // 6. Get service access (unlocked services)
+                    let serviceAccess = [];
+                    try {
+                        serviceAccess = await supabaseRequest('service_access', '*', { user_id: currentUser.id, status: 'active' });
+                    } catch (e) {
+                        console.warn('⚠️ Could not fetch service access:', e.message);
+                    }
+
+                    const unlockedServices = {};
+                    serviceAccess.forEach(item => {
+                        if (!item.expires_at || new Date(item.expires_at) > new Date()) {
+                            unlockedServices[item.service_id] = true;
+                        }
+                    });
 
                     // Build services list from backend prices
                     const services = [
-                        { id: 'mileage', name: '📈 Mileage Calculator', price: servicePrices.mileage || 100, icon: '📈', route: '/mileage.html' },
-                        { id: 'valuation', name: '💰 Instant Vehicle Value', price: servicePrices.valuation || 150, icon: '💰', route: '/instant-value.html' },
-                        { id: 'ownership', name: '📊 Ownership Cost Report', price: servicePrices.ownership || 200, icon: '📊', route: '/ownership-cost.html' },
-                        { id: 'full_report', name: '📑 Full Vehicle Report', price: servicePrices.full_report || 350, icon: '📑', route: '/full-report.html' }
+                        { id: 'mileage', name: '📈 Mileage Calculator', price: servicePrices.mileage || 100, icon: '📈', route: '/mileage.html', purchased: !!unlockedServices['mileage'] },
+                        { id: 'valuation', name: '💰 Instant Vehicle Value', price: servicePrices.valuation || 150, icon: '💰', route: '/instant-value.html', purchased: !!unlockedServices['valuation'] },
+                        { id: 'ownership', name: '📊 Ownership Cost Report', price: servicePrices.ownership || 200, icon: '📊', route: '/ownership-cost.html', purchased: !!unlockedServices['ownership'] },
+                        { id: 'full_report', name: '📑 Full Vehicle Report', price: servicePrices.full_report || 350, icon: '📑', route: '/full-report.html', purchased: !!unlockedServices['full_report'] }
                     ];
 
                     // Build dashboard data
                     dashboardData = {
                         stats: {
-                            vehicles: stats.vehicles || 3,
-                            reports: stats.reports || 18,
-                            active_services: stats.active_services || 4,
-                            amount_spent: stats.amount_spent || 850,
-                            fleet_value: stats.fleet_value || 3250000,
-                            monthly_running_cost: stats.monthly_running_cost || 45000
+                            vehicles: vehicles ? vehicles.length : 0,
+                            reports: reports ? reports.length : 0,
+                            active_services: Object.keys(unlockedServices).length || 0,
+                            amount_spent: payments ? payments.reduce((sum, p) => sum + (p.amount || 0), 0) : 0,
+                            fleet_value: vehicles ? vehicles.reduce((sum, v) => sum + (v.value || 0), 0) : 0,
+                            monthly_running_cost: 45000
                         },
                         services: services,
-                        fuel_prices: fuelPrices,
-                        vehicles: [
-                            { id: 1, plate: 'KDA 123A', make_model: 'Toyota Prado', year: 2022, mileage: 72150, value: 3250000, running_cost: 29.60, tco: 2180000, verified: true, next_service: 1850, insurance_status: 'Valid' }
-                        ],
-                        reports: [
-                            { id: 1, title: 'Vehicle Value Report', vehicle_plate: 'KDA 123A', report_type: 'Valuation', created_at: new Date().toISOString(), status: 'completed' }
-                        ],
-                        payments: [
-                            { id: 1, service_name: 'Mileage Calculator', phone: '0712345678', amount: 100, status: 'completed', created_at: new Date().toISOString(), receipt_url: '#' }
-                        ],
-                        notifications: [
-                            { id: 1, type: 'insurance', message: 'Insurance expires in 10 days', created_at: new Date().toISOString(), read: false },
-                            { id: 2, type: 'service', message: 'Vehicle service due in 1,850 km', created_at: new Date().toISOString(), read: false }
-                        ]
+                        vehicles: vehicles || [],
+                        reports: reports || [],
+                        payments: payments || [],
+                        notifications: notifications || []
                     };
 
                     renderDashboard(dashboardData);
@@ -1292,6 +1254,20 @@
                     console.error('❌ Dashboard load error:', error);
                     setConnectionStatus('offline', 'Error: ' + error.message);
                     showToast('Error loading dashboard: ' + error.message, 'error');
+                    
+                    // Show empty state with retry
+                    vehicleGrid.innerHTML = `
+                        <div class="empty-state" style="grid-column:1/-1;">
+                            <div class="icon">⚠️</div>
+                            <h3>Could not load data</h3>
+                            <p>${error.message}</p>
+                            <button class="btn-primary-sm" onclick="loadDashboard()">Retry</button>
+                        </div>
+                    `;
+                    servicesGrid.innerHTML = '';
+                    reportsList.innerHTML = '';
+                    paymentsList.innerHTML = '';
+                    notificationsList.innerHTML = '';
                 }
             }
 
@@ -1634,6 +1610,21 @@
                                 document.getElementById('paymentStatusDetail').textContent = `${selectedService.name} is now unlocked.`;
                                 showToast(`✅ Payment successful! ${selectedService.name} unlocked!`, 'success');
                                 
+                                // Unlock service in Supabase
+                                try {
+                                    await supabaseClient
+                                        .from('service_access')
+                                        .insert({
+                                            user_id: currentUser.id,
+                                            service_id: selectedService.id,
+                                            status: 'active',
+                                            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                                            payment_ref: checkoutId
+                                        });
+                                } catch (e) {
+                                    console.warn('Could not save service access:', e);
+                                }
+                                
                                 setTimeout(() => {
                                     overlay.classList.remove('open');
                                     closePaymentModal();
@@ -1698,9 +1689,32 @@
                 }
 
                 try {
+                    if (!supabaseClient) {
+                        if (!initSupabase()) {
+                            throw new Error('Database not connected');
+                        }
+                    }
+
+                    const { data, error } = await supabaseClient
+                        .from('vehicles')
+                        .insert({
+                            user_id: currentUser.id,
+                            plate: plate.toUpperCase(),
+                            make_model: make,
+                            vin: vin || null,
+                            year: year || null,
+                            mileage: mileage,
+                            created_at: new Date().toISOString()
+                        })
+                        .select()
+                        .single();
+
+                    if (error) throw error;
+
                     showToast('✅ Vehicle added successfully!', 'success');
                     closeAddVehicleModal();
                     await loadDashboard();
+
                 } catch (error) {
                     console.error('Add vehicle error:', error);
                     showToast(error.message || 'Failed to add vehicle', 'error');
@@ -1709,8 +1723,29 @@
 
             window.deleteVehicle = async function(id) {
                 if (!confirm('Are you sure you want to delete this vehicle?')) return;
-                showToast('🗑️ Vehicle deleted', 'info');
-                await loadDashboard();
+
+                try {
+                    if (!supabaseClient) {
+                        if (!initSupabase()) {
+                            throw new Error('Database not connected');
+                        }
+                    }
+
+                    const { error } = await supabaseClient
+                        .from('vehicles')
+                        .delete()
+                        .eq('id', id)
+                        .eq('user_id', currentUser.id);
+
+                    if (error) throw error;
+
+                    showToast('🗑️ Vehicle deleted', 'info');
+                    await loadDashboard();
+
+                } catch (error) {
+                    console.error('Delete vehicle error:', error);
+                    showToast(error.message || 'Failed to delete vehicle', 'error');
+                }
             };
 
             // ─── Modal Controls ──────────────────────────────────────────────────
@@ -1752,8 +1787,6 @@
                         await supabaseClient.auth.signOut();
                     }
                     localStorage.removeItem('auto_d_user');
-                    localStorage.removeItem('admin_token');
-                    adminToken = null;
                     window.location.href = 'https://auto-d.meipressgroup.com/';
                 } catch (error) {
                     console.error('Logout error:', error);
@@ -1773,8 +1806,8 @@
 
             // ─── Init ──────────────────────────────────────────────────────────────
             (async function() {
-                console.log('🚗 Auto-D Kenya Dashboard (Flask Backend)');
-                console.log('📡 API Base:', API_BASE);
+                console.log('🚗 Auto-D Kenya Dashboard (Supabase Only)');
+                console.log('📡 Supabase URL:', SUPABASE_URL);
 
                 // Initialize Supabase
                 initSupabase();
@@ -1788,16 +1821,6 @@
                         window.location.href = 'https://auto-d.meipressgroup.com/';
                     }, 1500);
                     return;
-                }
-
-                // Check for admin token
-                adminToken = localStorage.getItem('admin_token');
-                if (!adminToken) {
-                    // Prompt for admin login
-                    const loggedIn = await adminLogin();
-                    if (!loggedIn) {
-                        showToast('⚠️ Admin login required for full dashboard access', 'warning');
-                    }
                 }
 
                 // Load dashboard
