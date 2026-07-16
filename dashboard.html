@@ -772,13 +772,13 @@
 
         <div class="nav-divider"></div>
         <div class="nav-section">Services</div>
-        <a href="/mileage.html" class="nav-item">
+        <a href="#" class="nav-item" onclick="navigateToService('mileage')">
             <span class="icon">📈</span> Mileage
         </a>
-        <a href="/instant-value.html" class="nav-item">
+        <a href="#" class="nav-item" onclick="navigateToService('valuation')">
             <span class="icon">💰</span> Vehicle Value
         </a>
-        <a href="/ownership-cost.html" class="nav-item">
+        <a href="#" class="nav-item" onclick="navigateToService('ownership')">
             <span class="icon">📊</span> Ownership Cost
         </a>
 
@@ -979,7 +979,9 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (Supabase Only - No Admin Auth)
+        // AUTO-D KENYA - DASHBOARD (Payment Gateway for Service Access)
+        // ───────────────────────────────────────────────────────────────────────────
+        // All service navigation goes through payment check
         // ═══════════════════════════════════════════════════════════════════════════
 
         (function() {
@@ -990,6 +992,14 @@
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
+            // ─── Service Routes ────────────────────────────────────────────────────
+            const SERVICE_ROUTES = {
+                'mileage': '/mileage.html',
+                'valuation': '/instant-value.html',
+                'ownership': '/ownership-cost.html',
+                'full_report': '/full-report.html'
+            };
+
             // ─── State ──────────────────────────────────────────────────────────────
             let currentUser = null;
             let supabaseClient = null;
@@ -997,6 +1007,7 @@
             let selectedService = null;
             let isProcessingPayment = false;
             let checkoutRequestId = null;
+            let pendingServiceRedirect = null;
 
             // ─── DOM Refs ──────────────────────────────────────────────────────────
             const vehicleGrid = document.getElementById('vehicleGrid');
@@ -1081,12 +1092,10 @@
 
                     let query = supabaseClient.from(table).select(select);
                     
-                    // Apply filters
                     Object.keys(filters).forEach(key => {
                         query = query.eq(key, filters[key]);
                     });
                     
-                    // Apply order
                     if (order) {
                         query = query.order(order.column, { ascending: order.ascending || false });
                     }
@@ -1143,6 +1152,54 @@
                 document.getElementById('greetingText').textContent = `👋 Welcome back, ${name}!`;
             }
 
+            // ─── Navigate to Service (Always goes through payment check) ──────────
+            window.navigateToService = function(serviceId) {
+                const service = (dashboardData?.services || []).find(s => s.id === serviceId);
+                if (!service) {
+                    showToast('Service not found', 'error');
+                    return;
+                }
+                
+                // Check if service is already purchased
+                if (service.purchased || service.status === 'purchased' || service.status === 'active') {
+                    // If purchased, go directly to the service
+                    const route = SERVICE_ROUTES[serviceId];
+                    if (route) {
+                        window.location.href = route;
+                    } else {
+                        showToast('Service route not found', 'error');
+                    }
+                } else {
+                    // If not purchased, open payment modal
+                    pendingServiceRedirect = serviceId;
+                    openPaymentModal(service);
+                }
+            };
+
+            // ─── Handle Service Action from Card ──────────────────────────────────
+            window.handleServiceAction = function(serviceId) {
+                const service = (dashboardData?.services || []).find(s => s.id === serviceId);
+                if (!service) {
+                    showToast('Service not found', 'error');
+                    return;
+                }
+                
+                // Check if service is already purchased
+                if (service.purchased || service.status === 'purchased' || service.status === 'active') {
+                    // If purchased, go directly to the service
+                    const route = SERVICE_ROUTES[serviceId];
+                    if (route) {
+                        window.location.href = route;
+                    } else {
+                        showToast('Service route not found', 'error');
+                    }
+                } else {
+                    // If not purchased, open payment modal
+                    pendingServiceRedirect = serviceId;
+                    openPaymentModal(service);
+                }
+            };
+
             // ─── Load Dashboard Data ──────────────────────────────────────────────
             async function loadDashboard() {
                 try {
@@ -1160,7 +1217,6 @@
                     try {
                         const servicesData = await supabaseRequest('service_prices');
                         if (servicesData && servicesData.length > 0) {
-                            // Get the latest prices
                             const latest = {};
                             servicesData.forEach(item => {
                                 if (!latest[item.service_type] || new Date(item.created_at) > new Date(latest[item.service_type].created_at)) {
@@ -1222,12 +1278,40 @@
                         }
                     });
 
-                    // Build services list from backend prices
+                    // Build services list with purchase status
                     const services = [
-                        { id: 'mileage', name: '📈 Mileage Calculator', price: servicePrices.mileage || 100, icon: '📈', route: '/mileage.html', purchased: !!unlockedServices['mileage'] },
-                        { id: 'valuation', name: '💰 Instant Vehicle Value', price: servicePrices.valuation || 150, icon: '💰', route: '/instant-value.html', purchased: !!unlockedServices['valuation'] },
-                        { id: 'ownership', name: '📊 Ownership Cost Report', price: servicePrices.ownership || 200, icon: '📊', route: '/ownership-cost.html', purchased: !!unlockedServices['ownership'] },
-                        { id: 'full_report', name: '📑 Full Vehicle Report', price: servicePrices.full_report || 350, icon: '📑', route: '/full-report.html', purchased: !!unlockedServices['full_report'] }
+                        { 
+                            id: 'mileage', 
+                            name: '📈 Mileage Calculator', 
+                            price: servicePrices.mileage || 100, 
+                            icon: '📈', 
+                            route: '/mileage.html', 
+                            purchased: !!unlockedServices['mileage'] 
+                        },
+                        { 
+                            id: 'valuation', 
+                            name: '💰 Instant Vehicle Value', 
+                            price: servicePrices.valuation || 150, 
+                            icon: '💰', 
+                            route: '/instant-value.html', 
+                            purchased: !!unlockedServices['valuation'] 
+                        },
+                        { 
+                            id: 'ownership', 
+                            name: '📊 Ownership Cost Report', 
+                            price: servicePrices.ownership || 200, 
+                            icon: '📊', 
+                            route: '/ownership-cost.html', 
+                            purchased: !!unlockedServices['ownership'] 
+                        },
+                        { 
+                            id: 'full_report', 
+                            name: '📑 Full Vehicle Report', 
+                            price: servicePrices.full_report || 350, 
+                            icon: '📑', 
+                            route: '/full-report.html', 
+                            purchased: !!unlockedServices['full_report'] 
+                        }
                     ];
 
                     // Build dashboard data
@@ -1255,7 +1339,6 @@
                     setConnectionStatus('offline', 'Error: ' + error.message);
                     showToast('Error loading dashboard: ' + error.message, 'error');
                     
-                    // Show empty state with retry
                     vehicleGrid.innerHTML = `
                         <div class="empty-state" style="grid-column:1/-1;">
                             <div class="icon">⚠️</div>
@@ -1273,7 +1356,6 @@
 
             // ─── Render Dashboard ──────────────────────────────────────────────────
             function renderDashboard(data) {
-                // Update stats
                 const stats = data.stats || {};
                 document.getElementById('statVehicles').textContent = stats.vehicles || 0;
                 document.getElementById('statReports').textContent = stats.reports || 0;
@@ -1282,26 +1364,15 @@
                 document.getElementById('statFleetValue').textContent = 'KES ' + (stats.fleet_value || 0).toLocaleString();
                 document.getElementById('statMonthlyCost').textContent = 'KES ' + (stats.monthly_running_cost || 0).toLocaleString();
 
-                // Update badges
                 document.getElementById('vehicleBadge').textContent = stats.vehicles || 0;
                 document.getElementById('reportBadge').textContent = stats.reports || 0;
 
-                // Render vehicles
                 renderVehicles(data.vehicles || []);
-                
-                // Render services (from backend)
                 renderServices(data.services || []);
-                
-                // Render reports
                 renderReports(data.reports || []);
-                
-                // Render payments
                 renderPayments(data.payments || []);
-                
-                // Render notifications
                 renderNotifications(data.notifications || []);
                 
-                // Update counts
                 document.getElementById('vehicleCountLabel').textContent = `(${(data.vehicles || []).length})`;
                 document.getElementById('serviceCountLabel').textContent = `(${(data.services || []).length})`;
                 document.getElementById('reportsCountLabel').textContent = `(${(data.reports || []).length})`;
@@ -1367,7 +1438,7 @@
                     const isPurchased = s.purchased || s.status === 'purchased' || s.status === 'active';
                     const statusClass = isPurchased ? 'purchased' : 'locked';
                     const statusText = isPurchased ? '✅ Purchased' : '🔒 Locked';
-                    const btnText = isPurchased ? '🚀 Open' : '💰 Purchase ' + (s.price || 0) + ' KES';
+                    const btnText = isPurchased ? '🚀 Open Service' : '💰 Purchase ' + (s.price || 0) + ' KES';
                     const btnClass = isPurchased ? 'purchased' : 'locked';
                     const expiry = s.expires_at ? `Expires: ${new Date(s.expires_at).toLocaleDateString()}` : '';
 
@@ -1483,35 +1554,6 @@
                 showToast(`📂 Navigating to ${section}...`, 'info');
             };
 
-            window.navigateToService = function(serviceId) {
-                const routes = {
-                    'mileage': '/mileage.html',
-                    'valuation': '/instant-value.html',
-                    'ownership': '/ownership-cost.html',
-                    'full_report': '/full-report.html'
-                };
-                window.location.href = routes[serviceId] || '/dashboard.html';
-            };
-
-            window.handleServiceAction = function(serviceId) {
-                const service = (dashboardData?.services || []).find(s => s.id === serviceId);
-                if (!service) {
-                    showToast('Service not found', 'error');
-                    return;
-                }
-                if (service.purchased || service.status === 'purchased' || service.status === 'active') {
-                    const routes = {
-                        'mileage': '/mileage.html',
-                        'valuation': '/instant-value.html',
-                        'ownership': '/ownership-cost.html',
-                        'full_report': '/full-report.html'
-                    };
-                    window.location.href = routes[serviceId] || '/dashboard.html';
-                } else {
-                    openPaymentModal(service);
-                }
-            };
-
             // ─── Payment Modal ──────────────────────────────────────────────────
             window.openPaymentModal = function(service) {
                 selectedService = service;
@@ -1525,6 +1567,7 @@
             window.closePaymentModal = function() {
                 document.getElementById('paymentModal').classList.remove('open');
                 selectedService = null;
+                pendingServiceRedirect = null;
                 isProcessingPayment = false;
                 const payBtn = document.getElementById('payNowBtn');
                 if (payBtn) {
@@ -1560,7 +1603,6 @@
                 overlay.classList.add('open');
 
                 try {
-                    // Get auth token for the payment endpoint
                     const token = await getAuthToken();
                     
                     const result = await fetch(`${API_BASE}/mpesa/stkpush`, {
@@ -1629,6 +1671,13 @@
                                     overlay.classList.remove('open');
                                     closePaymentModal();
                                     loadDashboard();
+                                    
+                                    // Redirect to the service after payment
+                                    const redirectId = pendingServiceRedirect || selectedService.id;
+                                    const route = SERVICE_ROUTES[redirectId];
+                                    if (route) {
+                                        window.location.href = route;
+                                    }
                                 }, 1500);
                                 return;
                             } else if (statusData.status === 'failed' || statusData.status === 'error') {
@@ -1806,8 +1855,9 @@
 
             // ─── Init ──────────────────────────────────────────────────────────────
             (async function() {
-                console.log('🚗 Auto-D Kenya Dashboard (Supabase Only)');
+                console.log('🚗 Auto-D Kenya Dashboard (Payment Gateway)');
                 console.log('📡 Supabase URL:', SUPABASE_URL);
+                console.log('💳 All service access goes through payment');
 
                 // Initialize Supabase
                 initSupabase();
