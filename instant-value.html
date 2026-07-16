@@ -10,6 +10,9 @@
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     
+    <!-- ─── SUPABASE SDK ──────────────────────────────────────────── -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
     <style>
         /* ─── BASE STYLES ──────────────────────────────────────────── */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -34,13 +37,70 @@
             position: relative;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
         }
+        
+        /* ─── AUTH SECTION ──────────────────────────────────────────── */
+        .auth-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: #1e293b;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border: 1px solid #334155;
+        }
+        .auth-section .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #94a3b8;
+            font-size: 13px;
+        }
+        .auth-section .user-info .avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #eab308;
+            color: #0a0c15;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+        }
+        .auth-section .user-info .email {
+            color: #eab308;
+            font-weight: 500;
+        }
+        .auth-btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s;
+        }
+        .auth-btn.login {
+            background: #eab308;
+            color: #0a0c15;
+        }
+        .auth-btn.login:hover { background: #facc15; }
+        .auth-btn.logout {
+            background: #ef4444;
+            color: #fff;
+        }
+        .auth-btn.logout:hover { background: #dc2626; }
+        .auth-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
         .back-link {
             display: inline-flex;
             align-items: center;
             gap: 6px;
             color: #94a3b8;
             text-decoration: none;
-            margin-bottom: 20px;
+            margin-bottom: 12px;
             font-size: 14px;
             font-weight: 500;
             transition: color 0.2s;
@@ -328,7 +388,6 @@
         }
         .photo-count .count { color: #eab308; font-weight: 700; }
         .photo-count .required { color: #ef4444; }
-        .photo-count .optional-text { color: #64748b; }
 
         /* ─── Camera Modal ─────────────────────────────────────────── */
         .camera-modal {
@@ -720,6 +779,8 @@
             .vehicle-preview { flex-direction: column; text-align: center; }
             .image-upload-grid { grid-template-columns: repeat(3, 1fr); }
             .camera-modal video { max-height: 50vh; }
+            .auth-section { flex-direction: column; gap: 10px; align-items: stretch; text-align: center; }
+            .auth-section .user-info { justify-content: center; }
         }
         @media (max-width: 480px) {
             body { padding: 10px; }
@@ -737,6 +798,18 @@
 
     <div class="container">
         <a href="index.html" class="back-link">← Back to Auto-D</a>
+
+        <!-- ─── AUTH SECTION ─────────────────────────────────────────── -->
+        <div class="auth-section" id="authSection">
+            <div class="user-info" id="userInfo" style="display:none;">
+                <span class="avatar" id="userAvatar">👤</span>
+                <span>Welcome, <span class="email" id="userEmail">User</span></span>
+            </div>
+            <div>
+                <button class="auth-btn login" id="loginBtn">🔑 Sign In / Sign Up</button>
+                <button class="auth-btn logout" id="logoutBtn" style="display:none;">🚪 Logout</button>
+            </div>
+        </div>
 
         <div class="header">
             <h1>🚗 Instant Value Check</h1>
@@ -1064,7 +1137,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // Auto-D Kenya - INSTANT VALUE CHECK with Dynamic Photo Requirements
+        // Auto-D Kenya - INSTANT VALUE CHECK with Supabase Auth + FastAPI
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1073,19 +1146,32 @@
             if (window.autoDInstantCheckInitialized) return;
             window.autoDInstantCheckInitialized = true;
 
-            // ─── API CONFIGURATION ──────────────────────────────────
+            // ─── SUPABASE CONFIG ──────────────────────────────────────
+            const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
+            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+
+            // ─── API CONFIG ──────────────────────────────────────────
             const API_BASE = 'https://auto-digital.onrender.com';
             const API_ENDPOINTS = {
                 VALUATION: '/api/valuation/calculate',
-                HEALTH: '/api/valuation/health'
+                HEALTH: '/api/valuation/health',
+                SAVE_VEHICLE: '/api/valuation/save-vehicle',
+                HISTORY: '/api/valuation/history'
             };
 
+            // ─── SUPABASE CLIENT ──────────────────────────────────────
+            let supabase = null;
+            let currentUser = null;
+            let supabaseSession = null;
+
+            try {
+                const { createClient } = supabaseJs;
+                supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            } catch (e) {
+                console.error('Failed to initialize Supabase:', e);
+            }
+
             // ─── PHOTO REQUIREMENTS BY VEHICLE TYPE ────────────────
-            // ═══════════════════════════════════════════════════════════
-            // Car: 8 mandatory images
-            // Bike: 2 mandatory images (Left Side, Right Side)
-            // Tricycle: 4 mandatory images (Left Side, Right Side, Front, Rear)
-            // ═══════════════════════════════════════════════════════════
             const PHOTO_REQUIREMENTS = {
                 Car: {
                     mandatory: [
@@ -1243,6 +1329,14 @@
             const previewTitle = document.getElementById('previewTitle');
             const previewSubtitle = document.getElementById('previewSubtitle');
 
+            // ─── AUTH DOM ELEMENTS ────────────────────────────────────
+            const authSection = document.getElementById('authSection');
+            const userInfo = document.getElementById('userInfo');
+            const userEmail = document.getElementById('userEmail');
+            const userAvatar = document.getElementById('userAvatar');
+            const loginBtn = document.getElementById('loginBtn');
+            const logoutBtn = document.getElementById('logoutBtn');
+
             // ─── CAMERA ELEMENTS ──────────────────────────────────────
             const cameraModal = document.getElementById('cameraModal');
             const cameraVideo = document.getElementById('cameraVideo');
@@ -1251,6 +1345,152 @@
             const switchCameraBtn = document.getElementById('switchCameraBtn');
             const closeCameraBtn = document.getElementById('closeCameraBtn');
             const cameraHint = document.getElementById('cameraHint');
+
+            // ─── AUTH FUNCTIONS ──────────────────────────────────────
+
+            async function initAuth() {
+                if (!supabase) {
+                    console.warn('Supabase not initialized');
+                    return;
+                }
+
+                try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (session) {
+                        currentUser = session.user;
+                        supabaseSession = session;
+                        updateAuthUI(true);
+                    } else {
+                        updateAuthUI(false);
+                    }
+                } catch (error) {
+                    console.error('Auth init error:', error);
+                }
+
+                // Listen for auth changes
+                supabase.auth.onAuthStateChange((event, session) => {
+                    if (event === 'SIGNED_IN' && session) {
+                        currentUser = session.user;
+                        supabaseSession = session;
+                        updateAuthUI(true);
+                        showToast('✅ Signed in successfully!', 'success');
+                    } else if (event === 'SIGNED_OUT') {
+                        currentUser = null;
+                        supabaseSession = null;
+                        updateAuthUI(false);
+                        showToast('👋 Signed out', 'info');
+                    }
+                });
+            }
+
+            function updateAuthUI(isLoggedIn) {
+                if (isLoggedIn && currentUser) {
+                    userInfo.style.display = 'flex';
+                    userEmail.textContent = currentUser.email || 'User';
+                    userAvatar.textContent = (currentUser.email || 'U')[0].toUpperCase();
+                    loginBtn.style.display = 'none';
+                    logoutBtn.style.display = 'inline-block';
+                    // Enable form
+                    document.querySelectorAll('#instantForm input, #instantForm select, #instantForm button').forEach(el => {
+                        el.disabled = false;
+                    });
+                } else {
+                    userInfo.style.display = 'none';
+                    loginBtn.style.display = 'inline-block';
+                    logoutBtn.style.display = 'none';
+                    // Disable form (read-only mode)
+                    document.querySelectorAll('#instantForm input, #instantForm select, #instantForm button').forEach(el => {
+                        if (el.id !== 'submitBtn') el.disabled = true;
+                    });
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '🔒 Sign in to value';
+                }
+            }
+
+            async function handleLogin() {
+                if (!supabase) {
+                    showToast('❌ Supabase not available', 'error');
+                    return;
+                }
+
+                try {
+                    // Simple email/password login with magic link fallback
+                    const email = prompt('Enter your email:');
+                    if (!email) return;
+                    
+                    const { data, error } = await supabase.auth.signInWithOtp({
+                        email: email,
+                        options: {
+                            emailRedirectTo: window.location.origin + window.location.pathname
+                        }
+                    });
+
+                    if (error) {
+                        // Try sign up if login fails
+                        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+                            email: email,
+                            password: prompt('Create a password (min 6 characters):') || 'password123'
+                        });
+                        if (signUpError) throw signUpError;
+                        showToast('📧 Check your email for confirmation!', 'success');
+                    } else {
+                        showToast('📧 Check your email for login link!', 'success');
+                    }
+                } catch (error) {
+                    console.error('Login error:', error);
+                    showToast(`❌ ${error.message}`, 'error');
+                }
+            }
+
+            async function handleLogout() {
+                if (!supabase) return;
+                try {
+                    await supabase.auth.signOut();
+                } catch (error) {
+                    console.error('Logout error:', error);
+                }
+            }
+
+            // ─── SUPABASE DATA FUNCTIONS ─────────────────────────────
+
+            async function saveValuationHistory(vehicleData, valuationResult) {
+                if (!supabase || !currentUser) return;
+
+                try {
+                    const { data, error } = await supabase
+                        .from('valuation_history')
+                        .insert({
+                            user_id: currentUser.id,
+                            vehicle_data: vehicleData,
+                            valuation_result: valuationResult,
+                            created_at: new Date().toISOString()
+                        });
+
+                    if (error) throw error;
+                    console.log('✅ Valuation saved to Supabase');
+                } catch (error) {
+                    console.error('Failed to save valuation:', error);
+                }
+            }
+
+            async function getValuationHistory() {
+                if (!supabase || !currentUser) return [];
+
+                try {
+                    const { data, error } = await supabase
+                        .from('valuation_history')
+                        .select('*')
+                        .eq('user_id', currentUser.id)
+                        .order('created_at', { ascending: false })
+                        .limit(10);
+
+                    if (error) throw error;
+                    return data || [];
+                } catch (error) {
+                    console.error('Failed to get history:', error);
+                    return [];
+                }
+            }
 
             // ─── CHECK BACKEND HEALTH ──────────────────────────────────
             async function checkBackendHealth() {
@@ -1272,20 +1512,16 @@
             function renderPhotoGrid(vehicleType) {
                 const req = PHOTO_REQUIREMENTS[vehicleType] || PHOTO_REQUIREMENTS.Car;
                 
-                // Update badges
                 photoTypeBadge.textContent = req.icon + ' ' + vehicleType;
                 photoRequirementNote.textContent = `(${req.totalRequired} mandatory angles)`;
                 requiredCountBadge.textContent = req.totalRequired;
                 totalRequiredPhotos.textContent = req.totalRequired;
 
-                // Update details
                 const mandatoryLabels = req.mandatory.map(a => a.label).join(', ');
                 photoRequirementDetails.innerHTML = `<span style="font-size:11px;color:#64748b;">${mandatoryLabels}</span>`;
 
-                // Build grid
                 let html = '';
                 
-                // Mandatory photos
                 req.mandatory.forEach((angle, index) => {
                     const isUploaded = capturedPhotos[angle.angle] !== undefined;
                     html += `
@@ -1304,7 +1540,6 @@
                     `;
                 });
 
-                // Optional photos (collapsed by default)
                 html += `
                     <div style="grid-column: 1 / -1; margin-top: 4px;">
                         <details style="color:#94a3b8;">
@@ -1337,8 +1572,6 @@
 
                 photoGrid.innerHTML = html;
 
-                // ─── Re-bind events ────────────────────────────────────
-                // Camera buttons
                 photoGrid.querySelectorAll('.camera-btn').forEach(btn => {
                     btn.addEventListener('click', function(e) {
                         e.preventDefault();
@@ -1348,7 +1581,6 @@
                     });
                 });
 
-                // File inputs
                 photoGrid.querySelectorAll('input[type="file"]').forEach(input => {
                     input.addEventListener('change', function(e) {
                         const file = this.files[0];
@@ -1358,7 +1590,6 @@
                             updateProgress();
                             saveDraft();
                             
-                            // Check if this is a mandatory angle
                             const item = document.querySelector(`.image-upload-item[data-angle="${angle}"]`);
                             if (item && item.classList.contains('mandatory')) {
                                 const req = PHOTO_REQUIREMENTS[currentVehicleType];
@@ -1372,7 +1603,6 @@
                     });
                 });
 
-                // Update photo count
                 updatePhotoCount();
             }
 
@@ -1400,7 +1630,6 @@
                     statusText.className = 'status-text uploaded';
                 }
                 
-                // Remove existing filename and add new
                 const existingFilename = item.querySelector('.filename');
                 if (existingFilename) existingFilename.remove();
                 
@@ -1423,11 +1652,6 @@
                     }
                 });
                 return allCaptured;
-            }
-
-            function getMandatoryPhotoAngles() {
-                const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
-                return req.mandatory.map(a => a.angle);
             }
 
             // ─── CAMERA FUNCTIONALITY ──────────────────────────────────
@@ -1496,7 +1720,6 @@
                     
                     const file = new File([blob], `${currentAngle}_${Date.now()}.jpg`, { type: 'image/jpeg' });
                     
-                    // Find the input element for this angle
                     const item = document.querySelector(`.image-upload-item[data-angle="${currentAngle}"]`);
                     if (item) {
                         const input = item.querySelector('input[type="file"]');
@@ -1673,7 +1896,6 @@
                     if (field.value && !field.value.startsWith('-- Select')) filled++;
                 });
 
-                // Photo progress (mandatory photos)
                 const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
                 const mandatoryAngles = req.mandatory.map(a => a.angle);
                 let photoFilled = 0;
@@ -1723,11 +1945,17 @@
                     validateField(document.getElementById('mpesaPhone'), 'phoneError', phone.length >= 10 && /^[0-9]{10,12}$/.test(phone))
                 ];
 
-                // Check mandatory photos
                 const allPhotosCaptured = isAllMandatoryPhotosCaptured();
                 if (!allPhotosCaptured) {
                     const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
                     showToast(`⚠️ Please capture all ${req.totalRequired} mandatory photos before proceeding.`, 'warning');
+                    return false;
+                }
+
+                // Check if user is logged in
+                if (!currentUser) {
+                    showToast('🔒 Please sign in to get a valuation', 'warning');
+                    handleLogin();
                     return false;
                 }
 
@@ -1775,10 +2003,6 @@
 
             // ─── CALL BACKEND API ──────────────────────────────────
             async function callValuationAPI(formData) {
-                // Payload aligned with ValuationService.calculate() / ValuationEngine.calculate_value()
-                // Required: purchase_price, age_years. Everything else lets the engine apply its
-                // full multiplier stack (condition, mileage, location, accident history, ownership)
-                // instead of the client-side flat depreciation guess.
                 const payload = {
                     purchase_price: formData.purchase_price,
                     age_years: formData.age_years,
@@ -1792,12 +2016,19 @@
                     previous_owners: formData.previous_owners
                 };
 
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                };
+
+                // Add auth token if available
+                if (supabaseSession?.access_token) {
+                    headers['Authorization'] = `Bearer ${supabaseSession.access_token}`;
+                }
+
                 const response = await fetch(`${API_BASE}${API_ENDPOINTS.VALUATION}`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
+                    headers: headers,
                     body: JSON.stringify(payload)
                 });
 
@@ -1834,8 +2065,6 @@
                 const rangeMin = resultData.valuation_range?.min ?? Math.round(marketValue * 0.88);
                 const rangeMax = resultData.valuation_range?.max ?? Math.round(marketValue * 1.05);
 
-                // Use the backend's confidence_score when present (accepts either a 0-1
-                // fraction or a 0-100 integer), falling back to a sane default otherwise.
                 let confidence = resultData.confidence_score;
                 if (typeof confidence !== 'number' || Number.isNaN(confidence)) {
                     confidence = 80;
@@ -1971,8 +2200,6 @@
             // ─── EVENT LISTENERS ──────────────────────────────────────
             vehicleTypeSelect.addEventListener('change', function() {
                 currentVehicleType = this.value;
-                // Reset captured photos when changing vehicle type
-                // (keep photos that match new requirements)
                 const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
                 const validAngles = [...req.mandatory, ...req.optional].map(a => a.angle);
                 Object.keys(capturedPhotos).forEach(key => {
@@ -2061,9 +2288,19 @@
                 }
             });
 
+            // ─── AUTH BUTTONS ──────────────────────────────────────
+            loginBtn.addEventListener('click', handleLogin);
+            logoutBtn.addEventListener('click', handleLogout);
+
             // ─── FORM SUBMISSION ──────────────────────────────────────
             form.addEventListener('submit', async function(e) {
                 e.preventDefault();
+
+                if (!currentUser) {
+                    showToast('🔒 Please sign in first', 'warning');
+                    handleLogin();
+                    return;
+                }
 
                 const backendHealthy = await checkBackendHealth();
                 if (!backendHealthy) {
@@ -2123,7 +2360,8 @@
                     photos: capturedPhotos,
                     purchase_price: Math.round(estimatedPrice),
                     age_years: ageYears,
-                    depreciation_rate: getDepreciationRate(condition, mileage)
+                    depreciation_rate: getDepreciationRate(condition, mileage),
+                    user_id: currentUser?.id || null
                 };
 
                 statusBox.style.display = 'none';
@@ -2148,6 +2386,9 @@
                     clearInterval(stepInterval);
                     updateLoadingStep(4);
                     loadingSteps.classList.remove('show');
+
+                    // Save to Supabase
+                    await saveValuationHistory(formData, result);
 
                     statusBox.className = 'status-box status-success';
                     statusBox.textContent = '✅ Valuation complete! Your result is ready below.';
@@ -2174,6 +2415,9 @@
 
             // ─── INIT ──────────────────────────────────────────────────
             async function init() {
+                // Initialize auth first
+                await initAuth();
+
                 await checkBackendHealth();
 
                 currentVehicleType = vehicleTypeSelect.value;
@@ -2202,7 +2446,7 @@
                     statusBox.className = 'status-box status-error';
                     statusBox.textContent = '⚠️ Backend service unavailable. Using offline mode with limited features.';
                     statusBox.style.display = 'flex';
-                } else {
+                } else if (currentUser) {
                     statusBox.className = 'status-box status-info';
                     statusBox.textContent = '✅ Backend connected. Ready for valuation.';
                     statusBox.style.display = 'flex';
@@ -2212,10 +2456,8 @@
                 console.log('🚗 Auto-D Kenya Instant Value Check loaded');
                 console.log(`📡 API Base: ${API_BASE}`);
                 console.log(`📡 Backend Available: ${isBackendAvailable}`);
+                console.log(`🔐 Auth: ${currentUser ? 'Logged in' : 'Not logged in'}`);
                 console.log(`📸 Dynamic Photo Requirements loaded for ${currentVehicleType}`);
-                console.log(`   - Car: 8 mandatory`);
-                console.log(`   - Bike: 2 mandatory (Left Side, Right Side)`);
-                console.log(`   - Tricycle: 4 mandatory (Front, Rear, Left Side, Right Side)`);
             }
 
             document.addEventListener('DOMContentLoaded', init);
