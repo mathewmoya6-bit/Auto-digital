@@ -326,6 +326,22 @@
             animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── CONNECTION BANNER ─── */
+        .connection-banner {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: var(--surface); border-top: 1px solid var(--border);
+            padding: 8px 20px; text-align: center;
+            font-size: 12px; color: var(--muted); z-index: 50;
+        }
+        .connection-banner .dot {
+            display: inline-block; width: 8px; height: 8px;
+            border-radius: 50%; margin-right: 8px;
+        }
+        .connection-banner .dot.online { background: var(--success); }
+        .connection-banner .dot.offline { background: var(--danger); }
+        .connection-banner .dot.loading { background: var(--warning); animation: pulse 1s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     </style>
 </head>
 <body>
@@ -408,6 +424,12 @@
         </div>
     </main>
 
+    <!-- ─── CONNECTION BANNER ─── -->
+    <div class="connection-banner" id="connectionBanner">
+        <span class="dot loading" id="connectionDot"></span>
+        <span id="connectionText">Connecting to backend...</span>
+    </div>
+
     <!-- ─── ADD VEHICLE MODAL ─── -->
     <div class="modal" id="addVehicleModal">
         <div class="modal-content">
@@ -446,386 +468,453 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD
+        // AUTO-D KENYA - USER DASHBOARD (Aligned with Admin Dashboard)
         // ═══════════════════════════════════════════════════════════════════════════
 
-        // ─── Configuration ──────────────────────────────────────────────────────────
-        const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+        (function() {
+            'use strict';
 
-        // ─── State ──────────────────────────────────────────────────────────────────
-        let currentUser = null;
-        let supabaseClient = null;
-        let vehicles = [];
-        let reports = [];
+            // ─── Configuration ──────────────────────────────────────────────────────
+            const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
+            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-        // ─── DOM Refs ──────────────────────────────────────────────────────────────
-        const vehicleGrid = document.getElementById('vehicleGrid');
-        const reportsList = document.getElementById('reportsList');
-        const vehicleCount = document.getElementById('vehicleCount');
-        const reportCount = document.getElementById('reportCount');
-        const totalMileage = document.getElementById('totalMileage');
-        const totalValue = document.getElementById('totalValue');
-        const vehicleCountLabel = document.getElementById('vehicleCountLabel');
-        const reportCountLabel = document.getElementById('reportCountLabel');
-        const userName = document.getElementById('userName');
-        const userAvatar = document.getElementById('userAvatar');
+            // ─── State ──────────────────────────────────────────────────────────────
+            let currentUser = null;
+            let supabaseClient = null;
+            let vehicles = [];
+            let reports = [];
+            let isConnected = false;
 
-        // ─── Toast ──────────────────────────────────────────────────────────────────
-        function showToast(message, type = 'info') {
-            const container = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            toast.textContent = message;
-            container.appendChild(toast);
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                toast.style.transform = 'translateX(100px)';
-                setTimeout(() => toast.remove(), 300);
-            }, 4000);
-        }
+            // ─── DOM Refs ──────────────────────────────────────────────────────────
+            const vehicleGrid = document.getElementById('vehicleGrid');
+            const reportsList = document.getElementById('reportsList');
+            const vehicleCount = document.getElementById('vehicleCount');
+            const reportCount = document.getElementById('reportCount');
+            const totalMileage = document.getElementById('totalMileage');
+            const totalValue = document.getElementById('totalValue');
+            const vehicleCountLabel = document.getElementById('vehicleCountLabel');
+            const reportCountLabel = document.getElementById('reportCountLabel');
+            const userName = document.getElementById('userName');
+            const userAvatar = document.getElementById('userAvatar');
+            const connectionDot = document.getElementById('connectionDot');
+            const connectionText = document.getElementById('connectionText');
 
-        // ─── Supabase Client ──────────────────────────────────────────────────────
-        async function initSupabase() {
-            try {
-                const { createClient } = supabaseJs;
-                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                console.log('✅ Supabase client initialized');
-                
-                // Check session
-                const { data: { session }, error } = await supabaseClient.auth.getSession();
-                if (error) throw error;
-                
-                if (session?.user) {
-                    currentUser = session.user;
-                    updateUserUI();
-                    await loadDashboardData();
-                } else {
-                    // Try to get from local storage
+            // ─── Connection Status ──────────────────────────────────────────────────
+            function setConnectionStatus(status, message) {
+                connectionDot.className = 'dot ' + status;
+                connectionText.textContent = message;
+                isConnected = status === 'online';
+            }
+
+            // ─── Toast ──────────────────────────────────────────────────────────────
+            function showToast(message, type = 'info') {
+                const container = document.getElementById('toastContainer');
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                toast.textContent = message;
+                container.appendChild(toast);
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateX(100px)';
+                    setTimeout(() => toast.remove(), 300);
+                }, 4000);
+            }
+
+            // ─── Supabase Client ──────────────────────────────────────────────────
+            function initSupabase() {
+                try {
+                    if (typeof supabase === 'undefined') {
+                        console.warn('⚠️ Supabase SDK not loaded');
+                        setConnectionStatus('offline', 'Supabase SDK not loaded');
+                        return false;
+                    }
+                    const { createClient } = supabase;
+                    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    console.log('✅ Supabase client initialized');
+                    setConnectionStatus('online', 'Connected to backend');
+                    return true;
+                } catch (error) {
+                    console.error('❌ Supabase init error:', error);
+                    setConnectionStatus('offline', 'Connection error: ' + error.message);
+                    return false;
+                }
+            }
+
+            // ─── Check Auth ────────────────────────────────────────────────────────
+            async function checkAuth() {
+                try {
+                    if (!supabaseClient) {
+                        if (!initSupabase()) return false;
+                    }
+
+                    const { data: { session }, error } = await supabaseClient.auth.getSession();
+                    if (error) throw error;
+
+                    if (session?.user) {
+                        currentUser = session.user;
+                        localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                        return true;
+                    }
+
+                    // Check local storage
                     const stored = localStorage.getItem('auto_d_user');
                     if (stored) {
                         try {
                             const user = JSON.parse(stored);
                             currentUser = user;
-                            updateUserUI();
-                            await loadDashboardData();
+                            return true;
                         } catch (e) { /* ignore */ }
-                    } else {
-                        // Redirect to home if not logged in
-                        window.location.href = 'https://auto-d.meipressgroup.com/';
                     }
+
+                    return false;
+                } catch (error) {
+                    console.warn('⚠️ Auth check error:', error.message);
+                    return false;
                 }
-                
-                // Listen for auth changes
-                supabaseClient.auth.onAuthStateChange((event, session) => {
-                    if (event === 'SIGNED_OUT') {
-                        window.location.href = 'https://auto-d.meipressgroup.com/';
-                    } else if (event === 'SIGNED_IN' && session?.user) {
-                        currentUser = session.user;
-                        updateUserUI();
-                        loadDashboardData();
+            }
+
+            // ─── User UI ──────────────────────────────────────────────────────────
+            function updateUserUI() {
+                if (!currentUser) return;
+                const meta = currentUser.user_metadata || {};
+                const name = meta.full_name || meta.first_name || currentUser.email?.split('@')[0] || 'User';
+                userName.textContent = name;
+                userAvatar.textContent = name.charAt(0).toUpperCase();
+            }
+
+            // ─── Load Dashboard Data ──────────────────────────────────────────────
+            async function loadDashboardData() {
+                try {
+                    // Show loading state
+                    vehicleGrid.innerHTML = `
+                        <div class="loading-spinner" style="grid-column:1/-1;">
+                            <div class="spinner"></div>
+                            <span>Loading vehicles...</span>
+                        </div>
+                    `;
+                    reportsList.innerHTML = `
+                        <div class="loading-spinner">
+                            <div class="spinner"></div>
+                            <span>Loading reports...</span>
+                        </div>
+                    `;
+
+                    if (!supabaseClient) {
+                        if (!initSupabase()) {
+                            throw new Error('Supabase not initialized');
+                        }
                     }
-                });
-            } catch (error) {
-                console.warn('⚠️ Supabase init error:', error.message);
-                // Fallback to local storage
-                const stored = localStorage.getItem('auto_d_user');
-                if (stored) {
-                    try {
-                        currentUser = JSON.parse(stored);
-                        updateUserUI();
-                        loadDashboardData();
-                    } catch (e) {
-                        window.location.href = 'https://auto-d.meipressgroup.com/';
+
+                    // Get user's vehicles
+                    const { data: vehicleData, error: vehicleError } = await supabaseClient
+                        .from('vehicles')
+                        .select('*')
+                        .eq('user_id', currentUser.id)
+                        .order('created_at', { ascending: false });
+
+                    if (vehicleError) {
+                        console.warn('⚠️ Vehicles query error:', vehicleError);
+                        vehicles = [];
+                    } else {
+                        vehicles = vehicleData || [];
                     }
-                } else {
+
+                    // Get user's reports
+                    const { data: reportData, error: reportError } = await supabaseClient
+                        .from('reports')
+                        .select('*')
+                        .eq('user_id', currentUser.id)
+                        .order('created_at', { ascending: false })
+                        .limit(10);
+
+                    if (reportError) {
+                        console.warn('⚠️ Reports query error:', reportError);
+                        reports = [];
+                    } else {
+                        reports = reportData || [];
+                    }
+
+                    // Update UI
+                    renderVehicles();
+                    renderReports();
+                    updateStats();
+                    setConnectionStatus('online', 'Connected to backend');
+
+                } catch (error) {
+                    console.error('Error loading dashboard:', error);
+                    setConnectionStatus('offline', 'Error loading data: ' + error.message);
+                    showToast('Error loading dashboard data', 'error');
+                    vehicleGrid.innerHTML = `
+                        <div class="empty-state" style="grid-column:1/-1;">
+                            <div class="icon">⚠️</div>
+                            <h3>Error Loading Data</h3>
+                            <p>${error.message || 'Please try refreshing the page.'}</p>
+                            <button class="btn-primary" onclick="location.reload()">Refresh Page</button>
+                        </div>
+                    `;
+                    reportsList.innerHTML = '';
+                }
+            }
+
+            // ─── Render Vehicles ─────────────────────────────────────────────────
+            function renderVehicles() {
+                if (!vehicles || vehicles.length === 0) {
+                    vehicleGrid.innerHTML = `
+                        <div class="empty-state" style="grid-column:1/-1;">
+                            <div class="icon">🚗</div>
+                            <h3>No Vehicles Added Yet</h3>
+                            <p>Add your first vehicle to start tracking mileage, value, and ownership costs.</p>
+                            <button class="btn-primary" onclick="openAddVehicleModal()">➕ Add Your First Vehicle</button>
+                        </div>
+                    `;
+                    return;
+                }
+
+                vehicleGrid.innerHTML = vehicles.map(v => `
+                    <div class="vehicle-card" onclick="viewVehicle('${v.id}')">
+                        <div class="top">
+                            <span class="plate">${v.plate || 'N/A'}</span>
+                            <span class="badge ${v.verified ? 'verified' : ''}">
+                                ${v.verified ? '✅ Verified' : '📝 Pending'}
+                            </span>
+                        </div>
+                        <div style="font-size:18px;font-weight:600;margin-bottom:4px;">${v.make_model || 'Unknown Vehicle'}</div>
+                        <div style="font-size:13px;color:var(--muted);">${v.year ? `Year: ${v.year}` : ''} ${v.vin ? `· VIN: ${v.vin}` : ''}</div>
+                        <div class="details">
+                            <div class="item">📏 Mileage: <strong>${v.mileage ? v.mileage.toLocaleString() : '0'} km</strong></div>
+                            <div class="item">💰 Value: <strong>KES ${v.value ? v.value.toLocaleString() : '0'}</strong></div>
+                            <div class="item">⛽ Running Cost: <strong>KES ${v.running_cost ? v.running_cost.toFixed(2) : '0'}/km</strong></div>
+                            <div class="item">📊 TCO: <strong>KES ${v.tco ? v.tco.toLocaleString() : '0'}</strong></div>
+                        </div>
+                        <div class="actions">
+                            <button class="btn-primary btn-sm" onclick="event.stopPropagation(); viewVehicle('${v.id}')">View Details</button>
+                            <button class="btn-danger btn-sm" onclick="event.stopPropagation(); deleteVehicle('${v.id}')">🗑️</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            // ─── Render Reports ──────────────────────────────────────────────────
+            function renderReports() {
+                if (!reports || reports.length === 0) {
+                    reportsList.innerHTML = `
+                        <div class="empty-state" style="padding:40px 20px;">
+                            <div class="icon">📄</div>
+                            <h3>No Reports Yet</h3>
+                            <p>Generate your first vehicle report to see insights here.</p>
+                            <button class="btn-primary" onclick="window.location.href='https://auto-d.meipressgroup.com/'">Go to Service</button>
+                        </div>
+                    `;
+                    return;
+                }
+
+                reportsList.innerHTML = reports.map(r => `
+                    <div class="report-item" onclick="viewReport('${r.id}')">
+                        <div class="info">
+                            <span class="title">${r.vehicle_plate || r.vehicle_id || 'Vehicle Report'}</span>
+                            <span class="meta">
+                                <span>📅 ${new Date(r.created_at).toLocaleDateString()}</span>
+                                <span>📊 ${r.report_type || 'Valuation'}</span>
+                            </span>
+                        </div>
+                        <span class="status ${r.status || 'completed'}">${r.status === 'pending' ? '⏳ Pending' : '✅ Complete'}</span>
+                    </div>
+                `).join('');
+            }
+
+            // ─── Update Stats ─────────────────────────────────────────────────────
+            function updateStats() {
+                const count = vehicles.length;
+                const reportCountVal = reports.length;
+                const totalMileageVal = vehicles.reduce((sum, v) => sum + (v.mileage || 0), 0);
+                const totalValueVal = vehicles.reduce((sum, v) => sum + (v.value || 0), 0);
+
+                vehicleCount.textContent = count;
+                reportCount.textContent = reportCountVal;
+                totalMileage.textContent = totalMileageVal.toLocaleString();
+                totalValue.innerHTML = `<span class="currency">KES</span> ${totalValueVal.toLocaleString()}`;
+                vehicleCountLabel.textContent = `(${count})`;
+                reportCountLabel.textContent = `(${reportCountVal})`;
+            }
+
+            // ─── Add Vehicle ──────────────────────────────────────────────────────
+            window.addVehicle = async function() {
+                const plate = document.getElementById('vehiclePlate').value.trim();
+                const make = document.getElementById('vehicleMake').value.trim();
+                const vin = document.getElementById('vehicleVin').value.trim();
+                const year = document.getElementById('vehicleYear').value;
+                const mileage = parseInt(document.getElementById('vehicleMileage').value) || 0;
+
+                if (!plate || !make) {
+                    showToast('Please enter plate number and make/model', 'error');
+                    return;
+                }
+
+                try {
+                    if (!supabaseClient) {
+                        if (!initSupabase()) {
+                            throw new Error('Database not connected');
+                        }
+                    }
+
+                    const { data, error } = await supabaseClient
+                        .from('vehicles')
+                        .insert({
+                            user_id: currentUser.id,
+                            plate: plate.toUpperCase(),
+                            make_model: make,
+                            vin: vin || null,
+                            year: year || null,
+                            mileage: mileage,
+                            created_at: new Date().toISOString()
+                        })
+                        .select()
+                        .single();
+
+                    if (error) throw error;
+
+                    showToast('✅ Vehicle added successfully!', 'success');
+                    closeAddVehicleModal();
+                    await loadDashboardData();
+
+                } catch (error) {
+                    console.error('Add vehicle error:', error);
+                    showToast(error.message || 'Failed to add vehicle', 'error');
+                }
+            };
+
+            // ─── Delete Vehicle ──────────────────────────────────────────────────
+            window.deleteVehicle = async function(id) {
+                if (!confirm('Are you sure you want to delete this vehicle?')) return;
+
+                try {
+                    if (!supabaseClient) {
+                        if (!initSupabase()) {
+                            throw new Error('Database not connected');
+                        }
+                    }
+
+                    const { error } = await supabaseClient
+                        .from('vehicles')
+                        .delete()
+                        .eq('id', id)
+                        .eq('user_id', currentUser.id);
+
+                    if (error) throw error;
+
+                    showToast('🗑️ Vehicle deleted', 'info');
+                    await loadDashboardData();
+
+                } catch (error) {
+                    console.error('Delete vehicle error:', error);
+                    showToast(error.message || 'Failed to delete vehicle', 'error');
+                }
+            };
+
+            // ─── View Vehicle ─────────────────────────────────────────────────────
+            window.viewVehicle = function(id) {
+                const vehicle = vehicles.find(v => v.id === id);
+                if (!vehicle) return;
+                showToast(`📊 Viewing ${vehicle.plate || vehicle.make_model}`, 'info');
+            };
+
+            // ─── View Report ──────────────────────────────────────────────────────
+            window.viewReport = function(id) {
+                const report = reports.find(r => r.id === id);
+                if (!report) return;
+                showToast(`📄 Viewing report from ${new Date(report.created_at).toLocaleDateString()}`, 'info');
+            };
+
+            // ─── Logout ───────────────────────────────────────────────────────────
+            window.handleLogout = async function() {
+                try {
+                    if (supabaseClient) {
+                        await supabaseClient.auth.signOut();
+                    }
+                    localStorage.removeItem('auto_d_user');
+                    window.location.href = 'https://auto-d.meipressgroup.com/';
+                } catch (error) {
+                    console.error('Logout error:', error);
                     window.location.href = 'https://auto-d.meipressgroup.com/';
                 }
-            }
-        }
+            };
 
-        // ─── User UI ──────────────────────────────────────────────────────────────
-        function updateUserUI() {
-            if (!currentUser) return;
-            const meta = currentUser.user_metadata || {};
-            const name = meta.full_name || meta.first_name || currentUser.email?.split('@')[0] || 'User';
-            userName.textContent = name;
-            userAvatar.textContent = name.charAt(0).toUpperCase();
-        }
-
-        // ─── Load Dashboard Data ──────────────────────────────────────────────────
-        async function loadDashboardData() {
-            try {
-                // Show loading state
-                vehicleGrid.innerHTML = `
-                    <div class="loading-spinner" style="grid-column:1/-1;">
-                        <div class="spinner"></div>
-                        <span>Loading vehicles...</span>
-                    </div>
-                `;
-                reportsList.innerHTML = `
-                    <div class="loading-spinner">
-                        <div class="spinner"></div>
-                        <span>Loading reports...</span>
-                    </div>
-                `;
-
-                if (!supabaseClient) throw new Error('Supabase not initialized');
-
-                // Get user's vehicles
-                const { data: vehicleData, error: vehicleError } = await supabaseClient
-                    .from('vehicles')
-                    .select('*')
-                    .eq('user_id', currentUser.id)
-                    .order('created_at', { ascending: false });
-
-                if (vehicleError) throw vehicleError;
-                vehicles = vehicleData || [];
-
-                // Get user's reports
-                const { data: reportData, error: reportError } = await supabaseClient
-                    .from('reports')
-                    .select('*')
-                    .eq('user_id', currentUser.id)
-                    .order('created_at', { ascending: false })
-                    .limit(10);
-
-                if (reportError) throw reportError;
-                reports = reportData || [];
-
-                // Update UI
-                renderVehicles();
-                renderReports();
-                updateStats();
-
-            } catch (error) {
-                console.error('Error loading dashboard:', error);
-                showToast('Error loading dashboard data', 'error');
-                vehicleGrid.innerHTML = `
-                    <div class="empty-state" style="grid-column:1/-1;">
-                        <div class="icon">⚠️</div>
-                        <h3>Error Loading Data</h3>
-                        <p>${error.message || 'Please try refreshing the page.'}</p>
-                        <button class="btn-primary" onclick="loadDashboardData()">Retry</button>
-                    </div>
-                `;
-            }
-        }
-
-        // ─── Render Vehicles ─────────────────────────────────────────────────────
-        function renderVehicles() {
-            if (!vehicles || vehicles.length === 0) {
-                vehicleGrid.innerHTML = `
-                    <div class="empty-state" style="grid-column:1/-1;">
-                        <div class="icon">🚗</div>
-                        <h3>No Vehicles Added Yet</h3>
-                        <p>Add your first vehicle to start tracking mileage, value, and ownership costs.</p>
-                        <button class="btn-primary" onclick="openAddVehicleModal()">➕ Add Your First Vehicle</button>
-                    </div>
-                `;
-                return;
-            }
-
-            vehicleGrid.innerHTML = vehicles.map(v => `
-                <div class="vehicle-card" onclick="viewVehicle('${v.id}')">
-                    <div class="top">
-                        <span class="plate">${v.plate || 'N/A'}</span>
-                        <span class="badge ${v.verified ? 'verified' : ''}">
-                            ${v.verified ? '✅ Verified' : '📝 Pending'}
-                        </span>
-                    </div>
-                    <div style="font-size:18px;font-weight:600;margin-bottom:4px;">${v.make_model || 'Unknown Vehicle'}</div>
-                    <div style="font-size:13px;color:var(--muted);">${v.year ? `Year: ${v.year}` : ''} ${v.vin ? `· VIN: ${v.vin}` : ''}</div>
-                    <div class="details">
-                        <div class="item">📏 Mileage: <strong>${v.mileage ? v.mileage.toLocaleString() : '0'} km</strong></div>
-                        <div class="item">💰 Value: <strong>KES ${v.value ? v.value.toLocaleString() : '0'}</strong></div>
-                        <div class="item">⛽ Running Cost: <strong>KES ${v.running_cost ? v.running_cost.toFixed(2) : '0'}/km</strong></div>
-                        <div class="item">📊 TCO: <strong>KES ${v.tco ? v.tco.toLocaleString() : '0'}</strong></div>
-                    </div>
-                    <div class="actions">
-                        <button class="btn-primary btn-sm" onclick="event.stopPropagation(); viewVehicle('${v.id}')">View Details</button>
-                        <button class="btn-danger btn-sm" onclick="event.stopPropagation(); deleteVehicle('${v.id}')">🗑️</button>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        // ─── Render Reports ──────────────────────────────────────────────────────
-        function renderReports() {
-            if (!reports || reports.length === 0) {
-                reportsList.innerHTML = `
-                    <div class="empty-state" style="padding:40px 20px;">
-                        <div class="icon">📄</div>
-                        <h3>No Reports Yet</h3>
-                        <p>Generate your first vehicle report to see insights here.</p>
-                        <button class="btn-primary" onclick="window.location.href='https://auto-d.meipressgroup.com/'">Go to Service</button>
-                    </div>
-                `;
-                return;
-            }
-
-            reportsList.innerHTML = reports.map(r => `
-                <div class="report-item" onclick="viewReport('${r.id}')">
-                    <div class="info">
-                        <span class="title">${r.vehicle_plate || r.vehicle_id || 'Vehicle Report'}</span>
-                        <span class="meta">
-                            <span>📅 ${new Date(r.created_at).toLocaleDateString()}</span>
-                            <span>📊 ${r.report_type || 'Valuation'}</span>
-                        </span>
-                    </div>
-                    <span class="status ${r.status || 'completed'}">${r.status === 'pending' ? '⏳ Pending' : '✅ Complete'}</span>
-                </div>
-            `).join('');
-        }
-
-        // ─── Update Stats ─────────────────────────────────────────────────────────
-        function updateStats() {
-            const count = vehicles.length;
-            const reportCountVal = reports.length;
-            const totalMileageVal = vehicles.reduce((sum, v) => sum + (v.mileage || 0), 0);
-            const totalValueVal = vehicles.reduce((sum, v) => sum + (v.value || 0), 0);
-
-            vehicleCount.textContent = count;
-            reportCount.textContent = reportCountVal;
-            totalMileage.textContent = totalMileageVal.toLocaleString();
-            totalValue.innerHTML = `<span class="currency">KES</span> ${totalValueVal.toLocaleString()}`;
-            vehicleCountLabel.textContent = `(${count})`;
-            reportCountLabel.textContent = `(${reportCountVal})`;
-        }
-
-        // ─── Add Vehicle ──────────────────────────────────────────────────────────
-        async function addVehicle() {
-            const plate = document.getElementById('vehiclePlate').value.trim();
-            const make = document.getElementById('vehicleMake').value.trim();
-            const vin = document.getElementById('vehicleVin').value.trim();
-            const year = document.getElementById('vehicleYear').value;
-            const mileage = parseInt(document.getElementById('vehicleMileage').value) || 0;
-
-            if (!plate || !make) {
-                showToast('Please enter plate number and make/model', 'error');
-                return;
-            }
-
-            try {
-                const { data, error } = await supabaseClient
-                    .from('vehicles')
-                    .insert({
-                        user_id: currentUser.id,
-                        plate: plate.toUpperCase(),
-                        make_model: make,
-                        vin: vin || null,
-                        year: year || null,
-                        mileage: mileage,
-                        created_at: new Date().toISOString()
-                    })
-                    .select()
-                    .single();
-
-                if (error) throw error;
-
-                showToast('✅ Vehicle added successfully!', 'success');
-                closeAddVehicleModal();
-                await loadDashboardData();
-
-            } catch (error) {
-                console.error('Add vehicle error:', error);
-                showToast(error.message || 'Failed to add vehicle', 'error');
-            }
-        }
-
-        // ─── Delete Vehicle ──────────────────────────────────────────────────────
-        async function deleteVehicle(id) {
-            if (!confirm('Are you sure you want to delete this vehicle?')) return;
-
-            try {
-                const { error } = await supabaseClient
-                    .from('vehicles')
-                    .delete()
-                    .eq('id', id)
-                    .eq('user_id', currentUser.id);
-
-                if (error) throw error;
-
-                showToast('🗑️ Vehicle deleted', 'info');
-                await loadDashboardData();
-
-            } catch (error) {
-                console.error('Delete vehicle error:', error);
-                showToast(error.message || 'Failed to delete vehicle', 'error');
-            }
-        }
-
-        // ─── View Vehicle ─────────────────────────────────────────────────────────
-        function viewVehicle(id) {
-            const vehicle = vehicles.find(v => v.id === id);
-            if (!vehicle) return;
-            showToast(`📊 Viewing ${vehicle.plate || vehicle.make_model}`, 'info');
-            // Could navigate to a detail page or open a modal
-        }
-
-        // ─── View Report ──────────────────────────────────────────────────────────
-        function viewReport(id) {
-            const report = reports.find(r => r.id === id);
-            if (!report) return;
-            showToast(`📄 Viewing report from ${new Date(report.created_at).toLocaleDateString()}`, 'info');
-        }
-
-        // ─── Logout ───────────────────────────────────────────────────────────────
-        async function handleLogout() {
-            try {
-                if (supabaseClient) {
-                    await supabaseClient.auth.signOut();
+            // ─── Modal Controls ──────────────────────────────────────────────────
+            window.openAddVehicleModal = function() {
+                const yearSelect = document.getElementById('vehicleYear');
+                const currentYear = new Date().getFullYear();
+                yearSelect.innerHTML = '<option value="">Select year</option>';
+                for (let y = currentYear; y >= 1980; y--) {
+                    yearSelect.innerHTML += `<option value="${y}">${y}</option>`;
                 }
-                localStorage.removeItem('auto_d_user');
-                window.location.href = 'https://auto-d.meipressgroup.com/';
-            } catch (error) {
-                console.error('Logout error:', error);
-                window.location.href = 'https://auto-d.meipressgroup.com/';
-            }
-        }
+                
+                document.getElementById('vehiclePlate').value = '';
+                document.getElementById('vehicleMake').value = '';
+                document.getElementById('vehicleVin').value = '';
+                document.getElementById('vehicleMileage').value = '';
+                yearSelect.value = '';
+                
+                document.getElementById('addVehicleModal').classList.add('open');
+            };
 
-        // ─── Modal Controls ──────────────────────────────────────────────────────
-        function openAddVehicleModal() {
-            // Populate year dropdown
-            const yearSelect = document.getElementById('vehicleYear');
-            const currentYear = new Date().getFullYear();
-            yearSelect.innerHTML = '<option value="">Select year</option>';
-            for (let y = currentYear; y >= 1980; y--) {
-                yearSelect.innerHTML += `<option value="${y}">${y}</option>`;
-            }
-            
-            // Clear form
-            document.getElementById('vehiclePlate').value = '';
-            document.getElementById('vehicleMake').value = '';
-            document.getElementById('vehicleVin').value = '';
-            document.getElementById('vehicleMileage').value = '';
-            yearSelect.value = '';
-            
-            document.getElementById('addVehicleModal').classList.add('open');
-        }
+            window.closeAddVehicleModal = function() {
+                document.getElementById('addVehicleModal').classList.remove('open');
+            };
 
-        function closeAddVehicleModal() {
-            document.getElementById('addVehicleModal').classList.remove('open');
-        }
+            // Close modal on backdrop click
+            document.getElementById('addVehicleModal').addEventListener('click', function(e) {
+                if (e.target === this) closeAddVehicleModal();
+            });
 
-        // Close modal on backdrop click
-        document.getElementById('addVehicleModal').addEventListener('click', function(e) {
-            if (e.target === this) closeAddVehicleModal();
-        });
+            // ─── Init ──────────────────────────────────────────────────────────────
+            (async function() {
+                console.log('🚗 Auto-D Kenya User Dashboard');
+                console.log('🔐 Supabase URL:', SUPABASE_URL);
 
-        // ─── Init ──────────────────────────────────────────────────────────────────
-        (async function() {
-            console.log('🚗 Auto-D Kenya Dashboard');
-            console.log('🔐 Supabase URL:', SUPABASE_URL);
-            
-            // Populate year dropdown initially
-            const yearSelect = document.getElementById('vehicleYear');
-            const currentYear = new Date().getFullYear();
-            for (let y = currentYear; y >= 1980; y--) {
-                yearSelect.innerHTML += `<option value="${y}">${y}</option>`;
-            }
-            
-            await initSupabase();
+                // Initialize Supabase
+                if (!initSupabase()) {
+                    setConnectionStatus('loading', 'Initializing...');
+                    // Retry after 2 seconds
+                    setTimeout(() => {
+                        if (!initSupabase()) {
+                            setConnectionStatus('offline', 'Failed to connect to backend');
+                            showToast('⚠️ Could not connect to backend. Please refresh.', 'warning');
+                        }
+                    }, 2000);
+                }
+
+                // Check authentication
+                const isAuthenticated = await checkAuth();
+                
+                if (!isAuthenticated) {
+                    showToast('Please sign in to access your dashboard', 'warning');
+                    setTimeout(() => {
+                        window.location.href = 'https://auto-d.meipressgroup.com/';
+                    }, 1500);
+                    return;
+                }
+
+                // Update UI with user info
+                updateUserUI();
+
+                // Load dashboard data
+                await loadDashboardData();
+
+                // Listen for auth changes
+                if (supabaseClient) {
+                    supabaseClient.auth.onAuthStateChange((event, session) => {
+                        if (event === 'SIGNED_OUT') {
+                            window.location.href = 'https://auto-d.meipressgroup.com/';
+                        } else if (event === 'SIGNED_IN' && session?.user) {
+                            currentUser = session.user;
+                            localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                            updateUserUI();
+                            loadDashboardData();
+                        }
+                    });
+                }
+            })();
+
         })();
     </script>
 
