@@ -175,7 +175,7 @@
         }
         .service-card {
             background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-            padding: 24px; transition: all .3s ease; cursor: pointer;
+            padding: 24px; transition: all .3s ease;
             position: relative; overflow: hidden;
         }
         .service-card:hover {
@@ -466,24 +466,24 @@
             </div>
 
             <!-- Services Section -->
-            <div class="section-title">
-                🚀 Available Services <span class="count">(Pay &amp; Access)</span>
+            <div class="section-title" style="font-family:'Space Grotesk',sans-serif;font-size:20px;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
+                🚀 Available Services <span style="font-size:14px;font-weight:400;color:var(--muted);font-family:'Inter',sans-serif;">(Pay &amp; Access)</span>
             </div>
             <div class="service-grid" id="serviceGrid">
                 <!-- Services rendered by JS -->
             </div>
 
             <!-- Vehicles Section -->
-            <div class="section-title">
-                🚗 My Vehicles <span class="count" id="vehicleCountLabel">(0)</span>
+            <div class="section-title" style="font-family:'Space Grotesk',sans-serif;font-size:20px;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
+                🚗 My Vehicles <span class="count" id="vehicleCountLabel" style="font-size:14px;font-weight:400;color:var(--muted);font-family:'Inter',sans-serif;">(0)</span>
             </div>
             <div id="vehicleGrid" class="vehicle-grid">
                 <!-- Vehicles will be rendered here -->
             </div>
 
             <!-- Recent Reports -->
-            <div class="section-title">
-                📄 Recent Reports <span class="count" id="reportCountLabel">(0)</span>
+            <div class="section-title" style="font-family:'Space Grotesk',sans-serif;font-size:20px;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
+                📄 Recent Reports <span class="count" id="reportCountLabel" style="font-size:14px;font-weight:400;color:var(--muted);font-family:'Inter',sans-serif;">(0)</span>
             </div>
             <div id="reportsList" class="reports-list">
                 <!-- Reports will be rendered here -->
@@ -561,7 +561,7 @@
                 </div>
             </div>
             
-            <button class="btn-primary" onclick="processPayment()">
+            <button class="btn-primary" onclick="processPayment()" id="payNowBtn">
                 💳 Pay Now with M-Pesa
             </button>
             <button class="btn-outline" style="width:100%;margin-top:8px;justify-content:center;" onclick="closePaymentModal()">
@@ -633,6 +633,7 @@
             let isConnected = false;
             let unlockedServices = {};
             let selectedService = null;
+            let isProcessingPayment = false;
 
             // ─── DOM Refs ──────────────────────────────────────────────────────────
             const vehicleGrid = document.getElementById('vehicleGrid');
@@ -742,16 +743,34 @@
                         .eq('user_id', currentUser.id)
                         .eq('status', 'active');
 
-                    if (error) throw error;
+                    if (error) {
+                        // Table might not exist - create it or use local storage
+                        console.warn('⚠️ Service access table error:', error.message);
+                        // Try to get from local storage as fallback
+                        const local = JSON.parse(localStorage.getItem('auto_d_unlocked_' + currentUser.id) || '{}');
+                        unlockedServices = local;
+                        return;
+                    }
 
                     unlockedServices = {};
                     if (data) {
                         data.forEach(item => {
-                            if (item.expires_at && new Date(item.expires_at) > new Date()) {
+                            if (!item.expires_at || new Date(item.expires_at) > new Date()) {
                                 unlockedServices[item.service_id] = true;
                             }
                         });
                     }
+                    
+                    // Also check local storage
+                    try {
+                        const local = JSON.parse(localStorage.getItem('auto_d_unlocked_' + currentUser.id) || '{}');
+                        Object.keys(local).forEach(key => {
+                            if (local[key]) {
+                                unlockedServices[key] = true;
+                            }
+                        });
+                    } catch (e) { /* ignore */ }
+
                 } catch (error) {
                     console.warn('⚠️ Load unlocked services error:', error);
                     // Check local storage
@@ -764,11 +783,14 @@
 
             // ─── Render Services ──────────────────────────────────────────────────
             function renderServices() {
+                if (!serviceGrid) return;
+                
                 serviceGrid.innerHTML = SERVICES.map(s => {
                     const isUnlocked = unlockedServices[s.id] === true;
                     const statusClass = isUnlocked ? 'unlocked' : 'locked';
                     const statusText = isUnlocked ? '✅ Unlocked' : '🔒 Locked';
-                    const btnText = isUnlocked ? '🚀 Access Calculator' : '💳 Pay ' + s.price + ' KES';
+                    const btnText = isUnlocked ? '🚀 Access Calculator' : '💳 Pay ' + s.price.toLocaleString() + ' KES';
+                    const btnStyle = isUnlocked ? '' : 'style="background:var(--success);"';
 
                     return `
                         <div class="service-card ${statusClass}" data-service="${s.id}">
@@ -780,7 +802,7 @@
                                 <span class="currency">KES</span> ${s.price.toLocaleString()}
                             </div>
                             <button class="btn-primary btn-access" onclick="handleServiceAction('${s.id}')" 
-                                    ${isUnlocked ? '' : 'style="background:var(--success);"'}">
+                                    ${btnStyle}>
                                 ${btnText}
                             </button>
                         </div>
@@ -791,11 +813,15 @@
             // ─── Handle Service Action ──────────────────────────────────────────
             window.handleServiceAction = function(serviceId) {
                 const service = SERVICES.find(s => s.id === serviceId);
-                if (!service) return;
+                if (!service) {
+                    showToast('Service not found', 'error');
+                    return;
+                }
 
                 if (unlockedServices[serviceId]) {
                     // Already unlocked - navigate to service
-                    window.location.href = 'https://auto-d.meipressgroup.com' + service.route;
+                    const serviceUrl = 'https://auto-d.meipressgroup.com' + service.route;
+                    window.location.href = serviceUrl;
                 } else {
                     // Need to pay
                     selectedService = service;
@@ -805,6 +831,7 @@
 
             // ─── Open Payment Modal ──────────────────────────────────────────────
             window.openPaymentModal = function(service) {
+                if (!service) return;
                 document.getElementById('paymentServiceName').textContent = service.name;
                 document.getElementById('paymentAmount').textContent = 'KES ' + service.price.toLocaleString();
                 document.getElementById('paymentTotal').textContent = 'KES ' + service.price.toLocaleString();
@@ -815,13 +842,21 @@
             window.closePaymentModal = function() {
                 document.getElementById('paymentModal').classList.remove('open');
                 selectedService = null;
+                isProcessingPayment = false;
+                const payBtn = document.getElementById('payNowBtn');
+                if (payBtn) {
+                    payBtn.disabled = false;
+                    payBtn.textContent = '💳 Pay Now with M-Pesa';
+                }
             };
 
             // ─── Process Payment ──────────────────────────────────────────────────
             window.processPayment = async function() {
                 const phone = document.getElementById('mpesaPhone').value.trim();
+                const payBtn = document.getElementById('payNowBtn');
+                
                 if (!phone || phone.length < 10) {
-                    showToast('Please enter a valid M-Pesa phone number', 'error');
+                    showToast('Please enter a valid M-Pesa phone number (10 digits)', 'error');
                     return;
                 }
 
@@ -830,40 +865,63 @@
                     return;
                 }
 
+                if (isProcessingPayment) return;
+                isProcessingPayment = true;
+                payBtn.disabled = true;
+                payBtn.textContent = '⏳ Processing...';
+
                 try {
-                    // Simulate M-Pesa payment processing
-                    showToast('⏳ Processing payment...', 'info');
+                    // Show processing toast
+                    showToast('⏳ Processing payment for ' + selectedService.name + '...', 'info');
                     
                     // In production, this would call your payment API
-                    // For demo, simulate success after 2 seconds
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    // For demo, simulate success after 2-3 seconds
+                    await new Promise(resolve => setTimeout(resolve, 2500));
 
                     // Unlock the service
                     unlockedServices[selectedService.id] = true;
                     
-                    // Save to Supabase
+                    // Try to save to Supabase
+                    let dbSaved = false;
                     if (supabaseClient) {
-                        await supabaseClient
-                            .from('service_access')
-                            .insert({
-                                user_id: currentUser.id,
-                                service_id: selectedService.id,
-                                status: 'active',
-                                expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                                payment_ref: 'MPESA-' + Date.now()
-                            });
+                        try {
+                            const { error } = await supabaseClient
+                                .from('service_access')
+                                .insert({
+                                    user_id: currentUser.id,
+                                    service_id: selectedService.id,
+                                    status: 'active',
+                                    expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                                    payment_ref: 'MPESA-' + Date.now()
+                                });
+                            if (!error) dbSaved = true;
+                        } catch (e) {
+                            console.warn('⚠️ Could not save to Supabase:', e.message);
+                        }
                     }
 
-                    // Save locally
+                    // Save locally (always)
                     localStorage.setItem('auto_d_unlocked_' + currentUser.id, JSON.stringify(unlockedServices));
 
+                    // Close modal and update UI
                     closePaymentModal();
                     renderServices();
+                    
+                    // Show success message
                     showToast(`✅ Payment successful! ${selectedService.name} unlocked!`, 'success');
+                    
+                    // Redirect to the service after a moment
+                    setTimeout(() => {
+                        const serviceUrl = 'https://auto-d.meipressgroup.com' + selectedService.route;
+                        window.location.href = serviceUrl;
+                    }, 1500);
 
                 } catch (error) {
                     console.error('Payment error:', error);
                     showToast('❌ Payment failed: ' + error.message, 'error');
+                    payBtn.disabled = false;
+                    payBtn.textContent = '💳 Pay Now with M-Pesa';
+                    isProcessingPayment = false;
                 }
             };
 
@@ -1003,8 +1061,8 @@
                 reportCount.textContent = reportCountVal;
                 totalMileage.textContent = totalMileageVal.toLocaleString();
                 totalValue.innerHTML = `<span class="currency">KES</span> ${totalValueVal.toLocaleString()}`;
-                vehicleCountLabel.textContent = `(${count})`;
-                reportCountLabel.textContent = `(${reportCountVal})`;
+                if (vehicleCountLabel) vehicleCountLabel.textContent = `(${count})`;
+                if (reportCountLabel) reportCountLabel.textContent = `(${reportCountVal})`;
             }
 
             // ─── Add Vehicle ──────────────────────────────────────────────────────
