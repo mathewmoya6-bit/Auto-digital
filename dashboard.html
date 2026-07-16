@@ -980,8 +980,6 @@
     <script>
         // ═══════════════════════════════════════════════════════════════════════════
         // AUTO-D KENYA - DASHBOARD (Payment Gateway for Service Access)
-        // ───────────────────────────────────────────────────────────────────────────
-        // All service navigation goes through payment check
         // ═══════════════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1652,9 +1650,9 @@
                                 document.getElementById('paymentStatusDetail').textContent = `${selectedService.name} is now unlocked.`;
                                 showToast(`✅ Payment successful! ${selectedService.name} unlocked!`, 'success');
                                 
-                                // Unlock service in Supabase
+                                // Unlock service in Supabase using async/await
                                 try {
-                                    await supabaseClient
+                                    const { error: insertError } = await supabaseClient
                                         .from('service_access')
                                         .insert({
                                             user_id: currentUser.id,
@@ -1663,8 +1661,10 @@
                                             expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
                                             payment_ref: checkoutId
                                         });
-                                } catch (e) {
-                                    console.warn('Could not save service access:', e);
+                                    if (insertError) throw insertError;
+                                } catch (insertErr) {
+                                    console.warn('Could not save service access:', insertErr);
+                                    // Still proceed since payment was successful
                                 }
                                 
                                 setTimeout(() => {
