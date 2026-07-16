@@ -705,6 +705,10 @@
             transition: all 0.2s;
         }
         .modal-content .btn-primary:hover { background: var(--primary-hover); }
+        .modal-content .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
         .modal-content .payment-summary {
             background: var(--bg);
             border-radius: 8px;
@@ -758,6 +762,38 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+        /* ─── PAYMENT STATUS OVERLAY ───────────────────────────────── */
+        .payment-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(8px);
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .payment-overlay.open { display: flex; }
+        .payment-overlay .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        .payment-overlay .status-text {
+            font-size: 16px;
+            color: var(--text-secondary);
+        }
+        .payment-overlay .status-detail {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -944,6 +980,13 @@
         <span id="connectionText">Connecting to backend...</span>
     </div>
 
+    <!-- ─── PAYMENT OVERLAY ─── -->
+    <div class="payment-overlay" id="paymentOverlay">
+        <div class="spinner"></div>
+        <div class="status-text" id="paymentStatusText">Processing payment...</div>
+        <div class="status-detail" id="paymentStatusDetail">Please check your phone for the M-Pesa STK push</div>
+    </div>
+
     <!-- ─── ADD VEHICLE MODAL ─── -->
     <div class="modal" id="addVehicleModal">
         <div class="modal-content">
@@ -1002,7 +1045,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (API-Driven Architecture)
+        // AUTO-D KENYA - DASHBOARD (API-Driven with M-Pesa Integration)
         // ═══════════════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1018,6 +1061,9 @@
             let supabaseClient = null;
             let dashboardData = null;
             let chartInstances = {};
+            let selectedService = null;
+            let isProcessingPayment = false;
+            let checkoutRequestId = null;
 
             // ─── DOM Refs ──────────────────────────────────────────────────────────
             const vehicleGrid = document.getElementById('vehicleGrid');
@@ -1112,7 +1158,7 @@
                     const response = await fetch(url, options);
                     const result = await response.json();
                     if (!response.ok) {
-                        throw new Error(result.message || `HTTP ${response.status}`);
+                        throw new Error(result.message || result.error || `HTTP ${response.status}`);
                     }
                     return result;
                 } catch (error) {
@@ -1489,7 +1535,6 @@
             // ─── Actions ──────────────────────────────────────────────────────────
             window.navigateTo = function(section) {
                 showToast(`📂 Navigating to ${section}...`, 'info');
-                // In production, this would route to different views
             };
 
             window.navigateToService = function(serviceId) {
@@ -1503,14 +1548,12 @@
             };
 
             window.handleServiceAction = function(serviceId) {
-                // Check if service is purchased from dashboard data
                 const service = (dashboardData?.services || []).find(s => s.id === serviceId);
                 if (!service) {
                     showToast('Service not found', 'error');
                     return;
                 }
                 if (service.purchased || service.status === 'purchased' || service.status === 'active') {
-                    // Open the service
                     const routes = {
                         'mileage': '/mileage.html',
                         'valuation': '/instant-value.html',
@@ -1519,48 +1562,11 @@
                     };
                     window.location.href = routes[serviceId] || '/dashboard.html';
                 } else {
-                    // Show payment modal
                     openPaymentModal(service);
                 }
             };
 
-            window.viewVehicle = function(id) {
-                showToast(`📊 Viewing vehicle ${id}`, 'info');
-            };
-
-            window.calculateVehicle = function(id) {
-                showToast(`🧮 Calculating vehicle ${id}`, 'info');
-                window.location.href = '/mileage.html';
-            };
-
-            window.generateVehicleReport = function(id) {
-                showToast(`📄 Generating report for vehicle ${id}`, 'info');
-            };
-
-            window.viewVehicleHistory = function(id) {
-                showToast(`📜 History for vehicle ${id}`, 'info');
-            };
-
-            window.viewReport = function(id) {
-                showToast(`📄 Viewing report ${id}`, 'info');
-            };
-
-            window.viewNotification = function(id) {
-                showToast(`🔔 Viewing notification ${id}`, 'info');
-            };
-
-            window.downloadReceipt = function(id) {
-                showToast(`📄 Downloading receipt ${id}`, 'info');
-            };
-
-            window.generateReport = function() {
-                showToast('📄 Generating new report...', 'info');
-            };
-
             // ─── Payment Modal ──────────────────────────────────────────────────
-            let selectedService = null;
-            let isProcessingPayment = false;
-
             window.openPaymentModal = function(service) {
                 selectedService = service;
                 document.getElementById('paymentServiceName').textContent = service.name || 'Service';
@@ -1579,8 +1585,10 @@
                     payBtn.disabled = false;
                     payBtn.textContent = '💳 Pay Now';
                 }
+                document.getElementById('paymentOverlay').classList.remove('open');
             };
 
+            // ─── Process Payment (M-Pesa STK Push) ──────────────────────────────
             window.processPayment = async function() {
                 const phone = document.getElementById('mpesaPhone').value.trim();
                 const payBtn = document.getElementById('payNowBtn');
@@ -1600,27 +1608,105 @@
                 payBtn.disabled = true;
                 payBtn.textContent = '⏳ Processing...';
 
+                // Show overlay
+                const overlay = document.getElementById('paymentOverlay');
+                document.getElementById('paymentStatusText').textContent = 'Initiating M-Pesa payment...';
+                document.getElementById('paymentStatusDetail').textContent = 'Please wait...';
+                overlay.classList.add('open');
+
                 try {
-                    // Call payment API
-                    const result = await apiRequest('/payments', 'POST', {
-                        service_id: selectedService.id,
-                        phone: phone,
-                        amount: selectedService.price || 0
+                    // 1. Initiate STK Push via backend
+                    const result = await apiRequest('/payments/mpesa/stkpush', 'POST', {
+                        phone_number: phone,
+                        amount: selectedService.price || 0,
+                        account_reference: selectedService.id,
+                        transaction_desc: `Auto-D: ${selectedService.name}`
                     });
 
-                    if (result.success) {
-                        showToast(`✅ Payment successful! ${selectedService.name} unlocked!`, 'success');
-                        closePaymentModal();
-                        await loadDashboard(); // Reload dashboard
-                    } else {
-                        throw new Error(result.message || 'Payment failed');
+                    if (!result.success) {
+                        throw new Error(result.message || 'Payment initiation failed');
                     }
+
+                    const checkoutId = result.data?.CheckoutRequestID || result.checkout_request_id;
+                    checkoutRequestId = checkoutId;
+
+                    document.getElementById('paymentStatusText').textContent = '📱 STK Push Sent!';
+                    document.getElementById('paymentStatusDetail').textContent = 'Please check your phone and enter your M-Pesa PIN.';
+
+                    showToast('📱 STK Push sent! Check your phone.', 'info');
+
+                    // 2. Poll for payment status
+                    let attempts = 0;
+                    const maxAttempts = 30;
+                    const pollInterval = setInterval(async () => {
+                        attempts++;
+                        try {
+                            const statusResult = await apiRequest(`/payments/mpesa/status/${checkoutId}`, 'GET');
+                            
+                            if (statusResult.success && statusResult.data) {
+                                const status = statusResult.data;
+                                if (status.status === 'completed' || status.status === 'success') {
+                                    clearInterval(pollInterval);
+                                    document.getElementById('paymentStatusText').textContent = '✅ Payment Successful!';
+                                    document.getElementById('paymentStatusDetail').textContent = `${selectedService.name} is now unlocked.`;
+                                    showToast(`✅ Payment successful! ${selectedService.name} unlocked!`, 'success');
+                                    
+                                    setTimeout(() => {
+                                        overlay.classList.remove('open');
+                                        closePaymentModal();
+                                        loadDashboard();
+                                    }, 1500);
+                                    return;
+                                } else if (status.status === 'failed' || status.status === 'error') {
+                                    clearInterval(pollInterval);
+                                    document.getElementById('paymentStatusText').textContent = '❌ Payment Failed';
+                                    document.getElementById('paymentStatusDetail').textContent = status.message || 'Please try again.';
+                                    showToast('❌ Payment failed. Please try again.', 'error');
+                                    setTimeout(() => {
+                                        overlay.classList.remove('open');
+                                        closePaymentModal();
+                                    }, 2000);
+                                    return;
+                                }
+                            }
+
+                            if (attempts >= maxAttempts) {
+                                clearInterval(pollInterval);
+                                document.getElementById('paymentStatusText').textContent = '⏰ Payment Timeout';
+                                document.getElementById('paymentStatusDetail').textContent = 'Payment is taking longer than expected. Check your M-Pesa messages.';
+                                showToast('⏰ Payment timeout. Check your M-Pesa.', 'warning');
+                                setTimeout(() => {
+                                    overlay.classList.remove('open');
+                                    closePaymentModal();
+                                }, 2000);
+                            }
+                        } catch (pollError) {
+                            console.warn('Polling error:', pollError);
+                            if (attempts >= maxAttempts) {
+                                clearInterval(pollInterval);
+                                overlay.classList.remove('open');
+                                closePaymentModal();
+                            }
+                        }
+                    }, 3000);
+
+                    // Auto-close after 90 seconds if still pending
+                    setTimeout(() => {
+                        if (document.getElementById('paymentOverlay').classList.contains('open')) {
+                            document.getElementById('paymentStatusText').textContent = '⏰ Payment Pending';
+                            document.getElementById('paymentStatusDetail').textContent = 'Check your M-Pesa messages. You can close this window.';
+                        }
+                    }, 90000);
+
                 } catch (error) {
                     console.error('Payment error:', error);
-                    showToast('❌ Payment failed: ' + error.message, 'error');
-                    payBtn.disabled = false;
-                    payBtn.textContent = '💳 Pay Now';
-                    isProcessingPayment = false;
+                    document.getElementById('paymentStatusText').textContent = '❌ Payment Error';
+                    document.getElementById('paymentStatusDetail').textContent = error.message || 'Please try again.';
+                    showToast('❌ Payment error: ' + error.message, 'error');
+                    setTimeout(() => {
+                        overlay.classList.remove('open');
+                        closePaymentModal();
+                    }, 2000);
                 }
             };
 
