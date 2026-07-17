@@ -213,6 +213,78 @@
             color: var(--danger);
         }
 
+        /* ─── Health Status Bar ────────────────────────────────────── */
+        .health-bar {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px 24px;
+            margin-bottom: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .health-bar .health-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .health-bar .health-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        .health-bar .health-dot.online { background: var(--success); }
+        .health-bar .health-dot.degraded { background: var(--warning); }
+        .health-bar .health-dot.offline { background: var(--danger); animation: none; }
+        .health-bar .health-dot.checking { background: var(--blue); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(0.9); }
+        }
+
+        .health-bar .health-label {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .health-bar .health-label.online { color: var(--success); }
+        .health-bar .health-label.degraded { color: var(--warning); }
+        .health-bar .health-label.offline { color: var(--danger); }
+        .health-bar .health-label.checking { color: var(--blue); }
+
+        .health-bar .health-details {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .health-bar .health-details .detail-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .health-bar .health-details .detail-item .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .health-bar .health-details .detail-item .status-dot.pass { background: var(--success); }
+        .health-bar .health-details .detail-item .status-dot.fail { background: var(--danger); }
+        .health-bar .health-details .detail-item .status-dot.warn { background: var(--warning); }
+
+        .health-bar .health-timestamp {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+
         /* ─── Stats Grid ───────────────────────────────────────────── */
         .stats-grid {
             display: grid;
@@ -577,6 +649,8 @@
             .header { flex-direction: column; align-items: flex-start; }
             .header .user-info { width: 100%; justify-content: space-between; }
             .card { padding: 18px; }
+            .health-bar { flex-direction: column; align-items: flex-start; }
+            .health-bar .health-details { width: 100%; }
         }
         @media (max-width: 480px) {
             .login-card { padding: 24px 16px; }
@@ -642,6 +716,31 @@
                     <div class="avatar" id="adminAvatar">A</div>
                     <button class="logout-btn" id="logoutBtn">🚪 Logout</button>
                 </div>
+            </div>
+
+            <!-- ─── Health Status Bar ─────────────────────────────────── -->
+            <div class="health-bar" id="healthBar">
+                <div class="health-status">
+                    <div class="health-dot checking" id="healthDot"></div>
+                    <span class="health-label checking" id="healthLabel">Checking backend...</span>
+                </div>
+                <div class="health-details" id="healthDetails">
+                    <div class="detail-item">
+                        <span class="status-dot warn" id="supabaseDot"></span>
+                        Supabase: <span id="supabaseStatus">Checking...</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="status-dot warn" id="fastapiDot"></span>
+                        FastAPI: <span id="fastapiStatus">Checking...</span>
+                    </div>
+                    <div class="detail-item">
+                        ⏱️ <span id="healthPing">—</span>ms
+                    </div>
+                    <div class="detail-item">
+                        📡 <span id="healthVersion">—</span>
+                    </div>
+                </div>
+                <div class="health-timestamp" id="healthTimestamp">Last check: —</div>
             </div>
 
             <!-- Stats -->
@@ -789,7 +888,7 @@
 
             <!-- Footer -->
             <div style="border-top:1px solid var(--border);padding-top:20px;margin-top:10px;text-align:center;color:var(--text-muted);font-size:12px;">
-                Auto-D Kenya Admin Dashboard v3.0 · © 2026 Auto-D Kenya
+                Auto-D Kenya Admin Dashboard v4.0 · © 2026 Auto-D Kenya
                 <span style="display:block;font-size:10px;color:var(--text-muted);" id="connectionStatus">● Connected to backend</span>
             </div>
         </div>
@@ -797,344 +896,8 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - Supabase Client (Inline)
-        // ═══════════════════════════════════════════════════════════════
-
-        const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
-
-        let supabaseClient = null;
-        let currentUser = null;
-
-        function initSupabase() {
-            try {
-                if (typeof supabase === 'undefined') {
-                    console.warn('⚠️ Supabase SDK not loaded');
-                    return null;
-                }
-                if (!supabaseClient) {
-                    const { createClient } = supabase;
-                    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                    console.log('✅ Supabase client initialized');
-                }
-                return supabaseClient;
-            } catch (error) {
-                console.error('❌ Supabase init error:', error);
-                return null;
-            }
-        }
-
-        function getSupabaseClient() {
-            if (!supabaseClient) {
-                return initSupabase();
-            }
-            return supabaseClient;
-        }
-
-        async function getCurrentUser() {
-            try {
-                const client = getSupabaseClient();
-                if (!client) return null;
-                const { data: { session }, error } = await client.auth.getSession();
-                if (error) throw error;
-                if (session?.user) {
-                    currentUser = session.user;
-                    localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
-                    return currentUser;
-                }
-                const stored = localStorage.getItem('auto_d_user');
-                if (stored) {
-                    try {
-                        const user = JSON.parse(stored);
-                        currentUser = user;
-                        return user;
-                    } catch (e) { /* ignore */ }
-                }
-                return null;
-            } catch (error) {
-                console.warn('⚠️ Get current user error:', error.message);
-                return null;
-            }
-        }
-
-        async function signIn(email, password) {
-            try {
-                const client = getSupabaseClient();
-                if (!client) throw new Error('Supabase not initialized');
-                const { data, error } = await client.auth.signInWithPassword({
-                    email: email.toLowerCase().trim(),
-                    password: password
-                });
-                if (error) throw error;
-                currentUser = data.user;
-                localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
-                return { success: true, user: data.user };
-            } catch (error) {
-                console.error('❌ Sign in error:', error);
-                return { success: false, error: error.message };
-            }
-        }
-
-        async function signOut() {
-            try {
-                const client = getSupabaseClient();
-                if (!client) return { success: true };
-                await client.auth.signOut();
-                currentUser = null;
-                localStorage.removeItem('auto_d_user');
-                return { success: true };
-            } catch (error) {
-                console.error('❌ Sign out error:', error);
-                return { success: false, error: error.message };
-            }
-        }
-
-        async function isAdmin(userId) {
-            try {
-                const client = getSupabaseClient();
-                if (!client) return false;
-                const { data, error } = await client
-                    .from('admin_users')
-                    .select('role')
-                    .eq('user_id', userId || currentUser?.id)
-                    .single();
-                if (error) return false;
-                return !!data;
-            } catch (error) {
-                console.warn('⚠️ Admin check error:', error.message);
-                return false;
-            }
-        }
-
-        async function query(table, select = '*', filters = {}, order = null, limit = null) {
-            try {
-                const client = getSupabaseClient();
-                if (!client) throw new Error('Supabase not initialized');
-                let query = client.from(table).select(select);
-                Object.keys(filters).forEach(key => {
-                    if (Array.isArray(filters[key])) {
-                        query = query.in(key, filters[key]);
-                    } else {
-                        query = query.eq(key, filters[key]);
-                    }
-                });
-                if (order) {
-                    query = query.order(order.column, { ascending: order.ascending || false });
-                }
-                if (limit) {
-                    query = query.limit(limit);
-                }
-                const { data, error } = await query;
-                if (error) throw error;
-                return { success: true, data };
-            } catch (error) {
-                console.error(`❌ Query error (${table}):`, error);
-                return { success: false, error: error.message };
-            }
-        }
-
-        async function upsert(table, data, conflictKey = 'id') {
-            try {
-                const client = getSupabaseClient();
-                if (!client) throw new Error('Supabase not initialized');
-                const { data: result, error } = await client
-                    .from(table)
-                    .upsert({
-                        ...data,
-                        updated_at: new Date().toISOString()
-                    }, { onConflict: conflictKey })
-                    .select();
-                if (error) throw error;
-                return { success: true, data: result };
-            } catch (error) {
-                console.error(`❌ Upsert error (${table}):`, error);
-                return { success: false, error: error.message };
-            }
-        }
-
-        async function updateFuelPrice(fuelType, price) {
-            return await upsert('fuel_prices', {
-                fuel_type: fuelType,
-                price: price,
-                currency: 'KES'
-            }, 'fuel_type');
-        }
-
-        async function getFuelPrices() {
-            const result = await query('fuel_prices');
-            if (result.success && result.data) {
-                const prices = {};
-                const latest = {};
-                result.data.forEach(item => {
-                    if (!latest[item.fuel_type] || new Date(item.created_at) > new Date(latest[item.fuel_type].created_at)) {
-                        latest[item.fuel_type] = item;
-                    }
-                });
-                Object.keys(latest).forEach(key => {
-                    prices[key] = {
-                        price: latest[key].price,
-                        date: latest[key].created_at,
-                        currency: latest[key].currency || 'KES'
-                    };
-                });
-                return { success: true, data: prices };
-            }
-            return result;
-        }
-
-        async function updateServicePrice(serviceType, price) {
-            return await upsert('service_prices', {
-                service_type: serviceType,
-                price: price,
-                currency: 'KES'
-            }, 'service_type');
-        }
-
-        async function getServicePrices() {
-            const result = await query('service_prices');
-            if (result.success && result.data) {
-                const prices = {};
-                const latest = {};
-                result.data.forEach(item => {
-                    if (!latest[item.service_type] || new Date(item.created_at) > new Date(latest[item.service_type].created_at)) {
-                        latest[item.service_type] = item;
-                    }
-                });
-                Object.keys(latest).forEach(key => {
-                    prices[key] = latest[key].price;
-                });
-                return { success: true, data: prices };
-            }
-            return result;
-        }
-
-        async function getEngineSettings() {
-            try {
-                const client = getSupabaseClient();
-                if (!client) throw new Error('Supabase not initialized');
-                const { data, error } = await client
-                    .from('settings')
-                    .select('value')
-                    .eq('key', 'engine_settings')
-                    .single();
-                if (error) {
-                    return { success: true, data: {
-                        depreciation_rate: 0.15,
-                        insurance_rate: 0.045,
-                        annual_mileage: 20000,
-                        tyre_lifespan: 45000
-                    } };
-                }
-                return { success: true, data: data.value };
-            } catch (error) {
-                console.warn('⚠️ Get engine settings error:', error.message);
-                return { success: true, data: {
-                    depreciation_rate: 0.15,
-                    insurance_rate: 0.045,
-                    annual_mileage: 20000,
-                    tyre_lifespan: 45000
-                } };
-            }
-        }
-
-        async function updateEngineSettings(settings) {
-            return await upsert('settings', {
-                key: 'engine_settings',
-                value: settings
-            }, 'key');
-        }
-
-        async function addAdminLog(action, username = 'system') {
-            try {
-                const client = getSupabaseClient();
-                if (!client) return { success: true };
-                const { error } = await client
-                    .from('admin_logs')
-                    .insert({
-                        action: action,
-                        username: username,
-                        created_at: new Date().toISOString()
-                    });
-                if (error) throw error;
-                return { success: true };
-            } catch (error) {
-                console.warn('⚠️ Add admin log error:', error.message);
-                return { success: false, error: error.message };
-            }
-        }
-
-        async function getAdminLogs(limit = 50) {
-            return await query('admin_logs', '*', {}, { column: 'created_at', ascending: false }, limit);
-        }
-
-        async function getDashboardStats() {
-            try {
-                const client = getSupabaseClient();
-                if (!client) throw new Error('Supabase not initialized');
-                const user = await getCurrentUser();
-                if (!user) throw new Error('User not authenticated');
-                const { count: vehicles } = await client
-                    .from('vehicles')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('user_id', user.id);
-                const { count: reports } = await client
-                    .from('reports')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('user_id', user.id);
-                const { count: services } = await client
-                    .from('service_access')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('user_id', user.id)
-                    .eq('status', 'active');
-                const { data: payments } = await client
-                    .from('payments')
-                    .select('amount')
-                    .eq('user_id', user.id);
-                const totalSpent = payments ? payments.reduce((sum, p) => sum + (p.amount || 0), 0) : 0;
-                return {
-                    success: true,
-                    data: {
-                        vehicles: vehicles || 0,
-                        reports: reports || 0,
-                        active_services: services || 0,
-                        amount_spent: totalSpent
-                    }
-                };
-            } catch (error) {
-                console.error('❌ Dashboard stats error:', error);
-                return { success: false, error: error.message };
-            }
-        }
-
-        // ─── Expose to window ──────────────────────────────────────────
-        const AutoDClient = {
-            init: initSupabase,
-            getClient: getSupabaseClient,
-            getCurrentUser,
-            signIn,
-            signOut,
-            isAdmin,
-            query,
-            upsert,
-            getFuelPrices,
-            updateFuelPrice,
-            getServicePrices,
-            updateServicePrice,
-            getEngineSettings,
-            updateEngineSettings,
-            addAdminLog,
-            getAdminLogs,
-            getDashboardStats,
-            SUPABASE_URL,
-            SUPABASE_ANON_KEY
-        };
-
-        window.AutoDClient = AutoDClient;
-
-        console.log('🚗 Auto-D Kenya Supabase Client initialized');
-
-        // ═══════════════════════════════════════════════════════════════
-        // Auto-D Kenya - ADMIN DASHBOARD
+        // AUTO-D KENYA - ADMIN DASHBOARD
+        // Supabase + FastAPI Integration with Health Status
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1143,9 +906,17 @@
             if (window.autoDAdminInitialized) return;
             window.autoDAdminInitialized = true;
 
+            // ─── CONFIG ──────────────────────────────────────────────────
+            const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
+            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+            const API_BASE = 'https://auto-d.onrender.com/api/v1';
+
             // ─── STATE ──────────────────────────────────────────────────
+            let supabaseClient = null;
+            let currentUser = null;
             let isLoggedIn = false;
             let activityLogs = [];
+            let healthCheckInterval = null;
 
             // ─── DOM Elements ──────────────────────────────────────────
             const loginScreen = document.getElementById('loginScreen');
@@ -1157,6 +928,426 @@
             const connectionStatus = document.getElementById('connectionStatus');
             const fuelGrid = document.getElementById('fuelGrid');
             const serviceList = document.getElementById('serviceList');
+
+            // Health status elements
+            const healthDot = document.getElementById('healthDot');
+            const healthLabel = document.getElementById('healthLabel');
+            const healthDetails = document.getElementById('healthDetails');
+            const healthPing = document.getElementById('healthPing');
+            const healthVersion = document.getElementById('healthVersion');
+            const healthTimestamp = document.getElementById('healthTimestamp');
+            const supabaseStatus = document.getElementById('supabaseStatus');
+            const fastapiStatus = document.getElementById('fastapiStatus');
+            const supabaseDot = document.getElementById('supabaseDot');
+            const fastapiDot = document.getElementById('fastapiDot');
+
+            // ─── Initialize Supabase ────────────────────────────────────
+            function initSupabase() {
+                try {
+                    if (typeof supabase === 'undefined') {
+                        console.warn('⚠️ Supabase SDK not loaded');
+                        return null;
+                    }
+                    if (!supabaseClient) {
+                        const { createClient } = supabase;
+                        supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                        console.log('✅ Supabase client initialized');
+                    }
+                    return supabaseClient;
+                } catch (error) {
+                    console.error('❌ Supabase init error:', error);
+                    return null;
+                }
+            }
+
+            function getSupabaseClient() {
+                if (!supabaseClient) {
+                    return initSupabase();
+                }
+                return supabaseClient;
+            }
+
+            // ─── Auth Functions ─────────────────────────────────────────
+            async function getCurrentUser() {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) return null;
+                    const { data: { session }, error } = await client.auth.getSession();
+                    if (error) throw error;
+                    if (session?.user) {
+                        currentUser = session.user;
+                        localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                        return currentUser;
+                    }
+                    const stored = localStorage.getItem('auto_d_user');
+                    if (stored) {
+                        try {
+                            const user = JSON.parse(stored);
+                            currentUser = user;
+                            return user;
+                        } catch (e) { /* ignore */ }
+                    }
+                    return null;
+                } catch (error) {
+                    console.warn('⚠️ Get current user error:', error.message);
+                    return null;
+                }
+            }
+
+            async function signIn(email, password) {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) throw new Error('Supabase not initialized');
+                    const { data, error } = await client.auth.signInWithPassword({
+                        email: email.toLowerCase().trim(),
+                        password: password
+                    });
+                    if (error) throw error;
+                    currentUser = data.user;
+                    localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                    return { success: true, user: data.user };
+                } catch (error) {
+                    console.error('❌ Sign in error:', error);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            async function signOut() {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) return { success: true };
+                    await client.auth.signOut();
+                    currentUser = null;
+                    localStorage.removeItem('auto_d_user');
+                    if (healthCheckInterval) {
+                        clearInterval(healthCheckInterval);
+                        healthCheckInterval = null;
+                    }
+                    return { success: true };
+                } catch (error) {
+                    console.error('❌ Sign out error:', error);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            async function isAdmin(userId) {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) return false;
+                    const { data, error } = await client
+                        .from('admin_users')
+                        .select('role')
+                        .eq('user_id', userId || currentUser?.id)
+                        .single();
+                    if (error) return false;
+                    return !!data;
+                } catch (error) {
+                    console.warn('⚠️ Admin check error:', error.message);
+                    return false;
+                }
+            }
+
+            // ─── Database Functions ─────────────────────────────────────
+            async function query(table, select = '*', filters = {}, order = null, limit = null) {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) throw new Error('Supabase not initialized');
+                    let query = client.from(table).select(select);
+                    Object.keys(filters).forEach(key => {
+                        if (Array.isArray(filters[key])) {
+                            query = query.in(key, filters[key]);
+                        } else {
+                            query = query.eq(key, filters[key]);
+                        }
+                    });
+                    if (order) {
+                        query = query.order(order.column, { ascending: order.ascending || false });
+                    }
+                    if (limit) {
+                        query = query.limit(limit);
+                    }
+                    const { data, error } = await query;
+                    if (error) throw error;
+                    return { success: true, data };
+                } catch (error) {
+                    console.error(`❌ Query error (${table}):`, error);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            async function upsert(table, data, conflictKey = 'id') {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) throw new Error('Supabase not initialized');
+                    const { data: result, error } = await client
+                        .from(table)
+                        .upsert({
+                            ...data,
+                            updated_at: new Date().toISOString()
+                        }, { onConflict: conflictKey })
+                        .select();
+                    if (error) throw error;
+                    return { success: true, data: result };
+                } catch (error) {
+                    console.error(`❌ Upsert error (${table}):`, error);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            // ─── Fuel Prices ────────────────────────────────────────────
+            async function getFuelPrices() {
+                const result = await query('fuel_prices');
+                if (result.success && result.data) {
+                    const prices = {};
+                    const latest = {};
+                    result.data.forEach(item => {
+                        if (!latest[item.fuel_type] || new Date(item.created_at) > new Date(latest[item.fuel_type].created_at)) {
+                            latest[item.fuel_type] = item;
+                        }
+                    });
+                    Object.keys(latest).forEach(key => {
+                        prices[key] = {
+                            price: latest[key].price,
+                            date: latest[key].created_at,
+                            currency: latest[key].currency || 'KES'
+                        };
+                    });
+                    return { success: true, data: prices };
+                }
+                return result;
+            }
+
+            async function updateFuelPrice(fuelType, price) {
+                return await upsert('fuel_prices', {
+                    fuel_type: fuelType,
+                    price: price,
+                    currency: 'KES'
+                }, 'fuel_type');
+            }
+
+            // ─── Service Prices ─────────────────────────────────────────
+            async function getServicePrices() {
+                const result = await query('service_prices');
+                if (result.success && result.data) {
+                    const prices = {};
+                    const latest = {};
+                    result.data.forEach(item => {
+                        if (!latest[item.service_type] || new Date(item.created_at) > new Date(latest[item.service_type].created_at)) {
+                            latest[item.service_type] = item;
+                        }
+                    });
+                    Object.keys(latest).forEach(key => {
+                        prices[key] = latest[key].price;
+                    });
+                    return { success: true, data: prices };
+                }
+                return result;
+            }
+
+            async function updateServicePrice(serviceType, price) {
+                return await upsert('service_prices', {
+                    service_type: serviceType,
+                    price: price,
+                    currency: 'KES'
+                }, 'service_type');
+            }
+
+            // ─── Engine Settings ────────────────────────────────────────
+            async function getEngineSettings() {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) throw new Error('Supabase not initialized');
+                    const { data, error } = await client
+                        .from('settings')
+                        .select('value')
+                        .eq('key', 'engine_settings')
+                        .single();
+                    if (error) {
+                        return { success: true, data: {
+                            depreciation_rate: 0.15,
+                            insurance_rate: 0.045,
+                            annual_mileage: 20000,
+                            tyre_lifespan: 45000
+                        } };
+                    }
+                    return { success: true, data: data.value };
+                } catch (error) {
+                    console.warn('⚠️ Get engine settings error:', error.message);
+                    return { success: true, data: {
+                        depreciation_rate: 0.15,
+                        insurance_rate: 0.045,
+                        annual_mileage: 20000,
+                        tyre_lifespan: 45000
+                    } };
+                }
+            }
+
+            async function updateEngineSettings(settings) {
+                return await upsert('settings', {
+                    key: 'engine_settings',
+                    value: settings
+                }, 'key');
+            }
+
+            // ─── Admin Logs ─────────────────────────────────────────────
+            async function addAdminLog(action, username = 'system') {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) return { success: true };
+                    const { error } = await client
+                        .from('admin_logs')
+                        .insert({
+                            action: action,
+                            username: username,
+                            created_at: new Date().toISOString()
+                        });
+                    if (error) throw error;
+                    return { success: true };
+                } catch (error) {
+                    console.warn('⚠️ Add admin log error:', error.message);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            async function getAdminLogs(limit = 50) {
+                return await query('admin_logs', '*', {}, { column: 'created_at', ascending: false }, limit);
+            }
+
+            // ─── Dashboard Stats ────────────────────────────────────────
+            async function getDashboardStats() {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) throw new Error('Supabase not initialized');
+                    const { count: vehicles } = await client
+                        .from('vehicle_variants')
+                        .select('*', { count: 'exact', head: true });
+                    const { count: reports } = await client
+                        .from('mileage_reports')
+                        .select('*', { count: 'exact', head: true });
+                    const { count: users } = await client
+                        .from('user_profiles')
+                        .select('*', { count: 'exact', head: true });
+                    const { data: logs } = await client
+                        .from('admin_logs')
+                        .select('*', { count: 'exact' })
+                        .gte('created_at', new Date(new Date().setHours(0,0,0,0)).toISOString());
+                    
+                    return {
+                        success: true,
+                        data: {
+                            vehicles: vehicles || 0,
+                            reports: reports || 0,
+                            users: users || 0,
+                            apiCalls: logs?.length || 0
+                        }
+                    };
+                } catch (error) {
+                    console.error('❌ Dashboard stats error:', error);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            // ─── Health Check ────────────────────────────────────────────
+            async function checkHealth() {
+                try {
+                    const startTime = performance.now();
+
+                    // Check Supabase
+                    let supabaseOk = false;
+                    try {
+                        const client = getSupabaseClient();
+                        if (client) {
+                            const { data, error } = await client
+                                .from('vehicle_makes')
+                                .select('count', { count: 'exact', head: true })
+                                .limit(1);
+                            supabaseOk = !error;
+                        }
+                    } catch (e) {
+                        supabaseOk = false;
+                    }
+
+                    // Check FastAPI
+                    let fastapiOk = false;
+                    let fastapiVersion = '—';
+                    let fastapiPing = 0;
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 3000);
+                        const response = await fetch(`${API_BASE}/health`, {
+                            method: 'GET',
+                            headers: { 'Accept': 'application/json' },
+                            signal: controller.signal
+                        });
+                        clearTimeout(timeoutId);
+                        fastapiOk = response.ok;
+                        if (fastapiOk) {
+                            const data = await response.json();
+                            fastapiVersion = data.version || data.status || 'v1.0.0';
+                        }
+                    } catch (e) {
+                        fastapiOk = false;
+                    }
+
+                    const endTime = performance.now();
+                    const pingMs = Math.round(endTime - startTime);
+
+                    // Update UI
+                    updateHealthUI(supabaseOk, fastapiOk, pingMs, fastapiVersion);
+
+                } catch (error) {
+                    console.warn('⚠️ Health check error:', error);
+                    updateHealthUI(false, false, 0, '—');
+                }
+            }
+
+            function updateHealthUI(supabaseOk, fastapiOk, pingMs, version) {
+                // Overall status
+                const isOnline = supabaseOk && fastapiOk;
+                const isDegraded = supabaseOk !== fastapiOk;
+                const isOffline = !supabaseOk && !fastapiOk;
+
+                let statusClass, statusText;
+                if (isOnline) {
+                    statusClass = 'online';
+                    statusText = '✅ All systems operational';
+                } else if (isDegraded) {
+                    statusClass = 'degraded';
+                    statusText = '⚠️ Some services degraded';
+                } else {
+                    statusClass = 'offline';
+                    statusText = '❌ Services unavailable';
+                }
+
+                healthDot.className = `health-dot ${statusClass}`;
+                healthLabel.className = `health-label ${statusClass}`;
+                healthLabel.textContent = statusText;
+
+                // Supabase status
+                supabaseDot.className = `status-dot ${supabaseOk ? 'pass' : 'fail'}`;
+                supabaseStatus.textContent = supabaseOk ? '✅ Online' : '❌ Offline';
+
+                // FastAPI status
+                fastapiDot.className = `status-dot ${fastapiOk ? 'pass' : 'fail'}`;
+                fastapiStatus.textContent = fastapiOk ? '✅ Online' : '❌ Offline';
+
+                // Ping
+                healthPing.textContent = pingMs > 0 ? pingMs : '—';
+
+                // Version
+                healthVersion.textContent = version || '—';
+
+                // Timestamp
+                healthTimestamp.textContent = `Last check: ${new Date().toLocaleTimeString()}`;
+
+                // Update connection status
+                connectionStatus.textContent = isOnline ? '● All systems operational' : 
+                                             isDegraded ? '● Degraded' : '● Offline';
+                connectionStatus.style.color = isOnline ? 'var(--success)' : 
+                                              isDegraded ? 'var(--warning)' : 'var(--danger)';
+
+                return { supabaseOk, fastapiOk, isOnline, isDegraded, isOffline };
+            }
 
             // ─── Toast ──────────────────────────────────────────────────
             function showToast(message, type = 'success') {
@@ -1172,11 +1363,11 @@
             // ─── Check Auth ────────────────────────────────────────────
             async function checkAuth() {
                 try {
-                    const user = await AutoDClient.getCurrentUser();
+                    const user = await getCurrentUser();
                     if (user) {
-                        const isAdmin = await AutoDClient.isAdmin(user.id);
-                        if (!isAdmin) {
-                            await AutoDClient.signOut();
+                        const admin = await isAdmin(user.id);
+                        if (!admin) {
+                            await signOut();
                             return false;
                         }
                         isLoggedIn = true;
@@ -1201,15 +1392,15 @@
                 loginBtn.textContent = '⏳ Logging in...';
 
                 try {
-                    const result = await AutoDClient.signIn(email, password);
+                    const result = await signIn(email, password);
                     
                     if (!result.success) {
                         throw new Error(result.error || 'Login failed');
                     }
 
-                    const isAdmin = await AutoDClient.isAdmin(result.user.id);
-                    if (!isAdmin) {
-                        await AutoDClient.signOut();
+                    const admin = await isAdmin(result.user.id);
+                    if (!admin) {
+                        await signOut();
                         throw new Error('Unauthorized: Admin access required');
                     }
 
@@ -1220,6 +1411,12 @@
                     document.getElementById('adminName').textContent = result.user.user_metadata?.full_name || email;
                     document.getElementById('adminAvatar').textContent = (result.user.user_metadata?.full_name || email)[0].toUpperCase();
                     showToast('✅ Login successful!', 'success');
+                    
+                    // Start health check
+                    await checkHealth();
+                    if (healthCheckInterval) clearInterval(healthCheckInterval);
+                    healthCheckInterval = setInterval(checkHealth, 30000);
+                    
                     await loadDashboardData();
 
                 } catch (error) {
@@ -1234,11 +1431,15 @@
 
             // ─── Logout ──────────────────────────────────────────────────
             logoutBtn.addEventListener('click', async function() {
-                await AutoDClient.signOut();
+                await signOut();
                 isLoggedIn = false;
                 dashboardScreen.classList.add('hidden');
                 loginScreen.classList.remove('hidden');
                 document.getElementById('adminPassword').value = '';
+                if (healthCheckInterval) {
+                    clearInterval(healthCheckInterval);
+                    healthCheckInterval = null;
+                }
                 showToast('👋 Logged out', 'info');
             });
 
@@ -1257,13 +1458,13 @@
             // ─── Fetch Stats ───────────────────────────────────────────
             async function fetchStats() {
                 try {
-                    const result = await AutoDClient.getDashboardStats();
+                    const result = await getDashboardStats();
                     if (result.success) {
                         const stats = result.data;
                         document.getElementById('statValuations').textContent = (stats.vehicles || 0).toLocaleString();
-                        document.getElementById('statRevenue').textContent = 'KES ' + (stats.amount_spent || 0).toLocaleString();
-                        document.getElementById('statUsers').textContent = '0';
-                        document.getElementById('statApiCalls').textContent = (stats.reports || 0).toLocaleString();
+                        document.getElementById('statRevenue').textContent = 'KES ' + ((stats.reports * 100) || 0).toLocaleString();
+                        document.getElementById('statUsers').textContent = (stats.users || 0).toLocaleString();
+                        document.getElementById('statApiCalls').textContent = (stats.apiCalls || 0).toLocaleString();
                     }
                 } catch (error) {
                     console.warn('⚠️ Stats fetch error:', error.message);
@@ -1273,7 +1474,7 @@
             // ─── Fetch Fuel Prices ─────────────────────────────────────
             async function fetchFuelPrices() {
                 try {
-                    const result = await AutoDClient.getFuelPrices();
+                    const result = await getFuelPrices();
                     if (result.success && result.data) {
                         renderFuelPrices(result.data);
                         document.getElementById('fuelStatus').textContent = '● Connected';
@@ -1293,8 +1494,8 @@
 
             function renderFallbackFuelPrices() {
                 const fallback = {
-                    petrol: { price: 189.00, date: new Date().toISOString().split('T')[0] },
-                    diesel: { price: 175.00, date: new Date().toISOString().split('T')[0] },
+                    petrol: { price: 214.03, date: new Date().toISOString().split('T')[0] },
+                    diesel: { price: 222.86, date: new Date().toISOString().split('T')[0] },
                     electric: { price: 30.00, date: new Date().toISOString().split('T')[0] },
                     lpg: { price: 120.00, date: new Date().toISOString().split('T')[0] }
                 };
@@ -1352,13 +1553,13 @@
                 statusEl.textContent = '⟳ Updating...';
 
                 try {
-                    const result = await AutoDClient.updateFuelPrice(type, price);
+                    const result = await updateFuelPrice(type, price);
                     if (!result.success) throw new Error(result.error);
 
                     statusEl.className = 'status-badge synced';
                     statusEl.textContent = '✓ Synced';
                     await fetchFuelPrices();
-                    await addLog(`⛽ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated to KES ${price.toFixed(2)}`, 'admin');
+                    await addAdminLog(`⛽ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated to KES ${price.toFixed(2)}`, 'admin');
                     showToast(`✅ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated!`, 'success');
                 } catch (error) {
                     statusEl.className = 'status-badge error';
@@ -1371,7 +1572,7 @@
             // ─── Fetch Service Prices ──────────────────────────────────
             async function fetchServicePrices() {
                 try {
-                    const result = await AutoDClient.getServicePrices();
+                    const result = await getServicePrices();
                     if (result.success && result.data) {
                         renderServicePrices(result.data);
                     } else {
@@ -1437,7 +1638,7 @@
                 btn.disabled = true;
 
                 try {
-                    const result = await AutoDClient.updateServicePrice(type, price);
+                    const result = await updateServicePrice(type, price);
                     if (!result.success) throw new Error(result.error);
 
                     await fetchServicePrices();
@@ -1447,7 +1648,7 @@
                         mileage: 'Mileage Report',
                         full_report: 'Full Vehicle Report'
                     };
-                    await addLog(`💳 ${names[type]} price updated to KES ${price}`, 'admin');
+                    await addAdminLog(`💳 ${names[type]} price updated to KES ${price}`, 'admin');
                     showToast(`✅ ${names[type]} price updated!`, 'success');
 
                 } catch (error) {
@@ -1462,7 +1663,7 @@
             // ─── Fetch Engine Settings ─────────────────────────────────
             async function fetchEngineSettings() {
                 try {
-                    const result = await AutoDClient.getEngineSettings();
+                    const result = await getEngineSettings();
                     if (result.success) {
                         const settings = result.data;
                         document.getElementById('depreciationRate').value = settings.depreciation_rate || 0.15;
@@ -1506,13 +1707,13 @@
                 };
 
                 try {
-                    const currentResult = await AutoDClient.getEngineSettings();
+                    const currentResult = await getEngineSettings();
                     if (!currentResult.success) throw new Error(currentResult.error);
                     
                     const settings = currentResult.data || {};
                     settings[keyMap[setting]] = value;
 
-                    const result = await AutoDClient.updateEngineSettings(settings);
+                    const result = await updateEngineSettings(settings);
                     if (!result.success) throw new Error(result.error);
 
                     const names = {
@@ -1521,7 +1722,7 @@
                         mileage: 'Annual Mileage',
                         tyre: 'Tyre Lifespan'
                     };
-                    await addLog(`⚙️ ${names[setting]} updated to ${value}`, 'admin');
+                    await addAdminLog(`⚙️ ${names[setting]} updated to ${value}`, 'admin');
                     showToast(`✅ ${names[setting]} updated!`, 'success');
 
                 } catch (error) {
@@ -1536,7 +1737,7 @@
             // ─── Activity Log ──────────────────────────────────────────
             async function fetchLogs() {
                 try {
-                    const result = await AutoDClient.getAdminLogs(20);
+                    const result = await getAdminLogs(20);
                     if (result.success && result.data) {
                         activityLogs = result.data.map(log => ({
                             action: log.action,
@@ -1553,14 +1754,14 @@
                 }
             }
 
-            async function addLog(action, user = 'system') {
+            async function addAdminLog(action, user = 'system') {
                 const time = new Date().toLocaleTimeString();
                 activityLogs.unshift({ action, user, time });
                 renderLogs();
                 localStorage.setItem('auto_d_logs', JSON.stringify(activityLogs.slice(0, 50)));
 
                 try {
-                    await AutoDClient.addAdminLog(action, user);
+                    await addAdminLog(action, user);
                 } catch (error) {
                     console.warn('Could not save log to Supabase:', error);
                 }
@@ -1592,7 +1793,7 @@
                     activityLogs = [];
                     localStorage.setItem('auto_d_logs', '[]');
                     renderLogs();
-                    addLog('🗑️ Logs cleared', 'admin');
+                    addAdminLog('🗑️ Logs cleared', 'admin');
                     showToast('✅ Logs cleared', 'info');
                 }
             };
@@ -1605,9 +1806,10 @@
                         fetchFuelPrices(),
                         fetchServicePrices(),
                         fetchEngineSettings(),
-                        fetchLogs()
+                        fetchLogs(),
+                        checkHealth()
                     ]);
-                    await addLog('🔄 All data synced successfully', 'admin');
+                    await addAdminLog('🔄 All data synced successfully', 'admin');
                     showToast('✅ All data synced!', 'success');
                 } catch (error) {
                     showToast('❌ Sync failed: ' + error.message, 'error');
@@ -1628,7 +1830,7 @@
                     a.download = `auto-d-backup-${new Date().toISOString().split('T')[0]}.json`;
                     a.click();
                     URL.revokeObjectURL(url);
-                    addLog('💾 Data backup downloaded', 'admin');
+                    addAdminLog('💾 Data backup downloaded', 'admin');
                     showToast('✅ Backup downloaded!', 'success');
                 } catch (error) {
                     showToast('❌ Backup failed: ' + error.message, 'error');
@@ -1639,7 +1841,7 @@
                 if (confirm('Clear application cache?')) {
                     localStorage.removeItem('auto_d_settings');
                     localStorage.removeItem('auto_d_logs');
-                    addLog('🧹 Cache cleared', 'admin');
+                    addAdminLog('🧹 Cache cleared', 'admin');
                     showToast('✅ Cache cleared!', 'success');
                 }
             };
@@ -1653,7 +1855,7 @@
                         tyre_lifespan: 45000
                     };
                     localStorage.setItem('auto_d_settings', JSON.stringify(defaults));
-                    addLog('⚠️ All settings reset to default', 'admin');
+                    addAdminLog('⚠️ All settings reset to default', 'admin');
                     showToast('✅ Settings reset to default!', 'warning');
                     fetchEngineSettings();
                 }
@@ -1669,38 +1871,50 @@
                     e.preventDefault();
                     refreshLogs();
                 }
+                if (e.ctrlKey && e.key === 'h' && isLoggedIn) {
+                    e.preventDefault();
+                    checkHealth();
+                    showToast('🔄 Health check triggered', 'info');
+                }
             });
 
             // ─── Init ──────────────────────────────────────────────────
             async function init() {
-                console.log('🚗 Auto-D Kenya Admin Dashboard v3.0');
-                console.log('📡 Using AutoDClient');
+                console.log('🚗 Auto-D Kenya Admin Dashboard v4.0');
+                console.log('📡 Backend:', API_BASE);
+                console.log('🔐 Supabase:', SUPABASE_URL);
 
-                AutoDClient.init();
+                initSupabase();
 
                 const isAuth = await checkAuth();
                 
                 if (isAuth) {
                     loginScreen.classList.add('hidden');
                     dashboardScreen.classList.remove('hidden');
+                    
+                    // Start health monitoring
+                    await checkHealth();
+                    healthCheckInterval = setInterval(checkHealth, 30000);
+                    
                     await loadDashboardData();
                 } else {
                     loginScreen.classList.remove('hidden');
                     dashboardScreen.classList.add('hidden');
                 }
 
-                if (window.AutoDClient) {
-                    const client = AutoDClient.getClient();
-                    if (client) {
-                        client.auth.onAuthStateChange((event, session) => {
-                            if (event === 'SIGNED_OUT') {
-                                isLoggedIn = false;
-                                dashboardScreen.classList.add('hidden');
-                                loginScreen.classList.remove('hidden');
-                                localStorage.removeItem('admin_session');
+                if (supabaseClient) {
+                    supabaseClient.auth.onAuthStateChange((event, session) => {
+                        if (event === 'SIGNED_OUT') {
+                            isLoggedIn = false;
+                            dashboardScreen.classList.add('hidden');
+                            loginScreen.classList.remove('hidden');
+                            localStorage.removeItem('admin_session');
+                            if (healthCheckInterval) {
+                                clearInterval(healthCheckInterval);
+                                healthCheckInterval = null;
                             }
-                        });
-                    }
+                        }
+                    });
                 }
             }
 
