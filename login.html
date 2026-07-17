@@ -1,342 +1,219 @@
-/******************************************************************************
- * AUTO-D
- * Authentication - Complete Auth Module
- * Registration, Login, Logout, Session Management
- ******************************************************************************/
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Log In | Auto-D Kenya</title>
+    <meta name="description" content="Log in to your Auto-D Kenya account to access your vehicle dashboard." />
+    <meta name="robots" content="noindex, follow" />
+    <meta name="theme-color" content="#0b1120" />
 
-import { supabase } from "./supabase.js";
+    <link rel="manifest" href="site.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Auto-D" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
 
-// ──────────────────────────────────────────────────────────────────────────────
-// CONFIGURATION
-// ──────────────────────────────────────────────────────────────────────────────
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          integrity="sha512-1PKOgIY59xJ8Co8+NE6FZ+LOAZKjy+KY8iq0G4B3CyeY6wYHN3yt9zzTncjzn70RmSVE0Q/T6UDVGqYVmDx2mA=="
+          crossorigin="anonymous" referrerpolicy="no-referrer" />
 
-const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
-let sessionCheckInterval = null;
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :focus-visible { outline: 2px solid #eab308; outline-offset: 3px; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0b1120;
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .navbar {
+            padding: 16px 32px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            align-items: center;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 20px;
+            font-weight: 800;
+            color: #eab308;
+            text-decoration: none;
+        }
+        .auth-wrap {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+        }
+        .auth-card {
+            width: 100%;
+            max-width: 420px;
+            background: #0f172a;
+            border: 1px solid #1e293b;
+            border-radius: 16px;
+            padding: 40px 32px;
+        }
+        .auth-card h1 {
+            font-size: 26px;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+        .auth-card .subtitle {
+            color: #94a3b8;
+            font-size: 14px;
+            margin-bottom: 28px;
+        }
+        .field { margin-bottom: 18px; }
+        .field label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #cbd5e1;
+            margin-bottom: 6px;
+        }
+        .field input {
+            width: 100%;
+            padding: 12px 14px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            color: #f8fafc;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .field input:focus {
+            border-color: #eab308;
+            outline: none;
+        }
+        .error-msg {
+            display: none;
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            font-size: 13px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            margin-bottom: 18px;
+        }
+        .error-msg.show { display: block; }
+        .btn-primary {
+            width: 100%;
+            padding: 13px;
+            background: linear-gradient(135deg, #eab308, #ca8a04);
+            color: #0a0c15;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 15px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(234, 179, 8, 0.3);
+        }
+        .switch-link {
+            text-align: center;
+            margin-top: 22px;
+            font-size: 13px;
+            color: #94a3b8;
+        }
+        .switch-link a {
+            color: #eab308;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .switch-link a:hover { text-decoration: underline; }
+        .back-home {
+            text-align: center;
+            margin-top: 14px;
+        }
+        .back-home a {
+            color: #64748b;
+            font-size: 13px;
+            text-decoration: none;
+        }
+        .back-home a:hover { color: #94a3b8; }
+    </style>
+</head>
+<body>
 
-// ──────────────────────────────────────────────────────────────────────────────
-// REGISTRATION FUNCTIONS
-// ──────────────────────────────────────────────────────────────────────────────
+<nav class="navbar">
+    <a href="index.html" class="logo"><span aria-hidden="true">🚗</span> Auto-D Kenya</a>
+</nav>
 
-/**
- * Register User - Base registration
- * 
- * @param {Object} params - Registration parameters
- * @param {string} params.email - User email
- * @param {string} params.password - User password
- * @param {string} params.accountType - 'individual' or 'corporate'
- * @param {Object} params.options - Additional options
- * @returns {Promise<Object>} Registration result
- */
-export async function register({ 
-    email, 
-    password, 
-    accountType = "individual",
-    options = {} 
-}) {
-    try {
-        const { data, error } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-                data: {
-                    account_type: accountType,
-                    ...options
-                }
-            }
-        });
+<main class="auth-wrap">
+    <div class="auth-card">
+        <h1>Welcome back</h1>
+        <p class="subtitle">Log in to view your vehicle dashboard.</p>
 
-        if (error) throw error;
+        <div class="error-msg" id="errorMsg" role="alert"></div>
 
-        return {
-            success: true,
-            user: data.user,
-            session: data.session,
-            message: "Registration successful. Please verify your email."
-        };
-    } catch (err) {
-        return {
-            success: false,
-            message: err.message
-        };
-    }
-}
+        <form id="loginForm" novalidate>
+            <div class="field">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" autocomplete="email" required />
+            </div>
+            <div class="field">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" autocomplete="current-password" required />
+            </div>
+            <button type="submit" class="btn-primary">Log In</button>
+        </form>
 
-/**
- * Register Individual User
- * 
- * @param {Object} form - Individual registration form data
- * @param {string} form.email - User email
- * @param {string} form.password - User password
- * @param {string} form.firstName - User first name
- * @param {string} form.lastName - User last name
- * @param {string} form.phone - User phone number
- * @param {string} form.nationalId - User national ID
- * @param {string} form.dateOfBirth - User date of birth
- * @returns {Promise<Object>} Registration result
- */
-export async function registerIndividual(form) {
-    const result = await register({
-        email: form.email,
-        password: form.password,
-        accountType: "individual"
-    });
+        <p class="switch-link">Don't have an account? <a href="signup.html">Sign up</a></p>
+        <p class="back-home"><a href="index.html">&larr; Back to home</a></p>
+    </div>
+</main>
 
-    if (!result.success) return result;
+<script src="assets/auth.js"></script>
+<script>
+    (function () {
+        'use strict';
 
-    const { data: appUser, error } = await supabase
-        .from("users")
-        .select("id")
-        .eq("auth_user_id", result.user.id)
-        .single();
-
-    if (error) {
-        return {
-            success: false,
-            message: error.message
-        };
-    }
-
-    const { error: profileError } = await supabase
-        .from("individual_profiles")
-        .update({
-            first_name: form.firstName,
-            last_name: form.lastName,
-            phone: form.phone,
-            national_id: form.nationalId,
-            date_of_birth: form.dateOfBirth
-        })
-        .eq("user_id", appUser.id);
-
-    if (profileError) {
-        return {
-            success: false,
-            message: profileError.message
-        };
-    }
-
-    return result;
-}
-
-/**
- * Register Corporate User
- * 
- * @param {Object} form - Corporate registration form data
- * @param {string} form.email - Company email
- * @param {string} form.password - Account password
- * @param {string} form.companyName - Company name
- * @param {string} form.registrationNumber - Company registration number
- * @param {string} form.kraPin - KRA PIN
- * @param {string} form.phone - Company phone
- * @returns {Promise<Object>} Registration result
- */
-export async function registerCorporate(form) {
-    const result = await register({
-        email: form.email,
-        password: form.password,
-        accountType: "corporate"
-    });
-
-    if (!result.success) return result;
-
-    const { data: appUser, error } = await supabase
-        .from("users")
-        .select("id")
-        .eq("auth_user_id", result.user.id)
-        .single();
-
-    if (error) {
-        return {
-            success: false,
-            message: error.message
-        };
-    }
-
-    const { error: profileError } = await supabase
-        .from("corporate_profiles")
-        .update({
-            company_name: form.companyName,
-            registration_number: form.registrationNumber,
-            kra_pin: form.kraPin,
-            company_phone: form.phone,
-            company_email: form.email
-        })
-        .eq("user_id", appUser.id);
-
-    if (profileError) {
-        return {
-            success: false,
-            message: profileError.message
-        };
-    }
-
-    return result;
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// LOGIN FUNCTIONS
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Login with Email and Password
- * 
- * @param {Object} params - Login parameters
- * @param {string} params.email - User email
- * @param {string} params.password - User password
- * @param {boolean} params.rememberMe - Keep session active
- * @returns {Promise<Object>} Login result
- */
-export async function login({ email, password, rememberMe = false }) {
-    try {
-        // Validate inputs
-        if (!email || !password) {
-            return {
-                success: false,
-                message: "Email and password are required."
-            };
+        // Already logged in? Send straight to the intended page.
+        var params = new URLSearchParams(location.search);
+        var redirect = params.get('redirect') || 'dashboard.html';
+        if (window.AutoDAuth.isLoggedIn()) {
+            location.href = redirect;
+            return;
         }
 
-        // Attempt login
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email: email.trim().toLowerCase(),
-            password: password
-        });
-
-        if (error) {
-            // Handle specific error types
-            if (error.message.includes("Invalid login credentials")) {
-                return {
-                    success: false,
-                    message: "Invalid email or password. Please try again."
-                };
-            }
-            if (error.message.includes("Email not confirmed")) {
-                return {
-                    success: false,
-                    message: "Please verify your email address before logging in.",
-                    needsVerification: true
-                };
-            }
-            if (error.message.includes("rate limit")) {
-                return {
-                    success: false,
-                    message: "Too many login attempts. Please try again later."
-                };
-            }
-            throw error;
-        }
-
-        // Update session persistence
-        if (rememberMe) {
-            await supabase.auth.updateUser({
-                data: { remember_me: true }
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('service-worker.js').catch(function () {});
             });
         }
 
-        // Update last login timestamp
-        await updateLastLogin(data.user.id);
+        var form = document.getElementById('loginForm');
+        var errorMsg = document.getElementById('errorMsg');
 
-        // Start session monitoring
-        startSessionMonitoring();
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var email = document.getElementById('email').value.trim();
+            var password = document.getElementById('password').value;
 
-        return {
-            success: true,
-            user: data.user,
-            session: data.session,
-            message: "Login successful.",
-            accountType: data.user.user_metadata?.account_type || "individual"
-        };
-
-    } catch (err) {
-        console.error("Login error:", err);
-        return {
-            success: false,
-            message: err.message || "An error occurred during login. Please try again."
-        };
-    }
-}
-
-/**
- * Login with Magic Link (Passwordless)
- * 
- * @param {Object} params - Magic link parameters
- * @param {string} params.email - User email
- * @param {string} params.redirectTo - Redirect URL after confirmation
- * @returns {Promise<Object>} Magic link result
- */
-export async function sendMagicLink({ email, redirectTo = window.location.origin + "/dashboard" }) {
-    try {
-        if (!email) {
-            return {
-                success: false,
-                message: "Email is required."
-            };
-        }
-
-        const { data, error } = await supabase.auth.signInWithOtp({
-            email: email.trim().toLowerCase(),
-            options: {
-                emailRedirectTo: redirectTo
+            var result = window.AutoDAuth.logIn(email, password);
+            if (result.ok) {
+                location.href = redirect;
+            } else {
+                errorMsg.textContent = result.error;
+                errorMsg.classList.add('show');
             }
         });
+    })();
+</script>
 
-        if (error) throw error;
-
-        return {
-            success: true,
-            message: "Magic link sent to your email. Please check your inbox."
-        };
-
-    } catch (err) {
-        console.error("Magic link error:", err);
-        return {
-            success: false,
-            message: err.message || "Failed to send magic link. Please try again."
-        };
-    }
-}
-
-/**
- * Login with OAuth Provider
- * 
- * @param {Object} params - OAuth parameters
- * @param {string} params.provider - OAuth provider ('google', 'github', etc.)
- * @param {string} params.redirectTo - Redirect URL after authentication
- * @returns {Promise<Object>} OAuth result
- */
-export async function loginWithOAuth({ provider, redirectTo = window.location.origin + "/dashboard" }) {
-    try {
-        if (!provider) {
-            return {
-                success: false,
-                message: "Provider is required."
-            };
-        }
-
-        const { data, error } = await supabase.auth.signInWithOAuth({
-            provider: provider,
-            options: {
-                redirectTo: redirectTo
-            }
-        });
-
-        if (error) throw error;
-
-        return {
-            success: true,
-            url: data.url,
-            provider: provider,
-            message: `Redirecting to ${provider}...`
-        };
-
-    } catch (err) {
-        console.error("OAuth login error:", err);
-        return {
-            success: false,
-            message: err.message || "Failed to login with provider. Please try again."
-        };
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// LOGOUT FUNCTIONS
-// ─────────────────────────────────────────────────────────────────────────
+</body>
+</html>
