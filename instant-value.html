@@ -1054,7 +1054,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - INSTANT VALUE CHECK
-        // Endpoint: POST /api/valuation/calculate
+        // Endpoint: POST /api/service/valuation
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1064,12 +1064,11 @@
             window.autoDInstantCheckInitialized = true;
 
             // ─── API CONFIG ──────────────────────────────────────────
-            // FIXED: previously pointed at /api/service/valuation, which does not
-            // exist on the Flask backend. The valuation_bp blueprint is registered
-            // with url_prefix='/api/valuation' and the route is '/calculate',
-            // so the real endpoint is /api/valuation/calculate.
+            // This matches the real Flask route: @app.post("/api/service/valuation")
+            // in app.py. (An earlier revision of this file mistakenly pointed at
+            // /api/valuation/calculate, which doesn't exist on this backend.)
             const API_BASE = 'https://auto-digital.onrender.com/api';
-            const VALUATION_ENDPOINT = '/valuation/calculate';
+            const VALUATION_ENDPOINT = '/service/valuation';
 
             // ─── PHOTO REQUIREMENTS BY VEHICLE TYPE ────────────────
             const PHOTO_REQUIREMENTS = {
@@ -1724,9 +1723,19 @@
                 // fields at the top level instead, we still find them here. We also
                 // now treat "0" or missing values as a real problem and warn instead
                 // of silently rendering KES 0.
-                const data = (result && typeof result === 'object')
-                    ? (result.data && typeof result.data === 'object' ? result.data : result)
-                    : {};
+                // Unwrap repeatedly in case the backend nests {success,data:{success,data:{...}}}
+                // (older/unpatched backend) as well as the normal single-nested
+                // {success,data:{...}} shape (patched backend).
+                let data = (result && typeof result === 'object') ? result : {};
+                for (let i = 0; i < 3; i++) {
+                    const hasValue = ('current_value' in data) || ('market_value' in data) || ('estimated_value' in data);
+                    if (hasValue) break;
+                    if (data.data && typeof data.data === 'object') {
+                        data = data.data;
+                    } else {
+                        break;
+                    }
+                }
 
                 const marketValue = Number(
                     data.current_value ?? data.market_value ?? data.estimated_value ?? NaN
