@@ -1054,7 +1054,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - INSTANT VALUE CHECK
-        // Endpoint: POST /api/service/valuation
+        // Endpoint: POST /api/valuation/calculate
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1064,8 +1064,12 @@
             window.autoDInstantCheckInitialized = true;
 
             // ─── API CONFIG ──────────────────────────────────────────
+            // FIXED: previously pointed at /api/service/valuation, which does not
+            // exist on the Flask backend. The valuation_bp blueprint is registered
+            // with url_prefix='/api/valuation' and the route is '/calculate',
+            // so the real endpoint is /api/valuation/calculate.
             const API_BASE = 'https://auto-digital.onrender.com/api';
-            const VALUATION_ENDPOINT = '/service/valuation';
+            const VALUATION_ENDPOINT = '/valuation/calculate';
 
             // ─── PHOTO REQUIREMENTS BY VEHICLE TYPE ────────────────
             const PHOTO_REQUIREMENTS = {
@@ -1657,10 +1661,13 @@
             // ─── CALL FLASK BACKEND ──────────────────────────────────
             async function callValuationAPI(formData) {
                 const url = `${API_BASE}${VALUATION_ENDPOINT}`;
-                
+
+                // FIXED: payload now matches ValuationService.calculate()'s expected
+                // request body exactly (purchase_price + age_years are required;
+                // the rest are optional with server-side defaults).
                 const payload = {
                     purchase_price: formData.purchase_price || 3000000,
-                    age_years: formData.age_years || 0,
+                    age_years: formData.age_years ?? 0,
                     vehicle_type: formData.vehicle_type || 'Car',
                     make: formData.make || 'Toyota',
                     model: formData.model || 'Corolla',
@@ -1672,33 +1679,74 @@
                     depreciation_rate: formData.depreciation_rate || 0.15
                 };
 
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify(payload)
-                });
-
-                if (!response.ok) {
-                    let errorData = {};
-                    try { errorData = await response.json(); } catch (e) {}
-                    throw new Error(errorData.message || errorData.error || `Valuation failed (${response.status})`);
+                let response;
+                try {
+                    response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                } catch (networkErr) {
+                    // Network-level failure (server down, CORS, offline, etc.)
+                    console.error('Network error calling valuation API:', networkErr);
+                    throw new Error('Could not reach the valuation server. Please check your connection and try again.');
                 }
 
-                return await response.json();
+                let json = null;
+                try {
+                    json = await response.json();
+                } catch (parseErr) {
+                    console.error('Failed to parse valuation API response as JSON:', parseErr);
+                    throw new Error(`Valuation server returned an unexpected response (status ${response.status}).`);
+                }
+
+                if (!response.ok) {
+                    throw new Error(json?.message || json?.error || `Valuation failed (${response.status})`);
+                }
+
+                // FIXED: the backend wraps a failure as {success:false, ...} but can
+                // still (in principle) respond with HTTP 200, so we check explicitly
+                // instead of only trusting response.ok.
+                if (json && json.success === false) {
+                    throw new Error(json.message || json.error || 'Valuation failed');
+                }
+
+                return json;
             }
 
             // ─── SHOW RESULT ──────────────────────────────────────────
             function showResult(result) {
-                const data = result.data || result;
-                const marketValue = data.current_value || data.estimated_value || 0;
-                const rangeMin = data.valuation_range?.min ?? Math.round(marketValue * 0.85);
-                const rangeMax = data.valuation_range?.max ?? Math.round(marketValue * 1.15);
+                // FIXED: be defensive about response shape. The backend returns
+                // {success, data:{...}}, but if a proxy/older backend returns the
+                // fields at the top level instead, we still find them here. We also
+                // now treat "0" or missing values as a real problem and warn instead
+                // of silently rendering KES 0.
+                const data = (result && typeof result === 'object')
+                    ? (result.data && typeof result.data === 'object' ? result.data : result)
+                    : {};
 
-                let confidence = data.confidence_score || 75;
-                if (typeof confidence !== 'number' || Number.isNaN(confidence)) {
+                const marketValue = Number(
+                    data.current_value ?? data.market_value ?? data.estimated_value ?? NaN
+                );
+
+                if (!Number.isFinite(marketValue) || marketValue <= 0) {
+                    console.error('Valuation response missing a usable value:', result);
+                    statusBox.className = 'status-box status-error';
+                    statusBox.textContent = '⚠️ The valuation server responded, but did not return a usable value. Please try again in a moment.';
+                    statusBox.style.display = 'flex';
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '🚀 Get AI Valuation';
+                    return;
+                }
+
+                const rangeMin = Number(data.valuation_range?.min ?? data.valuation_range?.low ?? Math.round(marketValue * 0.85));
+                const rangeMax = Number(data.valuation_range?.max ?? data.valuation_range?.high ?? Math.round(marketValue * 1.15));
+
+                let confidence = Number(data.confidence_score);
+                if (!Number.isFinite(confidence)) {
                     confidence = 75;
                 } else if (confidence <= 1) {
                     confidence = confidence * 100;
@@ -1713,7 +1761,7 @@
                 const interval = setInterval(() => {
                     current += step;
                     if (current >= target) { current = target; clearInterval(interval); }
-                    el.textContent = `KES ${current.toLocaleString()}`;
+                    el.textContent = `KES ${Math.round(current).toLocaleString()}`;
                 }, 30);
 
                 document.getElementById('resultRange').textContent = `KES ${Math.round(rangeMin).toLocaleString()} - ${Math.round(rangeMax).toLocaleString()}`;
