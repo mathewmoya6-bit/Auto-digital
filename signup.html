@@ -18,6 +18,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
+    <link rel="preconnect" href="https://xgkdbithhlvoqjnqvfmj.supabase.co" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
           integrity="sha512-1PKOgIY59xJ8Co8+NE6FZ+LOAZKjy+KY8iq0G4B3CyeY6wYHN3yt9zzTncjzn70RmSVE0Q/T6UDVGqYVmDx2mA=="
@@ -112,6 +113,18 @@
             margin-bottom: 18px;
         }
         .error-msg.show { display: block; }
+        .success-msg {
+            display: none;
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #4ade80;
+            font-size: 13px;
+            padding: 12px 14px;
+            border-radius: 8px;
+            margin-bottom: 18px;
+            line-height: 1.5;
+        }
+        .success-msg.show { display: block; }
         .btn-primary {
             width: 100%;
             padding: 13px;
@@ -164,6 +177,7 @@
         <p class="subtitle">It's free — get instant access to your vehicle dashboard.</p>
 
         <div class="error-msg" id="errorMsg" role="alert"></div>
+        <div class="success-msg" id="successMsg" role="status"></div>
 
         <form id="signupForm" novalidate>
             <div class="field">
@@ -179,7 +193,7 @@
                 <input type="password" id="password" name="password" autocomplete="new-password" required minlength="8" />
                 <p class="hint">At least 8 characters.</p>
             </div>
-            <button type="submit" class="btn-primary">Sign Up</button>
+            <button type="submit" class="btn-primary" id="submitBtn">Sign Up</button>
         </form>
 
         <p class="switch-link">Already have an account? <a href="login.html">Log in</a></p>
@@ -187,17 +201,11 @@
     </div>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/auth.js"></script>
 <script>
-    (function () {
+    (async function () {
         'use strict';
-
-        var params = new URLSearchParams(location.search);
-        var redirect = params.get('redirect') || 'dashboard.html';
-        if (window.AutoDAuth.isLoggedIn()) {
-            location.href = redirect;
-            return;
-        }
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
@@ -205,22 +213,52 @@
             });
         }
 
+        var params = new URLSearchParams(location.search);
+        var redirect = params.get('redirect') || 'dashboard.html';
+
+        if (await window.AutoDAuth.isLoggedIn()) {
+            location.href = redirect;
+            return;
+        }
+
         var form = document.getElementById('signupForm');
         var errorMsg = document.getElementById('errorMsg');
+        var successMsg = document.getElementById('successMsg');
+        var submitBtn = document.getElementById('submitBtn');
 
-        form.addEventListener('submit', function (e) {
+        form.addEventListener('submit', async function (e) {
             e.preventDefault();
+            errorMsg.classList.remove('show');
+            successMsg.classList.remove('show');
+
             var name = document.getElementById('name').value.trim();
             var email = document.getElementById('email').value.trim();
             var password = document.getElementById('password').value;
 
-            var result = window.AutoDAuth.signUp(name, email, password);
-            if (result.ok) {
-                location.href = redirect;
-            } else {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating account…';
+
+            var result = await window.AutoDAuth.signUp(name, email, password);
+
+            if (!result.ok) {
                 errorMsg.textContent = result.error;
                 errorMsg.classList.add('show');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Sign Up';
+                return;
             }
+
+            if (result.needsConfirmation) {
+                // Supabase's default: no session until the user clicks the
+                // confirmation link emailed to them.
+                form.reset();
+                form.hidden = true;
+                successMsg.textContent = 'Almost there — check ' + email + ' for a confirmation link, then log in.';
+                successMsg.classList.add('show');
+                return;
+            }
+
+            location.href = redirect;
         });
     })();
 </script>
