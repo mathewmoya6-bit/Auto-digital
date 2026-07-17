@@ -1,4 +1,4 @@
-align it to call right endpoint"""
+"""
 Auto-D Kenya Flask Backend - Production Ready
 Complete vehicle intelligence platform
 
@@ -548,13 +548,20 @@ def valuation():
     
     data = request.get_json() or {}
     result = valuation_service.calculate(data)
-    
-    if "error" in result:
+
+    # ─── FIXED: ValuationService.calculate() already returns a
+    # {"success": ..., "data": {...}} envelope. Previously this route
+    # wrapped that ENTIRE dict again inside another "data" key, producing
+    # a double-nested response (result.data.data.current_value) that the
+    # frontend could never read, causing it to silently render KES 0.
+    # We now check the inner "success" flag and unwrap to the real
+    # payload instead of re-wrapping it. ──────────────────────────────
+    if not result.get("success", True) or "error" in result:
         return jsonify(result), 400
-    
+
     return jsonify({
         "success": True,
-        "data": result,
+        "data": result.get("data", result),
         "service": "valuation",
         "timestamp": datetime.utcnow().isoformat()
     })
@@ -611,13 +618,18 @@ def ownership():
             result = ownership_service(data)
     else:
         result = ownership_service.calculate(data)
-    
-    if "error" in result:
+
+    if isinstance(result, dict) and ("error" in result or not result.get("success", True)):
         return jsonify(result), 400
-    
+
+    # ─── FIXED: same double-wrap risk as the valuation route — if
+    # ownership_service.calculate() already returns a {success, data}
+    # envelope, unwrap it instead of nesting it again. ─────────────────
+    payload = result.get("data", result) if isinstance(result, dict) else result
+
     return jsonify({
         "success": True,
-        "data": result,
+        "data": payload,
         "service": "ownership",
         "timestamp": datetime.utcnow().isoformat()
     })
