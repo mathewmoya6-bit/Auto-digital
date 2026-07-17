@@ -14,9 +14,6 @@
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     
-    <!-- Supabase JS SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -47,6 +44,24 @@
         h1 { color: #eab308; font-size: 28px; font-weight: 800; display: flex; align-items: center; gap: 12px; }
         .badge-ai { background: linear-gradient(135deg, #eab308, #ca8a04); color: #0a0c15; font-size: 10px; font-weight: 700; padding: 2px 14px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
         .subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+        
+        .debug-box {
+            background: #1a1a2e;
+            border: 1px solid #eab308;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #94a3b8;
+            max-height: 200px;
+            overflow: auto;
+            display: none;
+        }
+        .debug-box.show { display: block; }
+        .debug-box .error { color: #ef4444; }
+        .debug-box .success { color: #22c55e; }
+        .debug-box .info { color: #eab308; }
         
         .auth-section {
             background: #1e293b;
@@ -152,6 +167,8 @@
         .btn-primary { background: linear-gradient(135deg, #eab308, #ca8a04); color: #0a0c15; }
         .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(234, 179, 8, 0.3); }
         .btn-primary:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; opacity: 0.7; }
+        .btn-secondary { background: #334155; color: #f8fafc; }
+        .btn-secondary:hover { background: #475569; }
         
         .loading-steps { display: none; margin: 16px 0; padding: 16px 20px; background: #1e293b; border-radius: 10px; border: 1px solid #334155; }
         .loading-steps.show { display: block; }
@@ -297,8 +314,10 @@
                 <label>Vehicle Type <span class="required">*</span></label>
                 <select id="vehicleType" required>
                     <option value="Car">🚗 Car</option>
-                    <option value="Bike">🏍️ Motorcycle</option>
-                    <option value="Tricycle">🛺 Tricycle</option>
+                    <option value="SUV">🚙 SUV</option>
+                    <option value="Pickup">🛻 Pickup</option>
+                    <option value="Minibus">🚐 Minibus</option>
+                    <option value="Motorcycle">🏍️ Motorcycle</option>
                 </select>
             </div>
 
@@ -401,6 +420,8 @@
                 <select id="usageType" required>
                     <option value="Personal">👤 Personal</option>
                     <option value="Commercial">🏢 Commercial</option>
+                    <option value="Fleet">🚛 Fleet</option>
+                    <option value="Rental">🚗 Rental</option>
                 </select>
             </div>
 
@@ -408,8 +429,9 @@
                 <label>Overall Condition <span class="required">*</span></label>
                 <select id="condition" required>
                     <option value="Excellent">🌟 Excellent</option>
-                    <option value="Good" selected>👍 Good</option>
-                    <option value="Fair">👌 Fair</option>
+                    <option value="Very Good">👍 Very Good</option>
+                    <option value="Good" selected>👌 Good</option>
+                    <option value="Fair">🤔 Fair</option>
                     <option value="Poor">⚠️ Poor</option>
                 </select>
             </div>
@@ -420,7 +442,7 @@
                     <option value="None">✅ None</option>
                     <option value="Minor">🟡 Minor (Scratches/Dents)</option>
                     <option value="Major">🔴 Major (Structural Damage)</option>
-                    <option value="WriteOff">💀 Insurance Write-Off</option>
+                    <option value="Total Loss">💀 Total Loss</option>
                 </select>
             </div>
 
@@ -439,35 +461,43 @@
                     <option value="Meru">Meru</option>
                     <option value="Nyeri">Nyeri</option>
                     <option value="Embu">Embu</option>
+                    <option value="Malindi">Malindi</option>
+                    <option value="Nanyuki">Nanyuki</option>
                     <option value="Other">Other</option>
                 </select>
+            </div>
+
+            <div class="form-group full-width">
+                <label>Purchase Price (KES) <span class="required">*</span></label>
+                <input type="number" id="purchasePrice" placeholder="e.g., 5000000" required>
+                <div class="error-text" id="purchasePriceError">Enter a valid purchase price</div>
             </div>
         </div>
 
         <div class="image-upload-section">
-            <h4>📸 Vehicle Photos <small style="font-weight:400;color:#64748b;font-size:11px;">(mandatory for full valuation)</small></h4>
+            <h4>📸 Vehicle Photos <small style="font-weight:400;color:#64748b;font-size:11px;">(optional - improves valuation accuracy)</small></h4>
             <div class="image-upload-grid" id="photoGrid"></div>
             <div class="photo-count" id="photoCount">
-                Photos: <span class="count" id="photoCountNum">0</span> / <span class="required" id="totalRequiredPhotos">4</span> mandatory
+                Photos: <span class="count" id="photoCountNum">0</span> uploaded
             </div>
         </div>
 
         <div class="loading-steps" id="loadingSteps">
             <div class="loading-step" data-step="1">
                 <span class="icon">⏳</span>
-                <span>Identifying vehicle &amp; checking market data...</span>
+                <span>Calculating depreciation &amp; market value...</span>
             </div>
             <div class="loading-step" data-step="2">
                 <span class="icon">⏳</span>
-                <span>Comparing similar vehicles &amp; calculating depreciation...</span>
+                <span>Applying condition &amp; location adjustments...</span>
             </div>
             <div class="loading-step" data-step="3">
                 <span class="icon">⏳</span>
-                <span>Applying adjustments (mileage, condition, location)...</span>
+                <span>Analyzing market data &amp; generating recommendations...</span>
             </div>
             <div class="loading-step" data-step="4">
                 <span class="icon">⏳</span>
-                <span>Generating your instant valuation report...</span>
+                <span>Preparing your valuation report...</span>
             </div>
         </div>
 
@@ -530,6 +560,10 @@
                 <span class="label">Report #</span>
                 <span class="value" id="resultReportNum">-</span>
             </div>
+            <div class="result-detail-item full">
+                <span class="label">Recommendations</span>
+                <span class="value" id="resultRecommendations" style="font-size:12px;text-align:right;">-</span>
+            </div>
         </div>
 
         <div class="action-bar">
@@ -551,8 +585,8 @@
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
         
-        // FastAPI Backend
-        const API_BASE = 'https://auto-digital.onrender.com/api';
+        // FastAPI Backend - CORRECT ENDPOINT
+        const API_BASE = 'https://auto-digital.onrender.com/api/valuation';
 
         // ─── VEHICLE DATA ──────────────────────────────────────────
         const VEHICLE_DATA = {
@@ -565,12 +599,52 @@
                     'Honda': ['Accord', 'Civic', 'City', 'Fit', 'CR-V', 'HR-V', 'Pilot', 'Passport', 'Odyssey'],
                     'Mazda': ['Mazda3', 'Mazda6', 'CX-3', 'CX-5', 'CX-9', 'CX-30'],
                     'Volkswagen': ['Golf', 'Jetta', 'Passat', 'Arteon', 'Tiguan', 'Atlas', 'Taos'],
+                    'Subaru': ['Forester', 'Outback', 'Impreza', 'Legacy', 'Ascent', 'Crosstrek'],
+                    'Isuzu': ['D-Max', 'MU-X'],
                     'Other': ['Other Model']
                 },
                 engine_capacities: ['800', '1000', '1200', '1400', '1500', '1600', '1800', '2000', '2200', '2400', '2500', '2800', '3000', '3200', '3500', '4000'],
                 body_types: ['Sedan', 'SUV', 'Hatchback', 'Pickup', 'Van', 'Coupe', 'Convertible', 'Wagon', 'Other']
             },
-            Bike: {
+            SUV: {
+                makes: {
+                    'Toyota': ['RAV4', 'Highlander', '4Runner', 'Land Cruiser', 'Prado', 'Fortuner'],
+                    'Nissan': ['Rogue', 'Murano', 'Pathfinder', 'Armada', 'X-Trail'],
+                    'BMW': ['X1', 'X3', 'X5', 'X7'],
+                    'Mercedes-Benz': ['GLA', 'GLC', 'GLE', 'GLS', 'G-Class'],
+                    'Honda': ['CR-V', 'HR-V', 'Pilot', 'Passport'],
+                    'Mazda': ['CX-3', 'CX-5', 'CX-9', 'CX-30'],
+                    'Volkswagen': ['Tiguan', 'Atlas'],
+                    'Subaru': ['Forester', 'Outback', 'Ascent', 'Crosstrek'],
+                    'Isuzu': ['MU-X'],
+                    'Other': ['Other Model']
+                },
+                engine_capacities: ['1200', '1400', '1500', '1600', '1800', '2000', '2200', '2400', '2500', '2800', '3000', '3200', '3500', '4000'],
+                body_types: ['SUV', 'Crossover', 'Off-Road', 'Other']
+            },
+            Pickup: {
+                makes: {
+                    'Toyota': ['Hilux', 'Tacoma', 'Tundra'],
+                    'Nissan': ['Frontier', 'Navara'],
+                    'Ford': ['Ranger', 'F-150'],
+                    'Isuzu': ['D-Max'],
+                    'Mitsubishi': ['L200', 'Triton'],
+                    'Other': ['Other Model']
+                },
+                engine_capacities: ['1800', '2000', '2200', '2400', '2500', '2800', '3000', '3200', '3500', '4000'],
+                body_types: ['Pickup', 'Double Cab', 'Single Cab', 'Other']
+            },
+            Minibus: {
+                makes: {
+                    'Toyota': ['Hiace', 'Quantum'],
+                    'Nissan': ['Caravan', 'Urvan'],
+                    'Mercedes-Benz': ['Sprinter', 'Vito'],
+                    'Other': ['Other Model']
+                },
+                engine_capacities: ['2000', '2400', '2500', '2800', '3000', '3200', '3500', '4000'],
+                body_types: ['Passenger', 'Cargo', 'Other']
+            },
+            Motorcycle: {
                 makes: {
                     'Honda': ['CBR1000RR', 'CBR600RR', 'CBR500R', 'CB650R', 'Africa Twin', 'Rebel 500', 'Gold Wing'],
                     'Yamaha': ['YZF-R1', 'YZF-R6', 'MT-10', 'MT-09', 'MT-07', 'Tracer 9', 'Ténéré 700'],
@@ -583,24 +657,16 @@
                 },
                 engine_capacities: ['50', '100', '125', '150', '200', '250', '300', '350', '400', '450', '500', '600', '650', '700', '800', '900', '1000'],
                 body_types: ['Standard', 'Sport', 'Cruiser', 'Touring', 'Adventure', 'Scooter', 'Off-Road', 'Other']
-            },
-            Tricycle: {
-                makes: {
-                    'Piaggio': ['Ape 50', 'Ape 100', 'Ape 150', 'Ape Calessino', 'Ape City', 'Ape TM'],
-                    'TVS': ['King', 'King Deluxe', 'King 150', 'King 200', 'King Cargo', 'King Passenger'],
-                    'Bajaj': ['RE 60', 'RE 100', 'RE 125', 'RE Cargo', 'RE Passenger', 'RE Auto', 'Qute'],
-                    'Other': ['Other Model']
-                },
-                engine_capacities: ['50', '100', '125', '150', '200', '250', '300', '350', '400', '500'],
-                body_types: ['Passenger', 'Cargo', 'Auto', 'Other']
             }
         };
 
         // ─── PHOTO REQUIREMENTS ─────────────────────────────────────
         const PHOTO_REQUIREMENTS = {
             Car: { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 },
-            Bike: { mandatory: ['Left Side', 'Right Side'], totalRequired: 2 },
-            Tricycle: { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 }
+            SUV: { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 },
+            Pickup: { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 },
+            Minibus: { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 },
+            Motorcycle: { mandatory: ['Left Side', 'Right Side'], totalRequired: 2 }
         };
 
         // ─── STATE ──────────────────────────────────────────────────
@@ -763,7 +829,7 @@
             const model = modelSelect.value;
             const bodyType = bodyTypeSelect.value;
             const vehicleType = vehicleTypeSelect.value;
-            const icons = { Car: '🚗', Bike: '🏍️', Tricycle: '🛺' };
+            const icons = { Car: '🚗', SUV: '🚙', Pickup: '🛻', Minibus: '🚐', Motorcycle: '🏍️' };
 
             if (make && model) {
                 previewIcon.textContent = icons[vehicleType] || '🚗';
@@ -784,7 +850,6 @@
         // ─── PHOTO GRID ─────────────────────────────────────────────
         function renderPhotoGrid(vehicleType) {
             const req = PHOTO_REQUIREMENTS[vehicleType] || PHOTO_REQUIREMENTS.Car;
-            document.getElementById('totalRequiredPhotos').textContent = req.totalRequired;
 
             let html = '';
             req.mandatory.forEach((label) => {
@@ -797,7 +862,7 @@
                         <button type="button" class="camera-btn" data-angle="${angle}">📸 Capture</button>
                         <input type="file" accept="image/*" capture="environment" data-angle="${angle}">
                         <span class="badge">✓</span>
-                        <span class="status-text ${isUploaded ? 'uploaded' : 'missing'}">${isUploaded ? '✓ Uploaded' : 'Missing'}</span>
+                        <span class="status-text ${isUploaded ? 'uploaded' : 'missing'}">${isUploaded ? '✓ Uploaded' : 'Click to add'}</span>
                     </div>
                 `;
             });
@@ -860,7 +925,7 @@
                 bodyTypeSelect, document.getElementById('mileage'),
                 document.getElementById('previousOwners'), document.getElementById('usageType'),
                 document.getElementById('condition'), document.getElementById('accidentHistory'),
-                document.getElementById('location')
+                document.getElementById('location'), document.getElementById('purchasePrice')
             ];
 
             let filled = 0;
@@ -872,17 +937,17 @@
             const mandatoryAngles = req.mandatory.map(a => a.toLowerCase().replace(/ /g, '_'));
             let photoFilled = 0;
             mandatoryAngles.forEach(a => { if (capturedPhotos[a]) photoFilled++; });
-            const photoProgress = req.totalRequired > 0 ? (photoFilled / req.totalRequired) * 30 : 0;
+            const photoProgress = req.totalRequired > 0 ? (photoFilled / req.totalRequired) * 20 : 0;
 
-            const totalProgress = Math.min((filled / fields.length) * 70 + photoProgress, 100);
+            const totalProgress = Math.min((filled / fields.length) * 80 + photoProgress, 100);
             const percent = Math.round(totalProgress);
 
             progressFill.style.width = `${percent}%`;
             progressPercent.textContent = `${percent}%`;
 
-            if (percent < 30) stepLabel.textContent = 'Step 1: Vehicle Information';
-            else if (percent < 60) stepLabel.textContent = 'Step 2: Vehicle Details';
-            else if (percent < 85) stepLabel.textContent = 'Step 3: Photos & History';
+            if (percent < 25) stepLabel.textContent = 'Step 1: Vehicle Details';
+            else if (percent < 50) stepLabel.textContent = 'Step 2: Vehicle History & Condition';
+            else if (percent < 75) stepLabel.textContent = 'Step 3: Photos (Optional)';
             else stepLabel.textContent = 'Ready for Valuation!';
         }
 
@@ -891,6 +956,7 @@
             const year = parseInt(document.getElementById('year').value);
             const currentYear = new Date().getFullYear();
             const mileage = parseInt(document.getElementById('mileage').value);
+            const purchasePrice = parseFloat(document.getElementById('purchasePrice').value);
 
             if (!makeSelect.value) { showToast('Please select a make', 'error'); return false; }
             if (!modelSelect.value) { showToast('Please select a model', 'error'); return false; }
@@ -898,10 +964,8 @@
             if (!engineCapacitySelect.value) { showToast('Please select engine capacity', 'error'); return false; }
             if (!bodyTypeSelect.value) { showToast('Please select body type', 'error'); return false; }
             if (!mileage || mileage < 0 || mileage > 1000000) { showToast('Enter a valid odometer reading', 'error'); return false; }
-            if (!isAllMandatoryPhotosCaptured()) {
-                showToast('Please capture all mandatory photos', 'error');
-                return false;
-            }
+            if (!purchasePrice || purchasePrice < 10000) { showToast('Enter a valid purchase price (minimum KES 10,000)', 'error'); return false; }
+            
             return true;
         }
 
@@ -944,29 +1008,26 @@
 
         // ─── CALL FASTAPI BACKEND ──────────────────────────────────
         async function callValuationAPI(formData) {
-            const url = `${API_BASE}/service/valuation`;
+            // Use the correct endpoint: /api/valuation/calculate
+            const url = `${API_BASE}/calculate`;
 
-            // Build payload matching FastAPI ValuationRequest model
+            // Build payload matching ValuationService.calculate() expectations
             const payload = {
-                vehicle_type: formData.vehicle_type || 'Car',
+                purchase_price: formData.purchase_price || 5000000,
+                age_years: formData.age_years || 0,
                 make: formData.make || 'Toyota',
                 model: formData.model || 'Corolla',
-                year: formData.year || 2020,
-                engine_capacity: formData.engine_capacity || 1800,
-                fuel_type: formData.fuel_type || 'Petrol',
-                transmission: formData.transmission || 'Automatic',
-                body_type: formData.body_type || 'Sedan',
-                body_color: formData.body_color || 'White',
-                mileage: formData.mileage || 0,
+                vehicle_type: formData.vehicle_type || 'Car',
                 condition: formData.condition || 'Good',
-                accident_history: formData.accident_history || 'None',
+                mileage: formData.mileage || 0,
                 location: formData.location || 'Nairobi',
+                accident_history: formData.accident_history || 'None',
                 previous_owners: formData.previous_owners || 1,
-                usage_type: formData.usage_type || 'Personal',
-                age_years: formData.age_years || 0
+                usage_type: formData.usage_type || 'Personal'
             };
 
-            console.log('📤 Sending valuation request:', JSON.stringify(payload, null, 2));
+            console.log('📤 Sending valuation request to:', url);
+            console.log('📦 Payload:', JSON.stringify(payload, null, 2));
 
             const response = await fetch(url, {
                 method: 'POST',
@@ -977,25 +1038,20 @@
                 body: JSON.stringify(payload)
             });
 
-            // Log response status for debugging
             console.log('📥 Response status:', response.status);
 
-            // Try to get error details if response is not ok
             if (!response.ok) {
                 let errorDetail = `Valuation failed (${response.status})`;
                 try {
                     const errorData = await response.json();
                     console.error('Error response:', errorData);
-                    errorDetail = errorData.detail || errorData.message || errorData.error || errorDetail;
+                    errorDetail = errorData.message || errorData.error || errorData.detail || errorDetail;
                 } catch (e) {
-                    // If response is not JSON, try to get text
                     try {
                         const text = await response.text();
                         console.error('Error response text:', text);
                         if (text) errorDetail = text.substring(0, 200);
-                    } catch (e2) {
-                        // Ignore
-                    }
+                    } catch (e2) {}
                 }
                 throw new Error(errorDetail);
             }
@@ -1004,23 +1060,22 @@
         }
 
         // ─── SHOW RESULT ────────────────────────────────────────────
-        function showResult(data) {
-            // Handle FastAPI response format
-            const result = data.data || data;
+        function showResult(result) {
+            const data = result.data || result;
             
-            console.log('📊 Valuation result:', result);
+            console.log('📊 Valuation result:', data);
 
-            const finalValue = result.final_value || result.current_value || 0;
-            const rangeMin = result.valuation_range?.min || Math.round(finalValue * 0.85);
-            const rangeMax = result.valuation_range?.max || Math.round(finalValue * 1.15);
-            const confidence = result.confidence_score || 75;
-            const reportNum = result.report_number || 'AUTO-' + String(Date.now()).slice(-6);
+            const currentValue = data.current_value || data.market_value || 0;
+            const rangeMin = data.valuation_range?.min || Math.round(currentValue * 0.85);
+            const rangeMax = data.valuation_range?.max || Math.round(currentValue * 1.15);
+            const confidence = data.confidence_score || 75;
+            const reportNum = 'AUTO-' + String(Date.now()).slice(-6);
 
             // Animate value
             const el = document.getElementById('resultMarketValue');
             el.textContent = 'KES 0';
             let current = 0;
-            const target = finalValue;
+            const target = currentValue;
             const step = Math.max(1, Math.floor(target / 50));
             const interval = setInterval(() => {
                 current += step;
@@ -1045,30 +1100,42 @@
             setTimeout(() => { confidenceFill.style.width = `${confidence}%`; }, 300);
             document.getElementById('confidenceLabel').textContent = `${Math.round(confidence)}%`;
 
+            // Recommendations
+            const recommendations = data.recommendations || [];
+            const recEl = document.getElementById('resultRecommendations');
+            if (recommendations.length > 0) {
+                recEl.innerHTML = recommendations.slice(0, 2).join('<br>');
+            } else {
+                recEl.textContent = 'No recommendations available';
+            }
+
             // Adjustments
-            const adjustments = result.adjustments || {};
+            const adjustments = data.market_adjustments || {};
             const adjList = document.getElementById('adjustmentsList');
             adjList.innerHTML = '';
             const adjLabels = {
-                'depreciation': 'Depreciation',
-                'mileage': 'Mileage Adjustment',
-                'condition': 'Condition Adjustment',
-                'accident_history': 'Accident History',
-                'usage_type': 'Usage Type',
+                'location': 'Location Adjustment',
+                'accident': 'Accident History',
+                'usage': 'Usage Type',
+                'transmission': 'Transmission',
+                'fuel': 'Fuel Type',
+                'body_type': 'Body Type',
+                'color': 'Color',
+                'service_history': 'Service History',
                 'previous_owners': 'Previous Owners',
-                'market_demand': 'Market Demand',
-                'regional_factor': 'Regional Factor'
+                'mileage': 'Mileage Adjustment'
             };
             let hasAdjustments = false;
             for (const [key, value] of Object.entries(adjustments)) {
-                if (value !== 0 && adjLabels[key]) {
+                if (value !== 1.0 && adjLabels[key]) {
                     hasAdjustments = true;
-                    const cls = value > 0 ? 'positive' : 'negative';
-                    const sign = value > 0 ? '+' : '';
+                    const percent = Math.round((value - 1.0) * 100);
+                    const sign = percent > 0 ? '+' : '';
+                    const cls = percent >= 0 ? 'positive' : 'negative';
                     adjList.innerHTML += `
                         <div class="adjustment-row">
                             <span>${adjLabels[key]}</span>
-                            <span class="${cls}">${sign}KES ${Math.abs(Math.round(value)).toLocaleString()}</span>
+                            <span class="${cls}">${sign}${percent}%</span>
                         </div>
                     `;
                 }
@@ -1100,7 +1167,8 @@
                 usageType: document.getElementById('usageType').value,
                 condition: document.getElementById('condition').value,
                 accidentHistory: document.getElementById('accidentHistory').value,
-                location: document.getElementById('location').value
+                location: document.getElementById('location').value,
+                purchasePrice: document.getElementById('purchasePrice').value
             };
             try { localStorage.setItem('valuationDraft', JSON.stringify(data)); } catch (e) {}
         }
@@ -1110,7 +1178,7 @@
             try { data = JSON.parse(localStorage.getItem('valuationDraft')); } catch (e) { return; }
             if (!data) return;
 
-            const types = ['Car', 'Bike', 'Tricycle'];
+            const types = Object.keys(VEHICLE_DATA);
             if (data.vehicleType && types.includes(data.vehicleType)) {
                 vehicleTypeSelect.value = data.vehicleType;
                 currentVehicleType = data.vehicleType;
@@ -1141,10 +1209,11 @@
             if (data.mileage) document.getElementById('mileage').value = data.mileage;
             if (data.previousOwners) document.getElementById('previousOwners').value = data.previousOwners;
             if (data.usageType) document.getElementById('usageType').value = data.usageType;
-            const conditions = ['Excellent', 'Good', 'Fair', 'Poor'];
+            const conditions = ['Excellent', 'Very Good', 'Good', 'Fair', 'Poor'];
             if (data.condition && conditions.includes(data.condition)) document.getElementById('condition').value = data.condition;
             if (data.accidentHistory) document.getElementById('accidentHistory').value = data.accidentHistory;
             if (data.location) document.getElementById('location').value = data.location;
+            if (data.purchasePrice) document.getElementById('purchasePrice').value = data.purchasePrice;
 
             updateVehiclePreview();
             updateProgress();
@@ -1227,7 +1296,7 @@
 
             if (!validateAll()) {
                 statusBox.className = 'status-box status-error';
-                statusBox.textContent = '❌ Please fix all highlighted fields and capture mandatory photos.';
+                statusBox.textContent = '❌ Please fix all highlighted fields.';
                 statusBox.style.display = 'flex';
                 return;
             }
@@ -1237,22 +1306,17 @@
             const ageYears = currentYear - year;
 
             const formData = {
-                vehicle_type: vehicleTypeSelect.value,
+                purchase_price: parseFloat(document.getElementById('purchasePrice').value),
+                age_years: ageYears,
                 make: makeSelect.value,
                 model: modelSelect.value,
-                year: year,
-                engine_capacity: parseInt(engineCapacitySelect.value),
-                fuel_type: document.getElementById('fuelType').value,
-                transmission: document.getElementById('transmission').value,
-                body_type: bodyTypeSelect.value,
-                body_color: document.getElementById('bodyColor').value,
-                mileage: parseInt(document.getElementById('mileage').value),
+                vehicle_type: vehicleTypeSelect.value,
                 condition: document.getElementById('condition').value,
-                accident_history: document.getElementById('accidentHistory').value,
+                mileage: parseFloat(document.getElementById('mileage').value),
                 location: document.getElementById('location').value,
+                accident_history: document.getElementById('accidentHistory').value,
                 previous_owners: parseInt(document.getElementById('previousOwners').value),
-                usage_type: document.getElementById('usageType').value,
-                age_years: ageYears
+                usage_type: document.getElementById('usageType').value
             };
 
             statusBox.style.display = 'none';
@@ -1317,7 +1381,7 @@
             updateProgress();
 
             console.log('🚗 Auto-D Kenya Instant Value Check loaded');
-            console.log(`📡 FastAPI Backend: ${API_BASE}/service/valuation`);
+            console.log(`📡 FastAPI Endpoint: ${API_BASE}/calculate`);
             
             // Test API connection
             try {
@@ -1330,7 +1394,6 @@
                 }
             } catch (e) {
                 console.warn('⚠️ Could not reach backend API:', e.message);
-                showToast('⚠️ Backend API unreachable. Please check your connection.', 'warning');
             }
         }
 
