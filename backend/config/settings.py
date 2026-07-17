@@ -61,6 +61,6 @@ class Config:
     PORT = int(
         os.getenv(
             "PORT",
-            5000
+            10000
         )
     )
