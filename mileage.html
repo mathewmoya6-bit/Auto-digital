@@ -1382,68 +1382,73 @@
             // ─── Fetch Vehicle Data from Supabase ──────────────────────
             async function fetchVehicleData() {
                 try {
-                    // Fetch categories
+                    // Fetch categories from vehicle_types table
                     const { data: categoriesData, error: catError } = await supabaseClient
-                        .from('vehicle_categories')
+                        .from('vehicle_types')
                         .select('*')
-                        .eq('is_active', true)
-                        .order('display_order');
+                        .order('name');
 
                     if (catError) throw catError;
 
-                    // Fetch variants with their models and makes
-                    const { data: variantsData, error: varError } = await supabaseClient
-                        .from('vehicle_variants')
-                        .select('*, vehicle_models(*, vehicle_makes(*))')
-                        .eq('is_active', true);
+                    // Fetch makes
+                    const { data: makesData, error: makesError } = await supabaseClient
+                        .from('vehicle_makes')
+                        .select('*')
+                        .order('name');
 
-                    if (varError) throw varError;
+                    if (makesError) throw makesError;
 
-                    // Build categories
+                    // Fetch models with their makes
+                    const { data: modelsData, error: modelsError } = await supabaseClient
+                        .from('vehicle_models')
+                        .select('*, vehicle_makes(*)')
+                        .order('name');
+
+                    if (modelsError) throw modelsError;
+
+                    // Build categories from vehicle_types
                     const cats = categoriesData.map(c => ({
                         id: c.id,
                         name: c.name,
-                        fuel_type: c.fuel_type
+                        fuel_type: c.fuel_type || 'all'
                     }));
 
-                    // Build variants grouped by category
+                    // Build variants grouped by category (type_id)
                     const varMap = {};
-                    variantsData.forEach(v => {
-                        const model = v.vehicle_models;
-                        const make = model?.vehicle_makes;
-                        if (!model || !make) return;
+                    modelsData.forEach(model => {
+                        const make = model.vehicle_makes;
+                        if (!make) return;
 
-                        const category = categoriesData.find(c => 
-                            c.id === model.vehicle_type_id
-                        );
-                        if (!category) return;
+                        const categoryId = make.type_id;
+                        if (!categoryId) return;
 
-                        if (!varMap[category.id]) {
-                            varMap[category.id] = [];
+                        if (!varMap[categoryId]) {
+                            varMap[categoryId] = [];
                         }
 
-                        varMap[category.id].push({
-                            id: v.id,
-                            label: `${make.name} ${model.name} - ${v.name}`,
-                            fuel_type: v.fuel_type || 'petrol',
-                            fuel_consumption: v.fuel_consumption || 8,
-                            initial_cost: v.base_price || 0,
-                            current_value: v.base_price * 0.8 || 0,
-                            expected_resale: v.expected_resale || 0,
-                            years_remaining: v.years_remaining || 8,
-                            insurance_annual: v.insurance_annual || 60000,
-                            tax_annual: v.tax_annual || 8000,
-                            tyre_cost: v.tyre_cost || 120000,
-                            tyre_life: v.tyre_life || 50000,
-                            oil_interval: v.oil_interval || 10000,
-                            oil_cost: v.oil_cost || 6000,
-                            minor_service_interval: v.minor_service_interval || 10000,
-                            minor_service_cost: v.minor_service_cost || 15000,
-                            major_service_interval: v.major_service_interval || 40000,
-                            major_service_cost: v.major_service_cost || 45000,
-                            loan_amount: v.loan_amount || 0,
-                            battery_cost: v.battery_cost || 0,
-                            battery_life: v.battery_life || 0,
+                        // Create a variant from the model
+                        varMap[categoryId].push({
+                            id: model.id,
+                            label: `${make.name} ${model.name}`,
+                            fuel_type: model.fuel_type || make.fuel_type || 'petrol',
+                            fuel_consumption: model.fuel_consumption || 8,
+                            initial_cost: model.base_price || 0,
+                            current_value: model.base_price * 0.8 || 0,
+                            expected_resale: model.expected_resale || 0,
+                            years_remaining: model.years_remaining || 8,
+                            insurance_annual: model.insurance_annual || 60000,
+                            tax_annual: model.tax_annual || 8000,
+                            tyre_cost: model.tyre_cost || 120000,
+                            tyre_life: model.tyre_life || 50000,
+                            oil_interval: model.oil_interval || 10000,
+                            oil_cost: model.oil_cost || 6000,
+                            minor_service_interval: model.minor_service_interval || 10000,
+                            minor_service_cost: model.minor_service_cost || 15000,
+                            major_service_interval: model.major_service_interval || 40000,
+                            major_service_cost: model.major_service_cost || 45000,
+                            loan_amount: model.loan_amount || 0,
+                            battery_cost: model.battery_cost || 0,
+                            battery_life: model.battery_life || 0,
                             components: {
                                 Insurance: 2.50,
                                 Depreciation: 5.00,
@@ -1473,21 +1478,18 @@
             // ─── Fallback Data ──────────────────────────────────────────
             const FALLBACK_DATA = {
                 categories: [
-                    { id: 'cat1', name: 'Saloon Cars - Petrol', fuel_type: 'Petrol' },
-                    { id: 'cat2', name: 'Saloon Cars - Diesel', fuel_type: 'Diesel' },
-                    { id: 'cat3', name: 'SUVs & Crossovers', fuel_type: 'Diesel' },
-                    { id: 'cat4', name: 'Pickups & Vans', fuel_type: 'Diesel' },
-                    { id: 'cat5', name: 'Electric Vehicles', fuel_type: 'Electric' },
-                    { id: 'cat6', name: 'Motorcycles', fuel_type: 'Petrol' },
-                    { id: 'cat7', name: 'LPG / Gas Vehicles', fuel_type: 'LPG' },
-                    { id: 'cat8', name: 'Hybrid Vehicles', fuel_type: 'Hybrid' },
-                    { id: 'cat9', name: 'Luxury Saloons', fuel_type: 'Petrol' },
-                    { id: 'cat10', name: 'Commercial Trucks', fuel_type: 'Diesel' },
-                    { id: 'cat11', name: 'Mini Buses (Matatus)', fuel_type: 'Diesel' }
+                    { id: 'car', name: 'Car', fuel_type: 'Petrol' },
+                    { id: 'suv', name: 'SUV', fuel_type: 'Diesel' },
+                    { id: 'pickup', name: 'Pickup', fuel_type: 'Diesel' },
+                    { id: 'minibus', name: 'Minibus', fuel_type: 'Diesel' },
+                    { id: 'motorcycle', name: 'Motorcycle', fuel_type: 'Petrol' },
+                    { id: 'tricycle', name: 'Tricycle', fuel_type: 'Petrol' },
+                    { id: 'truck', name: 'Truck', fuel_type: 'Diesel' },
+                    { id: 'van', name: 'Van', fuel_type: 'Diesel' }
                 ],
                 variants: {
-                    'cat1': [
-                        { id: 'v1', label: '1.5L Petrol - Standard', fuel_type: 'Petrol', fuel_consumption: 12.5,
+                    'car': [
+                        { id: 'v1', label: 'Toyota Corolla', fuel_type: 'Petrol', fuel_consumption: 12.5,
                             oil_interval: 10000, oil_cost: 6000,
                             minor_service_interval: 10000, minor_service_cost: 15000,
                             major_service_interval: 40000, major_service_cost: 45000,
@@ -1497,7 +1499,7 @@
                             years_remaining: 8, loan_amount: 0,
                             components: { Insurance: 2.50, Depreciation: 5.00, Interest: 5.00, Fuel: 8.75, Servicing: 4.00, Repairs: 3.00, Tyres: 2.00, Licences: 1.00 },
                             year1: 28.50, year2: 32.00, year3: 36.00, year4: 41.00, year5: 47.00 },
-                        { id: 'v2', label: '1.8L Petrol - Premium', fuel_type: 'Petrol', fuel_consumption: 10.0,
+                        { id: 'v2', label: 'BMW 3 Series', fuel_type: 'Petrol', fuel_consumption: 10.0,
                             oil_interval: 10000, oil_cost: 7000,
                             minor_service_interval: 10000, minor_service_cost: 20000,
                             major_service_interval: 40000, major_service_cost: 60000,
@@ -1508,8 +1510,8 @@
                             components: { Insurance: 3.00, Depreciation: 6.00, Interest: 6.00, Fuel: 10.50, Servicing: 5.00, Repairs: 3.50, Tyres: 2.50, Licences: 1.00 },
                             year1: 34.00, year2: 38.00, year3: 43.00, year4: 49.00, year5: 56.00 }
                     ],
-                    'cat2': [
-                        { id: 'v3', label: '1.6L Diesel - Standard', fuel_type: 'Diesel', fuel_consumption: 15.0,
+                    'suv': [
+                        { id: 'v3', label: 'Toyota RAV4', fuel_type: 'Diesel', fuel_consumption: 15.0,
                             oil_interval: 12000, oil_cost: 7000,
                             minor_service_interval: 12000, minor_service_cost: 18000,
                             major_service_interval: 48000, major_service_cost: 55000,
@@ -1520,45 +1522,8 @@
                             components: { Insurance: 2.80, Depreciation: 5.50, Interest: 5.70, Fuel: 7.50, Servicing: 4.50, Repairs: 2.50, Tyres: 2.00, Licences: 1.00 },
                             year1: 27.50, year2: 30.50, year3: 34.50, year4: 39.50, year5: 45.50 }
                     ],
-                    'cat3': [
-                        { id: 'v4', label: '2.8L Diesel - 4x4', fuel_type: 'Diesel', fuel_consumption: 10.0,
-                            oil_interval: 10000, oil_cost: 8000,
-                            minor_service_interval: 10000, minor_service_cost: 25000,
-                            major_service_interval: 40000, major_service_cost: 70000,
-                            tyre_cost: 150000, tyre_life: 40000,
-                            insurance_annual: 100000, tax_annual: 12000,
-                            initial_cost: 3500000, expected_resale: 1400000,
-                            years_remaining: 6, loan_amount: 0,
-                            components: { Insurance: 4.00, Depreciation: 8.00, Interest: 6.00, Fuel: 10.00, Servicing: 6.00, Repairs: 4.00, Tyres: 3.00, Licences: 1.50 },
-                            year1: 34.00, year2: 38.50, year3: 44.00, year4: 50.50, year5: 58.00 }
-                    ],
-                    'cat4': [
-                        { id: 'v5', label: '3.0L Diesel - Single Cab', fuel_type: 'Diesel', fuel_consumption: 8.0,
-                            oil_interval: 10000, oil_cost: 9000,
-                            minor_service_interval: 10000, minor_service_cost: 30000,
-                            major_service_interval: 40000, major_service_cost: 80000,
-                            tyre_cost: 180000, tyre_life: 35000,
-                            insurance_annual: 120000, tax_annual: 15000,
-                            initial_cost: 4500000, expected_resale: 1800000,
-                            years_remaining: 5, loan_amount: 0,
-                            components: { Insurance: 4.50, Depreciation: 9.00, Interest: 6.50, Fuel: 12.00, Servicing: 7.00, Repairs: 4.50, Tyres: 3.50, Licences: 1.50 },
-                            year1: 38.00, year2: 42.00, year3: 48.00, year4: 55.00, year5: 63.00 }
-                    ],
-                    'cat5': [
-                        { id: 'v6', label: 'EV Standard Range', fuel_type: 'Electric', fuel_consumption: 6.5,
-                            oil_interval: 20000, oil_cost: 2000,
-                            minor_service_interval: 20000, minor_service_cost: 8000,
-                            major_service_interval: 80000, major_service_cost: 20000,
-                            tyre_cost: 100000, tyre_life: 50000,
-                            insurance_annual: 70000, tax_annual: 2000,
-                            initial_cost: 4000000, expected_resale: 2000000,
-                            years_remaining: 9, loan_amount: 0,
-                            battery_cost: 1200000, battery_life: 250000,
-                            components: { Insurance: 3.50, Depreciation: 12.00, Interest: 4.50, Fuel: 3.00, Servicing: 2.00, Repairs: 1.50, Tyres: 2.00, Licences: 0.50 },
-                            year1: 16.00, year2: 18.50, year3: 22.00, year4: 27.00, year5: 33.00 }
-                    ],
-                    'cat6': [
-                        { id: 'v7', label: '150cc Motorcycle', fuel_type: 'Petrol', fuel_consumption: 35.0,
+                    'motorcycle': [
+                        { id: 'v7', label: 'Honda CBR600RR', fuel_type: 'Petrol', fuel_consumption: 35.0,
                             oil_interval: 5000, oil_cost: 1500,
                             minor_service_interval: 5000, minor_service_cost: 3000,
                             major_service_interval: 20000, major_service_cost: 8000,
@@ -1569,8 +1534,8 @@
                             components: { Insurance: 1.00, Depreciation: 2.00, Interest: 2.00, Fuel: 2.50, Servicing: 1.00, Repairs: 0.50, Tyres: 0.50, Licences: 0.30 },
                             year1: 8.50, year2: 9.50, year3: 11.00, year4: 13.00, year5: 15.50 }
                     ],
-                    'cat7': [
-                        { id: 'v8', label: '1.6L LPG - Standard', fuel_type: 'LPG', fuel_consumption: 11.0,
+                    'tricycle': [
+                        { id: 'v8', label: 'Piaggio Ape 100', fuel_type: 'Petrol', fuel_consumption: 11.0,
                             oil_interval: 10000, oil_cost: 6000,
                             minor_service_interval: 10000, minor_service_cost: 16000,
                             major_service_interval: 40000, major_service_cost: 48000,
@@ -1580,54 +1545,6 @@
                             years_remaining: 7, loan_amount: 0,
                             components: { Insurance: 2.40, Depreciation: 4.80, Interest: 3.80, Fuel: 6.50, Servicing: 3.80, Repairs: 2.80, Tyres: 1.80, Licences: 0.90 },
                             year1: 23.00, year2: 26.00, year3: 29.50, year4: 34.00, year5: 39.50 }
-                    ],
-                    'cat8': [
-                        { id: 'v9', label: '1.8L Hybrid - Standard', fuel_type: 'Hybrid', fuel_consumption: 18.0,
-                            oil_interval: 15000, oil_cost: 5000,
-                            minor_service_interval: 15000, minor_service_cost: 12000,
-                            major_service_interval: 60000, major_service_cost: 35000,
-                            tyre_cost: 90000, tyre_life: 50000,
-                            insurance_annual: 60000, tax_annual: 6000,
-                            initial_cost: 2800000, expected_resale: 1400000,
-                            years_remaining: 8, loan_amount: 0,
-                            components: { Insurance: 2.50, Depreciation: 5.50, Interest: 4.50, Fuel: 6.00, Servicing: 3.50, Repairs: 2.50, Tyres: 2.00, Licences: 0.80 },
-                            year1: 25.00, year2: 28.00, year3: 32.00, year4: 37.00, year5: 43.00 }
-                    ],
-                    'cat9': [
-                        { id: 'v10', label: '3.0L Petrol - Luxury', fuel_type: 'Petrol', fuel_consumption: 8.0,
-                            oil_interval: 10000, oil_cost: 10000,
-                            minor_service_interval: 10000, minor_service_cost: 35000,
-                            major_service_interval: 40000, major_service_cost: 100000,
-                            tyre_cost: 200000, tyre_life: 30000,
-                            insurance_annual: 150000, tax_annual: 20000,
-                            initial_cost: 8000000, expected_resale: 3200000,
-                            years_remaining: 5, loan_amount: 0,
-                            components: { Insurance: 6.00, Depreciation: 12.00, Interest: 8.00, Fuel: 16.00, Servicing: 10.00, Repairs: 6.00, Tyres: 4.00, Licences: 2.00 },
-                            year1: 54.00, year2: 60.00, year3: 68.00, year4: 78.00, year5: 90.00 }
-                    ],
-                    'cat10': [
-                        { id: 'v11', label: '5.0L Diesel - Light Truck', fuel_type: 'Diesel', fuel_consumption: 5.0,
-                            oil_interval: 8000, oil_cost: 12000,
-                            minor_service_interval: 8000, minor_service_cost: 40000,
-                            major_service_interval: 32000, major_service_cost: 120000,
-                            tyre_cost: 250000, tyre_life: 25000,
-                            insurance_annual: 180000, tax_annual: 25000,
-                            initial_cost: 6000000, expected_resale: 2400000,
-                            years_remaining: 5, loan_amount: 0,
-                            components: { Insurance: 7.00, Depreciation: 14.00, Interest: 8.50, Fuel: 20.00, Servicing: 12.00, Repairs: 7.00, Tyres: 5.00, Licences: 2.50 },
-                            year1: 65.00, year2: 72.00, year3: 81.00, year4: 92.00, year5: 105.00 }
-                    ],
-                    'cat11': [
-                        { id: 'v12', label: '3.0L Diesel - Mini Bus', fuel_type: 'Diesel', fuel_consumption: 6.0,
-                            oil_interval: 8000, oil_cost: 10000,
-                            minor_service_interval: 8000, minor_service_cost: 35000,
-                            major_service_interval: 32000, major_service_cost: 100000,
-                            tyre_cost: 200000, tyre_life: 30000,
-                            insurance_annual: 150000, tax_annual: 20000,
-                            initial_cost: 5000000, expected_resale: 2000000,
-                            years_remaining: 5, loan_amount: 0,
-                            components: { Insurance: 6.00, Depreciation: 12.00, Interest: 7.50, Fuel: 18.00, Servicing: 10.00, Repairs: 6.00, Tyres: 4.50, Licences: 2.00 },
-                            year1: 58.00, year2: 64.00, year3: 72.00, year4: 82.00, year5: 94.00 }
                     ]
                 },
                 routes: [
