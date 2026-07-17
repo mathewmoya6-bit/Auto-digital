@@ -14,8 +14,10 @@
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     
+    <!-- Supabase JS SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
     <style>
-        /* ─── RESET & BASE ─────────────────────────────────────────── */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -56,7 +58,7 @@
             font-family: 'Courier New', monospace;
             font-size: 12px;
             color: #94a3b8;
-            max-height: 300px;
+            max-height: 200px;
             overflow: auto;
             display: none;
         }
@@ -169,6 +171,8 @@
         .btn-primary { background: linear-gradient(135deg, #eab308, #ca8a04); color: #0a0c15; }
         .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(234, 179, 8, 0.3); }
         .btn-primary:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; opacity: 0.7; }
+        .btn-secondary { background: #334155; color: #f8fafc; }
+        .btn-secondary:hover { background: #475569; }
         
         .loading-steps { display: none; margin: 16px 0; padding: 16px 20px; background: #1e293b; border-radius: 10px; border: 1px solid #334155; }
         .loading-steps.show { display: block; }
@@ -254,6 +258,19 @@
         .confetti-piece { position: absolute; width: 8px; height: 8px; border-radius: 2px; animation: confettiFall linear forwards; }
         @keyframes confettiFall { 0% { transform: translateY(-20px) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } }
         
+        /* ─── LOADING SPINNER FOR DROPDOWNS ──────────────────────── */
+        .loading-spinner-small {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #1e293b;
+            border-top-color: #eab308;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        
         @media (max-width: 768px) {
             .container { padding: 20px 16px; }
             .form-grid { grid-template-columns: 1fr; }
@@ -302,7 +319,7 @@
             <div class="progress-bar-fill" id="progressFill"></div>
         </div>
         <div class="progress-text">
-            <span class="step-label" id="stepLabel">Step 1: Vehicle Information</span>
+            <span class="step-label" id="stepLabel">Loading vehicle data...</span>
             <span id="progressPercent">0%</span>
         </div>
     </div>
@@ -322,17 +339,13 @@
             <div class="form-group full-width">
                 <label>Vehicle Type <span class="required">*</span></label>
                 <select id="vehicleType" required>
-                    <option value="Car">🚗 Car</option>
-                    <option value="SUV">🚙 SUV</option>
-                    <option value="Pickup">🛻 Pickup</option>
-                    <option value="Minibus">🚐 Minibus</option>
-                    <option value="Motorcycle">🏍️ Motorcycle</option>
+                    <option value="">-- Select Vehicle Type --</option>
                 </select>
             </div>
 
             <div class="form-group">
                 <label>Make <span class="required">*</span></label>
-                <select id="make" required>
+                <select id="make" required disabled>
                     <option value="">-- Select Make --</option>
                 </select>
                 <div class="error-text" id="makeError">Please select a make</div>
@@ -340,24 +353,24 @@
 
             <div class="form-group">
                 <label>Model <span class="required">*</span></label>
-                <select id="model" required>
+                <select id="model" required disabled>
                     <option value="">-- Select Model --</option>
                 </select>
                 <div class="error-text" id="modelError">Please select a model</div>
             </div>
 
             <div class="form-group">
-                <label>Year <span class="required">*</span></label>
-                <input type="number" id="year" placeholder="e.g., 2020" min="1980" max="2025" required>
-                <div class="error-text" id="yearError">Enter a valid year (1980-2025)</div>
+                <label>Year of Manufacture <span class="required">*</span></label>
+                <select id="year" required disabled>
+                    <option value="">-- Select Year --</option>
+                </select>
+                <div class="error-text" id="yearError">Please select a year</div>
             </div>
 
             <div class="form-group">
                 <label>Engine Capacity <span class="required">*</span></label>
-                <select id="engineCapacity" required>
-                    <option value="">-- Select Engine --</option>
-                </select>
-                <div class="error-text" id="engineError">Please select engine capacity</div>
+                <input type="number" id="engineCapacity" placeholder="e.g., 2000" required>
+                <div class="error-text" id="engineError">Enter a valid engine capacity (cc)</div>
             </div>
 
             <div class="form-group">
@@ -380,11 +393,8 @@
             </div>
 
             <div class="form-group full-width">
-                <label>Body Type <span class="required">*</span></label>
-                <select id="bodyType" required>
-                    <option value="">-- Select Body Type --</option>
-                </select>
-                <div class="error-text" id="bodyTypeError">Please select body type</div>
+                <label>Body Type</label>
+                <input type="text" id="bodyType" placeholder="e.g., Sedan, SUV, Pickup" />
             </div>
 
             <div class="form-group">
@@ -512,8 +522,8 @@
             </div>
         </div>
 
-        <button type="submit" class="btn btn-primary" id="submitBtn">
-            🚀 Get AI Valuation
+        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
+            <span class="loading-spinner-small" style="display:none;"></span> 🚀 Get AI Valuation
         </button>
     </form>
 
@@ -597,104 +607,29 @@
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
         
-        // ─── CORRECT: Flask Backend Endpoint ──────────────────────
+        // Flask Backend Endpoint
         const API_BASE = 'https://auto-digital.onrender.com/api/service';
 
-        // ─── VEHICLE DATA ──────────────────────────────────────────
-        const VEHICLE_DATA = {
-            Car: {
-                makes: {
-                    'Toyota': ['Camry', 'Corolla', 'Avalon', 'Prius', 'Yaris', 'RAV4', 'Highlander', '4Runner', 'Land Cruiser', 'Prado', 'Hilux'],
-                    'Nissan': ['Altima', 'Maxima', 'Sentra', 'Versa', 'Rogue', 'Murano', 'Pathfinder', 'Armada', 'Frontier', 'Kicks', 'Leaf'],
-                    'BMW': ['3 Series', '5 Series', '7 Series', 'X1', 'X3', 'X5', 'X7', '2 Series', '4 Series'],
-                    'Mercedes-Benz': ['C-Class', 'E-Class', 'S-Class', 'A-Class', 'B-Class', 'CLA', 'GLA', 'GLC', 'GLE', 'GLS', 'G-Class'],
-                    'Honda': ['Accord', 'Civic', 'City', 'Fit', 'CR-V', 'HR-V', 'Pilot', 'Passport', 'Odyssey'],
-                    'Mazda': ['Mazda3', 'Mazda6', 'CX-3', 'CX-5', 'CX-9', 'CX-30'],
-                    'Volkswagen': ['Golf', 'Jetta', 'Passat', 'Arteon', 'Tiguan', 'Atlas', 'Taos'],
-                    'Subaru': ['Forester', 'Outback', 'Impreza', 'Legacy', 'Ascent', 'Crosstrek'],
-                    'Isuzu': ['D-Max', 'MU-X'],
-                    'Other': ['Other Model']
-                },
-                engine_capacities: ['800', '1000', '1200', '1400', '1500', '1600', '1800', '2000', '2200', '2400', '2500', '2800', '3000', '3200', '3500', '4000'],
-                body_types: ['Sedan', 'SUV', 'Hatchback', 'Pickup', 'Van', 'Coupe', 'Convertible', 'Wagon', 'Other']
-            },
-            SUV: {
-                makes: {
-                    'Toyota': ['RAV4', 'Highlander', '4Runner', 'Land Cruiser', 'Prado', 'Fortuner'],
-                    'Nissan': ['Rogue', 'Murano', 'Pathfinder', 'Armada', 'X-Trail'],
-                    'BMW': ['X1', 'X3', 'X5', 'X7'],
-                    'Mercedes-Benz': ['GLA', 'GLC', 'GLE', 'GLS', 'G-Class'],
-                    'Honda': ['CR-V', 'HR-V', 'Pilot', 'Passport'],
-                    'Mazda': ['CX-3', 'CX-5', 'CX-9', 'CX-30'],
-                    'Volkswagen': ['Tiguan', 'Atlas'],
-                    'Subaru': ['Forester', 'Outback', 'Ascent', 'Crosstrek'],
-                    'Isuzu': ['MU-X'],
-                    'Other': ['Other Model']
-                },
-                engine_capacities: ['1200', '1400', '1500', '1600', '1800', '2000', '2200', '2400', '2500', '2800', '3000', '3200', '3500', '4000'],
-                body_types: ['SUV', 'Crossover', 'Off-Road', 'Other']
-            },
-            Pickup: {
-                makes: {
-                    'Toyota': ['Hilux', 'Tacoma', 'Tundra'],
-                    'Nissan': ['Frontier', 'Navara'],
-                    'Ford': ['Ranger', 'F-150'],
-                    'Isuzu': ['D-Max'],
-                    'Mitsubishi': ['L200', 'Triton'],
-                    'Other': ['Other Model']
-                },
-                engine_capacities: ['1800', '2000', '2200', '2400', '2500', '2800', '3000', '3200', '3500', '4000'],
-                body_types: ['Pickup', 'Double Cab', 'Single Cab', 'Other']
-            },
-            Minibus: {
-                makes: {
-                    'Toyota': ['Hiace', 'Quantum'],
-                    'Nissan': ['Caravan', 'Urvan'],
-                    'Mercedes-Benz': ['Sprinter', 'Vito'],
-                    'Other': ['Other Model']
-                },
-                engine_capacities: ['2000', '2400', '2500', '2800', '3000', '3200', '3500', '4000'],
-                body_types: ['Passenger', 'Cargo', 'Other']
-            },
-            Motorcycle: {
-                makes: {
-                    'Honda': ['CBR1000RR', 'CBR600RR', 'CBR500R', 'CB650R', 'Africa Twin', 'Rebel 500', 'Gold Wing'],
-                    'Yamaha': ['YZF-R1', 'YZF-R6', 'MT-10', 'MT-09', 'MT-07', 'Tracer 9', 'Ténéré 700'],
-                    'Suzuki': ['GSX-R1000', 'GSX-R750', 'V-Strom 1050', 'V-Strom 650', 'Hayabusa'],
-                    'Kawasaki': ['Ninja ZX-10R', 'Ninja ZX-6R', 'Ninja 400', 'Z900', 'Versys 650', 'KLR650'],
-                    'TVS': ['Apache RTR 200', 'Apache RR 310', 'Ntorq 125', 'Jupiter', 'Ronin 225'],
-                    'Bajaj': ['Pulsar NS200', 'Pulsar RS200', 'Dominar 400', 'Avenger 220', 'Chetak Electric'],
-                    'Royal Enfield': ['Classic 350', 'Bullet 350', 'Meteor 350', 'Hunter 350', 'Himalayan 411'],
-                    'Other': ['Other Model']
-                },
-                engine_capacities: ['50', '100', '125', '150', '200', '250', '300', '350', '400', '450', '500', '600', '650', '700', '800', '900', '1000'],
-                body_types: ['Standard', 'Sport', 'Cruiser', 'Touring', 'Adventure', 'Scooter', 'Off-Road', 'Other']
-            }
-        };
-
-        // ─── PHOTO REQUIREMENTS ─────────────────────────────────────
-        const PHOTO_REQUIREMENTS = {
-            Car: { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 },
-            SUV: { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 },
-            Pickup: { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 },
-            Minibus: { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 },
-            Motorcycle: { mandatory: ['Left Side', 'Right Side'], totalRequired: 2 }
-        };
-
         // ─── STATE ──────────────────────────────────────────────────
-        let currentVehicleType = 'Car';
-        let capturedPhotos = {};
-        let currentUser = null;
         let supabaseClient = null;
-        let debugMessages = [];
+        let currentUser = null;
+        let vehicleData = {
+            types: [],
+            makes: {},
+            models: {},
+            years: []
+        };
+        let capturedPhotos = {};
+        let currentVehicleType = '';
+        let isDataLoaded = false;
 
         // ─── DOM REFS ──────────────────────────────────────────────
         const vehicleTypeSelect = document.getElementById('vehicleType');
         const makeSelect = document.getElementById('make');
         const modelSelect = document.getElementById('model');
-        const engineCapacitySelect = document.getElementById('engineCapacity');
-        const bodyTypeSelect = document.getElementById('bodyType');
-        const photoGrid = document.getElementById('photoGrid');
+        const yearSelect = document.getElementById('year');
+        const engineCapacityInput = document.getElementById('engineCapacity');
+        const bodyTypeInput = document.getElementById('bodyType');
         const form = document.getElementById('instantForm');
         const submitBtn = document.getElementById('submitBtn');
         const statusBox = document.getElementById('statusBox');
@@ -713,13 +648,10 @@
         function debugLog(message, type = 'info') {
             const timestamp = new Date().toLocaleTimeString();
             const entry = `[${timestamp}] ${message}`;
-            debugMessages.push(entry);
-            
             const cls = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
             debugContent.innerHTML += `<div class="${cls}">${entry}</div>`;
             debugBox.classList.add('show');
             debugBox.scrollTop = debugBox.scrollHeight;
-            
             console.log(`[${type.toUpperCase()}]`, message);
         }
 
@@ -734,14 +666,25 @@
             setTimeout(() => toast.remove(), 4000);
         }
 
-        // ─── SUPABASE AUTH ──────────────────────────────────────────
+        // ─── SUPABASE INIT ──────────────────────────────────────────
         function initSupabase() {
             try {
-                const { createClient } = window.supabase;
+                if (typeof supabase === 'undefined') {
+                    debugLog('Supabase SDK not loaded - using fallback', 'error');
+                    showToast('Loading vehicle data...', 'info');
+                    // Fallback - try to load from JSON
+                    loadFallbackData();
+                    return;
+                }
+
+                const { createClient } = supabase;
                 supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
                     auth: { autoRefreshToken: true, persistSession: true }
                 });
                 
+                debugLog('Supabase client initialized', 'success');
+                
+                // Auth state listener
                 supabaseClient.auth.onAuthStateChange((event, session) => {
                     if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                         currentUser = session?.user || null;
@@ -754,18 +697,24 @@
                     }
                 });
                 
+                // Check existing session
                 supabaseClient.auth.getSession().then(({ data }) => {
                     if (data?.session) {
                         currentUser = data.session.user;
                         updateAuthUI();
                     }
                 });
-                debugLog('Supabase initialized', 'success');
+                
+                // Load vehicle data from Supabase
+                loadVehicleData();
+                
             } catch (e) {
                 debugLog('Supabase init error: ' + e.message, 'error');
+                loadFallbackData();
             }
         }
 
+        // ─── UPDATE AUTH UI ─────────────────────────────────────────
         function updateAuthUI() {
             const userName = document.getElementById('userName');
             const userAvatar = document.getElementById('userAvatar');
@@ -792,82 +741,219 @@
             }
         }
 
-        // ─── VEHICLE DATA HELPERS ──────────────────────────────────
-        function getMakes(type) { return VEHICLE_DATA[type]?.makes || {}; }
-        function getModels(type, make) { return getMakes(type)[make] || []; }
-        function getEngineCapacities(type) { return VEHICLE_DATA[type]?.engine_capacities || []; }
-        function getBodyTypes(type) { return VEHICLE_DATA[type]?.body_types || []; }
-
-        // ─── UPDATE DROPDOWNS ──────────────────────────────────────
-        function updateMakeDropdown(preserveValue) {
-            const type = vehicleTypeSelect.value;
-            const makes = Object.keys(getMakes(type) || {});
-            const prev = preserveValue !== undefined ? preserveValue : makeSelect.value;
-
-            makeSelect.innerHTML = '<option value="">-- Select Make --</option>';
-            makes.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m; opt.textContent = m;
-                makeSelect.appendChild(opt);
-            });
-            if (prev && makes.includes(prev)) makeSelect.value = prev;
-            updateModelDropdown();
+        // ─── LOAD VEHICLE DATA FROM SUPABASE ──────────────────────
+        async function loadVehicleData() {
+            try {
+                debugLog('Loading vehicle data from Supabase...', 'info');
+                stepLabel.textContent = 'Loading vehicle data...';
+                
+                // Load vehicle types
+                const { data: types, error: typesError } = await supabaseClient
+                    .from('vehicle_types')
+                    .select('*')
+                    .order('name');
+                
+                if (typesError) throw typesError;
+                
+                // Load makes
+                const { data: makes, error: makesError } = await supabaseClient
+                    .from('vehicle_makes')
+                    .select('*')
+                    .order('name');
+                
+                if (makesError) throw makesError;
+                
+                // Load models
+                const { data: models, error: modelsError } = await supabaseClient
+                    .from('vehicle_models')
+                    .select('*')
+                    .order('name');
+                
+                if (modelsError) throw modelsError;
+                
+                // Load years
+                const { data: years, error: yearsError } = await supabaseClient
+                    .from('vehicle_years')
+                    .select('year')
+                    .order('year', { ascending: false });
+                
+                if (yearsError) throw yearsError;
+                
+                // Build data structure
+                vehicleData.types = types || [];
+                vehicleData.makes = makes || [];
+                vehicleData.models = models || [];
+                vehicleData.years = years ? years.map(y => y.year) : [];
+                
+                debugLog(`Loaded ${vehicleData.types.length} types, ${vehicleData.makes.length} makes, ${vehicleData.models.length} models, ${vehicleData.years.length} years`, 'success');
+                
+                // Populate dropdowns
+                populateVehicleTypes();
+                populateYears();
+                
+                isDataLoaded = true;
+                submitBtn.disabled = false;
+                updateProgress();
+                
+            } catch (error) {
+                debugLog('Error loading vehicle data: ' + error.message, 'error');
+                loadFallbackData();
+            }
         }
 
-        function updateModelDropdown() {
-            const type = vehicleTypeSelect.value;
-            const selectedMake = makeSelect.value;
-            const models = getModels(type, selectedMake) || [];
+        // ─── FALLBACK DATA ──────────────────────────────────────────
+        function loadFallbackData() {
+            debugLog('Loading fallback vehicle data...', 'info');
+            
+            // Fallback vehicle types
+            vehicleData.types = [
+                { id: 'car', name: 'Car', icon: '🚗' },
+                { id: 'suv', name: 'SUV', icon: '🚙' },
+                { id: 'pickup', name: 'Pickup', icon: '🛻' },
+                { id: 'minibus', name: 'Minibus', icon: '🚐' },
+                { id: 'motorcycle', name: 'Motorcycle', icon: '🏍️' }
+            ];
+            
+            // Fallback makes
+            vehicleData.makes = [
+                { id: 'toyota', name: 'Toyota', type_id: 'car' },
+                { id: 'nissan', name: 'Nissan', type_id: 'car' },
+                { id: 'bmw', name: 'BMW', type_id: 'car' },
+                { id: 'mercedes', name: 'Mercedes-Benz', type_id: 'car' },
+                { id: 'honda', name: 'Honda', type_id: 'car' },
+                { id: 'mazda', name: 'Mazda', type_id: 'car' },
+                { id: 'volkswagen', name: 'Volkswagen', type_id: 'car' },
+                { id: 'subaru', name: 'Subaru', type_id: 'car' },
+                { id: 'isuzu', name: 'Isuzu', type_id: 'car' }
+            ];
+            
+            // Fallback models
+            vehicleData.models = [
+                { id: 'corolla', name: 'Corolla', make_id: 'toyota' },
+                { id: 'camry', name: 'Camry', make_id: 'toyota' },
+                { id: 'rav4', name: 'RAV4', make_id: 'toyota' },
+                { id: 'prado', name: 'Prado', make_id: 'toyota' },
+                { id: 'hilux', name: 'Hilux', make_id: 'toyota' },
+                { id: 'x5', name: 'X5', make_id: 'bmw' },
+                { id: 'x3', name: 'X3', make_id: 'bmw' },
+                { id: 'c_class', name: 'C-Class', make_id: 'mercedes' },
+                { id: 'glc', name: 'GLC', make_id: 'mercedes' },
+                { id: 'accord', name: 'Accord', make_id: 'honda' },
+                { id: 'civic', name: 'Civic', make_id: 'honda' },
+                { id: 'cr_v', name: 'CR-V', make_id: 'honda' },
+                { id: 'cx5', name: 'CX-5', make_id: 'mazda' }
+            ];
+            
+            // Fallback years (2010-2025)
+            vehicleData.years = [];
+            for (let y = 2025; y >= 1990; y--) {
+                vehicleData.years.push(y);
+            }
+            
+            debugLog(`Fallback loaded: ${vehicleData.types.length} types, ${vehicleData.makes.length} makes, ${vehicleData.models.length} models`, 'success');
+            
+            populateVehicleTypes();
+            populateYears();
+            
+            isDataLoaded = true;
+            submitBtn.disabled = false;
+            updateProgress();
+        }
 
-            modelSelect.innerHTML = '<option value="">-- Select Model --</option>';
-            models.forEach(m => {
+        // ─── POPULATE VEHICLE TYPES ────────────────────────────────
+        function populateVehicleTypes() {
+            vehicleTypeSelect.innerHTML = '<option value="">-- Select Vehicle Type --</option>';
+            vehicleData.types.forEach(type => {
                 const opt = document.createElement('option');
-                opt.value = m; opt.textContent = m;
+                opt.value = type.id;
+                opt.textContent = type.icon ? `${type.icon} ${type.name}` : type.name;
+                vehicleTypeSelect.appendChild(opt);
+            });
+            debugLog('Vehicle types populated', 'success');
+        }
+
+        // ─── POPULATE YEARS ─────────────────────────────────────────
+        function populateYears() {
+            yearSelect.innerHTML = '<option value="">-- Select Year --</option>';
+            vehicleData.years.forEach(year => {
+                const opt = document.createElement('option');
+                opt.value = year;
+                opt.textContent = year;
+                yearSelect.appendChild(opt);
+            });
+            debugLog('Years populated', 'success');
+        }
+
+        // ─── POPULATE MAKES ─────────────────────────────────────────
+        function populateMakes(vehicleTypeId) {
+            makeSelect.innerHTML = '<option value="">-- Select Make --</option>';
+            makeSelect.disabled = true;
+            
+            if (!vehicleTypeId) {
+                makeSelect.disabled = true;
+                return;
+            }
+            
+            const filteredMakes = vehicleData.makes.filter(m => m.type_id === vehicleTypeId);
+            
+            if (filteredMakes.length === 0) {
+                // If no makes for this type, show all
+                vehicleData.makes.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = m.name;
+                    makeSelect.appendChild(opt);
+                });
+            } else {
+                filteredMakes.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = m.name;
+                    makeSelect.appendChild(opt);
+                });
+            }
+            
+            makeSelect.disabled = false;
+            debugLog(`Populated ${makeSelect.options.length - 1} makes`, 'success');
+        }
+
+        // ─── POPULATE MODELS ────────────────────────────────────────
+        function populateModels(makeId) {
+            modelSelect.innerHTML = '<option value="">-- Select Model --</option>';
+            modelSelect.disabled = true;
+            
+            if (!makeId) {
+                modelSelect.disabled = true;
+                return;
+            }
+            
+            const filteredModels = vehicleData.models.filter(m => m.make_id === makeId);
+            
+            filteredModels.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.name;
                 modelSelect.appendChild(opt);
             });
-            updateVehiclePreview();
-            updateProgress();
+            
+            modelSelect.disabled = false;
+            debugLog(`Populated ${modelSelect.options.length - 1} models`, 'success');
         }
 
-        function updateEngineDropdown() {
-            const type = vehicleTypeSelect.value;
-            const capacities = getEngineCapacities(type) || [];
-            engineCapacitySelect.innerHTML = '<option value="">-- Select Engine --</option>';
-            capacities.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c; opt.textContent = `${c}cc`;
-                engineCapacitySelect.appendChild(opt);
-            });
-            updateProgress();
-        }
-
-        function updateBodyTypeDropdown() {
-            const type = vehicleTypeSelect.value;
-            const types = getBodyTypes(type) || [];
-            bodyTypeSelect.innerHTML = '<option value="">-- Select Body Type --</option>';
-            types.forEach(t => {
-                const opt = document.createElement('option');
-                opt.value = t; opt.textContent = t;
-                bodyTypeSelect.appendChild(opt);
-            });
-            updateProgress();
-        }
-
-        // ─── VEHICLE PREVIEW ────────────────────────────────────────
-        function updateVehiclePreview() {
-            const make = makeSelect.value;
-            const model = modelSelect.value;
-            const bodyType = bodyTypeSelect.value;
-            const vehicleType = vehicleTypeSelect.value;
-            const icons = { Car: '🚗', SUV: '🚙', Pickup: '🛻', Minibus: '🚐', Motorcycle: '🏍️' };
-
+        // ─── UPDATE PREVIEW ─────────────────────────────────────────
+        function updatePreview() {
+            const make = makeSelect.options[makeSelect.selectedIndex]?.text || '';
+            const model = modelSelect.options[modelSelect.selectedIndex]?.text || '';
+            const year = yearSelect.value;
+            const vehicleType = vehicleTypeSelect.options[vehicleTypeSelect.selectedIndex]?.text || '';
+            
             if (make && model) {
-                previewIcon.textContent = icons[vehicleType] || '🚗';
+                previewIcon.textContent = vehicleTypeSelect.value ? getTypeIcon(vehicleTypeSelect.value) : '🚗';
                 previewTitle.textContent = `${make} ${model}`;
-                previewSubtitle.textContent = bodyType || vehicleType;
+                previewSubtitle.textContent = year ? `${year} • ${vehicleType}` : vehicleType;
                 vehiclePreview.classList.add('show');
             } else if (make) {
-                previewIcon.textContent = icons[vehicleType] || '🚗';
+                previewIcon.textContent = vehicleTypeSelect.value ? getTypeIcon(vehicleTypeSelect.value) : '🚗';
                 previewTitle.textContent = make;
                 previewSubtitle.textContent = 'Select model...';
                 vehiclePreview.classList.add('show');
@@ -877,9 +963,15 @@
             updateProgress();
         }
 
+        // ─── GET TYPE ICON ──────────────────────────────────────────
+        function getTypeIcon(typeId) {
+            const type = vehicleData.types.find(t => t.id === typeId);
+            return type?.icon || '🚗';
+        }
+
         // ─── PHOTO GRID ─────────────────────────────────────────────
-        function renderPhotoGrid(vehicleType) {
-            const req = PHOTO_REQUIREMENTS[vehicleType] || PHOTO_REQUIREMENTS.Car;
+        function renderPhotoGrid() {
+            const req = { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 };
 
             let html = '';
             req.mandatory.forEach((label) => {
@@ -897,6 +989,7 @@
                 `;
             });
 
+            const photoGrid = document.getElementById('photoGrid');
             photoGrid.innerHTML = html;
 
             photoGrid.querySelectorAll('.camera-btn').forEach(btn => {
@@ -934,25 +1027,19 @@
         }
 
         function updatePhotoCount() {
-            const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
+            const req = { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 };
             const mandatoryAngles = req.mandatory.map(a => a.toLowerCase().replace(/ /g, '_'));
             const captured = mandatoryAngles.filter(a => capturedPhotos[a]).length;
             document.getElementById('photoCountNum').textContent = captured;
         }
 
-        function isAllMandatoryPhotosCaptured() {
-            const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
-            const mandatoryAngles = req.mandatory.map(a => a.toLowerCase().replace(/ /g, '_'));
-            return mandatoryAngles.every(a => capturedPhotos[a]);
-        }
-
         // ─── PROGRESS ──────────────────────────────────────────────
         function updateProgress() {
             const fields = [
-                vehicleTypeSelect, makeSelect, modelSelect,
-                document.getElementById('year'), engineCapacitySelect,
+                vehicleTypeSelect, makeSelect, modelSelect, yearSelect,
+                engineCapacityInput,
                 document.getElementById('fuelType'), document.getElementById('transmission'),
-                bodyTypeSelect, document.getElementById('mileage'),
+                document.getElementById('mileage'),
                 document.getElementById('previousOwners'), document.getElementById('usageType'),
                 document.getElementById('condition'), document.getElementById('accidentHistory'),
                 document.getElementById('location'), document.getElementById('purchasePrice')
@@ -963,7 +1050,7 @@
                 if (field.value && !field.value.startsWith('-- Select')) filled++;
             });
 
-            const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
+            const req = { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 };
             const mandatoryAngles = req.mandatory.map(a => a.toLowerCase().replace(/ /g, '_'));
             let photoFilled = 0;
             mandatoryAngles.forEach(a => { if (capturedPhotos[a]) photoFilled++; });
@@ -983,16 +1070,17 @@
 
         // ─── VALIDATE ──────────────────────────────────────────────
         function validateAll() {
-            const year = parseInt(document.getElementById('year').value);
+            const year = parseInt(yearSelect.value);
             const currentYear = new Date().getFullYear();
             const mileage = parseInt(document.getElementById('mileage').value);
             const purchasePrice = parseFloat(document.getElementById('purchasePrice').value);
+            const engineCC = parseInt(engineCapacityInput.value);
 
+            if (!vehicleTypeSelect.value) { showToast('Please select a vehicle type', 'error'); return false; }
             if (!makeSelect.value) { showToast('Please select a make', 'error'); return false; }
             if (!modelSelect.value) { showToast('Please select a model', 'error'); return false; }
-            if (!year || year < 1980 || year > currentYear) { showToast('Enter a valid year', 'error'); return false; }
-            if (!engineCapacitySelect.value) { showToast('Please select engine capacity', 'error'); return false; }
-            if (!bodyTypeSelect.value) { showToast('Please select body type', 'error'); return false; }
+            if (!year || year < 1990 || year > currentYear) { showToast('Enter a valid year', 'error'); return false; }
+            if (!engineCC || engineCC < 50 || engineCC > 8000) { showToast('Enter a valid engine capacity (50-8000cc)', 'error'); return false; }
             if (!mileage || mileage < 0 || mileage > 1000000) { showToast('Enter a valid odometer reading', 'error'); return false; }
             if (!purchasePrice || purchasePrice < 10000) { showToast('Enter a valid purchase price (minimum KES 10,000)', 'error'); return false; }
             
@@ -1040,7 +1128,6 @@
         async function callValuationAPI(formData) {
             const url = `${API_BASE}/valuation`;
 
-            // Build payload matching Flask ValuationService.calculate()
             const payload = {
                 purchase_price: formData.purchase_price || 5000000,
                 age_years: formData.age_years || 0,
@@ -1055,7 +1142,7 @@
                 usage_type: formData.usage_type || 'Personal'
             };
 
-            debugLog('📤 Sending request to: ' + url, 'info');
+            debugLog('📤 Sending to Flask: ' + url, 'info');
             debugLog('📦 Payload: ' + JSON.stringify(payload, null, 2), 'info');
 
             const response = await fetch(url, {
@@ -1073,7 +1160,7 @@
                 let errorDetail = `Valuation failed (${response.status})`;
                 try {
                     const errorData = await response.json();
-                    debugLog('❌ Error response: ' + JSON.stringify(errorData, null, 2), 'error');
+                    debugLog('❌ Error: ' + JSON.stringify(errorData, null, 2), 'error');
                     errorDetail = errorData.message || errorData.error || errorData.detail || errorDetail;
                 } catch (e) {
                     try {
@@ -1092,32 +1179,20 @@
 
         // ─── SHOW RESULT ────────────────────────────────────────────
         function showResult(result) {
-            debugLog('📊 Processing result...', 'info');
-            
-            // Flask returns { success: true, data: { ... } }
-            // But sometimes the data might be nested differently
             let data = result.data || result;
             
-            // Try to find the value in various possible locations
             let currentValue = 0;
             if (data.current_value) currentValue = data.current_value;
             else if (data.market_value) currentValue = data.market_value;
             else if (data.estimated_value) currentValue = data.estimated_value;
             else if (data.value) currentValue = data.value;
             
-            // If still 0, try to find it in a nested object
             if (currentValue === 0 && data.valuation) {
                 currentValue = data.valuation.current_value || data.valuation.market_value || 0;
                 if (currentValue > 0) data = data.valuation;
             }
-            
-            // If we still don't have a value, check if there's a calculation result
-            if (currentValue === 0 && data.calculation) {
-                currentValue = data.calculation.final_value || data.calculation.market_value || 0;
-                if (currentValue > 0) data = data.calculation;
-            }
 
-            debugLog('💰 Extracted current value: ' + currentValue, currentValue > 0 ? 'success' : 'error');
+            debugLog('💰 Current value: ' + currentValue, currentValue > 0 ? 'success' : 'error');
 
             const rangeMin = data.valuation_range?.min || Math.round(currentValue * 0.85);
             const rangeMax = data.valuation_range?.max || Math.round(currentValue * 1.15);
@@ -1141,9 +1216,9 @@
             }
 
             document.getElementById('resultRange').textContent = `KES ${Math.round(rangeMin).toLocaleString()} - ${Math.round(rangeMax).toLocaleString()}`;
-            document.getElementById('resultVehicle').textContent = `${makeSelect.value} ${modelSelect.value}`;
-            document.getElementById('resultYear').textContent = document.getElementById('year').value;
-            document.getElementById('resultEngine').textContent = `${engineCapacitySelect.value}cc`;
+            document.getElementById('resultVehicle').textContent = `${makeSelect.options[makeSelect.selectedIndex]?.text || ''} ${modelSelect.options[modelSelect.selectedIndex]?.text || ''}`;
+            document.getElementById('resultYear').textContent = yearSelect.value;
+            document.getElementById('resultEngine').textContent = `${engineCapacityInput.value}cc`;
             document.getElementById('resultLocation').textContent = document.getElementById('location').value;
             document.getElementById('resultDate').textContent = new Date().toLocaleDateString('en-KE', {
                 year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
@@ -1171,7 +1246,7 @@
             const adjList = document.getElementById('adjustmentsList');
             adjList.innerHTML = '';
             const adjLabels = {
-                'location': 'Location Adjustment',
+                'location': 'Location',
                 'accident': 'Accident History',
                 'usage': 'Usage Type',
                 'transmission': 'Transmission',
@@ -1180,7 +1255,7 @@
                 'color': 'Color',
                 'service_history': 'Service History',
                 'previous_owners': 'Previous Owners',
-                'mileage': 'Mileage Adjustment'
+                'mileage': 'Mileage'
             };
             let hasAdjustments = false;
             for (const [key, value] of Object.entries(adjustments)) {
@@ -1208,7 +1283,7 @@
                 fireConfetti();
                 showToast('✅ Valuation complete!', 'success');
             } else {
-                showToast('⚠️ Valuation completed but no value was returned. Please check your inputs.', 'warning');
+                showToast('⚠️ Valuation returned no value. Please check inputs.', 'warning');
             }
         }
 
@@ -1218,11 +1293,11 @@
                 vehicleType: vehicleTypeSelect.value,
                 make: makeSelect.value,
                 model: modelSelect.value,
-                year: document.getElementById('year').value,
-                engineCapacity: engineCapacitySelect.value,
+                year: yearSelect.value,
+                engineCapacity: engineCapacityInput.value,
                 fuelType: document.getElementById('fuelType').value,
                 transmission: document.getElementById('transmission').value,
-                bodyType: bodyTypeSelect.value,
+                bodyType: bodyTypeInput.value,
                 bodyColor: document.getElementById('bodyColor').value,
                 mileage: document.getElementById('mileage').value,
                 previousOwners: document.getElementById('previousOwners').value,
@@ -1240,76 +1315,66 @@
             try { data = JSON.parse(localStorage.getItem('valuationDraft')); } catch (e) { return; }
             if (!data) return;
 
-            const types = Object.keys(VEHICLE_DATA);
-            if (data.vehicleType && types.includes(data.vehicleType)) {
+            if (data.vehicleType) {
                 vehicleTypeSelect.value = data.vehicleType;
-                currentVehicleType = data.vehicleType;
-                renderPhotoGrid(currentVehicleType);
-                updateEngineDropdown();
-                updateBodyTypeDropdown();
-                updateMakeDropdown('');
+                populateMakes(data.vehicleType);
             }
-
-            const makes = Object.keys(getMakes(currentVehicleType));
-            if (data.make && makes.includes(data.make)) {
-                makeSelect.value = data.make;
-                updateModelDropdown();
-            }
-
-            const models = getModels(currentVehicleType, data.make);
-            if (data.model && models.includes(data.model)) modelSelect.value = data.model;
-            if (data.year) document.getElementById('year').value = data.year;
-            const capacities = getEngineCapacities(currentVehicleType);
-            if (data.engineCapacity && capacities.includes(data.engineCapacity)) engineCapacitySelect.value = data.engineCapacity;
-            const fuels = ['Petrol', 'Diesel', 'Hybrid', 'Electric'];
-            if (data.fuelType && fuels.includes(data.fuelType)) document.getElementById('fuelType').value = data.fuelType;
-            const transmissions = ['Automatic', 'Manual', 'CVT'];
-            if (data.transmission && transmissions.includes(data.transmission)) document.getElementById('transmission').value = data.transmission;
-            const bodyTypes = getBodyTypes(currentVehicleType);
-            if (data.bodyType && bodyTypes.includes(data.bodyType)) bodyTypeSelect.value = data.bodyType;
-            if (data.bodyColor) document.getElementById('bodyColor').value = data.bodyColor;
-            if (data.mileage) document.getElementById('mileage').value = data.mileage;
-            if (data.previousOwners) document.getElementById('previousOwners').value = data.previousOwners;
-            if (data.usageType) document.getElementById('usageType').value = data.usageType;
-            const conditions = ['Excellent', 'Very Good', 'Good', 'Fair', 'Poor'];
-            if (data.condition && conditions.includes(data.condition)) document.getElementById('condition').value = data.condition;
-            if (data.accidentHistory) document.getElementById('accidentHistory').value = data.accidentHistory;
-            if (data.location) document.getElementById('location').value = data.location;
-            if (data.purchasePrice) document.getElementById('purchasePrice').value = data.purchasePrice;
-
-            updateVehiclePreview();
-            updateProgress();
+            
+            // Need to wait for makes to populate
+            setTimeout(() => {
+                if (data.make) {
+                    makeSelect.value = data.make;
+                    populateModels(data.make);
+                }
+                setTimeout(() => {
+                    if (data.model) modelSelect.value = data.model;
+                    if (data.year) yearSelect.value = data.year;
+                    if (data.engineCapacity) engineCapacityInput.value = data.engineCapacity;
+                    if (data.fuelType) document.getElementById('fuelType').value = data.fuelType;
+                    if (data.transmission) document.getElementById('transmission').value = data.transmission;
+                    if (data.bodyType) bodyTypeInput.value = data.bodyType;
+                    if (data.bodyColor) document.getElementById('bodyColor').value = data.bodyColor;
+                    if (data.mileage) document.getElementById('mileage').value = data.mileage;
+                    if (data.previousOwners) document.getElementById('previousOwners').value = data.previousOwners;
+                    if (data.usageType) document.getElementById('usageType').value = data.usageType;
+                    if (data.condition) document.getElementById('condition').value = data.condition;
+                    if (data.accidentHistory) document.getElementById('accidentHistory').value = data.accidentHistory;
+                    if (data.location) document.getElementById('location').value = data.location;
+                    if (data.purchasePrice) document.getElementById('purchasePrice').value = data.purchasePrice;
+                    updatePreview();
+                    updateProgress();
+                }, 100);
+            }, 100);
         }
 
-        // ─── EVENT LISTENERS ────────────────────────────────────────
+        // ─── EVENT LISTENERS ──────────────────────────────────────
         vehicleTypeSelect.addEventListener('change', function() {
-            currentVehicleType = this.value;
-            const req = PHOTO_REQUIREMENTS[currentVehicleType] || PHOTO_REQUIREMENTS.Car;
-            const validAngles = req.mandatory.map(a => a.toLowerCase().replace(/ /g, '_'));
-            Object.keys(capturedPhotos).forEach(key => {
-                if (!validAngles.includes(key)) delete capturedPhotos[key];
-            });
-            renderPhotoGrid(currentVehicleType);
-            updateEngineDropdown();
-            updateBodyTypeDropdown();
-            updateMakeDropdown('');
+            const typeId = this.value;
+            populateMakes(typeId);
+            // Reset dependent fields
+            modelSelect.innerHTML = '<option value="">-- Select Model --</option>';
+            modelSelect.disabled = true;
+            updatePreview();
             updateProgress();
+            saveDraft();
         });
 
         makeSelect.addEventListener('change', function() {
-            updateModelDropdown();
+            const makeId = this.value;
+            populateModels(makeId);
+            updatePreview();
             updateProgress();
             saveDraft();
         });
 
         modelSelect.addEventListener('change', function() {
-            updateVehiclePreview();
+            updatePreview();
             updateProgress();
             saveDraft();
         });
 
-        bodyTypeSelect.addEventListener('change', function() {
-            updateVehiclePreview();
+        yearSelect.addEventListener('change', function() {
+            updatePreview();
             updateProgress();
             saveDraft();
         });
@@ -1336,8 +1401,8 @@
         // ─── SHARE ──────────────────────────────────────────────────
         document.getElementById('shareBtn').addEventListener('click', function() {
             const text = `🚗 Auto-D Kenya Vehicle Valuation\n` +
-                `Vehicle: ${makeSelect.value} ${modelSelect.value}\n` +
-                `Year: ${document.getElementById('year').value}\n` +
+                `Vehicle: ${makeSelect.options[makeSelect.selectedIndex]?.text || ''} ${modelSelect.options[modelSelect.selectedIndex]?.text || ''}\n` +
+                `Year: ${yearSelect.value}\n` +
                 `Estimated Value: ${document.getElementById('resultMarketValue').textContent}\n` +
                 `Range: ${document.getElementById('resultRange').textContent}\n` +
                 `Confidence: ${document.getElementById('confidenceLabel').textContent}\n\n` +
@@ -1356,6 +1421,11 @@
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
 
+            if (!isDataLoaded) {
+                showToast('⚠️ Please wait for vehicle data to load', 'warning');
+                return;
+            }
+
             if (!validateAll()) {
                 statusBox.className = 'status-box status-error';
                 statusBox.textContent = '❌ Please fix all highlighted fields.';
@@ -1363,16 +1433,16 @@
                 return;
             }
 
-            const year = parseInt(document.getElementById('year').value);
+            const year = parseInt(yearSelect.value);
             const currentYear = new Date().getFullYear();
             const ageYears = currentYear - year;
 
             const formData = {
                 purchase_price: parseFloat(document.getElementById('purchasePrice').value),
                 age_years: ageYears,
-                make: makeSelect.value,
-                model: modelSelect.value,
-                vehicle_type: vehicleTypeSelect.value,
+                make: makeSelect.options[makeSelect.selectedIndex]?.text || 'Unknown',
+                model: modelSelect.options[modelSelect.selectedIndex]?.text || 'Unknown',
+                vehicle_type: vehicleTypeSelect.options[vehicleTypeSelect.selectedIndex]?.text || 'Car',
                 condition: document.getElementById('condition').value,
                 mileage: parseFloat(document.getElementById('mileage').value),
                 location: document.getElementById('location').value,
@@ -1429,37 +1499,22 @@
         });
 
         // ─── INIT ──────────────────────────────────────────────────
-        async function init() {
+        function init() {
             debugLog('🚗 Auto-D Kenya Instant Value Check loading...', 'info');
             
+            // Load Supabase
             initSupabase();
-
-            currentVehicleType = vehicleTypeSelect.value;
-            renderPhotoGrid(currentVehicleType);
-            updateEngineDropdown();
-            updateBodyTypeDropdown();
-            updateMakeDropdown('');
-
-            loadDraft();
-
-            document.getElementById('year').max = new Date().getFullYear();
-            updateProgress();
-
-            debugLog(`📡 Flask Endpoint: ${API_BASE}/valuation`, 'info');
             
-            // Test API connection
-            try {
-                const testRes = await fetch(`${API_BASE}/valuation`, {
-                    method: 'OPTIONS'
-                });
-                if (testRes.ok) {
-                    debugLog('✅ Backend API reachable', 'success');
-                } else {
-                    debugLog('⚠️ Backend API returned: ' + testRes.status, 'error');
-                }
-            } catch (e) {
-                debugLog('⚠️ Could not reach backend API: ' + e.message, 'error');
-            }
+            // Render photo grid
+            renderPhotoGrid();
+            
+            // Load draft
+            loadDraft();
+            
+            // Set max year
+            // Year is populated from Supabase/fallback
+            
+            debugLog(`📡 Flask Endpoint: ${API_BASE}/valuation`, 'info');
         }
 
         document.addEventListener('DOMContentLoaded', init);
