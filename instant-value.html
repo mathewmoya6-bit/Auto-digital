@@ -67,26 +67,6 @@
         .debug-box .success { color: #22c55e; }
         .debug-box .info { color: #eab308; }
         
-        .auth-section {
-            background: #1e293b;
-            border-radius: 12px;
-            padding: 14px 20px;
-            margin-bottom: 20px;
-            border: 1px solid #334155;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-        .auth-section .user-info { display: flex; align-items: center; gap: 10px; color: #94a3b8; font-size: 13px; }
-        .auth-section .user-info .avatar { width: 32px; height: 32px; border-radius: 50%; background: #eab308; color: #0a0c15; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
-        .auth-btn { padding: 8px 20px; border: none; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.2s; }
-        .auth-btn.login { background: #eab308; color: #0a0c15; }
-        .auth-btn.login:hover { background: #facc15; }
-        .auth-btn.logout { background: #ef4444; color: #fff; }
-        .auth-btn.logout:hover { background: #dc2626; }
-        
         .progress-section { margin-bottom: 20px; }
         .progress-bar-bg { background: #1e293b; border-radius: 20px; height: 6px; overflow: hidden; }
         .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #eab308, #facc15); border-radius: 20px; transition: width 0.6s ease; }
@@ -171,8 +151,6 @@
         .btn-primary { background: linear-gradient(135deg, #eab308, #ca8a04); color: #0a0c15; }
         .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(234, 179, 8, 0.3); }
         .btn-primary:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; opacity: 0.7; }
-        .btn-secondary { background: #334155; color: #f8fafc; }
-        .btn-secondary:hover { background: #475569; }
         
         .loading-steps { display: none; margin: 16px 0; padding: 16px 20px; background: #1e293b; border-radius: 10px; border: 1px solid #334155; }
         .loading-steps.show { display: block; }
@@ -302,15 +280,6 @@
     <!-- ─── DEBUG BOX ────────────────────────────────────────────── -->
     <div class="debug-box" id="debugBox">
         <div id="debugContent"></div>
-    </div>
-
-    <!-- ─── AUTH SECTION ──────────────────────────────────────────── -->
-    <div class="auth-section">
-        <div class="user-info">
-            <div class="avatar" id="userAvatar">👤</div>
-            <span id="userName">Not signed in</span>
-        </div>
-        <button class="auth-btn login" id="authBtn">Sign In</button>
     </div>
 
     <!-- ─── PROGRESS ───────────────────────────────────────────────── -->
@@ -612,15 +581,13 @@
 
         // ─── STATE ──────────────────────────────────────────────────
         let supabaseClient = null;
-        let currentUser = null;
         let vehicleData = {
             types: [],
-            makes: {},
-            models: {},
+            makes: [],
+            models: [],
             years: []
         };
         let capturedPhotos = {};
-        let currentVehicleType = '';
         let isDataLoaded = false;
 
         // ─── DOM REFS ──────────────────────────────────────────────
@@ -671,39 +638,14 @@
             try {
                 if (typeof supabase === 'undefined') {
                     debugLog('Supabase SDK not loaded - using fallback', 'error');
-                    showToast('Loading vehicle data...', 'info');
-                    // Fallback - try to load from JSON
                     loadFallbackData();
                     return;
                 }
 
                 const { createClient } = supabase;
-                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-                    auth: { autoRefreshToken: true, persistSession: true }
-                });
+                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 
                 debugLog('Supabase client initialized', 'success');
-                
-                // Auth state listener
-                supabaseClient.auth.onAuthStateChange((event, session) => {
-                    if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-                        currentUser = session?.user || null;
-                        updateAuthUI();
-                        if (event === 'SIGNED_IN') showToast('Welcome!', 'success');
-                    } else if (event === 'SIGNED_OUT') {
-                        currentUser = null;
-                        updateAuthUI();
-                        showToast('Signed out', 'info');
-                    }
-                });
-                
-                // Check existing session
-                supabaseClient.auth.getSession().then(({ data }) => {
-                    if (data?.session) {
-                        currentUser = data.session.user;
-                        updateAuthUI();
-                    }
-                });
                 
                 // Load vehicle data from Supabase
                 loadVehicleData();
@@ -711,33 +653,6 @@
             } catch (e) {
                 debugLog('Supabase init error: ' + e.message, 'error');
                 loadFallbackData();
-            }
-        }
-
-        // ─── UPDATE AUTH UI ─────────────────────────────────────────
-        function updateAuthUI() {
-            const userName = document.getElementById('userName');
-            const userAvatar = document.getElementById('userAvatar');
-            const authBtn = document.getElementById('authBtn');
-
-            if (currentUser) {
-                const name = currentUser.user_metadata?.full_name || currentUser.email || 'User';
-                userName.textContent = name;
-                userAvatar.textContent = name.charAt(0).toUpperCase();
-                authBtn.textContent = 'Sign Out';
-                authBtn.className = 'auth-btn logout';
-                authBtn.onclick = () => supabaseClient?.auth.signOut();
-            } else {
-                userName.textContent = 'Not signed in';
-                userAvatar.textContent = '👤';
-                authBtn.textContent = 'Sign In';
-                authBtn.className = 'auth-btn login';
-                authBtn.onclick = () => {
-                    supabaseClient?.auth.signInWithOAuth({
-                        provider: 'google',
-                        options: { redirectTo: window.location.origin + window.location.pathname }
-                    });
-                };
             }
         }
 
@@ -771,7 +686,7 @@
                 
                 if (modelsError) throw modelsError;
                 
-                // Load years
+                // Load years from vehicle_years table
                 const { data: years, error: yearsError } = await supabaseClient
                     .from('vehicle_years')
                     .select('year')
@@ -844,9 +759,9 @@
                 { id: 'cx5', name: 'CX-5', make_id: 'mazda' }
             ];
             
-            // Fallback years (2010-2025)
+            // Fallback years (1990-2026)
             vehicleData.years = [];
-            for (let y = 2025; y >= 1990; y--) {
+            for (let y = 2026; y >= 1990; y--) {
                 vehicleData.years.push(y);
             }
             
@@ -881,7 +796,8 @@
                 opt.textContent = year;
                 yearSelect.appendChild(opt);
             });
-            debugLog('Years populated', 'success');
+            yearSelect.disabled = false;
+            debugLog(`Years populated: ${vehicleData.years.length} years`, 'success');
         }
 
         // ─── POPULATE MAKES ─────────────────────────────────────────
@@ -1510,9 +1426,6 @@
             
             // Load draft
             loadDraft();
-            
-            // Set max year
-            // Year is populated from Supabase/fallback
             
             debugLog(`📡 Flask Endpoint: ${API_BASE}/valuation`, 'info');
         }
