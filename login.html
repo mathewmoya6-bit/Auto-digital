@@ -18,6 +18,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
+    <link rel="preconnect" href="https://xgkdbithhlvoqjnqvfmj.supabase.co" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
           integrity="sha512-1PKOgIY59xJ8Co8+NE6FZ+LOAZKjy+KY8iq0G4B3CyeY6wYHN3yt9zzTncjzn70RmSVE0Q/T6UDVGqYVmDx2mA=="
@@ -169,7 +170,7 @@
                 <label for="password">Password</label>
                 <input type="password" id="password" name="password" autocomplete="current-password" required />
             </div>
-            <button type="submit" class="btn-primary">Log In</button>
+            <button type="submit" class="btn-primary" id="submitBtn">Log In</button>
         </form>
 
         <p class="switch-link">Don't have an account? <a href="signup.html">Sign up</a></p>
@@ -177,18 +178,11 @@
     </div>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/auth.js"></script>
 <script>
-    (function () {
+    (async function () {
         'use strict';
-
-        // Already logged in? Send straight to the intended page.
-        var params = new URLSearchParams(location.search);
-        var redirect = params.get('redirect') || 'dashboard.html';
-        if (window.AutoDAuth.isLoggedIn()) {
-            location.href = redirect;
-            return;
-        }
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
@@ -196,21 +190,40 @@
             });
         }
 
+        var params = new URLSearchParams(location.search);
+        var redirect = params.get('redirect') || 'dashboard.html';
+
+        // Already logged in? Send straight to the intended page.
+        if (await window.AutoDAuth.isLoggedIn()) {
+            location.href = redirect;
+            return;
+        }
+
         var form = document.getElementById('loginForm');
         var errorMsg = document.getElementById('errorMsg');
+        var submitBtn = document.getElementById('submitBtn');
 
-        form.addEventListener('submit', function (e) {
+        form.addEventListener('submit', async function (e) {
             e.preventDefault();
+            errorMsg.classList.remove('show');
+
             var email = document.getElementById('email').value.trim();
             var password = document.getElementById('password').value;
 
-            var result = window.AutoDAuth.logIn(email, password);
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Logging in…';
+
+            var result = await window.AutoDAuth.logIn(email, password);
+
             if (result.ok) {
                 location.href = redirect;
-            } else {
-                errorMsg.textContent = result.error;
-                errorMsg.classList.add('show');
+                return;
             }
+
+            errorMsg.textContent = result.error;
+            errorMsg.classList.add('show');
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Log In';
         });
     })();
 </script>
