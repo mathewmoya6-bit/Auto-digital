@@ -46,6 +46,25 @@
         .badge-ai { background: linear-gradient(135deg, #eab308, #ca8a04); color: #0a0c15; font-size: 10px; font-weight: 700; padding: 2px 14px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
         .subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
         
+        /* ─── DEBUG BOX ───────────────────────────────────────────── */
+        .debug-box {
+            background: #1a1a2e;
+            border: 1px solid #eab308;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #94a3b8;
+            max-height: 300px;
+            overflow: auto;
+            display: none;
+        }
+        .debug-box.show { display: block; }
+        .debug-box .error { color: #ef4444; }
+        .debug-box .success { color: #22c55e; }
+        .debug-box .info { color: #eab308; }
+        
         .auth-section {
             background: #1e293b;
             border-radius: 12px;
@@ -262,6 +281,11 @@
         <span class="badge-ai">🤖 AI Powered</span>
     </div>
     <p class="subtitle">AI-powered market estimate for Cars, Bikes, and Tricycles in Kenya</p>
+
+    <!-- ─── DEBUG BOX ────────────────────────────────────────────── -->
+    <div class="debug-box" id="debugBox">
+        <div id="debugContent"></div>
+    </div>
 
     <!-- ─── AUTH SECTION ──────────────────────────────────────────── -->
     <div class="auth-section">
@@ -662,6 +686,7 @@
         let capturedPhotos = {};
         let currentUser = null;
         let supabaseClient = null;
+        let debugMessages = [];
 
         // ─── DOM REFS ──────────────────────────────────────────────
         const vehicleTypeSelect = document.getElementById('vehicleType');
@@ -681,6 +706,22 @@
         const previewIcon = document.getElementById('previewIcon');
         const previewTitle = document.getElementById('previewTitle');
         const previewSubtitle = document.getElementById('previewSubtitle');
+        const debugBox = document.getElementById('debugBox');
+        const debugContent = document.getElementById('debugContent');
+
+        // ─── DEBUG ──────────────────────────────────────────────────
+        function debugLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = `[${timestamp}] ${message}`;
+            debugMessages.push(entry);
+            
+            const cls = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            debugContent.innerHTML += `<div class="${cls}">${entry}</div>`;
+            debugBox.classList.add('show');
+            debugBox.scrollTop = debugBox.scrollHeight;
+            
+            console.log(`[${type.toUpperCase()}]`, message);
+        }
 
         // ─── TOAST ──────────────────────────────────────────────────
         function showToast(message, type = 'info') {
@@ -719,8 +760,9 @@
                         updateAuthUI();
                     }
                 });
+                debugLog('Supabase initialized', 'success');
             } catch (e) {
-                console.warn('Supabase init error:', e);
+                debugLog('Supabase init error: ' + e.message, 'error');
             }
         }
 
@@ -996,10 +1038,9 @@
 
         // ─── CALL FLASK BACKEND ────────────────────────────────────
         async function callValuationAPI(formData) {
-            // ─── CORRECT: Flask endpoint ──────────────────────────
             const url = `${API_BASE}/valuation`;
 
-            // ─── CORRECT: Flask payload format ────────────────────
+            // Build payload matching Flask ValuationService.calculate()
             const payload = {
                 purchase_price: formData.purchase_price || 5000000,
                 age_years: formData.age_years || 0,
@@ -1014,8 +1055,8 @@
                 usage_type: formData.usage_type || 'Personal'
             };
 
-            console.log('📤 Sending to Flask backend:', url);
-            console.log('📦 Payload:', JSON.stringify(payload, null, 2));
+            debugLog('📤 Sending request to: ' + url, 'info');
+            debugLog('📦 Payload: ' + JSON.stringify(payload, null, 2), 'info');
 
             const response = await fetch(url, {
                 method: 'POST',
@@ -1026,35 +1067,58 @@
                 body: JSON.stringify(payload)
             });
 
-            console.log('📥 Response status:', response.status);
+            debugLog('📥 Response status: ' + response.status, response.ok ? 'success' : 'error');
 
             if (!response.ok) {
                 let errorDetail = `Valuation failed (${response.status})`;
                 try {
                     const errorData = await response.json();
-                    console.error('Error response:', errorData);
+                    debugLog('❌ Error response: ' + JSON.stringify(errorData, null, 2), 'error');
                     errorDetail = errorData.message || errorData.error || errorData.detail || errorDetail;
                 } catch (e) {
                     try {
                         const text = await response.text();
-                        console.error('Error response text:', text);
+                        debugLog('❌ Error text: ' + text, 'error');
                         if (text) errorDetail = text.substring(0, 200);
                     } catch (e2) {}
                 }
                 throw new Error(errorDetail);
             }
 
-            return await response.json();
+            const result = await response.json();
+            debugLog('✅ Response: ' + JSON.stringify(result, null, 2), 'success');
+            return result;
         }
 
         // ─── SHOW RESULT ────────────────────────────────────────────
         function showResult(result) {
-            // Flask returns { success: true, data: { ... } }
-            const data = result.data || result;
+            debugLog('📊 Processing result...', 'info');
             
-            console.log('📊 Valuation result:', data);
+            // Flask returns { success: true, data: { ... } }
+            // But sometimes the data might be nested differently
+            let data = result.data || result;
+            
+            // Try to find the value in various possible locations
+            let currentValue = 0;
+            if (data.current_value) currentValue = data.current_value;
+            else if (data.market_value) currentValue = data.market_value;
+            else if (data.estimated_value) currentValue = data.estimated_value;
+            else if (data.value) currentValue = data.value;
+            
+            // If still 0, try to find it in a nested object
+            if (currentValue === 0 && data.valuation) {
+                currentValue = data.valuation.current_value || data.valuation.market_value || 0;
+                if (currentValue > 0) data = data.valuation;
+            }
+            
+            // If we still don't have a value, check if there's a calculation result
+            if (currentValue === 0 && data.calculation) {
+                currentValue = data.calculation.final_value || data.calculation.market_value || 0;
+                if (currentValue > 0) data = data.calculation;
+            }
 
-            const currentValue = data.current_value || data.market_value || 0;
+            debugLog('💰 Extracted current value: ' + currentValue, currentValue > 0 ? 'success' : 'error');
+
             const rangeMin = data.valuation_range?.min || Math.round(currentValue * 0.85);
             const rangeMax = data.valuation_range?.max || Math.round(currentValue * 1.15);
             const confidence = data.confidence_score || 75;
@@ -1065,12 +1129,16 @@
             el.textContent = 'KES 0';
             let current = 0;
             const target = currentValue;
-            const step = Math.max(1, Math.floor(target / 50));
-            const interval = setInterval(() => {
-                current += step;
-                if (current >= target) { current = target; clearInterval(interval); }
-                el.textContent = `KES ${Math.round(current).toLocaleString()}`;
-            }, 30);
+            if (target > 0) {
+                const step = Math.max(1, Math.floor(target / 50));
+                const interval = setInterval(() => {
+                    current += step;
+                    if (current >= target) { current = target; clearInterval(interval); }
+                    el.textContent = `KES ${Math.round(current).toLocaleString()}`;
+                }, 30);
+            } else {
+                el.textContent = 'KES 0';
+            }
 
             document.getElementById('resultRange').textContent = `KES ${Math.round(rangeMin).toLocaleString()} - ${Math.round(rangeMax).toLocaleString()}`;
             document.getElementById('resultVehicle').textContent = `${makeSelect.value} ${modelSelect.value}`;
@@ -1086,7 +1154,7 @@
             // Confidence
             const confidenceFill = document.getElementById('confidenceFill');
             confidenceFill.style.width = '0%';
-            setTimeout(() => { confidenceFill.style.width = `${confidence}%`; }, 300);
+            setTimeout(() => { confidenceFill.style.width = `${Math.min(confidence, 98)}%`; }, 300);
             document.getElementById('confidenceLabel').textContent = `${Math.round(confidence)}%`;
 
             // Recommendations
@@ -1099,7 +1167,7 @@
             }
 
             // Adjustments
-            const adjustments = data.market_adjustments || {};
+            const adjustments = data.market_adjustments || data.adjustments || {};
             const adjList = document.getElementById('adjustmentsList');
             adjList.innerHTML = '';
             const adjLabels = {
@@ -1116,7 +1184,7 @@
             };
             let hasAdjustments = false;
             for (const [key, value] of Object.entries(adjustments)) {
-                if (value !== 1.0 && adjLabels[key]) {
+                if (value !== 1.0 && value !== 0 && adjLabels[key]) {
                     hasAdjustments = true;
                     const percent = Math.round((value - 1.0) * 100);
                     const sign = percent > 0 ? '+' : '';
@@ -1135,8 +1203,13 @@
 
             resultBox.classList.add('show');
             resultBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            fireConfetti();
-            showToast('✅ Valuation complete!', 'success');
+            
+            if (currentValue > 0) {
+                fireConfetti();
+                showToast('✅ Valuation complete!', 'success');
+            } else {
+                showToast('⚠️ Valuation completed but no value was returned. Please check your inputs.', 'warning');
+            }
         }
 
         // ─── SAVE DRAFT ─────────────────────────────────────────────
@@ -1344,6 +1417,7 @@
 
             } catch (err) {
                 if (stepInterval) clearInterval(stepInterval);
+                debugLog('❌ Valuation error: ' + err.message, 'error');
                 console.error('Valuation error:', err);
                 loadingSteps.classList.remove('show');
                 statusBox.className = 'status-box status-error';
@@ -1356,6 +1430,8 @@
 
         // ─── INIT ──────────────────────────────────────────────────
         async function init() {
+            debugLog('🚗 Auto-D Kenya Instant Value Check loading...', 'info');
+            
             initSupabase();
 
             currentVehicleType = vehicleTypeSelect.value;
@@ -1369,8 +1445,7 @@
             document.getElementById('year').max = new Date().getFullYear();
             updateProgress();
 
-            console.log('🚗 Auto-D Kenya Instant Value Check loaded');
-            console.log(`📡 Flask Endpoint: ${API_BASE}/valuation`);
+            debugLog(`📡 Flask Endpoint: ${API_BASE}/valuation`, 'info');
             
             // Test API connection
             try {
@@ -1378,12 +1453,12 @@
                     method: 'OPTIONS'
                 });
                 if (testRes.ok) {
-                    console.log('✅ Backend API reachable');
+                    debugLog('✅ Backend API reachable', 'success');
                 } else {
-                    console.warn('⚠️ Backend API returned:', testRes.status);
+                    debugLog('⚠️ Backend API returned: ' + testRes.status, 'error');
                 }
             } catch (e) {
-                console.warn('⚠️ Could not reach backend API:', e.message);
+                debugLog('⚠️ Could not reach backend API: ' + e.message, 'error');
             }
         }
 
