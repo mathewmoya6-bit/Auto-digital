@@ -1119,19 +1119,19 @@
 <script>
     // ═══════════════════════════════════════════════════════════════
     // Auto-D Kenya - Instant Value Check
-    // Integrated with Supabase Auth + FastAPI Backend
+    // Supabase Auth + Flask Backend API
     // ═══════════════════════════════════════════════════════════════
 
     (function() {
         'use strict';
 
         // ─── CONFIG ──────────────────────────────────────────────────
-        // Supabase config - Replace with your own credentials
-        const SUPABASE_URL = 'https://your-project.supabase.co';
-        const SUPABASE_ANON_KEY = 'your-supabase-anon-key';
+        // Supabase config
+        const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-        // FastAPI backend endpoint
-        const API_BASE = 'https://your-fastapi-backend.onrender.com/api';
+        // Flask Backend API
+        const API_BASE = 'https://auto-d-kenya-backend.onrender.com/api';
         const VALUATION_ENDPOINT = '/service/valuation';
 
         // ─── PHOTO REQUIREMENTS ────────────────────────────────────
@@ -1244,6 +1244,7 @@
         let facingMode = 'environment';
         let isCameraOpen = false;
         let currentUser = null;
+        let supabaseClient = null;
 
         // ─── DOM ELEMENTS ──────────────────────────────────────────
         const vehicleTypeSelect = document.getElementById('vehicleType');
@@ -1264,56 +1265,60 @@
         const previewTitle = document.getElementById('previewTitle');
         const previewSubtitle = document.getElementById('previewSubtitle');
 
-        // ─── SUPABASE CLIENT ────────────────────────────────────────
-        let supabase = null;
-        let supabaseInitialized = false;
-
+        // ─── SUPABASE INIT ──────────────────────────────────────────
         function initSupabase() {
-            if (typeof supabase === 'undefined' && typeof window.supabase !== 'undefined') {
-                supabase = window.supabase;
-            }
-            
-            if (typeof supabase === 'undefined') {
-                try {
-                    const { createClient } = window.supabase;
-                    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                } catch (e) {
-                    console.warn('Supabase SDK not loaded:', e);
-                    return false;
-                }
-            }
-            
-            if (supabase && !supabaseInitialized) {
-                supabaseInitialized = true;
-                // Check session on load
-                checkSession();
+            try {
+                const { createClient } = window.supabase;
+                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                    auth: {
+                        autoRefreshToken: true,
+                        persistSession: true,
+                        detectSessionInUrl: true
+                    }
+                });
+                console.log('✅ Supabase client initialized');
+                
+                // Listen for auth changes
+                supabaseClient.auth.onAuthStateChange((event, session) => {
+                    if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+                        currentUser = session?.user || null;
+                        updateAuthUI();
+                        showToast(`Welcome ${currentUser?.email || 'User'}!`, 'success');
+                    } else if (event === 'SIGNED_OUT') {
+                        currentUser = null;
+                        updateAuthUI();
+                        showToast('Signed out successfully', 'info');
+                    }
+                });
+                
+                // Check existing session
+                supabaseClient.auth.getSession().then(({ data, error }) => {
+                    if (error) {
+                        console.warn('Session check error:', error);
+                        return;
+                    }
+                    if (data?.session) {
+                        currentUser = data.session.user;
+                        updateAuthUI();
+                    }
+                });
+                
                 return true;
+            } catch (e) {
+                console.error('Supabase init error:', e);
+                showToast('Auth service unavailable. Please refresh.', 'error');
+                return false;
             }
-            return false;
         }
 
         // ─── AUTH FUNCTIONS ────────────────────────────────────────
-        async function checkSession() {
-            if (!supabase) return;
-            try {
-                const { data: { session }, error } = await supabase.auth.getSession();
-                if (error) throw error;
-                if (session) {
-                    currentUser = session.user;
-                    updateAuthUI();
-                }
-            } catch (e) {
-                console.warn('Session check failed:', e);
-            }
-        }
-
         async function signIn() {
-            if (!supabase) {
+            if (!supabaseClient) {
                 showToast('Auth service not available', 'error');
                 return;
             }
             try {
-                const { data, error } = await supabase.auth.signInWithOAuth({
+                const { data, error } = await supabaseClient.auth.signInWithOAuth({
                     provider: 'google',
                     options: {
                         redirectTo: window.location.origin + window.location.pathname
@@ -1322,17 +1327,17 @@
                 if (error) throw error;
             } catch (e) {
                 showToast('Sign in failed: ' + e.message, 'error');
+                console.error(e);
             }
         }
 
         async function signOut() {
-            if (!supabase) return;
+            if (!supabaseClient) return;
             try {
-                const { error } = await supabase.auth.signOut();
+                const { error } = await supabaseClient.auth.signOut();
                 if (error) throw error;
                 currentUser = null;
                 updateAuthUI();
-                showToast('Signed out successfully', 'info');
             } catch (e) {
                 showToast('Sign out failed: ' + e.message, 'error');
             }
@@ -1344,8 +1349,9 @@
             const authBtn = document.getElementById('authBtn');
 
             if (currentUser) {
-                userName.textContent = currentUser.email || currentUser.user_metadata?.full_name || 'User';
-                userAvatar.textContent = (currentUser.user_metadata?.full_name || 'U')[0].toUpperCase();
+                const name = currentUser.user_metadata?.full_name || currentUser.email || 'User';
+                userName.textContent = name;
+                userAvatar.textContent = name.charAt(0).toUpperCase();
                 authBtn.textContent = 'Sign Out';
                 authBtn.className = 'auth-btn logout';
                 authBtn.onclick = signOut;
@@ -1809,11 +1815,11 @@
             });
         }
 
-        // ─── CALL FASTAPI BACKEND ──────────────────────────────────
+        // ─── CALL FLASK BACKEND ────────────────────────────────────
         async function callValuationAPI(formData) {
             const url = `${API_BASE}${VALUATION_ENDPOINT}`;
 
-            // Build payload matching FastAPI ValuationService expectations
+            // Build payload matching Flask ValuationService expectations
             const condition = formData.condition || 'Good';
             const depreciationRates = {
                 'Excellent': 0.08,
@@ -1873,6 +1879,8 @@
         // ─── SHOW RESULT ──────────────────────────────────────────
         function showResult(result) {
             let data = (result && typeof result === 'object') ? result : {};
+            
+            // Unwrap nested data
             for (let i = 0; i < 3; i++) {
                 const hasValue = ('current_value' in data) || ('market_value' in data) || ('estimated_value' in data);
                 if (hasValue) break;
