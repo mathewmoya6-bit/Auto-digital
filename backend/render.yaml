@@ -1,4 +1,4 @@
-# render.yaml - Auto-D Kenya Backend Deployment
+# render.yaml - Auto-D Kenya Backend Deployment (FastAPI + Supabase)
 
 services:
   - type: web
@@ -6,38 +6,262 @@ services:
     runtime: python
     plan: free  # Change to "starter" or "pro" for production
     region: frankfurt  # Choose closest to your users
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers=4 --threads=2 --bind=0.0.0.0:$PORT
+    
+    # ─── BUILD COMMAND ────────────────────────────────────────────────
+    buildCommand: |
+      cd backend
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    
+    # ─── START COMMAND ────────────────────────────────────────────────
+    startCommand: |
+      cd backend
+      uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    
+    # ─── ENVIRONMENT VARIABLES ────────────────────────────────────────
     envVars:
+      # Python Environment
       - key: PYTHON_VERSION
         value: 3.11.0
-      - key: FLASK_APP
-        value: app.py
-      - key: FLASK_ENV
+      
+      # FastAPI Configuration
+      - key: ENVIRONMENT
         value: production
+      
+      - key: DEBUG
+        value: false
+      
       - key: PORT
         value: 10000
-      - key: ALLOWED_ORIGINS
-        value: https://auto-d.meipressgroup.com,https://auto-d.meipressgroup.com
-      - key: FLASK_SECRET_KEY
-        generateValue: true
+      
+      - key: PROJECT_NAME
+        value: Auto-D Kenya API
+      
+      - key: API_V1_PREFIX
+        value: /api/v1
+      
+      # ─── SUPABASE CONFIGURATION ────────────────────────────────────
+      - key: SUPABASE_URL
+        value: https://xgkdbithhlvoqjnqvfmj.supabase.co
+      
+      - key: SUPABASE_KEY
+        sync: false  # Set manually in Render dashboard for security
+      
+      # ─── JWT AUTHENTICATION ────────────────────────────────────────
+      - key: JWT_SECRET
+        generateValue: true  # Render will generate a secure random string
+      
+      - key: JWT_ALGORITHM
+        value: HS256
+      
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 1440  # 24 hours
+      
+      # ─── CORS CONFIGURATION ────────────────────────────────────────
+      - key: BACKEND_CORS_ORIGINS
+        value: '["https://auto-d.meipressgroup.com", "https://auto-d-kenya-backend.onrender.com", "http://localhost:3000", "http://localhost:5173"]'
+      
+      # ─── DATABASE ────────────────────────────────────────────────────
+      - key: DATABASE_URL
+        sync: false  # Set manually if using direct PostgreSQL connection
+      
+      - key: DATABASE_POOL_SIZE
+        value: 10
+      
+      - key: DATABASE_MAX_OVERFLOW
+        value: 20
+      
+      # ─── RATE LIMITING ──────────────────────────────────────────────
+      - key: RATE_LIMIT_ENABLED
+        value: true
+      
+      - key: RATE_LIMIT_PER_MINUTE
+        value: 60
+      
+      - key: RATE_LIMIT_PER_HOUR
+        value: 1000
+      
+      # ─── FEATURE FLAGS ──────────────────────────────────────────────
+      - key: ENABLE_MPESA
+        value: true
+      
+      - key: ENABLE_ANALYTICS
+        value: false
+      
+      - key: ENABLE_EMAIL_NOTIFICATIONS
+        value: false
+      
+      - key: ENABLE_CACHING
+        value: false
+      
+      - key: ENABLE_DOCS
+        value: false  # Disable Swagger docs in production
+      
+      # ─── SAFARICOM DARAJA API (M-PESA) ─────────────────────────────
       - key: MPESA_CONSUMER_KEY
         sync: false  # Set manually in Render dashboard
+      
       - key: MPESA_CONSUMER_SECRET
         sync: false
+      
       - key: MPESA_PASSKEY
         sync: false
+      
       - key: MPESA_SHORTCODE
         sync: false
+      
       - key: MPESA_ENVIRONMENT
         value: production
+      
       - key: MPESA_CALLBACK_URL
-        value: https://auto-d-kenya-backend.onrender.com/api/mpesa/callback
+        value: https://auto-d-kenya-backend.onrender.com/api/v1/mpesa/callback
+      
+      - key: MPESA_RESULT_URL
+        value: https://auto-d-kenya-backend.onrender.com/api/v1/mpesa/result
+      
+      - key: MPESA_TIMEOUT_URL
+        value: https://auto-d-kenya-backend.onrender.com/api/v1/mpesa/timeout
+      
+      # ─── LOGGING ─────────────────────────────────────────────────────
       - key: LOG_LEVEL
         value: INFO
+      
+      - key: LOG_FILE
+        value: auto-d.log
+      
+      - key: LOG_MAX_BYTES
+        value: 10485760  # 10MB
+      
+      - key: LOG_BACKUP_COUNT
+        value: 5
+      
+      - key: LOG_FORMAT
+        value: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+      
+      # ─── PERFORMANCE TUNING ─────────────────────────────────────────
+      - key: WORKERS
+        value: 4
+      
+      - key: THREADS
+        value: 2
+      
+      - key: TIMEOUT
+        value: 120
+      
+      - key: KEEPALIVE
+        value: 5
+      
+      - key: MAX_REQUESTS
+        value: 1000
+      
+      - key: MAX_REQUESTS_JITTER
+        value: 100
+      
+      # ─── MAINTENANCE MODE ──────────────────────────────────────────
+      - key: MAINTENANCE_MODE
+        value: false
+      
+      - key: MAINTENANCE_MESSAGE
+        value: Auto-D Kenya is undergoing scheduled maintenance. We'll be back soon!
+      
+      # ─── EMAIL CONFIGURATION ────────────────────────────────────────
+      - key: SMTP_HOST
+        sync: false
+      
+      - key: SMTP_PORT
+        sync: false
+      
+      - key: SMTP_USER
+        sync: false
+      
+      - key: SMTP_PASSWORD
+        sync: false
+      
+      - key: SMTP_USE_TLS
+        value: true
+      
+      # ─── SECURITY ────────────────────────────────────────────────────
+      - key: SESSION_COOKIE_SECURE
+        value: true
+      
+      - key: SESSION_COOKIE_HTTPONLY
+        value: true
+      
+      - key: SESSION_COOKIE_SAMESITE
+        value: Lax
+      
+      - key: PASSWORD_RESET_EXPIRATION_HOURS
+        value: 1
+      
+      - key: VERIFICATION_TOKEN_EXPIRATION_HOURS
+        value: 24
+      
+      - key: MAX_LOGIN_ATTEMPTS
+        value: 5
+      
+      - key: LOGIN_LOCKOUT_MINUTES
+        value: 30
+      
+      # ─── REDIS (optional) ───────────────────────────────────────────
+      - key: REDIS_ENABLED
+        value: false
+      
+      - key: REDIS_URL
+        sync: false
+      
+      # ─── SENTRY (optional) ──────────────────────────────────────────
+      - key: SENTRY_DSN
+        sync: false
+      
+      - key: SENTRY_ENVIRONMENT
+        value: production
+      
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: 0.1
+      
+      # ─── HEALTH CHECK ───────────────────────────────────────────────
+      - key: HEALTH_CHECK_PATH
+        value: /health
+      
+      - key: READINESS_CHECK_PATH
+        value: /ready
+      
+      - key: LIVENESS_CHECK_PATH
+        value: /live
+      
+      # ─── METRICS ────────────────────────────────────────────────────
+      - key: METRICS_ENABLED
+        value: true
+      
+      - key: METRICS_PATH
+        value: /metrics
 
-  # Optional: Add a PostgreSQL database if needed
+  # ─── OPTIONAL: BACKGROUND WORKER (Celery) ────────────────────────
+  # Uncomment if you need background tasks
+  # - type: worker
+  #   name: auto-d-worker
+  #   runtime: python
+  #   plan: free
+  #   region: frankfurt
+  #   buildCommand: |
+  #     cd backend
+  #     pip install -r requirements.txt
+  #   startCommand: |
+  #     cd backend
+  #     celery -A app.tasks.celery worker --loglevel=info
+  #   envVars:
+  #     - key: REDIS_URL
+  #       sync: false
+  #     - key: SUPABASE_URL
+  #       value: https://xgkdbithhlvoqjnqvfmj.supabase.co
+  #     - key: SUPABASE_KEY
+  #       sync: false
+
+  # ─── OPTIONAL: POSTGRESQL DATABASE ──────────────────────────────
+  # Uncomment if you need a PostgreSQL database (not needed with Supabase)
   # - type: pgsql
   #   name: auto-d-db
   #   plan: free
   #   region: frankfurt
+  #   databaseName: autod
+  #   user: autod_user
