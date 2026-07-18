@@ -10,20 +10,20 @@
     <meta name="keywords" content="car valuation Kenya, vehicle value Kenya, car ownership cost, mileage calculator Kenya, Auto-D" />
     <meta name="author" content="Auto-D Kenya" />
     <meta name="robots" content="index, follow" />
-    <link rel="canonical" href="https://auto-d.onrender.com/" />
+    <link rel="canonical" href="https://auto-digital.onrender.com/" />
 
     <!-- Open Graph / social sharing -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Auto-D Kenya" />
     <meta property="og:title" content="Auto-D Kenya | AI Vehicle Valuation & Ownership Cost Platform" />
     <meta property="og:description" content="Instant AI-driven vehicle valuations, mileage cost estimates, and ownership cost analysis, built for the Kenyan market." />
-    <meta property="og:url" content="https://auto-d.onrender.com/" />
-    <meta property="og:image" content="https://auto-d.onrender.com/assets/og-image.jpg" />
+    <meta property="og:url" content="https://auto-digital.onrender.com/" />
+    <meta property="og:image" content="https://auto-digital.onrender.com/assets/og-image.jpg" />
     <meta property="og:locale" content="en_KE" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Auto-D Kenya | AI Vehicle Valuation Platform" />
     <meta name="twitter:description" content="Instant AI-driven vehicle valuations, mileage cost estimates, and ownership cost analysis for Kenya." />
-    <meta name="twitter:image" content="https://auto-d.onrender.com/assets/og-image.jpg" />
+    <meta name="twitter:image" content="https://auto-digital.onrender.com/assets/og-image.jpg" />
 
     <!-- PWA / Web App Manifest -->
     <link rel="manifest" href="data:application/json,{
@@ -61,6 +61,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
           integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
           crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    <!-- ─── Supabase SDK ────────────────────────────────────────── -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
         * {
@@ -218,6 +221,15 @@
             transform: translateY(-2px);
             box-shadow: 0 8px 30px rgba(234, 179, 8, 0.3);
             color: #0a0c15;
+        }
+
+        .nav-links .btn-nav.logout {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: #fff;
+        }
+
+        .nav-links .btn-nav.logout:hover {
+            box-shadow: 0 8px 30px rgba(239, 68, 68, 0.3);
         }
 
         .mobile-toggle {
@@ -504,6 +516,19 @@
             line-height: 1.6;
         }
 
+        .feature-card .feature-link {
+            color: #eab308;
+            text-decoration: none;
+            font-weight: 600;
+            display: inline-block;
+            margin-top: 12px;
+            transition: color 0.2s;
+        }
+
+        .feature-card .feature-link:hover {
+            color: #facc15;
+        }
+
         .cta-section {
             position: relative;
             z-index: 1;
@@ -659,8 +684,8 @@
             transition: opacity 0.3s;
         }
 
-        .toast.success { background: #22c55e; }
-        .toast.error { background: #ef4444; }
+        .toast.success { background: #22c55e; color: #0a0c15; }
+        .toast.error { background: #ef4444; color: #fff; }
         .toast.warning { background: #eab308; color: #0a0c15; }
 
         .status-badge {
@@ -759,8 +784,7 @@
         <li><a href="/instant-value.html">Instant Value</a></li>
         <li><a href="/mileage.html">Mileage Cost</a></li>
         <li><a href="/ownership-cost.html">Ownership Cost</a></li>
-        <li><a href="/login.html" class="btn-nav" id="loginBtn">Log In</a></li>
-        <li><a href="/signup.html" id="signupBtn">Get Started</a></li>
+        <li><a href="#" class="btn-nav" id="authBtn">Log In</a></li>
     </ul>
 </nav>
 
@@ -838,21 +862,21 @@
                 <div class="icon" aria-hidden="true">📊</div>
                 <h3>Instant Valuation</h3>
                 <p>Get AI-powered market value estimates for any car, motorcycle, or tricycle in Kenya.</p>
-                <a href="/instant-value.html" style="color: #eab308; text-decoration: none; font-weight: 600; display: inline-block; margin-top: 12px;">Try Now →</a>
+                <a href="/instant-value.html" class="feature-link">Try Now →</a>
             </div>
 
             <div class="feature-card">
                 <div class="icon" aria-hidden="true">⛽</div>
                 <h3>Mileage Cost Calculator</h3>
                 <p>Calculate your total cost per kilometer including fuel, maintenance, insurance, and depreciation.</p>
-                <a href="/mileage.html" style="color: #eab308; text-decoration: none; font-weight: 600; display: inline-block; margin-top: 12px;">Try Now →</a>
+                <a href="/mileage.html" class="feature-link">Try Now →</a>
             </div>
 
             <div class="feature-card">
                 <div class="icon" aria-hidden="true">💰</div>
                 <h3>Ownership Cost Analysis</h3>
                 <p>Understand the true cost of owning a vehicle over time including purchase, fuel, maintenance, and resale.</p>
-                <a href="/ownership-cost.html" style="color: #eab308; text-decoration: none; font-weight: 600; display: inline-block; margin-top: 12px;">Try Now →</a>
+                <a href="/ownership-cost.html" class="feature-link">Try Now →</a>
             </div>
 
             <div class="feature-card">
@@ -911,26 +935,110 @@
     <button class="close-banner" id="pwaCloseBtn" aria-label="Close install prompt">&times;</button>
 </div>
 
+<!-- ─── MAIN SCRIPT ────────────────────────────────────────────── -->
 <script>
     (function() {
         'use strict';
 
-        // ─── CONFIGURATION ──────────────────────────────────────
-        const API_BASE_URL = 'https://auto-d.onrender.com/api/v1';
-        const API_VERSION = 'v4.0.0';
+        // ─── CONFIGURATION ──────────────────────────────────────────
+        // FastAPI Backend URL
+        const API_BASE_URL = 'https://auto-digital.onrender.com/api/v1';
+        
+        // Supabase Configuration
+        const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-        // ─── DOM REFS ──────────────────────────────────────────
+        const APP_VERSION = 'v4.0.0';
+
+        // ─── DOM REFS ──────────────────────────────────────────────────
         const mobileToggle = document.getElementById('mobileToggle');
         const navLinks = document.getElementById('navLinks');
         const apiStatus = document.getElementById('apiStatus');
         const apiStatusText = document.getElementById('apiStatusText');
         const apiVersionEl = document.getElementById('apiVersion');
         const yearEl = document.getElementById('year');
+        const authBtn = document.getElementById('authBtn');
         const samplePrice = document.getElementById('samplePrice');
         const statVehicles = document.getElementById('statVehicles');
         const statUsers = document.getElementById('statUsers');
 
-        // ─── API HEALTH CHECK ──────────────────────────────────
+        // ─── SUPABASE CLIENT ──────────────────────────────────────────
+        let supabaseClient = null;
+        let currentUser = null;
+
+        function initSupabase() {
+            try {
+                if (typeof supabase === 'undefined') {
+                    console.warn('⚠️ Supabase SDK not loaded');
+                    return null;
+                }
+                const { createClient } = supabase;
+                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('✅ Supabase client initialized');
+                return supabaseClient;
+            } catch (error) {
+                console.error('❌ Supabase init error:', error);
+                return null;
+            }
+        }
+
+        // ─── AUTH FUNCTIONS ────────────────────────────────────────────
+        async function getCurrentUser() {
+            try {
+                if (!supabaseClient) initSupabase();
+                if (!supabaseClient) return null;
+                const { data: { session }, error } = await supabaseClient.auth.getSession();
+                if (error) throw error;
+                if (session?.user) {
+                    currentUser = session.user;
+                    localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                    return currentUser;
+                }
+                const stored = localStorage.getItem('auto_d_user');
+                if (stored) {
+                    try {
+                        currentUser = JSON.parse(stored);
+                        return currentUser;
+                    } catch (e) {}
+                }
+                return null;
+            } catch (error) {
+                console.warn('⚠️ Get current user error:', error.message);
+                return null;
+            }
+        }
+
+        async function signOut() {
+            try {
+                if (!supabaseClient) initSupabase();
+                if (supabaseClient) {
+                    await supabaseClient.auth.signOut();
+                }
+                currentUser = null;
+                localStorage.removeItem('auto_d_user');
+                updateAuthUI();
+                showToast('👋 Logged out successfully', 'success');
+                return { success: true };
+            } catch (error) {
+                console.error('❌ Sign out error:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        function updateAuthUI() {
+            if (!authBtn) return;
+            if (currentUser) {
+                authBtn.textContent = '👤 Dashboard';
+                authBtn.href = '/dashboard.html';
+                authBtn.className = 'btn-nav';
+            } else {
+                authBtn.textContent = 'Log In';
+                authBtn.href = '/login.html';
+                authBtn.className = 'btn-nav';
+            }
+        }
+
+        // ─── API CALLS ──────────────────────────────────────────────────
         async function checkApiHealth() {
             try {
                 const response = await fetch(`${API_BASE_URL}/health`, {
@@ -966,39 +1074,47 @@
             if (apiVersionEl && data?.version) {
                 apiVersionEl.textContent = data.version;
             } else if (apiVersionEl) {
-                apiVersionEl.textContent = API_VERSION;
+                apiVersionEl.textContent = APP_VERSION;
             }
         }
 
-        // ─── FETCH SAMPLE VALUATION ────────────────────────────
         async function fetchSampleValuation() {
             try {
                 // Try to get a sample valuation from the API
-                const response = await fetch(`${API_BASE_URL}/vehicles/makes`, {
+                const response = await fetch(`${API_BASE_URL}/valuation/makes`, {
                     method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+                    }
                 });
 
                 if (response.ok) {
                     const makes = await response.json();
                     if (makes && makes.length > 0) {
-                        // Update stats with real data
-                        const statsResponse = await fetch(`${API_BASE_URL}/admin/dashboard`, {
-                            method: 'GET',
-                            headers: { 'Content-Type': 'application/json' }
-                        });
-
-                        if (statsResponse.ok) {
-                            const stats = await statsResponse.json();
-                            if (statVehicles && stats.total_vehicles) {
-                                statVehicles.textContent = stats.total_vehicles > 1000 
-                                    ? `${(stats.total_vehicles / 1000).toFixed(1)}K+` 
-                                    : `${stats.total_vehicles}+`;
+                        // Get a sample variant to show
+                        const modelsResponse = await fetch(`${API_BASE_URL}/valuation/models/${makes[0].id}`, {
+                            headers: {
+                                'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
                             }
-                            if (statUsers && stats.total_users) {
-                                statUsers.textContent = stats.total_users > 1000 
-                                    ? `${(stats.total_users / 1000).toFixed(1)}K` 
-                                    : `${stats.total_users}`;
+                        });
+                        if (modelsResponse.ok) {
+                            const models = await modelsResponse.json();
+                            if (models && models.length > 0) {
+                                const variantsResponse = await fetch(`${API_BASE_URL}/valuation/variants/${models[0].id}`, {
+                                    headers: {
+                                        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+                                    }
+                                });
+                                if (variantsResponse.ok) {
+                                    const variants = await variantsResponse.json();
+                                    if (variants && variants.length > 0) {
+                                        const variant = variants[0];
+                                        if (samplePrice && variant.market_value) {
+                                            samplePrice.textContent = `KES ${Number(variant.market_value).toLocaleString()}`;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1008,7 +1124,52 @@
             }
         }
 
-        // ─── MOBILE MENU ──────────────────────────────────────
+        async function fetchStats() {
+            try {
+                // Try to get admin dashboard stats
+                const response = await fetch(`${API_BASE_URL}/admin/dashboard`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
+                    }
+                });
+
+                if (response.ok) {
+                    const stats = await response.json();
+                    if (statVehicles && stats.total_vehicles) {
+                        statVehicles.textContent = stats.total_vehicles > 1000 
+                            ? `${(stats.total_vehicles / 1000).toFixed(1)}K+` 
+                            : `${stats.total_vehicles}+`;
+                    }
+                    if (statUsers && stats.total_users) {
+                        statUsers.textContent = stats.total_users > 1000 
+                            ? `${(stats.total_users / 1000).toFixed(1)}K` 
+                            : `${stats.total_users}`;
+                    }
+                }
+            } catch (error) {
+                console.debug('Stats fetch skipped:', error);
+            }
+        }
+
+        // ─── TOAST SYSTEM ──────────────────────────────────────────────
+        function showToast(message, type = 'info') {
+            const existing = document.querySelector('.toast');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(function() {
+                toast.style.opacity = '0';
+                setTimeout(function() { toast.remove(); }, 300);
+            }, 3000);
+        }
+
+        // ─── MOBILE MENU ──────────────────────────────────────────────
         if (mobileToggle && navLinks) {
             mobileToggle.addEventListener('click', function() {
                 const isOpen = navLinks.classList.toggle('open');
@@ -1024,7 +1185,7 @@
             });
         }
 
-        // ─── PARTICLES ────────────────────────────────────────
+        // ─── PARTICLES ──────────────────────────────────────────────────
         const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         const container = document.getElementById('particles');
 
@@ -1044,10 +1205,10 @@
             container.appendChild(fragment);
         }
 
-        // ─── DYNAMIC YEAR ──────────────────────────────────────
+        // ─── DYNAMIC YEAR ──────────────────────────────────────────────
         if (yearEl) yearEl.textContent = String(new Date().getFullYear());
 
-        // ─── PWA INSTALL ──────────────────────────────────────
+        // ─── PWA INSTALL ──────────────────────────────────────────────
         let deferredPrompt = null;
         const installBanner = document.getElementById('pwaInstallBanner');
         const installBtn = document.getElementById('pwaInstallBtn');
@@ -1089,58 +1250,39 @@
             });
         }
 
-        // ─── TOAST SYSTEM ──────────────────────────────────────
-        function showToast(message, type = 'info') {
-            const existing = document.querySelector('.toast');
-            if (existing) existing.remove();
-
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            toast.textContent = message;
-            document.body.appendChild(toast);
-
-            setTimeout(function() {
-                toast.style.opacity = '0';
-                setTimeout(function() { toast.remove(); }, 300);
-            }, 3000);
-        }
-
-        // ─── AUTH STATE ────────────────────────────────────────
-        function checkAuthState() {
-            const token = localStorage.getItem('access_token');
-            const loginBtn = document.getElementById('loginBtn');
-            const signupBtn = document.getElementById('signupBtn');
-
-            if (token && loginBtn && signupBtn) {
-                loginBtn.textContent = 'Dashboard';
-                loginBtn.href = '/dashboard.html';
-                signupBtn.textContent = 'Logout';
-                signupBtn.href = '#';
-                signupBtn.onclick = function(e) {
-                    e.preventDefault();
-                    localStorage.removeItem('access_token');
-                    localStorage.removeItem('user');
-                    window.location.href = '/';
-                };
-            }
-        }
-
-        // ─── INIT ──────────────────────────────────────────────
+        // ─── INIT ──────────────────────────────────────────────────────
         async function init() {
+            console.log(`🚗 Auto-D Kenya ${APP_VERSION} initialized`);
+            console.log(`🔗 API: ${API_BASE_URL}`);
+            console.log(`🔐 Supabase: ${SUPABASE_URL}`);
+
+            // Initialize Supabase
+            initSupabase();
+
+            // Get current user
+            await getCurrentUser();
+            updateAuthUI();
+
             // Check API health
             await checkApiHealth();
 
             // Fetch sample data
             await fetchSampleValuation();
-
-            // Check auth state
-            checkAuthState();
+            await fetchStats();
 
             // Auto-refresh health check every 60 seconds
             setInterval(checkApiHealth, 60000);
 
-            console.log(`🚗 Auto-D Kenya ${API_VERSION} initialized`);
-            console.log(`🔗 API: ${API_BASE_URL}`);
+            // Expose API for debugging
+            window.__AUTOD = {
+                API_BASE_URL,
+                APP_VERSION,
+                supabase: supabaseClient,
+                currentUser,
+                checkApiHealth,
+                signOut,
+                showToast
+            };
         }
 
         // Run on DOM ready
@@ -1150,15 +1292,8 @@
             init();
         }
 
-        // Expose API for debugging
-        window.__AUTOD = {
-            API_BASE_URL,
-            API_VERSION,
-            checkApiHealth,
-            showToast
-        };
-
     })();
 </script>
+
 </body>
 </html>
