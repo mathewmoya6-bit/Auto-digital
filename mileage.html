@@ -814,6 +814,20 @@
         }
         .disclaimer strong { color: var(--amber); }
 
+        /* ─── Engine CC display styling ─────────────────────────────── */
+        .engine-cc-display {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 9px;
+            background: var(--bg-primary);
+            color: var(--cyan);
+            padding: 3px 12px;
+            border-radius: 20px;
+            letter-spacing: 0.04em;
+            font-weight: 600;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
+
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
             .report-header { padding: 20px 18px; flex-direction: column; }
@@ -1088,6 +1102,7 @@
                         <span id="vehicleLabel">Select a vehicle to begin</span>
                         <span class="fuel-pill" id="fuelPill">—</span>
                         <span class="transmission-pill" id="transmissionPill">—</span>
+                        <span class="engine-cc-display" id="engineCCDisplay">—</span>
                     </div>
                     <div class="vehicle-specs" id="vehicleSpecs">
                         <!-- Dynamically populated -->
@@ -1223,16 +1238,12 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
-        // FIXED: Engine/Class population, variant-level fuel filtering,
-        // fuel-consumption reporting, health-check timeout/UI, price
-        // display, selection persistence, XSS escaping on route chips
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
 
             // ─── Configuration ──────────────────────────────────────────
-            // Configuration moved to a single object for easier maintenance
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
@@ -1261,6 +1272,7 @@
                 vehicleLabel: document.getElementById('vehicleLabel'),
                 fuelPill: document.getElementById('fuelPill'),
                 transmissionPill: document.getElementById('transmissionPill'),
+                engineCCDisplay: document.getElementById('engineCCDisplay'),
                 vehicleSpecs: document.getElementById('vehicleSpecs'),
                 tripTotal: document.getElementById('tripTotal'),
                 tripSub: document.getElementById('tripSub'),
@@ -1366,21 +1378,21 @@
                         isBackendAvailable = true;
                         elements.healthBanner.className = 'health-banner online';
                         elements.healthDot.className = 'status-dot online';
-                        elements.healthStatusText.textContent = '✅ Backend connected';
+                        elements.healthStatusText.textContent = '● Online';
                         if (data.version) elements.healthVersion.textContent = data.version;
                         console.log('✅ FastAPI Backend connected');
                     } else {
                         isBackendAvailable = false;
                         elements.healthBanner.className = 'health-banner offline';
                         elements.healthDot.className = 'status-dot offline';
-                        elements.healthStatusText.textContent = '⚠️ Backend offline - using local data';
+                        elements.healthStatusText.textContent = '● Offline';
                         console.warn('⚠️ Backend not reachable');
                     }
                 } catch (error) {
                     isBackendAvailable = false;
                     elements.healthBanner.className = 'health-banner offline';
                     elements.healthDot.className = 'status-dot offline';
-                    elements.healthStatusText.textContent = '⚠️ Backend unavailable';
+                    elements.healthStatusText.textContent = '● Offline';
                     console.warn('⚠️ Backend health check error:', error.message);
                 }
                 backendChecked = true;
@@ -1565,7 +1577,7 @@
                 variants: {
                     'fb-cat-car': [
                         { id: '11111111-1111-4111-8111-111111111101', label: 'Toyota Corolla 1.8L Petrol', fuel_type: 'Petrol', fuel_consumption: 12.5,
-                            transmission: 'Automatic',
+                            transmission: 'Automatic', engine_size_cc: 1800,
                             oil_interval: 10000, oil_cost: 6000,
                             minor_service_interval: 10000, minor_service_cost: 15000,
                             major_service_interval: 40000, major_service_cost: 45000,
@@ -1576,7 +1588,7 @@
                             battery_cost: 0, battery_life: 0,
                             make_name: 'Toyota', model_name: 'Corolla' },
                         { id: '11111111-1111-4111-8111-111111111102', label: 'BMW 3 Series 2.0L Petrol', fuel_type: 'Petrol', fuel_consumption: 10.0,
-                            transmission: 'Automatic',
+                            transmission: 'Automatic', engine_size_cc: 2000,
                             oil_interval: 10000, oil_cost: 7000,
                             minor_service_interval: 10000, minor_service_cost: 20000,
                             major_service_interval: 40000, major_service_cost: 60000,
@@ -1587,7 +1599,7 @@
                             battery_cost: 0, battery_life: 0,
                             make_name: 'BMW', model_name: '3 Series' },
                         { id: '11111111-1111-4111-8111-111111111103', label: 'Honda Civic 1.8L Petrol', fuel_type: 'Petrol', fuel_consumption: 14.0,
-                            transmission: 'CVT',
+                            transmission: 'CVT', engine_size_cc: 1800,
                             oil_interval: 12000, oil_cost: 5000,
                             minor_service_interval: 12000, minor_service_cost: 12000,
                             major_service_interval: 48000, major_service_cost: 35000,
@@ -1596,22 +1608,11 @@
                             initial_cost: 1200000, expected_resale: 500000,
                             years_remaining: 8, loan_amount: 0,
                             battery_cost: 0, battery_life: 0,
-                            make_name: 'Honda', model_name: 'Civic' },
-                        { id: '11111111-1111-4111-8111-111111111104', label: 'Mercedes C-Class 2.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 16.0,
-                            transmission: 'Automatic',
-                            oil_interval: 15000, oil_cost: 8000,
-                            minor_service_interval: 15000, minor_service_cost: 22000,
-                            major_service_interval: 60000, major_service_cost: 65000,
-                            tyre_cost: 130000, tyre_life: 48000,
-                            insurance_annual: 90000, tax_annual: 11000,
-                            initial_cost: 3000000, expected_resale: 1200000,
-                            years_remaining: 7, loan_amount: 0,
-                            battery_cost: 0, battery_life: 0,
-                            make_name: 'Mercedes', model_name: 'C-Class' }
+                            make_name: 'Honda', model_name: 'Civic' }
                     ],
                     'fb-cat-suv': [
                         { id: '22222222-2222-4222-8222-222222222201', label: 'Toyota RAV4 2.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 15.0,
-                            transmission: 'Automatic',
+                            transmission: 'Automatic', engine_size_cc: 2000,
                             oil_interval: 12000, oil_cost: 7000,
                             minor_service_interval: 12000, minor_service_cost: 18000,
                             major_service_interval: 48000, major_service_cost: 55000,
@@ -1622,7 +1623,7 @@
                             battery_cost: 0, battery_life: 0,
                             make_name: 'Toyota', model_name: 'RAV4' },
                         { id: '22222222-2222-4222-8222-222222222202', label: 'Land Cruiser Prado 2.8L Diesel', fuel_type: 'Diesel', fuel_consumption: 11.0,
-                            transmission: 'Automatic',
+                            transmission: 'Automatic', engine_size_cc: 2800,
                             oil_interval: 10000, oil_cost: 8000,
                             minor_service_interval: 10000, minor_service_cost: 20000,
                             major_service_interval: 40000, major_service_cost: 65000,
@@ -1631,22 +1632,11 @@
                             initial_cost: 5200000, expected_resale: 2000000,
                             years_remaining: 10, loan_amount: 0,
                             battery_cost: 0, battery_life: 0,
-                            make_name: 'Toyota', model_name: 'Land Cruiser Prado' },
-                        { id: '22222222-2222-4222-8222-222222222203', label: 'BMW X5 3.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 12.0,
-                            transmission: 'Automatic',
-                            oil_interval: 12000, oil_cost: 9000,
-                            minor_service_interval: 12000, minor_service_cost: 24000,
-                            major_service_interval: 48000, major_service_cost: 75000,
-                            tyre_cost: 150000, tyre_life: 45000,
-                            insurance_annual: 120000, tax_annual: 15000,
-                            initial_cost: 7500000, expected_resale: 3000000,
-                            years_remaining: 8, loan_amount: 0,
-                            battery_cost: 0, battery_life: 0,
-                            make_name: 'BMW', model_name: 'X5' }
+                            make_name: 'Toyota', model_name: 'Land Cruiser Prado' }
                     ],
                     'fb-cat-motorcycle': [
                         { id: '33333333-3333-4333-8333-333333333301', label: 'Honda CBR600RR', fuel_type: 'Petrol', fuel_consumption: 35.0,
-                            transmission: 'Manual',
+                            transmission: 'Manual', engine_size_cc: 600,
                             oil_interval: 5000, oil_cost: 1500,
                             minor_service_interval: 5000, minor_service_cost: 3000,
                             major_service_interval: 20000, major_service_cost: 8000,
@@ -1659,7 +1649,7 @@
                     ],
                     'fb-cat-pickup': [
                         { id: '44444444-4444-4444-8444-444444444401', label: 'Toyota Hilux 2.8L Diesel', fuel_type: 'Diesel', fuel_consumption: 12.0,
-                            transmission: 'Manual',
+                            transmission: 'Manual', engine_size_cc: 2800,
                             oil_interval: 10000, oil_cost: 6000,
                             minor_service_interval: 10000, minor_service_cost: 15000,
                             major_service_interval: 40000, major_service_cost: 55000,
@@ -1668,22 +1658,11 @@
                             initial_cost: 1600000, expected_resale: 650000,
                             years_remaining: 7, loan_amount: 0,
                             battery_cost: 0, battery_life: 0,
-                            make_name: 'Toyota', model_name: 'Hilux' },
-                        { id: '44444444-4444-4444-8444-444444444402', label: 'Isuzu D-Max 3.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 11.5,
-                            transmission: 'Manual',
-                            oil_interval: 10000, oil_cost: 6500,
-                            minor_service_interval: 10000, minor_service_cost: 14000,
-                            major_service_interval: 40000, major_service_cost: 50000,
-                            tyre_cost: 80000, tyre_life: 50000,
-                            insurance_annual: 50000, tax_annual: 7500,
-                            initial_cost: 1500000, expected_resale: 600000,
-                            years_remaining: 7, loan_amount: 0,
-                            battery_cost: 0, battery_life: 0,
-                            make_name: 'Isuzu', model_name: 'D-Max' }
+                            make_name: 'Toyota', model_name: 'Hilux' }
                     ],
                     'fb-cat-van': [
                         { id: '55555555-5555-4555-8555-555555555501', label: 'Toyota Hiace 3.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 10.0,
-                            transmission: 'Manual',
+                            transmission: 'Manual', engine_size_cc: 3000,
                             oil_interval: 10000, oil_cost: 7000,
                             minor_service_interval: 10000, minor_service_cost: 18000,
                             major_service_interval: 40000, major_service_cost: 60000,
@@ -1854,6 +1833,16 @@
                 elements.vehicleLabel.textContent = variant.label || 'Unnamed variant';
                 elements.fuelPill.textContent = result.fuelTypeDisplay || '—';
                 elements.transmissionPill.textContent = result.transmissionDisplay || variant.transmission || '—';
+                
+                // Display engine CC
+                const engineCC = variant.engine_size_cc || null;
+                if (engineCC) {
+                    elements.engineCCDisplay.textContent = `${engineCC}cc`;
+                    elements.engineCCDisplay.style.display = 'inline-block';
+                } else {
+                    elements.engineCCDisplay.textContent = '—';
+                    elements.engineCCDisplay.style.display = 'inline-block';
+                }
                 
                 const specItems = [
                     { label: '💰', value: `KES ${formatCurrency(result.initialCost)}` },
@@ -2206,7 +2195,10 @@
                 filteredVariants.forEach(v => {
                     const opt = document.createElement('option');
                     opt.value = v.id;
-                    const displayName = v.label || (v.make_name && v.model_name ? `${v.make_name} ${v.model_name}` : 'Unnamed variant');
+                    let displayName = v.label || (v.make_name && v.model_name ? `${v.make_name} ${v.model_name}` : 'Unnamed variant');
+                    if (v.engine_size_cc) {
+                        displayName += ` (${v.engine_size_cc}cc)`;
+                    }
                     opt.textContent = displayName;
                     elements.variantSelect.appendChild(opt);
                 });
