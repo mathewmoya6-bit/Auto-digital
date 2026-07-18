@@ -909,7 +909,10 @@
             // ─── CONFIG ──────────────────────────────────────────────────
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+            
+            // ✅ FIXED: Correct API endpoint - FastAPI health check is at /health (not /api/v1/health)
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+            const HEALTH_CHECK_URL = 'https://auto-digital.onrender.com/health';
 
             // ─── STATE ──────────────────────────────────────────────────
             let supabaseClient = null;
@@ -1039,7 +1042,16 @@
                         .select('role')
                         .eq('user_id', userId || currentUser?.id)
                         .single();
-                    if (error) return false;
+                    if (error) {
+                        // If admin_users table doesn't exist, check is_admin in profiles
+                        const { data: profile, error: profileError } = await client
+                            .from('profiles')
+                            .select('is_admin')
+                            .eq('user_id', userId || currentUser?.id)
+                            .single();
+                        if (profileError) return false;
+                        return profile?.is_admin === true;
+                    }
                     return !!data;
                 } catch (error) {
                     console.warn('⚠️ Admin check error:', error.message);
@@ -1225,7 +1237,7 @@
                         .from('mileage_reports')
                         .select('*', { count: 'exact', head: true });
                     const { count: users } = await client
-                        .from('user_profiles')
+                        .from('profiles')
                         .select('*', { count: 'exact', head: true });
                     const { data: logs } = await client
                         .from('admin_logs')
@@ -1267,14 +1279,14 @@
                         supabaseOk = false;
                     }
 
-                    // Check FastAPI
+                    // ✅ FIXED: Check FastAPI at the correct health endpoint
                     let fastapiOk = false;
                     let fastapiVersion = '—';
                     let fastapiPing = 0;
                     try {
                         const controller = new AbortController();
                         const timeoutId = setTimeout(() => controller.abort(), 3000);
-                        const response = await fetch(`${API_BASE}/health`, {
+                        const response = await fetch(HEALTH_CHECK_URL, {
                             method: 'GET',
                             headers: { 'Accept': 'application/json' },
                             signal: controller.signal
@@ -1284,13 +1296,14 @@
                         if (fastapiOk) {
                             const data = await response.json();
                             fastapiVersion = data.version || data.status || 'v1.0.0';
+                            fastapiPing = Math.round(endTime - startTime);
                         }
                     } catch (e) {
                         fastapiOk = false;
                     }
 
                     const endTime = performance.now();
-                    const pingMs = Math.round(endTime - startTime);
+                    const pingMs = fastapiOk ? Math.round(endTime - startTime) : 0;
 
                     // Update UI
                     updateHealthUI(supabaseOk, fastapiOk, pingMs, fastapiVersion);
@@ -1881,7 +1894,8 @@
             // ─── Init ──────────────────────────────────────────────────
             async function init() {
                 console.log('🚗 Auto-D Kenya Admin Dashboard v4.0');
-                console.log('📡 Backend:', API_BASE);
+                console.log('📡 Backend API:', API_BASE);
+                console.log('🏥 Health Check:', HEALTH_CHECK_URL);
                 console.log('🔐 Supabase:', SUPABASE_URL);
 
                 initSupabase();
