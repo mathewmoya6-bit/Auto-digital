@@ -19,10 +19,24 @@ class Settings(BaseSettings):
     PORT: int = 10000
     ENVIRONMENT: str = "production"
     DEBUG: bool = False
-    API_VERSION: str = "v4.0.0"
+    API_VERSION: str = "4.0.0"
+    
+    # ─── Server URLs ──────────────────────────────────────────────────
+    # ⚠️ UPDATE THIS URL TO MATCH YOUR RENDER SERVICE
+    API_BASE_URL: str = Field(
+        default="https://auto-digital.onrender.com",
+        env="API_BASE_URL"
+    )
+    FRONTEND_URL: str = Field(
+        default="https://auto-digital.onrender.com",
+        env="FRONTEND_URL"
+    )
     
     # ─── Supabase Configuration ──────────────────────────────────────
-    SUPABASE_URL: str = Field(..., env="SUPABASE_URL")
+    SUPABASE_URL: str = Field(
+        default="https://xgkdbithhlvoqjnqvfmj.supabase.co",
+        env="SUPABASE_URL"
+    )
     SUPABASE_KEY: str = Field(..., env="SUPABASE_KEY")
     SUPABASE_JWT_SECRET: Optional[str] = None
     
@@ -39,12 +53,21 @@ class Settings(BaseSettings):
     
     # ─── Admin Credentials ──────────────────────────────────────────
     ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: str = "admin123"
+    ADMIN_PASSWORD: str = Field(default="admin123", env="ADMIN_PASSWORD")
     ADMIN_EMAIL: str = "admin@auto-d.ke"
     
     # ─── CORS Configuration ──────────────────────────────────────────
     BACKEND_CORS_ORIGINS: List[str] = Field(
-        default=["*"],
+        default=[
+            "https://auto-digital.onrender.com",
+            "https://auto-d.meipressgroup.com",
+            "https://auto-d-kenya-backend.onrender.com",
+            "https://auto-d.onrender.com",
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://localhost:5000",
+            "http://localhost:8000"
+        ],
         env="BACKEND_CORS_ORIGINS"
     )
     CORS_ALLOW_CREDENTIALS: bool = True
@@ -53,14 +76,23 @@ class Settings(BaseSettings):
     CORS_ALLOW_HEADERS: str = "Authorization,Content-Type,Accept,Origin,X-Requested-With"
     
     # ─── M-PESA Configuration ──────────────────────────────────────
-    MPESA_CONSUMER_KEY: Optional[str] = None
-    MPESA_CONSUMER_SECRET: Optional[str] = None
-    MPESA_PASSKEY: Optional[str] = None
-    MPESA_SHORTCODE: Optional[str] = None
-    MPESA_ENVIRONMENT: str = "sandbox"
-    MPESA_CALLBACK_URL: Optional[str] = None
-    MPESA_RESULT_URL: Optional[str] = None
-    MPESA_TIMEOUT_URL: Optional[str] = None
+    MPESA_ENVIRONMENT: str = Field(default="sandbox", env="MPESA_ENV")
+    MPESA_CONSUMER_KEY: Optional[str] = Field(None, env="MPESA_CONSUMER_KEY")
+    MPESA_CONSUMER_SECRET: Optional[str] = Field(None, env="MPESA_CONSUMER_SECRET")
+    MPESA_PASSKEY: Optional[str] = Field(None, env="MPESA_PASSKEY")
+    MPESA_SHORTCODE: Optional[str] = Field(None, env="MPESA_SHORTCODE")
+    MPESA_CALLBACK_URL: str = Field(
+        default="https://auto-digital.onrender.com/api/v1/mpesa/callback",
+        env="MPESA_CALLBACK_URL"
+    )
+    MPESA_RESULT_URL: str = Field(
+        default="https://auto-digital.onrender.com/api/v1/mpesa/result",
+        env="MPESA_RESULT_URL"
+    )
+    MPESA_TIMEOUT_URL: str = Field(
+        default="https://auto-digital.onrender.com/api/v1/mpesa/timeout",
+        env="MPESA_TIMEOUT_URL"
+    )
     
     # ─── Rate Limiting ──────────────────────────────────────────────
     RATE_LIMIT_ENABLED: bool = True
@@ -95,6 +127,25 @@ class Settings(BaseSettings):
     DEFAULT_INSURANCE_RATE: float = 0.045
     DEFAULT_TYRE_LIFESPAN: int = 45000
     DEFAULT_SERVICE_INTERVAL: int = 10000
+    
+    # ─── Vehicle Cost Engine Parameters ─────────────────────────────
+    FUEL_CONSUMPTION_FACTOR_URBAN: float = 1.15
+    FUEL_CONSUMPTION_FACTOR_HIGHWAY: float = 0.85
+    FUEL_CONSUMPTION_FACTOR_MIXED: float = 1.0
+    DEPRECIATION_RATE_SUV_A: float = 0.12
+    DEPRECIATION_RATE_SUV_B: float = 0.15
+    DEPRECIATION_RATE_SUV_C: float = 0.18
+    DEPRECIATION_RATE_SUV_D: float = 0.20
+    DEPRECIATION_RATE_SEDAN_A: float = 0.10
+    DEPRECIATION_RATE_SEDAN_B: float = 0.13
+    DEPRECIATION_RATE_SEDAN_C: float = 0.16
+    DEPRECIATION_RATE_SEDAN_D: float = 0.19
+    DEPRECIATION_RATE_PICKUP_A: float = 0.11
+    DEPRECIATION_RATE_PICKUP_B: float = 0.14
+    DEPRECIATION_RATE_PICKUP_C: float = 0.17
+    DEPRECIATION_RATE_LUXURY_A: float = 0.20
+    DEPRECIATION_RATE_LUXURY_B: float = 0.25
+    DEPRECIATION_RATE_LUXURY_C: float = 0.30
     
     # ─── Logging ──────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
@@ -141,7 +192,10 @@ class Settings(BaseSettings):
     # ─── API Keys ──────────────────────────────────────────────────
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
-    GOOGLE_REDIRECT_URI: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = Field(
+        default="https://auto-digital.onrender.com/api/v1/auth/google/callback",
+        env="GOOGLE_REDIRECT_URI"
+    )
     GA_MEASUREMENT_ID: Optional[str] = None
     SENTRY_DSN: Optional[str] = None
     SENTRY_ENVIRONMENT: str = "production"
@@ -173,8 +227,7 @@ class Settings(BaseSettings):
     TABLE_PAYMENTS: str = "payments"
     TABLE_AUDIT_LOGS: str = "audit_logs"
     
-    # ─── API Endpoints ──────────────────────────────────────────────
-    API_BASE_URL: str = "https://auto-d.onrender.com"
+    # ─── API Documentation ──────────────────────────────────────────
     API_DOCS_URL: str = "/docs"
     API_REDOC_URL: str = "/redoc"
     API_OPENAPI_URL: str = "/openapi.json"
@@ -224,7 +277,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
-        extra = "ignore"  # Ignore extra environment variables
+        extra = "ignore"
     
     def parse_cors_origins(self) -> List[str]:
         """Parse CORS origins from environment variable"""
@@ -232,9 +285,16 @@ class Settings(BaseSettings):
             try:
                 return json.loads(self.BACKEND_CORS_ORIGINS)
             except json.JSONDecodeError:
-                # If not valid JSON, treat as comma-separated
                 return [origin.strip() for origin in self.BACKEND_CORS_ORIGINS.split(",")]
         return self.BACKEND_CORS_ORIGINS
+    
+    def get_api_url(self) -> str:
+        """Get the full API base URL"""
+        return self.API_BASE_URL
+    
+    def get_frontend_url(self) -> str:
+        """Get the frontend URL"""
+        return self.FRONTEND_URL
 
 
 # Create settings instance
@@ -246,3 +306,9 @@ if isinstance(settings.BACKEND_CORS_ORIGINS, str):
         settings.BACKEND_CORS_ORIGINS = json.loads(settings.BACKEND_CORS_ORIGINS)
     except json.JSONDecodeError:
         settings.BACKEND_CORS_ORIGINS = [origin.strip() for origin in settings.BACKEND_CORS_ORIGINS.split(",")]
+
+# Log configuration on startup (optional)
+if settings.DEBUG:
+    print(f"🔗 API Base URL: {settings.API_BASE_URL}")
+    print(f"🌐 Frontend URL: {settings.FRONTEND_URL}")
+    print(f"📡 Supabase URL: {settings.SUPABASE_URL}")
