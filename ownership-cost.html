@@ -133,6 +133,31 @@
         .header-right .version { color: var(--text-secondary); font-weight: 600; font-size: 13px; }
         .header-right .version span { color: var(--amber); }
 
+        .health-banner {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 8px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px;
+            font-size: 12px;
+            border-left: 4px solid #22c55e;
+        }
+        .health-banner .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+        .health-banner .status-dot.online { background: #22c55e; }
+        .health-banner .status-dot.offline { background: #ef4444; }
+        .health-banner .status-dot.checking { background: #eab308; animation: pulse 1s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
         .main-grid {
             display: grid;
             grid-template-columns: 420px 1fr;
@@ -234,6 +259,33 @@
         }
         .vehicle-preview .item { color: var(--text-muted); }
         .vehicle-preview .item span { color: var(--text-primary); font-weight: 600; }
+
+        .purchase-type-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .purchase-type-btn {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .purchase-type-btn.active {
+            background: rgba(234,179,8,0.12);
+            border-color: var(--amber);
+            color: var(--amber);
+        }
+        .purchase-type-btn:hover:not(.active) {
+            border-color: var(--text-secondary);
+            color: var(--text-secondary);
+        }
 
         .checkbox-group {
             display: grid;
@@ -430,13 +482,6 @@
         .stat-card .num.amber { color: var(--amber); }
         .stat-card .num.green { color: var(--green); }
         .stat-card .num.blue { color: var(--blue); }
-
-        .breakdown-panel {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 16px 20px;
-        }
 
         .legend {
             display: flex;
@@ -694,6 +739,25 @@
         .action-btn.share { border-color: var(--green); color: var(--green); }
         .action-btn.share:hover:not(:disabled) { background: rgba(34, 197, 94, 0.08); }
 
+        .disclaimer-text {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 12px;
+            padding: 12px 16px;
+            border-top: 1px solid var(--border);
+            line-height: 1.6;
+            background: rgba(255,255,255,0.02);
+            border-radius: 6px;
+        }
+        .disclaimer-text strong { color: var(--amber); }
+        .disclaimer-text .highlight-box {
+            background: rgba(234,179,8,0.05);
+            padding: 8px 12px;
+            border-radius: 4px;
+            border-left: 3px solid var(--amber);
+            margin: 6px 0;
+        }
+
         .report-footer {
             border-top: 1px solid var(--border);
             padding-top: 20px;
@@ -772,7 +836,6 @@
             .stat-card { background: #f5f5f5 !important; border-color: #ddd !important; }
             .stat-card .num { color: #000 !important; }
             .stat-card .num.amber { color: #b8860b !important; }
-            .breakdown-panel { background: #f5f5f5 !important; border-color: #ddd !important; }
             .bar-track { background: #eee !important; }
             .year-row .yr-total { color: #000 !important; }
             .rci-display { background: #f5f5f5 !important; border-color: #ddd !important; }
@@ -817,6 +880,15 @@
                     Calculation Engine v4.0
                 </div>
             </div>
+        </div>
+
+        <!-- ─── Health Banner ────────────────────────────────────────── -->
+        <div class="health-banner" id="healthBanner">
+            <span>
+                <span class="status-dot checking" id="healthDot"></span>
+                <span id="healthStatusText">Checking backend...</span>
+            </span>
+            <span id="healthVersion" style="color:#64748b;font-size:11px;">v4.0.0</span>
         </div>
 
         <!-- ─── Main Grid ────────────────────────────────────────────── -->
@@ -921,8 +993,21 @@
 
                 <div class="divider"></div>
 
-                <!-- Module 2: Usage Profile -->
-                <div class="panel-label"><span class="num">02</span> Usage Profile</div>
+                <!-- Module 2: Purchase Type -->
+                <div class="panel-label"><span class="num">02</span> Purchase Type</div>
+
+                <div class="form-group">
+                    <label>Purchase Type</label>
+                    <div class="purchase-type-group">
+                        <button type="button" class="purchase-type-btn active" id="btnNew">🆕 New</button>
+                        <button type="button" class="purchase-type-btn" id="btnUsed">🔁 Used</button>
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <!-- Module 3: Usage Profile -->
+                <div class="panel-label"><span class="num">03</span> Usage Profile</div>
 
                 <div class="form-group">
                     <label>Where will you drive?</label>
@@ -954,8 +1039,8 @@
 
                 <div class="divider"></div>
 
-                <!-- Module 3: Insurance -->
-                <div class="panel-label"><span class="num">03</span> Insurance</div>
+                <!-- Module 4: Insurance -->
+                <div class="panel-label"><span class="num">04</span> Insurance</div>
 
                 <div class="form-group">
                     <label>Insurance Type</label>
@@ -973,8 +1058,8 @@
 
                 <div class="divider"></div>
 
-                <!-- Module 4: Financing -->
-                <div class="panel-label"><span class="num">04</span> Financing (optional)</div>
+                <!-- Module 5: Financing -->
+                <div class="panel-label"><span class="num">05</span> Financing (optional)</div>
 
                 <div class="form-group">
                     <div class="toggle-group">
@@ -1000,6 +1085,18 @@
                 <div class="divider"></div>
 
                 <button class="calc-btn" id="calcBtn">🚀 Calculate Ownership Cost</button>
+
+                <div class="disclaimer-text">
+                    <div class="highlight-box">
+                        <strong>💡 Understanding Your Driving Costs</strong><br />
+                        If you are considering purchasing a vehicle, it's important to know that the real cost of owning a car is more than just the monthly payment. The Auto-D Your Driving Costs calculator provides customized estimates of the total cost to own and drive a vehicle, as well as a categorical cost breakdown.
+                    </div>
+                    <br />
+                    <strong>📋 Disclaimer:</strong> This tool provides generalized information about vehicle ownership costs intended for comparative purposes. Actual ownership costs will vary. All numbers provided are estimates based on the selections made by the user. 
+                    <span style="display:inline-block;margin-top:4px;padding:2px 12px;background:rgba(234,179,8,0.1);border-radius:12px;font-size:10px;color:var(--amber);">
+                        🆕 New · 🔁 Used
+                    </span>
+                </div>
 
                 <div style="margin-top:12px;font-size:10px;color:var(--text-muted);text-align:center;">
                     Powered by <strong style="color:var(--amber);">Auto-D Kenya</strong> · Supabase + FastAPI
@@ -1183,6 +1280,7 @@
 
             // ─── FastAPI Backend ──────────────────────────────────────────
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+            const HEALTH_CHECK_URL = 'https://auto-digital.onrender.com/health';
             const HEALTH_RETRY_INTERVAL_MS = 30000;
 
             // ─── Configuration ──────────────────────────────────────────
@@ -1248,7 +1346,10 @@
                 healthScore: document.getElementById('healthScore'),
                 healthLabel: document.getElementById('healthLabel'),
                 envGrid: document.getElementById('envGrid'),
-                recList: document.getElementById('recList')
+                recList: document.getElementById('recList'),
+                healthDot: document.getElementById('healthDot'),
+                healthStatusText: document.getElementById('healthStatusText'),
+                healthVersion: document.getElementById('healthVersion')
             };
 
             // ─── State ──────────────────────────────────────────────────
@@ -1256,6 +1357,8 @@
             let vehicleData = {};
             let isBackendAvailable = false;
             let supabaseClient = null;
+            let isNewPurchase = true;
+            let backendChecked = false;
 
             // ─── Helpers ─────────────────────────────────────────────────
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
@@ -1285,6 +1388,40 @@
                 setTimeout(() => toast.remove(), 4000);
             }
 
+            // ─── CHECK BACKEND HEALTH ──────────────────────────────────
+            async function checkBackendHealth() {
+                try {
+                    elements.healthDot.className = 'status-dot checking';
+                    elements.healthStatusText.textContent = 'Checking backend...';
+                    
+                    const response = await fetch(HEALTH_CHECK_URL, {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' },
+                        signal: AbortSignal.timeout(5000)
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        isBackendAvailable = true;
+                        elements.healthDot.className = 'status-dot online';
+                        elements.healthStatusText.textContent = '✅ Backend connected';
+                        if (data.version) elements.healthVersion.textContent = data.version;
+                        console.log('✅ FastAPI Backend connected');
+                    } else {
+                        isBackendAvailable = false;
+                        elements.healthDot.className = 'status-dot offline';
+                        elements.healthStatusText.textContent = '⚠️ Backend offline - using local data';
+                        console.warn('⚠️ Backend not reachable');
+                    }
+                } catch (error) {
+                    isBackendAvailable = false;
+                    elements.healthDot.className = 'status-dot offline';
+                    elements.healthStatusText.textContent = '⚠️ Backend unavailable';
+                    console.warn('⚠️ Backend health check error:', error.message);
+                }
+                backendChecked = true;
+            }
+
             // ─── Initialize Supabase ──────────────────────────────────
             function initSupabase() {
                 try {
@@ -1292,7 +1429,6 @@
                     supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                     console.log('✅ Supabase client initialized');
                     
-                    // Check auth status
                     supabaseClient.auth.getSession().then(({ data: { session } }) => {
                         if (session?.user) {
                             currentUser = session.user;
@@ -1306,9 +1442,7 @@
                 }
             }
 
-            // Reads the live Supabase session token first (source of truth),
-            // falling back to a manually stored token if present. Used to
-            // authenticate calls to the FastAPI backend.
+            // ─── Get Access Token ──────────────────────────────────────
             async function getAccessToken() {
                 try {
                     if (supabaseClient) {
@@ -1324,7 +1458,6 @@
             // ─── Fetch Vehicle Data from Supabase ──────────────────────
             async function fetchVehicleData() {
                 try {
-                    // Fetch vehicle makes
                     const { data: makes, error: makesError } = await supabaseClient
                         .from('vehicle_makes')
                         .select('*')
@@ -1332,7 +1465,6 @@
 
                     if (makesError) throw makesError;
 
-                    // Fetch vehicle models with their makes
                     const { data: models, error: modelsError } = await supabaseClient
                         .from('vehicle_models')
                         .select('*, vehicle_makes(name, code)')
@@ -1340,14 +1472,12 @@
 
                     if (modelsError) throw modelsError;
 
-                    // Fetch vehicle variants
                     const { data: variants, error: variantsError } = await supabaseClient
                         .from('vehicle_variants')
                         .select('*, vehicle_models(name, code, vehicle_makes(name, code))');
 
                     if (variantsError) throw variantsError;
 
-                    // Build vehicle data structure
                     const vehicleDB = {};
                     
                     makes.forEach(make => {
@@ -1593,7 +1723,15 @@
                     return null;
                 }
 
-                const basePrice = vehicleInfo.price || 5000000;
+                // Adjust price based on new/used
+                let basePrice = vehicleInfo.price || 5000000;
+                if (!isNewPurchase) {
+                    // Used vehicle: reduce price by 20-30% based on age
+                    const age = new Date().getFullYear() - Number(elements.vehicleYear.value);
+                    const usedDiscount = Math.min(0.30, 0.10 + (age * 0.025));
+                    basePrice = basePrice * (1 - usedDiscount);
+                }
+
                 const fuelEfficiency = vehicleInfo.fuel || 15;
                 const baseMaintenancePerKm = vehicleInfo.maintenancePerKm || 5;
 
@@ -1770,6 +1908,24 @@
                     });
                 }
 
+                if (!isNewPurchase) {
+                    recommendations.push({
+                        icon: '🔁',
+                        text: `Used vehicle purchase. Ensure comprehensive inspection and service history review.`,
+                        type: 'info',
+                        tag: 'Used'
+                    });
+                }
+
+                if (isNewPurchase) {
+                    recommendations.push({
+                        icon: '🆕',
+                        text: `New vehicle purchase. Lower maintenance costs in early years but higher depreciation.`,
+                        type: 'info',
+                        tag: 'New'
+                    });
+                }
+
                 if (recommendations.length === 0) {
                     recommendations.push({
                         icon: '✅',
@@ -1831,6 +1987,7 @@
                     <span class="spec-item">⚡ <span class="spec-value">${fuelEfficiency || '—'} km/L</span></span>
                     <span class="spec-item">📊 <span class="spec-value">${formatNumber(mileage)} km/year</span></span>
                     <span class="spec-item">🏷️ <span class="spec-value">${elements.vehicleType.value.toUpperCase()}</span></span>
+                    <span class="spec-item">${isNewPurchase ? '🆕 New' : '🔁 Used'}</span>
                 `;
 
                 elements.outTotal.textContent = fmt(totalCost);
@@ -1967,6 +2124,14 @@
                 const mileage = Number(elements.mileage.value);
                 const financed = elements.btnFinanced.classList.contains('active');
 
+                // Adjust price based on new/used
+                let basePrice = vehicleInfo.price || 5000000;
+                if (!isNewPurchase) {
+                    const age = new Date().getFullYear() - Number(elements.vehicleYear.value);
+                    const usedDiscount = Math.min(0.30, 0.10 + (age * 0.025));
+                    basePrice = basePrice * (1 - usedDiscount);
+                }
+
                 const payload = {
                     variant_id: model,
                     years_owned: years,
@@ -1982,7 +2147,9 @@
                     transmission: elements.vehicleTransmission.value,
                     vehicle_type: elements.vehicleType.value,
                     make: make,
-                    model: model
+                    model: model,
+                    purchase_type: isNewPurchase ? 'new' : 'used',
+                    purchase_price: basePrice
                 };
 
                 elements.calcBtn.disabled = true;
@@ -2127,6 +2294,21 @@
             bindSlider("term", "valTerm", v => v + (v == 1 ? " year" : " years"));
             bindSlider("insuranceRate", "valInsuranceRate", v => v + "%");
 
+            // ─── New/Used Toggle ──────────────────────────────────────
+            document.getElementById('btnNew').addEventListener('click', function() {
+                this.classList.add('active');
+                document.getElementById('btnUsed').classList.remove('active');
+                isNewPurchase = true;
+                render();
+            });
+
+            document.getElementById('btnUsed').addEventListener('click', function() {
+                this.classList.add('active');
+                document.getElementById('btnNew').classList.remove('active');
+                isNewPurchase = false;
+                render();
+            });
+
             // ─── Checkbox Toggle ──────────────────────────────────────
             document.querySelectorAll('.checkbox-item input[type="checkbox"]').forEach(cb => {
                 cb.addEventListener('change', function() {
@@ -2251,31 +2433,14 @@
                 showToast('JSON exported!', 'success');
             });
 
-            // ─── Check Backend Health (silent — no UI status) ─────────
-            async function checkBackendHealth() {
-                try {
-                    const response = await fetch(`${API_BASE}/health`, {
-                        method: 'GET',
-                        headers: { 'Accept': 'application/json' }
-                    });
-                    isBackendAvailable = response.ok;
-                    if (response.ok) {
-                        console.log('✅ FastAPI Backend healthy');
-                    } else {
-                        console.warn('⚠️ FastAPI Backend degraded:', response.status);
-                    }
-                } catch (error) {
-                    isBackendAvailable = false;
-                    console.warn('⚠️ Backend unavailable:', error.message);
-                }
-                return isBackendAvailable;
-            }
-
             // ─── Init ──────────────────────────────────────────────────
             async function init() {
                 console.log('🚗 Auto-D Kenya Ownership Calculator (Supabase + FastAPI)');
                 console.log('🔐 Supabase:', SUPABASE_URL);
                 console.log('📡 FastAPI:', API_BASE);
+
+                // Check backend health
+                await checkBackendHealth();
 
                 // Initialize Supabase
                 const supabaseOk = initSupabase();
@@ -2293,10 +2458,7 @@
                 updateVehiclePreview();
                 render();
 
-                await checkBackendHealth();
-
-                // Quietly retry in the background so the backend is used
-                // again as soon as it's reachable — no UI indicator shown.
+                // Quietly retry in the background
                 setInterval(checkBackendHealth, HEALTH_RETRY_INTERVAL_MS);
 
                 // Update last updated
