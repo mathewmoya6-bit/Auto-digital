@@ -30,14 +30,12 @@ from app.api.v1.reports import router as reports_router
 from app.api.v1.running_cost import router as running_cost_router
 
 # ─── Configure Logging ─────────────────────────────────────────────
-# Safely get log level from settings with fallback
 try:
     log_level_name = getattr(settings, "LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_name, logging.INFO)
 except Exception:
     log_level = logging.INFO
 
-# Get log format from settings or use default
 log_format = getattr(settings, "LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 logging.basicConfig(
@@ -49,7 +47,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Log startup info
 logger.info("=" * 60)
 logger.info("🚀 Auto-D Kenya API Starting...")
 logger.info(f"📋 Log Level: {logging.getLevelName(log_level)}")
@@ -94,29 +91,39 @@ app = FastAPI(
 
 
 # ─── CORS Configuration ────────────────────────────────────────────
-# Safely get CORS origins
+# ✅ FIXED: Get CORS origins from settings
 try:
     cors_origins = settings.BACKEND_CORS_ORIGINS
+    if isinstance(cors_origins, str):
+        try:
+            cors_origins = json.loads(cors_origins)
+        except json.JSONDecodeError:
+            cors_origins = [origin.strip() for origin in cors_origins.split(",")]
 except Exception:
-    cors_origins = ["*"]
+    cors_origins = [
+        "https://auto-digital.onrender.com",
+        "https://auto-d.meipressgroup.com",
+        "https://auto-d-kenya-backend.onrender.com",
+        "https://auto-d.onrender.com",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:5000",
+        "http://localhost:8000"
+    ]
 
-# Handle both list and string formats
-if isinstance(cors_origins, str):
-    try:
-        cors_origins = json.loads(cors_origins)
-    except json.JSONDecodeError:
-        cors_origins = [origin.strip() for origin in cors_origins.split(",")]
+# ✅ FIXED: Log CORS origins for debugging
+logger.info(f"🔒 Configuring CORS with origins: {cors_origins}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=getattr(settings, "CORS_ALLOW_CREDENTIALS", True),
-    allow_methods=getattr(settings, "CORS_ALLOW_METHODS", "GET,POST,PUT,DELETE,OPTIONS,PATCH"),
-    allow_headers=getattr(settings, "CORS_ALLOW_HEADERS", "Authorization,Content-Type,Accept,Origin,X-Requested-With"),
-    max_age=getattr(settings, "CORS_MAX_AGE", 86400),
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_methods=settings.CORS_ALLOW_METHODS,
+    allow_headers=settings.CORS_ALLOW_HEADERS,
+    max_age=settings.CORS_MAX_AGE,
 )
 
-logger.info("✅ CORS configured with origins: %s", cors_origins)
+logger.info("✅ CORS configured successfully")
 
 
 # ─── Exception Handlers ────────────────────────────────────────────
@@ -152,45 +159,24 @@ async def general_exception_handler(request: Request, exc: Exception):
 # ─── Include Routers ───────────────────────────────────────────────
 api_prefix = getattr(settings, "API_V1_PREFIX", "/api/v1")
 
-# Authentication
 app.include_router(auth_router, prefix=api_prefix + "/auth", tags=["Authentication"])
-
-# Vehicle Management
 app.include_router(vehicles_router, prefix=api_prefix + "/vehicles", tags=["Vehicles"])
-
-# Valuation
 app.include_router(valuation_router, prefix=api_prefix + "/valuation", tags=["Valuation"])
-
-# Mileage & Running Cost
 app.include_router(mileage_router, prefix=api_prefix + "/mileage", tags=["Mileage"])
 app.include_router(running_cost_router, prefix=api_prefix + "/running-cost", tags=["Running Cost"])
-
-# Ownership
 app.include_router(ownership_router, prefix=api_prefix + "/ownership", tags=["Ownership"])
-
-# Fuel
 app.include_router(fuel_router, prefix=api_prefix + "/fuel", tags=["Fuel"])
-
-# Admin
 app.include_router(admin_router, prefix=api_prefix + "/admin", tags=["Admin"])
-
-# Reports
 app.include_router(reports_router, prefix=api_prefix + "/reports", tags=["Reports"])
 
 logger.info("✅ All routers registered")
 
 
 # ─── Health Check Endpoints ──────────────────────────────────────
-# Support both /health and /api/health for Render compatibility
-
 @app.get("/health")
 @app.get("/api/health")
 async def health_check():
-    """
-    Health check endpoint - Supports both /health and /api/health
-    Used by Render to verify the application is running
-    """
-    # Check Supabase connection
+    """Health check endpoint - Supports both /health and /api/health"""
     supabase_status = "connected"
     try:
         response = supabase.table("vehicle_makes").select("count", count="exact").limit(1).execute()
@@ -210,7 +196,7 @@ async def health_check():
 @app.get("/ready")
 @app.get("/api/ready")
 async def readiness_check():
-    """Readiness check endpoint - Supports both /ready and /api/ready"""
+    """Readiness check endpoint"""
     return {
         "status": "ready",
         "timestamp": datetime.utcnow().isoformat()
@@ -220,7 +206,7 @@ async def readiness_check():
 @app.get("/live")
 @app.get("/api/live")
 async def liveness_check():
-    """Liveness check endpoint - Supports both /live and /api/live"""
+    """Liveness check endpoint"""
     return {
         "status": "alive",
         "timestamp": datetime.utcnow().isoformat()
@@ -236,7 +222,6 @@ async def ping():
     }
 
 
-# ─── Root Endpoint ──────────────────────────────────────────────────
 @app.get("/")
 async def root():
     """Root endpoint with API information"""
@@ -251,7 +236,6 @@ async def root():
     }
 
 
-# ─── Metrics Endpoint (Optional) ──────────────────────────────────
 @app.get("/metrics")
 async def metrics():
     """Metrics endpoint for monitoring (placeholder)"""
@@ -271,7 +255,6 @@ async def metrics():
     }
 
 
-# ─── Info Endpoint ──────────────────────────────────────────────────
 @app.get("/info")
 async def info():
     """Get application information"""
