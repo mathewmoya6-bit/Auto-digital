@@ -588,6 +588,7 @@
 
         // ─── STATE ──────────────────────────────────────────────────
         let supabaseClient = null;
+        let currentUser = null;
         let vehicleData = {
             types: [],
             makes: [],
@@ -636,6 +637,15 @@
 
                 const { createClient } = supabase;
                 supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                
+                // Get current user
+                supabaseClient.auth.getSession().then(({ data: { session } }) => {
+                    if (session?.user) {
+                        currentUser = session.user;
+                        console.log('👤 User authenticated:', currentUser.email);
+                    }
+                });
+                
                 loadVehicleData();
                 
             } catch (e) {
@@ -1025,7 +1035,8 @@
                 condition: formData.condition || 'good',
                 accident_history: formData.accident_history === 'none' ? false : true,
                 previous_owners: parseInt(formData.previous_owners) || 1,
-                service_history: true
+                service_history: true,
+                location: formData.location || 'nairobi'
             };
 
             const response = await fetch(url, {
@@ -1288,6 +1299,23 @@
             }
         });
 
+        // ─── CHECK BACKEND HEALTH ──────────────────────────────────
+        async function checkBackendHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                if (response.ok) {
+                    console.log('✅ FastAPI Backend healthy');
+                } else {
+                    console.warn('⚠️ Backend degraded');
+                }
+            } catch (error) {
+                console.warn('⚠️ Backend unavailable:', error.message);
+            }
+        }
+
         // ─── FORM SUBMISSION ──────────────────────────────────────
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -1314,7 +1342,8 @@
                 condition: document.getElementById('condition').value,
                 accident_history: document.getElementById('accidentHistory').value,
                 previous_owners: parseInt(document.getElementById('previousOwners').value),
-                service_history: true
+                service_history: true,
+                location: document.getElementById('location').value
             };
 
             statusBox.style.display = 'none';
@@ -1365,6 +1394,7 @@
 
         // ─── INIT ──────────────────────────────────────────────────
         function init() {
+            checkBackendHealth();
             initSupabase();
             renderPhotoGrid();
             loadDraft();
