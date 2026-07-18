@@ -5,6 +5,7 @@ Vehicle cost analysis and valuation system
 """
 
 import os
+import sys
 import logging
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -27,15 +28,31 @@ from app.api.v1.admin import router as admin_router
 from app.api.v1.reports import router as reports_router
 from app.api.v1.running_cost import router as running_cost_router
 
-# Configure logging
+# ─── Configure Logging ─────────────────────────────────────────────
+# Safely get log level from settings with fallback
+try:
+    log_level_name = getattr(settings, "LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+except Exception:
+    log_level = logging.INFO
+
+# Get log format from settings or use default
+log_format = getattr(settings, "LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
 logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL),
-    format=settings.LOG_FORMAT,
+    level=log_level,
+    format=log_format,
     handlers=[
-        logging.StreamHandler()
+        logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Log startup info
+logger.info("=" * 60)
+logger.info("🚀 Auto-D Kenya API Starting...")
+logger.info(f"📋 Log Level: {logging.getLevelName(log_level)}")
+logger.info("=" * 60)
 
 
 @asynccontextmanager
@@ -59,25 +76,40 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI app
 app = FastAPI(
-    title=settings.PROJECT_NAME,
+    title=getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
     description="Vehicle cost analysis and valuation system for Kenya",
-    version=settings.API_VERSION,
-    docs_url=settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
-    redoc_url=settings.API_REDOC_URL if settings.ENABLE_DOCS else None,
+    version=getattr(settings, "API_VERSION", "4.0.0"),
+    docs_url=getattr(settings, "API_DOCS_URL", "/docs") if getattr(settings, "ENABLE_DOCS", False) else None,
+    redoc_url=getattr(settings, "API_REDOC_URL", "/redoc") if getattr(settings, "ENABLE_DOCS", False) else None,
     lifespan=lifespan,
 )
 
-# CORS Middleware
+# ─── CORS Configuration ────────────────────────────────────────────
+# Safely get CORS origins
+try:
+    cors_origins = settings.BACKEND_CORS_ORIGINS
+except Exception:
+    cors_origins = ["*"]
+
+# Handle both list and string formats
+if isinstance(cors_origins, str):
+    import json
+    try:
+        cors_origins = json.loads(cors_origins)
+    except json.JSONDecodeError:
+        cors_origins = [origin.strip() for origin in cors_origins.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
-    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
-    allow_methods=settings.CORS_ALLOW_METHODS,
-    allow_headers=settings.CORS_ALLOW_HEADERS,
-    max_age=settings.CORS_MAX_AGE,
+    allow_origins=cors_origins,
+    allow_credentials=getattr(settings, "CORS_ALLOW_CREDENTIALS", True),
+    allow_methods=getattr(settings, "CORS_ALLOW_METHODS", "GET,POST,PUT,DELETE,OPTIONS,PATCH"),
+    allow_headers=getattr(settings, "CORS_ALLOW_HEADERS", "Authorization,Content-Type,Accept,Origin,X-Requested-With"),
+    max_age=getattr(settings, "CORS_MAX_AGE", 86400),
 )
 
 
+# ─── Exception Handlers ────────────────────────────────────────────
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors"""
@@ -106,25 +138,30 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Include routers
-app.include_router(auth_router, prefix=settings.API_V1_PREFIX + "/auth", tags=["Authentication"])
-app.include_router(vehicles_router, prefix=settings.API_V1_PREFIX + "/vehicles", tags=["Vehicles"])
-app.include_router(valuation_router, prefix=settings.API_V1_PREFIX + "/valuation", tags=["Valuation"])
-app.include_router(mileage_router, prefix=settings.API_V1_PREFIX + "/mileage", tags=["Mileage"])
-app.include_router(ownership_router, prefix=settings.API_V1_PREFIX + "/ownership", tags=["Ownership"])
-app.include_router(running_cost_router, prefix=settings.API_V1_PREFIX + "/running-cost", tags=["Running Cost"])
-app.include_router(fuel_router, prefix=settings.API_V1_PREFIX + "/fuel", tags=["Fuel"])
-app.include_router(admin_router, prefix=settings.API_V1_PREFIX + "/admin", tags=["Admin"])
-app.include_router(reports_router, prefix=settings.API_V1_PREFIX + "/reports", tags=["Reports"])
+# ─── Include Routers ───────────────────────────────────────────────
+api_prefix = getattr(settings, "API_V1_PREFIX", "/api/v1")
+
+app.include_router(auth_router, prefix=api_prefix + "/auth", tags=["Authentication"])
+app.include_router(vehicles_router, prefix=api_prefix + "/vehicles", tags=["Vehicles"])
+app.include_router(valuation_router, prefix=api_prefix + "/valuation", tags=["Valuation"])
+app.include_router(mileage_router, prefix=api_prefix + "/mileage", tags=["Mileage"])
+app.include_router(ownership_router, prefix=api_prefix + "/ownership", tags=["Ownership"])
+app.include_router(running_cost_router, prefix=api_prefix + "/running-cost", tags=["Running Cost"])
+app.include_router(fuel_router, prefix=api_prefix + "/fuel", tags=["Fuel"])
+app.include_router(admin_router, prefix=api_prefix + "/admin", tags=["Admin"])
+app.include_router(reports_router, prefix=api_prefix + "/reports", tags=["Reports"])
+
+logger.info("✅ All routers registered")
 
 
+# ─── Root Endpoints ────────────────────────────────────────────────
 @app.get("/")
 async def root():
     """Root endpoint"""
     return {
-        "name": settings.PROJECT_NAME,
-        "version": settings.API_VERSION,
-        "environment": settings.ENVIRONMENT,
+        "name": getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
+        "version": getattr(settings, "API_VERSION", "4.0.0"),
+        "environment": getattr(settings, "ENVIRONMENT", "production"),
         "status": "operational",
         "timestamp": datetime.utcnow().isoformat()
     }
@@ -140,12 +177,37 @@ async def health_check():
     }
 
 
+@app.get("/ready")
+async def readiness_check():
+    """Readiness check endpoint"""
+    return {
+        "status": "ready",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@app.get("/live")
+async def liveness_check():
+    """Liveness check endpoint"""
+    return {
+        "status": "alive",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+# ─── Main Entry Point ─────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
+    debug = getattr(settings, "DEBUG", False)
+    
+    logger.info(f"🚀 Starting server on port {port}")
+    logger.info(f"🐛 Debug mode: {debug}")
+    
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
         port=port,
-        reload=settings.DEBUG
+        reload=debug,
+        log_level="info" if not debug else "debug",
     )
