@@ -6,6 +6,7 @@ Vehicle cost analysis and valuation system
 
 import os
 import sys
+import json
 import logging
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -55,11 +56,13 @@ logger.info(f"📋 Log Level: {logging.getLevelName(log_level)}")
 logger.info("=" * 60)
 
 
+# ─── Lifespan Context Manager ──────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan context manager"""
     logger.info(f"🚀 Starting {settings.PROJECT_NAME}...")
     logger.info(f"📍 Environment: {settings.ENVIRONMENT}")
+    logger.info(f"🔗 API Base URL: {settings.API_BASE_URL}")
     logger.info(f"🔗 Supabase URL: {settings.SUPABASE_URL}")
     
     # Check Supabase connection
@@ -69,20 +72,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Supabase connection failed: {e}")
     
+    logger.info("=" * 60)
+    logger.info("✅ Application is ready to serve requests")
+    logger.info("=" * 60)
+    
     yield
     
     logger.info(f"🛑 Shutting down {settings.PROJECT_NAME}...")
 
 
-# Initialize FastAPI app
+# ─── Initialize FastAPI App ────────────────────────────────────────
 app = FastAPI(
     title=getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
     description="Vehicle cost analysis and valuation system for Kenya",
     version=getattr(settings, "API_VERSION", "4.0.0"),
     docs_url=getattr(settings, "API_DOCS_URL", "/docs") if getattr(settings, "ENABLE_DOCS", False) else None,
     redoc_url=getattr(settings, "API_REDOC_URL", "/redoc") if getattr(settings, "ENABLE_DOCS", False) else None,
+    openapi_url=getattr(settings, "API_OPENAPI_URL", "/openapi.json") if getattr(settings, "ENABLE_DOCS", False) else None,
     lifespan=lifespan,
 )
+
 
 # ─── CORS Configuration ────────────────────────────────────────────
 # Safely get CORS origins
@@ -93,7 +102,6 @@ except Exception:
 
 # Handle both list and string formats
 if isinstance(cors_origins, str):
-    import json
     try:
         cors_origins = json.loads(cors_origins)
     except json.JSONDecodeError:
@@ -108,11 +116,14 @@ app.add_middleware(
     max_age=getattr(settings, "CORS_MAX_AGE", 86400),
 )
 
+logger.info("✅ CORS configured with origins: %s", cors_origins)
+
 
 # ─── Exception Handlers ────────────────────────────────────────────
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors"""
+    logger.warning(f"Validation error: {exc.errors()}")
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
@@ -141,45 +152,65 @@ async def general_exception_handler(request: Request, exc: Exception):
 # ─── Include Routers ───────────────────────────────────────────────
 api_prefix = getattr(settings, "API_V1_PREFIX", "/api/v1")
 
+# Authentication
 app.include_router(auth_router, prefix=api_prefix + "/auth", tags=["Authentication"])
+
+# Vehicle Management
 app.include_router(vehicles_router, prefix=api_prefix + "/vehicles", tags=["Vehicles"])
+
+# Valuation
 app.include_router(valuation_router, prefix=api_prefix + "/valuation", tags=["Valuation"])
+
+# Mileage & Running Cost
 app.include_router(mileage_router, prefix=api_prefix + "/mileage", tags=["Mileage"])
-app.include_router(ownership_router, prefix=api_prefix + "/ownership", tags=["Ownership"])
 app.include_router(running_cost_router, prefix=api_prefix + "/running-cost", tags=["Running Cost"])
+
+# Ownership
+app.include_router(ownership_router, prefix=api_prefix + "/ownership", tags=["Ownership"])
+
+# Fuel
 app.include_router(fuel_router, prefix=api_prefix + "/fuel", tags=["Fuel"])
+
+# Admin
 app.include_router(admin_router, prefix=api_prefix + "/admin", tags=["Admin"])
+
+# Reports
 app.include_router(reports_router, prefix=api_prefix + "/reports", tags=["Reports"])
 
 logger.info("✅ All routers registered")
 
 
-# ─── Root Endpoints ────────────────────────────────────────────────
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "name": getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
-        "version": getattr(settings, "API_VERSION", "4.0.0"),
-        "environment": getattr(settings, "ENVIRONMENT", "production"),
-        "status": "operational",
-        "timestamp": datetime.utcnow().isoformat()
-    }
-
+# ─── Health Check Endpoints ──────────────────────────────────────
+# Support both /health and /api/health for Render compatibility
 
 @app.get("/health")
+@app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
+    """
+    Health check endpoint - Supports both /health and /api/health
+    Used by Render to verify the application is running
+    """
+    # Check Supabase connection
+    supabase_status = "connected"
+    try:
+        response = supabase.table("vehicle_makes").select("count", count="exact").limit(1).execute()
+    except Exception as e:
+        supabase_status = f"error: {str(e)}"
+        logger.error(f"Supabase health check failed: {e}")
+    
     return {
-        "status": "healthy",
+        "status": "healthy" if supabase_status == "connected" else "degraded",
         "timestamp": datetime.utcnow().isoformat(),
-        "supabase": "connected"
+        "supabase": supabase_status,
+        "environment": getattr(settings, "ENVIRONMENT", "production"),
+        "version": getattr(settings, "API_VERSION", "4.0.0")
     }
 
 
 @app.get("/ready")
+@app.get("/api/ready")
 async def readiness_check():
-    """Readiness check endpoint"""
+    """Readiness check endpoint - Supports both /ready and /api/ready"""
     return {
         "status": "ready",
         "timestamp": datetime.utcnow().isoformat()
@@ -187,10 +218,78 @@ async def readiness_check():
 
 
 @app.get("/live")
+@app.get("/api/live")
 async def liveness_check():
-    """Liveness check endpoint"""
+    """Liveness check endpoint - Supports both /live and /api/live"""
     return {
         "status": "alive",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@app.get("/ping")
+async def ping():
+    """Simple ping endpoint for testing connectivity"""
+    return {
+        "pong": datetime.utcnow().isoformat(),
+        "status": "alive"
+    }
+
+
+# ─── Root Endpoint ──────────────────────────────────────────────────
+@app.get("/")
+async def root():
+    """Root endpoint with API information"""
+    return {
+        "name": getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
+        "version": getattr(settings, "API_VERSION", "4.0.0"),
+        "environment": getattr(settings, "ENVIRONMENT", "production"),
+        "status": "operational",
+        "timestamp": datetime.utcnow().isoformat(),
+        "documentation": getattr(settings, "API_DOCS_URL", "/docs") if getattr(settings, "ENABLE_DOCS", False) else "disabled",
+        "api_prefix": getattr(settings, "API_V1_PREFIX", "/api/v1")
+    }
+
+
+# ─── Metrics Endpoint (Optional) ──────────────────────────────────
+@app.get("/metrics")
+async def metrics():
+    """Metrics endpoint for monitoring (placeholder)"""
+    if not getattr(settings, "METRICS_ENABLED", True):
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"status": "error", "message": "Metrics disabled"}
+        )
+    
+    return {
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat(),
+        "metrics": {
+            "uptime": "running",
+            "supabase": "connected"
+        }
+    }
+
+
+# ─── Info Endpoint ──────────────────────────────────────────────────
+@app.get("/info")
+async def info():
+    """Get application information"""
+    return {
+        "name": getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
+        "version": getattr(settings, "API_VERSION", "4.0.0"),
+        "environment": getattr(settings, "ENVIRONMENT", "production"),
+        "features": {
+            "mpesa": getattr(settings, "ENABLE_MPESA", True),
+            "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
+            "analytics": getattr(settings, "ENABLE_ANALYTICS", True),
+            "caching": getattr(settings, "ENABLE_CACHING", True),
+            "email_notifications": getattr(settings, "ENABLE_EMAIL_NOTIFICATIONS", True),
+        },
+        "supabase": {
+            "url": getattr(settings, "SUPABASE_URL", ""),
+            "connected": True
+        },
         "timestamp": datetime.utcnow().isoformat()
     }
 
@@ -200,14 +299,19 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     debug = getattr(settings, "DEBUG", False)
+    host = os.getenv("HOST", "0.0.0.0")
     
-    logger.info(f"🚀 Starting server on port {port}")
+    logger.info("=" * 60)
+    logger.info(f"🚀 Starting server on {host}:{port}")
     logger.info(f"🐛 Debug mode: {debug}")
+    logger.info(f"📡 API Base URL: {getattr(settings, 'API_BASE_URL', 'http://localhost:' + str(port))}")
+    logger.info("=" * 60)
     
     uvicorn.run(
         "app.main:app",
-        host="0.0.0.0",
+        host=host,
         port=port,
         reload=debug,
-        log_level="info" if not debug else "debug",
+        log_level="debug" if debug else "info",
+        access_log=True,
     )
