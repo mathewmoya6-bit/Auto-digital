@@ -733,6 +733,21 @@
         .payment-overlay .status-detail {
             font-size: 13px;
             color: var(--text-muted);
+            text-align: center;
+            max-width: 320px;
+        }
+        .payment-overlay .status-detail button {
+            background: var(--primary);
+            color: #0f172a;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .payment-overlay .status-detail button:hover {
+            background: var(--primary-hover);
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -1160,7 +1175,6 @@
                 
                 // Check if service is already purchased
                 if (service.purchased || service.status === 'purchased' || service.status === 'active') {
-                    // If purchased, go directly to the service
                     const route = SERVICE_ROUTES[serviceId];
                     if (route) {
                         window.location.href = route;
@@ -1168,7 +1182,6 @@
                         showToast('Service route not found', 'error');
                     }
                 } else {
-                    // If not purchased, open payment modal
                     pendingServiceRedirect = serviceId;
                     openPaymentModal(service);
                 }
@@ -1182,9 +1195,7 @@
                     return;
                 }
                 
-                // Check if service is already purchased
                 if (service.purchased || service.status === 'purchased' || service.status === 'active') {
-                    // If purchased, go directly to the service
                     const route = SERVICE_ROUTES[serviceId];
                     if (route) {
                         window.location.href = route;
@@ -1192,7 +1203,6 @@
                         showToast('Service route not found', 'error');
                     }
                 } else {
-                    // If not purchased, open payment modal
                     pendingServiceRedirect = serviceId;
                     openPaymentModal(service);
                 }
@@ -1203,14 +1213,12 @@
                 try {
                     setConnectionStatus('loading', 'Loading dashboard...');
                     
-                    // Show loading states
                     vehicleGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
                     servicesGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
                     reportsList.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">Loading reports...</div>';
                     paymentsList.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">Loading payments...</div>';
                     notificationsList.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">Loading notifications...</div>';
 
-                    // 1. Get service prices from Supabase
                     let servicePrices = {};
                     try {
                         const servicesData = await supabaseRequest('service_prices');
@@ -1229,7 +1237,6 @@
                         console.warn('⚠️ Could not fetch service prices:', e.message);
                     }
 
-                    // 2. Get vehicles
                     let vehicles = [];
                     try {
                         vehicles = await supabaseRequest('vehicles', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
@@ -1237,7 +1244,6 @@
                         console.warn('⚠️ Could not fetch vehicles:', e.message);
                     }
 
-                    // 3. Get reports
                     let reports = [];
                     try {
                         reports = await supabaseRequest('reports', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
@@ -1245,7 +1251,6 @@
                         console.warn('⚠️ Could not fetch reports:', e.message);
                     }
 
-                    // 4. Get payments
                     let payments = [];
                     try {
                         payments = await supabaseRequest('payments', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
@@ -1253,7 +1258,6 @@
                         console.warn('⚠️ Could not fetch payments:', e.message);
                     }
 
-                    // 5. Get notifications
                     let notifications = [];
                     try {
                         notifications = await supabaseRequest('notifications', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
@@ -1261,7 +1265,6 @@
                         console.warn('⚠️ Could not fetch notifications:', e.message);
                     }
 
-                    // 6. Get service access (unlocked services)
                     let serviceAccess = [];
                     try {
                         serviceAccess = await supabaseRequest('service_access', '*', { user_id: currentUser.id, status: 'active' });
@@ -1276,7 +1279,6 @@
                         }
                     });
 
-                    // Build services list with purchase status
                     const services = [
                         { 
                             id: 'mileage', 
@@ -1312,7 +1314,6 @@
                         }
                     ];
 
-                    // Build dashboard data
                     dashboardData = {
                         stats: {
                             vehicles: vehicles ? vehicles.length : 0,
@@ -1575,7 +1576,7 @@
                 document.getElementById('paymentOverlay').classList.remove('open');
             };
 
-            // ─── Process Payment (FIXED - Handles 404 gracefully) ──────────────────
+            // ─── Process Payment ──────────────────────────────────────────────────
             window.processPayment = async function() {
                 const phone = document.getElementById('mpesaPhone').value.trim();
                 const payBtn = document.getElementById('payNowBtn');
@@ -1630,7 +1631,6 @@
                     document.getElementById('paymentStatusDetail').textContent = 'Please check your phone and enter your M-Pesa PIN.';
                     showToast('📱 STK Push sent! Check your phone.', 'info');
 
-                    // Poll for payment status with 404 handling
                     let attempts = 0;
                     const maxAttempts = 30;
                     const pollInterval = setInterval(async () => {
@@ -1643,18 +1643,13 @@
                                 }
                             });
 
-                            // Handle 404 gracefully - status not available yet
                             if (statusResult.status === 404) {
                                 console.log('⏳ Payment status not yet available (404), waiting...');
-                                // If we've been waiting too long, prompt user
                                 if (attempts > 20) {
                                     document.getElementById('paymentStatusText').textContent = '⏳ Waiting for confirmation...';
-                                    document.getElementById('paymentStatusDetail').textContent = 'If you completed payment, click the button below.';
-                                    // Show manual confirmation button
-                                    const detailEl = document.getElementById('paymentStatusDetail');
-                                    detailEl.innerHTML = `
+                                    document.getElementById('paymentStatusDetail').innerHTML = `
                                         If you completed payment, click below to confirm.<br>
-                                        <button class="btn-primary" style="margin-top:12px;padding:10px 20px;" onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
+                                        <button onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
                                             ✅ I've Completed Payment
                                         </button>
                                     `;
@@ -1674,7 +1669,6 @@
                                 document.getElementById('paymentStatusDetail').textContent = `${selectedService.name} is now unlocked.`;
                                 showToast(`✅ Payment successful! ${selectedService.name} unlocked!`, 'success');
                                 
-                                // Unlock service in Supabase
                                 try {
                                     const { error: insertError } = await supabaseClient
                                         .from('service_access')
@@ -1717,26 +1711,21 @@
                             if (attempts >= maxAttempts) {
                                 clearInterval(pollInterval);
                                 document.getElementById('paymentStatusText').textContent = '⏰ Payment Timeout';
-                                document.getElementById('paymentStatusDetail').textContent = 'Check your M-Pesa messages. Click below if you completed payment.';
-                                showToast('⏰ Payment timeout. Check your M-Pesa.', 'warning');
-                                // Show manual confirmation button
-                                const detailEl = document.getElementById('paymentStatusDetail');
-                                detailEl.innerHTML = `
+                                document.getElementById('paymentStatusDetail').innerHTML = `
                                     Check your M-Pesa messages.<br>
-                                    <button class="btn-primary" style="margin-top:12px;padding:10px 20px;" onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
+                                    <button onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
                                         ✅ I've Completed Payment
                                     </button>
                                 `;
+                                showToast('⏰ Payment timeout. Check your M-Pesa.', 'warning');
                             }
                         } catch (pollError) {
                             console.warn('Polling error:', pollError);
                             if (attempts >= maxAttempts) {
                                 clearInterval(pollInterval);
-                                // Show manual confirmation button
-                                const detailEl = document.getElementById('paymentStatusDetail');
-                                detailEl.innerHTML = `
+                                document.getElementById('paymentStatusDetail').innerHTML = `
                                     Check your M-Pesa messages.<br>
-                                    <button class="btn-primary" style="margin-top:12px;padding:10px 20px;" onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
+                                    <button onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
                                         ✅ I've Completed Payment
                                     </button>
                                 `;
@@ -1759,14 +1748,12 @@
             // ─── Manual Payment Confirmation ──────────────────────────────────────
             window.confirmManualPayment = async function(checkoutId, serviceId) {
                 try {
-                    // Find the service details
                     const service = dashboardData?.services?.find(s => s.id === serviceId);
                     if (!service) {
                         showToast('Service not found', 'error');
                         return;
                     }
 
-                    // Unlock the service manually
                     const { error: insertError } = await supabaseClient
                         .from('service_access')
                         .insert({
@@ -1935,10 +1922,8 @@
                 console.log('📡 Supabase URL:', SUPABASE_URL);
                 console.log('💳 All service access goes through payment');
 
-                // Initialize Supabase
                 initSupabase();
 
-                // Check authentication
                 const isAuthenticated = await checkAuth();
 
                 if (!isAuthenticated) {
@@ -1949,10 +1934,8 @@
                     return;
                 }
 
-                // Load dashboard
                 await loadDashboard();
 
-                // Listen for auth changes
                 if (supabaseClient) {
                     supabaseClient.auth.onAuthStateChange((event, session) => {
                         if (event === 'SIGNED_OUT') {
