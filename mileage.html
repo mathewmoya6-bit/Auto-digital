@@ -1219,7 +1219,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
-        // Supabase + FastAPI Integration
+        // Fixed: Engine/Class population from vehicle_variants table
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1393,7 +1393,7 @@
             // ─── Fetch Vehicle Data from Supabase ──────────────────────
             async function fetchVehicleData() {
                 try {
-                    // Try to fetch from Supabase first
+                    // Fetch categories
                     const { data: categoriesData, error: catError } = await supabaseClient
                         .from('vehicle_types')
                         .select('*')
@@ -1401,13 +1401,15 @@
 
                     if (catError) throw catError;
 
+                    // Fetch makes with their types
                     const { data: makesData, error: makesError } = await supabaseClient
                         .from('vehicle_makes')
-                        .select('*')
+                        .select('*, vehicle_types(*)')
                         .order('name');
 
                     if (makesError) throw makesError;
 
+                    // Fetch models with their makes
                     const { data: modelsData, error: modelsError } = await supabaseClient
                         .from('vehicle_models')
                         .select('*, vehicle_makes(*)')
@@ -1415,46 +1417,111 @@
 
                     if (modelsError) throw modelsError;
 
+                    // Fetch variants with their models
+                    const { data: variantsData, error: variantsError } = await supabaseClient
+                        .from('vehicle_variants')
+                        .select('*, vehicle_models(*)')
+                        .order('label');
+
+                    if (variantsError) throw variantsError;
+
+                    // Build categories list
                     const cats = categoriesData.map(c => ({
                         id: c.id,
                         name: c.name,
                         fuel_type: c.fuel_type || 'all'
                     }));
 
+                    // Build variants by category
                     const varMap = {};
-                    modelsData.forEach(model => {
+                    
+                    variantsData.forEach(variant => {
+                        const model = variant.vehicle_models;
+                        if (!model) return;
+                        
                         const make = model.vehicle_makes;
                         if (!make) return;
+                        
                         const categoryId = make.type_id;
                         if (!categoryId) return;
+                        
                         if (!varMap[categoryId]) varMap[categoryId] = [];
-
+                        
+                        // Build variant object with all required fields
                         varMap[categoryId].push({
-                            id: model.id,
-                            label: `${make.name} ${model.name}`,
-                            fuel_type: model.fuel_type || make.fuel_type || 'petrol',
-                            fuel_consumption: model.fuel_consumption || 8,
-                            transmission: model.transmission || 'Automatic',
-                            initial_cost: model.base_price || 5000000,
-                            current_value: model.current_price || model.base_price * 0.8 || 0,
-                            expected_resale: model.expected_resale || 0,
-                            years_remaining: model.years_remaining || 8,
-                            insurance_annual: model.insurance_annual || 60000,
-                            tax_annual: model.tax_annual || 8000,
-                            tyre_cost: model.tyre_cost || 120000,
-                            tyre_life: model.tyre_life || 50000,
-                            oil_interval: model.oil_interval || 10000,
-                            oil_cost: model.oil_cost || 6000,
-                            minor_service_interval: model.minor_service_interval || 10000,
-                            minor_service_cost: model.minor_service_cost || 15000,
-                            major_service_interval: model.major_service_interval || 40000,
-                            major_service_cost: model.major_service_cost || 45000,
-                            loan_amount: model.loan_amount || 0,
-                            battery_cost: model.battery_cost || 0,
-                            battery_life: model.battery_life || 0
+                            id: variant.id,
+                            label: variant.label || `${make.name} ${model.name}`,
+                            fuel_type: variant.fuel_type || make.fuel_type || 'petrol',
+                            fuel_consumption: variant.fuel_consumption || model.fuel_consumption || 8,
+                            transmission: variant.transmission || model.transmission || 'Automatic',
+                            initial_cost: variant.initial_cost || model.base_price || 5000000,
+                            current_value: variant.current_value || model.current_price || 0,
+                            expected_resale: variant.expected_resale || model.expected_resale || 0,
+                            years_remaining: variant.years_remaining || model.years_remaining || 8,
+                            insurance_annual: variant.insurance_annual || model.insurance_annual || 60000,
+                            tax_annual: variant.tax_annual || model.tax_annual || 8000,
+                            tyre_cost: variant.tyre_cost || model.tyre_cost || 120000,
+                            tyre_life: variant.tyre_life || model.tyre_life || 50000,
+                            oil_interval: variant.oil_interval || model.oil_interval || 10000,
+                            oil_cost: variant.oil_cost || model.oil_cost || 6000,
+                            minor_service_interval: variant.minor_service_interval || model.minor_service_interval || 10000,
+                            minor_service_cost: variant.minor_service_cost || model.minor_service_cost || 15000,
+                            major_service_interval: variant.major_service_interval || model.major_service_interval || 40000,
+                            major_service_cost: variant.major_service_cost || model.major_service_cost || 45000,
+                            loan_amount: variant.loan_amount || model.loan_amount || 0,
+                            battery_cost: variant.battery_cost || model.battery_cost || 0,
+                            battery_life: variant.battery_life || model.battery_life || 0,
+                            engine_code: variant.engine_code || null,
+                            engine_size_cc: variant.engine_size_cc || null,
+                            drive_type: variant.drive_type || null,
+                            // Store make and model names for display
+                            make_name: make.name,
+                            model_name: model.name
                         });
                     });
 
+                    // If no variants found, try to build from models
+                    if (Object.keys(varMap).length === 0) {
+                        console.log('No variants found, building from models...');
+                        modelsData.forEach(model => {
+                            const make = model.vehicle_makes;
+                            if (!make) return;
+                            const categoryId = make.type_id;
+                            if (!categoryId) return;
+                            if (!varMap[categoryId]) varMap[categoryId] = [];
+                            
+                            varMap[categoryId].push({
+                                id: model.id,
+                                label: `${make.name} ${model.name}`,
+                                fuel_type: model.fuel_type || make.fuel_type || 'petrol',
+                                fuel_consumption: model.fuel_consumption || 8,
+                                transmission: model.transmission || 'Automatic',
+                                initial_cost: model.base_price || 5000000,
+                                current_value: model.current_price || 0,
+                                expected_resale: model.expected_resale || 0,
+                                years_remaining: model.years_remaining || 8,
+                                insurance_annual: model.insurance_annual || 60000,
+                                tax_annual: model.tax_annual || 8000,
+                                tyre_cost: model.tyre_cost || 120000,
+                                tyre_life: model.tyre_life || 50000,
+                                oil_interval: model.oil_interval || 10000,
+                                oil_cost: model.oil_cost || 6000,
+                                minor_service_interval: model.minor_service_interval || 10000,
+                                minor_service_cost: model.minor_service_cost || 15000,
+                                major_service_interval: model.major_service_interval || 40000,
+                                major_service_cost: model.major_service_cost || 45000,
+                                loan_amount: model.loan_amount || 0,
+                                battery_cost: model.battery_cost || 0,
+                                battery_life: model.battery_life || 0,
+                                make_name: make.name,
+                                model_name: model.name
+                            });
+                        });
+                    }
+
+                    console.log('✅ Vehicle data loaded from Supabase');
+                    console.log(`📊 Categories: ${cats.length}, Variant groups: ${Object.keys(varMap).length}`);
+                    
                     return { categories: cats, variants: varMap };
 
                 } catch (error) {
@@ -1477,7 +1544,7 @@
                 ],
                 variants: {
                     'car': [
-                        { id: 'v1', label: 'Toyota Corolla', fuel_type: 'Petrol', fuel_consumption: 12.5,
+                        { id: 'v1', label: 'Toyota Corolla 1.8L Petrol', fuel_type: 'Petrol', fuel_consumption: 12.5,
                             transmission: 'Automatic',
                             oil_interval: 10000, oil_cost: 6000,
                             minor_service_interval: 10000, minor_service_cost: 15000,
@@ -1486,8 +1553,9 @@
                             insurance_annual: 60000, tax_annual: 8000,
                             initial_cost: 1500000, expected_resale: 600000,
                             years_remaining: 8, loan_amount: 0,
-                            battery_cost: 0, battery_life: 0 },
-                        { id: 'v2', label: 'BMW 3 Series', fuel_type: 'Petrol', fuel_consumption: 10.0,
+                            battery_cost: 0, battery_life: 0,
+                            make_name: 'Toyota', model_name: 'Corolla' },
+                        { id: 'v2', label: 'BMW 3 Series 2.0L Petrol', fuel_type: 'Petrol', fuel_consumption: 10.0,
                             transmission: 'Automatic',
                             oil_interval: 10000, oil_cost: 7000,
                             minor_service_interval: 10000, minor_service_cost: 20000,
@@ -1496,8 +1564,9 @@
                             insurance_annual: 80000, tax_annual: 10000,
                             initial_cost: 2500000, expected_resale: 1000000,
                             years_remaining: 7, loan_amount: 0,
-                            battery_cost: 0, battery_life: 0 },
-                        { id: 'v2a', label: 'Honda Civic', fuel_type: 'Petrol', fuel_consumption: 14.0,
+                            battery_cost: 0, battery_life: 0,
+                            make_name: 'BMW', model_name: '3 Series' },
+                        { id: 'v2a', label: 'Honda Civic 1.8L Petrol', fuel_type: 'Petrol', fuel_consumption: 14.0,
                             transmission: 'CVT',
                             oil_interval: 12000, oil_cost: 5000,
                             minor_service_interval: 12000, minor_service_cost: 12000,
@@ -1506,10 +1575,22 @@
                             insurance_annual: 50000, tax_annual: 7000,
                             initial_cost: 1200000, expected_resale: 500000,
                             years_remaining: 8, loan_amount: 0,
-                            battery_cost: 0, battery_life: 0 }
+                            battery_cost: 0, battery_life: 0,
+                            make_name: 'Honda', model_name: 'Civic' },
+                        { id: 'v2b', label: 'Mercedes C-Class 2.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 16.0,
+                            transmission: 'Automatic',
+                            oil_interval: 15000, oil_cost: 8000,
+                            minor_service_interval: 15000, minor_service_cost: 22000,
+                            major_service_interval: 60000, major_service_cost: 65000,
+                            tyre_cost: 130000, tyre_life: 48000,
+                            insurance_annual: 90000, tax_annual: 11000,
+                            initial_cost: 3000000, expected_resale: 1200000,
+                            years_remaining: 7, loan_amount: 0,
+                            battery_cost: 0, battery_life: 0,
+                            make_name: 'Mercedes', model_name: 'C-Class' }
                     ],
                     'suv': [
-                        { id: 'v3', label: 'Toyota RAV4', fuel_type: 'Diesel', fuel_consumption: 15.0,
+                        { id: 'v3', label: 'Toyota RAV4 2.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 15.0,
                             transmission: 'Automatic',
                             oil_interval: 12000, oil_cost: 7000,
                             minor_service_interval: 12000, minor_service_cost: 18000,
@@ -1518,8 +1599,9 @@
                             insurance_annual: 65000, tax_annual: 9000,
                             initial_cost: 1800000, expected_resale: 720000,
                             years_remaining: 7, loan_amount: 0,
-                            battery_cost: 0, battery_life: 0 },
-                        { id: 'v3a', label: 'Land Cruiser Prado', fuel_type: 'Diesel', fuel_consumption: 11.0,
+                            battery_cost: 0, battery_life: 0,
+                            make_name: 'Toyota', model_name: 'RAV4' },
+                        { id: 'v3a', label: 'Land Cruiser Prado 2.8L Diesel', fuel_type: 'Diesel', fuel_consumption: 11.0,
                             transmission: 'Automatic',
                             oil_interval: 10000, oil_cost: 8000,
                             minor_service_interval: 10000, minor_service_cost: 20000,
@@ -1528,7 +1610,19 @@
                             insurance_annual: 90000, tax_annual: 12000,
                             initial_cost: 5200000, expected_resale: 2000000,
                             years_remaining: 10, loan_amount: 0,
-                            battery_cost: 0, battery_life: 0 }
+                            battery_cost: 0, battery_life: 0,
+                            make_name: 'Toyota', model_name: 'Land Cruiser Prado' },
+                        { id: 'v3b', label: 'BMW X5 3.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 12.0,
+                            transmission: 'Automatic',
+                            oil_interval: 12000, oil_cost: 9000,
+                            minor_service_interval: 12000, minor_service_cost: 24000,
+                            major_service_interval: 48000, major_service_cost: 75000,
+                            tyre_cost: 150000, tyre_life: 45000,
+                            insurance_annual: 120000, tax_annual: 15000,
+                            initial_cost: 7500000, expected_resale: 3000000,
+                            years_remaining: 8, loan_amount: 0,
+                            battery_cost: 0, battery_life: 0,
+                            make_name: 'BMW', model_name: 'X5' }
                     ],
                     'motorcycle': [
                         { id: 'v7', label: 'Honda CBR600RR', fuel_type: 'Petrol', fuel_consumption: 35.0,
@@ -1540,10 +1634,11 @@
                             insurance_annual: 5000, tax_annual: 1500,
                             initial_cost: 180000, expected_resale: 70000,
                             years_remaining: 5, loan_amount: 0,
-                            battery_cost: 0, battery_life: 0 }
+                            battery_cost: 0, battery_life: 0,
+                            make_name: 'Honda', model_name: 'CBR600RR' }
                     ],
                     'pickup': [
-                        { id: 'v9', label: 'Toyota Hilux', fuel_type: 'Diesel', fuel_consumption: 12.0,
+                        { id: 'v9', label: 'Toyota Hilux 2.8L Diesel', fuel_type: 'Diesel', fuel_consumption: 12.0,
                             transmission: 'Manual',
                             oil_interval: 10000, oil_cost: 6000,
                             minor_service_interval: 10000, minor_service_cost: 15000,
@@ -1552,10 +1647,22 @@
                             insurance_annual: 55000, tax_annual: 7500,
                             initial_cost: 1600000, expected_resale: 650000,
                             years_remaining: 7, loan_amount: 0,
-                            battery_cost: 0, battery_life: 0 }
+                            battery_cost: 0, battery_life: 0,
+                            make_name: 'Toyota', model_name: 'Hilux' },
+                        { id: 'v9a', label: 'Isuzu D-Max 3.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 11.5,
+                            transmission: 'Manual',
+                            oil_interval: 10000, oil_cost: 6500,
+                            minor_service_interval: 10000, minor_service_cost: 14000,
+                            major_service_interval: 40000, major_service_cost: 50000,
+                            tyre_cost: 80000, tyre_life: 50000,
+                            insurance_annual: 50000, tax_annual: 7500,
+                            initial_cost: 1500000, expected_resale: 600000,
+                            years_remaining: 7, loan_amount: 0,
+                            battery_cost: 0, battery_life: 0,
+                            make_name: 'Isuzu', model_name: 'D-Max' }
                     ],
                     'van': [
-                        { id: 'v10', label: 'Toyota Hiace', fuel_type: 'Diesel', fuel_consumption: 10.0,
+                        { id: 'v10', label: 'Toyota Hiace 3.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 10.0,
                             transmission: 'Manual',
                             oil_interval: 10000, oil_cost: 7000,
                             minor_service_interval: 10000, minor_service_cost: 18000,
@@ -1564,7 +1671,8 @@
                             insurance_annual: 70000, tax_annual: 10000,
                             initial_cost: 2000000, expected_resale: 800000,
                             years_remaining: 6, loan_amount: 0,
-                            battery_cost: 0, battery_life: 0 }
+                            battery_cost: 0, battery_life: 0,
+                            make_name: 'Toyota', model_name: 'Hiace' }
                     ]
                 },
                 routes: [
@@ -1590,7 +1698,7 @@
 
                     const prices = {};
                     data.forEach(item => {
-                        prices[item.fuel_type] = item.price;
+                        prices[item.fuel_type.toLowerCase()] = item.price;
                     });
 
                     if (prices.petrol) {
@@ -1728,6 +1836,12 @@
                     { label: '📊', value: `${formatNumber(result.annualKm || 20000)} km/year` },
                     { label: '🏷️', value: (result.usageType || 'private').toUpperCase() }
                 ];
+                if (variant.make_name) {
+                    specItems.unshift({ label: '🏭', value: variant.make_name });
+                }
+                if (variant.model_name) {
+                    specItems.push({ label: '🚗', value: variant.model_name });
+                }
                 elements.vehicleSpecs.innerHTML = specItems.map(item => 
                     `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
                 ).join('');
@@ -2013,7 +2127,9 @@
             // ─── UI Population ──────────────────────────────────────────
             function populateCategories() {
                 const showAll = currentFuelFilter === 'all';
-                const visible = showAll ? categories : categories.filter(c => c.fuel_type === currentFuelFilter);
+                const visible = showAll ? categories : categories.filter(c => 
+                    c.fuel_type && c.fuel_type.toLowerCase() === currentFuelFilter.toLowerCase()
+                );
 
                 elements.categorySelect.innerHTML = '<option value="">Select category...</option>';
                 if (!visible || visible.length === 0) {
@@ -2050,7 +2166,8 @@
                 filteredVariants.forEach(v => {
                     const opt = document.createElement('option');
                     opt.value = v.id;
-                    opt.textContent = v.label || 'Unnamed variant';
+                    const displayName = v.label || (v.make_name && v.model_name ? `${v.make_name} ${v.model_name}` : 'Unnamed variant');
+                    opt.textContent = displayName;
                     elements.variantSelect.appendChild(opt);
                 });
                 elements.variantSelect.disabled = false;
@@ -2223,10 +2340,11 @@
                         
                         // Fetch vehicle data from Supabase
                         const data = await fetchVehicleData();
-                        if (data) {
+                        if (data && data.categories.length > 0) {
                             categories = data.categories;
-                            allVariantsByCategory = data.variants;
+                            allVariantsByCategory = data.variants || {};
                             console.log('✅ Vehicle data loaded from Supabase');
+                            console.log(`📊 Categories: ${categories.length}, Variant groups: ${Object.keys(allVariantsByCategory).length}`);
                         } else {
                             categories = FALLBACK_DATA.categories;
                             allVariantsByCategory = FALLBACK_DATA.variants;
