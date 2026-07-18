@@ -50,4 +50,5 @@ class OwnershipRepository:
                 .execute()
             return response.data[0] if response.data else None
         except Exception as e:
-            logger.error(f"Error fetching ownership report {report_id}: {e}"
+            logger.error(f"Error fetching ownership report {report_id}: {e}")
+            return None
