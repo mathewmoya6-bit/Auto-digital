@@ -1432,13 +1432,25 @@
 
                     if (modelsError) throw modelsError;
 
-                    // Fetch variants with their models
-                    const { data: variantsData, error: variantsError } = await supabaseClient
-                        .from('vehicle_variants')
-                        .select('*, vehicle_models(*)')
-                        .order('label');
-
-                    if (variantsError) throw variantsError;
+                    // Fetch variants with their models.
+                    // This table is OPTIONAL — if it doesn't exist yet (or the
+                    // query errors for any other reason), we must NOT let it
+                    // take down categories/makes/models, which already loaded
+                    // fine above. Isolate it in its own try/catch and fall
+                    // through to building variants straight from vehicle_models
+                    // instead (see the "no variants found" branch below).
+                    let variantsData = [];
+                    try {
+                        const { data, error: variantsError } = await supabaseClient
+                            .from('vehicle_variants')
+                            .select('*, vehicle_models(*)')
+                            .order('label');
+                        if (variantsError) throw variantsError;
+                        variantsData = data || [];
+                    } catch (variantsErr) {
+                        console.warn('⚠️ vehicle_variants table unavailable, falling back to vehicle_models:', variantsErr.message);
+                        variantsData = [];
+                    }
 
                     // Build categories list
                     const cats = categoriesData.map(c => ({
