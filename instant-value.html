@@ -121,6 +121,43 @@
         .vehicle-preview .info h4 { color: #eab308; font-size: 16px; font-weight: 600; }
         .vehicle-preview .info p { color: #94a3b8; font-size: 13px; }
         
+        /* ─── IMAGE UPLOAD SECTION ────────────────────────────────── */
+        .image-upload-section {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 16px 18px;
+            margin: 16px 0;
+            border: 1px solid #334155;
+        }
+        .image-upload-section h4 { color: #eab308; font-size: 14px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .image-upload-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+        .image-upload-item {
+            background: #0f172a;
+            border: 2px dashed #334155;
+            border-radius: 8px;
+            padding: 10px 6px;
+            text-align: center;
+            transition: all 0.2s;
+            cursor: pointer;
+            position: relative;
+            min-height: 70px;
+        }
+        .image-upload-item:hover { border-color: #eab308; background: #1a2538; }
+        .image-upload-item.mandatory { border-color: #f59e0b; }
+        .image-upload-item.has-image { border-color: #22c55e; border-style: solid; }
+        .image-upload-item .icon { font-size: 20px; display: block; }
+        .image-upload-item .label { font-size: 8px; color: #94a3b8; font-weight: 500; display: block; }
+        .image-upload-item .camera-btn { margin-top: 3px; padding: 2px 8px; background: #eab308; color: #0a0c15; border: none; border-radius: 4px; font-size: 8px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.2s; }
+        .image-upload-item .camera-btn:hover { background: #facc15; }
+        .image-upload-item input[type="file"] { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+        .image-upload-item .badge { position: absolute; top: -4px; right: -4px; background: #22c55e; color: #000; font-size: 10px; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: none; align-items: center; justify-content: center; }
+        .image-upload-item.has-image .badge { display: flex; }
+        .image-upload-item .status-text { font-size: 7px; margin-top: 2px; display: block; }
+        .image-upload-item .status-text.missing { color: #ef4444; }
+        .image-upload-item .status-text.uploaded { color: #22c55e; }
+        .photo-count { font-size: 12px; color: #94a3b8; margin-top: 8px; text-align: center; padding: 6px; background: rgba(255,255,255,0.03); border-radius: 6px; }
+        .photo-count .count { color: #eab308; font-weight: 700; }
+        
         .btn { width: 100%; padding: 16px; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; font-family: 'Inter', sans-serif; cursor: pointer; transition: all 0.3s ease; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 10px; }
         .btn-primary { background: linear-gradient(135deg, #eab308, #ca8a04); color: #0a0c15; }
         .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(234, 179, 8, 0.3); }
@@ -217,12 +254,14 @@
             .form-grid { grid-template-columns: 1fr; }
             .result-value { font-size: 32px; }
             .result-details { grid-template-columns: 1fr; }
+            .image-upload-grid { grid-template-columns: repeat(3, 1fr); }
         }
         @media (max-width: 480px) {
             body { padding: 10px; }
             .container { padding: 14px 10px; border-radius: 14px; }
             .result-value { font-size: 26px; }
             .btn { font-size: 14px; padding: 14px; }
+            .image-upload-grid { grid-template-columns: repeat(2, 1fr); }
             .action-bar { flex-direction: column; }
             .action-btn { justify-content: center; }
         }
@@ -404,6 +443,15 @@
             </div>
         </div>
 
+        <!-- ─── IMAGE UPLOAD SECTION ────────────────────────────────── -->
+        <div class="image-upload-section">
+            <h4>📸 Vehicle Photos <small style="font-weight:400;color:#64748b;font-size:11px;">(optional - improves valuation accuracy)</small></h4>
+            <div class="image-upload-grid" id="photoGrid"></div>
+            <div class="photo-count" id="photoCount">
+                Photos: <span class="count" id="photoCountNum">0</span> uploaded
+            </div>
+        </div>
+
         <div class="loading-steps" id="loadingSteps">
             <div class="loading-step" data-step="1">
                 <span class="icon">⏳</span>
@@ -501,7 +549,7 @@
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
         
-        // ✅ CORRECT FastAPI Backend URLs
+        // ✅ CORRECT: FastAPI Backend URLs
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
         const HEALTH_CHECK_URL = 'https://auto-digital.onrender.com/health';
 
@@ -686,6 +734,70 @@
 
         function getTypeIcon(typeId) { const type = vehicleData.types.find(t => t.id === typeId); return type?.icon || '🚗'; }
 
+        // ─── PHOTO GRID ─────────────────────────────────────────────
+        function renderPhotoGrid() {
+            const req = { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 };
+
+            let html = '';
+            req.mandatory.forEach((label) => {
+                const angle = label.toLowerCase().replace(/ /g, '_');
+                const isUploaded = capturedPhotos[angle] !== undefined;
+                html += `
+                    <div class="image-upload-item mandatory ${isUploaded ? 'has-image' : ''}" data-angle="${angle}">
+                        <span class="icon">📷</span>
+                        <span class="label">${label}</span>
+                        <button type="button" class="camera-btn" data-angle="${angle}">📸 Capture</button>
+                        <input type="file" accept="image/*" capture="environment" data-angle="${angle}">
+                        <span class="badge">✓</span>
+                        <span class="status-text ${isUploaded ? 'uploaded' : 'missing'}">${isUploaded ? '✓ Uploaded' : 'Click to add'}</span>
+                    </div>
+                `;
+            });
+
+            const photoGrid = document.getElementById('photoGrid');
+            photoGrid.innerHTML = html;
+
+            photoGrid.querySelectorAll('.camera-btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const parent = this.closest('.image-upload-item');
+                    const input = parent.querySelector('input[type="file"]');
+                    if (input) input.click();
+                });
+            });
+
+            photoGrid.querySelectorAll('input[type="file"]').forEach(input => {
+                input.addEventListener('change', function() {
+                    const file = this.files[0];
+                    const angle = this.dataset.angle;
+                    if (file) {
+                        capturedPhotos[angle] = file;
+                        const item = this.closest('.image-upload-item');
+                        item.classList.add('has-image');
+                        const status = item.querySelector('.status-text');
+                        if (status) {
+                            status.textContent = '✓ Uploaded';
+                            status.className = 'status-text uploaded';
+                        }
+                        const badge = item.querySelector('.badge');
+                        if (badge) badge.style.display = 'flex';
+                        updatePhotoCount();
+                        updateProgress();
+                    }
+                });
+            });
+
+            updatePhotoCount();
+        }
+
+        function updatePhotoCount() {
+            const req = { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 };
+            const mandatoryAngles = req.mandatory.map(a => a.toLowerCase().replace(/ /g, '_'));
+            const captured = mandatoryAngles.filter(a => capturedPhotos[a]).length;
+            document.getElementById('photoCountNum').textContent = captured;
+        }
+
         // ─── PROGRESS ──────────────────────────────────────────────
         function updateProgress() {
             const fields = [vehicleTypeSelect, makeSelect, modelSelect, yearSelect, engineCapacityInput,
@@ -695,7 +807,15 @@
                 document.getElementById('accidentHistory'), document.getElementById('location')];
             let filled = 0;
             fields.forEach(field => { if (field.value && !field.value.startsWith('-- Select')) filled++; });
-            const totalProgress = Math.min((filled / fields.length) * 100, 100);
+            
+            // Add photo progress
+            const req = { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 };
+            const mandatoryAngles = req.mandatory.map(a => a.toLowerCase().replace(/ /g, '_'));
+            let photoFilled = 0;
+            mandatoryAngles.forEach(a => { if (capturedPhotos[a]) photoFilled++; });
+            const photoProgress = req.totalRequired > 0 ? (photoFilled / req.totalRequired) * 15 : 0;
+
+            const totalProgress = Math.min((filled / fields.length) * 85 + photoProgress, 100);
             const percent = Math.round(totalProgress);
             progressFill.style.width = `${percent}%`;
             progressPercent.textContent = `${percent}%`;
@@ -753,7 +873,20 @@
         }
 
         // ─── FASTAPI API CALL ────────────────────────────────────
-        async function callValuationAPI(formData) {
+        async function callValuationAPI(formData, imageFiles) {
+            // Convert images to base64 if provided
+            let images = [];
+            if (imageFiles && imageFiles.length > 0) {
+                for (const file of imageFiles) {
+                    try {
+                        const base64 = await fileToBase64(file);
+                        images.push(base64);
+                    } catch (e) {
+                        console.warn('Image conversion failed:', e);
+                    }
+                }
+            }
+
             const payload = {
                 variant_id: formData.variant_id || 'sample',
                 year: formData.year || 2020,
@@ -762,7 +895,8 @@
                 accident_history: formData.accident_history === 'none' ? false : true,
                 previous_owners: parseInt(formData.previous_owners) || 1,
                 service_history: true,
-                location: formData.location || 'nairobi'
+                location: formData.location || 'nairobi',
+                images: images
             };
 
             const token = localStorage.getItem('access_token');
@@ -782,6 +916,16 @@
                 throw new Error(errorDetail);
             }
             return await response.json();
+        }
+
+        // ─── CONVERT FILE TO BASE64 ──────────────────────────────
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = (error) => reject(error);
+            });
         }
 
         // ─── SHOW RESULT ────────────────────────────────────────────
@@ -959,6 +1103,16 @@
             // Check backend health first
             await checkBackendHealth();
 
+            // Collect image files
+            const imageFiles = [];
+            const req = { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 };
+            const mandatoryAngles = req.mandatory.map(a => a.toLowerCase().replace(/ /g, '_'));
+            mandatoryAngles.forEach(angle => {
+                if (capturedPhotos[angle]) {
+                    imageFiles.push(capturedPhotos[angle]);
+                }
+            });
+
             const formData = {
                 variant_id: modelSelect.value || 'sample',
                 year: parseInt(yearSelect.value),
@@ -983,7 +1137,7 @@
                 let step = 1;
                 const stepInterval = setInterval(() => { step++; if (step <= 4) updateLoadingStep(step); }, 1200);
 
-                const result = await callValuationAPI(formData);
+                const result = await callValuationAPI(formData, imageFiles);
                 clearInterval(stepInterval);
                 updateLoadingStep(4);
                 loadingSteps.classList.remove('show');
@@ -1014,6 +1168,7 @@
             
             await checkBackendHealth();
             initSupabase();
+            renderPhotoGrid();
             loadDraft();
         }
 
