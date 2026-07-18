@@ -675,6 +675,34 @@
             0% { background-position: 200% 0; }
             100% { background-position: -200% 0; }
         }
+
+        /* ─── Welcome Banner ────────────────────────────────────────── */
+        .welcome-banner {
+            background: linear-gradient(135deg, rgba(234, 179, 8, 0.1), rgba(234, 179, 8, 0.02));
+            border: 1px solid rgba(234, 179, 8, 0.2);
+            border-radius: var(--radius);
+            padding: 20px 24px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .welcome-banner h2 {
+            font-family: var(--font-heading);
+            font-size: 20px;
+        }
+        .welcome-banner h2 .highlight { color: var(--primary); }
+        .welcome-banner p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        .welcome-banner .time {
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
@@ -741,6 +769,15 @@
                     </div>
                 </div>
                 <div class="health-timestamp" id="healthTimestamp">Last check: —</div>
+            </div>
+
+            <!-- Welcome Banner -->
+            <div class="welcome-banner" id="welcomeBanner">
+                <div>
+                    <h2>👋 Welcome back, <span class="highlight" id="welcomeName">Admin</span>!</h2>
+                    <p>Here's what's happening with Auto-D Kenya today</p>
+                </div>
+                <div class="time" id="currentTime"></div>
             </div>
 
             <!-- Stats -->
@@ -883,13 +920,14 @@
                     <button class="action-btn" onclick="backupData()">💾 Backup Data</button>
                     <button class="action-btn" onclick="clearCache()">🧹 Clear Cache</button>
                     <button class="action-btn danger" onclick="resetSettings()">⚠️ Reset All Settings</button>
+                    <button class="action-btn" onclick="exportCSV()">📊 Export CSV</button>
                 </div>
             </div>
 
             <!-- Footer -->
             <div style="border-top:1px solid var(--border);padding-top:20px;margin-top:10px;text-align:center;color:var(--text-muted);font-size:12px;">
                 Auto-D Kenya Admin Dashboard v4.0 · © 2026 Auto-D Kenya
-                <span style="display:block;font-size:10px;color:var(--text-muted);" id="connectionStatus">● Connected to backend</span>
+                <span style="display:block;font-size:10px;color:var(--text-muted);" id="connectionStatus">● Connecting...</span>
             </div>
         </div>
     </div>
@@ -897,20 +935,17 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - ADMIN DASHBOARD
-        // Supabase + FastAPI Integration with Health Status
+        // Full Supabase + FastAPI Integration
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
 
-            if (window.autoDAdminInitialized) return;
-            window.autoDAdminInitialized = true;
-
             // ─── CONFIG ──────────────────────────────────────────────────
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
             
-            // ✅ FIXED: Correct API endpoint - FastAPI health check is at /health (not /api/v1/health)
+            // ✅ FastAPI endpoints
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
             const HEALTH_CHECK_URL = 'https://auto-digital.onrender.com/health';
 
@@ -920,6 +955,7 @@
             let isLoggedIn = false;
             let activityLogs = [];
             let healthCheckInterval = null;
+            let clockInterval = null;
 
             // ─── DOM Elements ──────────────────────────────────────────
             const loginScreen = document.getElementById('loginScreen');
@@ -935,7 +971,6 @@
             // Health status elements
             const healthDot = document.getElementById('healthDot');
             const healthLabel = document.getElementById('healthLabel');
-            const healthDetails = document.getElementById('healthDetails');
             const healthPing = document.getElementById('healthPing');
             const healthVersion = document.getElementById('healthVersion');
             const healthTimestamp = document.getElementById('healthTimestamp');
@@ -1026,6 +1061,10 @@
                         clearInterval(healthCheckInterval);
                         healthCheckInterval = null;
                     }
+                    if (clockInterval) {
+                        clearInterval(clockInterval);
+                        clockInterval = null;
+                    }
                     return { success: true };
                 } catch (error) {
                     console.error('❌ Sign out error:', error);
@@ -1037,22 +1076,24 @@
                 try {
                     const client = getSupabaseClient();
                     if (!client) return false;
+                    // Check admin_users table
                     const { data, error } = await client
                         .from('admin_users')
                         .select('role')
                         .eq('user_id', userId || currentUser?.id)
                         .single();
-                    if (error) {
-                        // If admin_users table doesn't exist, check is_admin in profiles
-                        const { data: profile, error: profileError } = await client
-                            .from('profiles')
-                            .select('is_admin')
-                            .eq('user_id', userId || currentUser?.id)
-                            .single();
-                        if (profileError) return false;
-                        return profile?.is_admin === true;
+                    if (!error && data) return true;
+                    
+                    // Fallback: check profiles.is_admin
+                    const { data: profile, error: profileError } = await client
+                        .from('profiles')
+                        .select('is_admin')
+                        .eq('user_id', userId || currentUser?.id)
+                        .single();
+                    if (!profileError && profile) {
+                        return profile.is_admin === true;
                     }
-                    return !!data;
+                    return false;
                 } catch (error) {
                     console.warn('⚠️ Admin check error:', error.message);
                     return false;
@@ -1108,15 +1149,24 @@
 
             // ─── Fuel Prices ────────────────────────────────────────────
             async function getFuelPrices() {
-                const result = await query('fuel_prices');
-                if (result.success && result.data) {
-                    const prices = {};
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) throw new Error('Supabase not initialized');
+                    const { data, error } = await client
+                        .from('fuel_prices')
+                        .select('*')
+                        .order('created_at', { ascending: false });
+                    if (error) throw error;
+                    
+                    // Get latest per fuel type
                     const latest = {};
-                    result.data.forEach(item => {
+                    data.forEach(item => {
                         if (!latest[item.fuel_type] || new Date(item.created_at) > new Date(latest[item.fuel_type].created_at)) {
                             latest[item.fuel_type] = item;
                         }
                     });
+                    
+                    const prices = {};
                     Object.keys(latest).forEach(key => {
                         prices[key] = {
                             price: latest[key].price,
@@ -1125,8 +1175,10 @@
                         };
                     });
                     return { success: true, data: prices };
+                } catch (error) {
+                    console.error('❌ Get fuel prices error:', error);
+                    return { success: false, error: error.message };
                 }
-                return result;
             }
 
             async function updateFuelPrice(fuelType, price) {
@@ -1139,21 +1191,31 @@
 
             // ─── Service Prices ─────────────────────────────────────────
             async function getServicePrices() {
-                const result = await query('service_prices');
-                if (result.success && result.data) {
-                    const prices = {};
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) throw new Error('Supabase not initialized');
+                    const { data, error } = await client
+                        .from('service_prices')
+                        .select('*')
+                        .order('created_at', { ascending: false });
+                    if (error) throw error;
+                    
                     const latest = {};
-                    result.data.forEach(item => {
+                    data.forEach(item => {
                         if (!latest[item.service_type] || new Date(item.created_at) > new Date(latest[item.service_type].created_at)) {
                             latest[item.service_type] = item;
                         }
                     });
+                    
+                    const prices = {};
                     Object.keys(latest).forEach(key => {
                         prices[key] = latest[key].price;
                     });
                     return { success: true, data: prices };
+                } catch (error) {
+                    console.error('❌ Get service prices error:', error);
+                    return { success: false, error: error.message };
                 }
-                return result;
             }
 
             async function updateServicePrice(serviceType, price) {
@@ -1175,6 +1237,7 @@
                         .eq('key', 'engine_settings')
                         .single();
                     if (error) {
+                        // Return defaults if not found
                         return { success: true, data: {
                             depreciation_rate: 0.15,
                             insurance_rate: 0.045,
@@ -1210,7 +1273,7 @@
                         .from('admin_logs')
                         .insert({
                             action: action,
-                            username: username,
+                            username: username || currentUser?.email || 'system',
                             created_at: new Date().toISOString()
                         });
                     if (error) throw error;
@@ -1230,19 +1293,15 @@
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
-                    const { count: vehicles } = await client
-                        .from('vehicle_variants')
-                        .select('*', { count: 'exact', head: true });
-                    const { count: reports } = await client
-                        .from('mileage_reports')
-                        .select('*', { count: 'exact', head: true });
-                    const { count: users } = await client
-                        .from('profiles')
-                        .select('*', { count: 'exact', head: true });
-                    const { data: logs } = await client
-                        .from('admin_logs')
-                        .select('*', { count: 'exact' })
-                        .gte('created_at', new Date(new Date().setHours(0,0,0,0)).toISOString());
+                    
+                    // Get counts from multiple tables
+                    const [{ count: vehicles }, { count: reports }, { count: users }, { count: apiCalls }] = await Promise.all([
+                        client.from('vehicle_variants').select('*', { count: 'exact', head: true }),
+                        client.from('mileage_reports').select('*', { count: 'exact', head: true }),
+                        client.from('profiles').select('*', { count: 'exact', head: true }),
+                        client.from('api_logs').select('*', { count: 'exact', head: true })
+                            .gte('created_at', new Date(new Date().setHours(0,0,0,0)).toISOString())
+                    ]);
                     
                     return {
                         success: true,
@@ -1250,7 +1309,7 @@
                             vehicles: vehicles || 0,
                             reports: reports || 0,
                             users: users || 0,
-                            apiCalls: logs?.length || 0
+                            apiCalls: apiCalls || 0
                         }
                     };
                 } catch (error) {
@@ -1269,7 +1328,7 @@
                     try {
                         const client = getSupabaseClient();
                         if (client) {
-                            const { data, error } = await client
+                            const { error } = await client
                                 .from('vehicle_makes')
                                 .select('count', { count: 'exact', head: true })
                                 .limit(1);
@@ -1279,7 +1338,7 @@
                         supabaseOk = false;
                     }
 
-                    // ✅ FIXED: Check FastAPI at the correct health endpoint
+                    // Check FastAPI
                     let fastapiOk = false;
                     let fastapiVersion = '—';
                     let fastapiPing = 0;
@@ -1296,14 +1355,13 @@
                         if (fastapiOk) {
                             const data = await response.json();
                             fastapiVersion = data.version || data.status || 'v1.0.0';
-                            fastapiPing = Math.round(endTime - startTime);
                         }
                     } catch (e) {
                         fastapiOk = false;
                     }
 
                     const endTime = performance.now();
-                    const pingMs = fastapiOk ? Math.round(endTime - startTime) : 0;
+                    const pingMs = Math.round(endTime - startTime);
 
                     // Update UI
                     updateHealthUI(supabaseOk, fastapiOk, pingMs, fastapiVersion);
@@ -1315,7 +1373,6 @@
             }
 
             function updateHealthUI(supabaseOk, fastapiOk, pingMs, version) {
-                // Overall status
                 const isOnline = supabaseOk && fastapiOk;
                 const isDegraded = supabaseOk !== fastapiOk;
                 const isOffline = !supabaseOk && !fastapiOk;
@@ -1336,30 +1393,20 @@
                 healthLabel.className = `health-label ${statusClass}`;
                 healthLabel.textContent = statusText;
 
-                // Supabase status
                 supabaseDot.className = `status-dot ${supabaseOk ? 'pass' : 'fail'}`;
                 supabaseStatus.textContent = supabaseOk ? '✅ Online' : '❌ Offline';
 
-                // FastAPI status
                 fastapiDot.className = `status-dot ${fastapiOk ? 'pass' : 'fail'}`;
                 fastapiStatus.textContent = fastapiOk ? '✅ Online' : '❌ Offline';
 
-                // Ping
                 healthPing.textContent = pingMs > 0 ? pingMs : '—';
-
-                // Version
                 healthVersion.textContent = version || '—';
-
-                // Timestamp
                 healthTimestamp.textContent = `Last check: ${new Date().toLocaleTimeString()}`;
 
-                // Update connection status
                 connectionStatus.textContent = isOnline ? '● All systems operational' : 
-                                             isDegraded ? '● Degraded' : '● Offline';
+                                               isDegraded ? '● Degraded' : '● Offline';
                 connectionStatus.style.color = isOnline ? 'var(--success)' : 
                                               isDegraded ? 'var(--warning)' : 'var(--danger)';
-
-                return { supabaseOk, fastapiOk, isOnline, isDegraded, isOffline };
             }
 
             // ─── Toast ──────────────────────────────────────────────────
@@ -1373,6 +1420,24 @@
                 setTimeout(() => toast.remove(), 4000);
             }
 
+            // ─── Clock ──────────────────────────────────────────────────
+            function updateClock() {
+                const now = new Date();
+                const el = document.getElementById('currentTime');
+                if (el) {
+                    el.textContent = now.toLocaleString('en-KE', {
+                        weekday: 'short',
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        timeZone: 'Africa/Nairobi'
+                    });
+                }
+            }
+
             // ─── Check Auth ────────────────────────────────────────────
             async function checkAuth() {
                 try {
@@ -1384,8 +1449,10 @@
                             return false;
                         }
                         isLoggedIn = true;
-                        document.getElementById('adminName').textContent = user.user_metadata?.full_name || 'Administrator';
-                        document.getElementById('adminAvatar').textContent = (user.user_metadata?.full_name || 'A')[0].toUpperCase();
+                        const name = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Administrator';
+                        document.getElementById('adminName').textContent = name;
+                        document.getElementById('welcomeName').textContent = name;
+                        document.getElementById('adminAvatar').textContent = name[0].toUpperCase();
                         return true;
                     }
                     return false;
@@ -1421,14 +1488,23 @@
                     loginError.classList.remove('show');
                     loginScreen.classList.add('hidden');
                     dashboardScreen.classList.remove('hidden');
-                    document.getElementById('adminName').textContent = result.user.user_metadata?.full_name || email;
-                    document.getElementById('adminAvatar').textContent = (result.user.user_metadata?.full_name || email)[0].toUpperCase();
+                    
+                    const name = result.user.user_metadata?.full_name || email.split('@')[0];
+                    document.getElementById('adminName').textContent = name;
+                    document.getElementById('welcomeName').textContent = name;
+                    document.getElementById('adminAvatar').textContent = name[0].toUpperCase();
+                    
                     showToast('✅ Login successful!', 'success');
                     
                     // Start health check
                     await checkHealth();
                     if (healthCheckInterval) clearInterval(healthCheckInterval);
                     healthCheckInterval = setInterval(checkHealth, 30000);
+                    
+                    // Start clock
+                    updateClock();
+                    if (clockInterval) clearInterval(clockInterval);
+                    clockInterval = setInterval(updateClock, 1000);
                     
                     await loadDashboardData();
 
@@ -1453,6 +1529,10 @@
                     clearInterval(healthCheckInterval);
                     healthCheckInterval = null;
                 }
+                if (clockInterval) {
+                    clearInterval(clockInterval);
+                    clockInterval = null;
+                }
                 showToast('👋 Logged out', 'info');
             });
 
@@ -1475,7 +1555,7 @@
                     if (result.success) {
                         const stats = result.data;
                         document.getElementById('statValuations').textContent = (stats.vehicles || 0).toLocaleString();
-                        document.getElementById('statRevenue').textContent = 'KES ' + ((stats.reports * 100) || 0).toLocaleString();
+                        document.getElementById('statRevenue').textContent = 'KES ' + ((stats.reports || 0) * 150).toLocaleString();
                         document.getElementById('statUsers').textContent = (stats.users || 0).toLocaleString();
                         document.getElementById('statApiCalls').textContent = (stats.apiCalls || 0).toLocaleString();
                     }
@@ -1488,7 +1568,7 @@
             async function fetchFuelPrices() {
                 try {
                     const result = await getFuelPrices();
-                    if (result.success && result.data) {
+                    if (result.success && result.data && Object.keys(result.data).length > 0) {
                         renderFuelPrices(result.data);
                         document.getElementById('fuelStatus').textContent = '● Connected';
                         document.getElementById('fuelStatus').className = 'badge badge-success';
@@ -1501,7 +1581,7 @@
                     console.warn('⚠️ Fuel fetch error:', error.message);
                     renderFallbackFuelPrices();
                     document.getElementById('fuelStatus').textContent = '● Offline';
-                    document.getElementById('fuelStatus').className = 'badge badge-warning';
+                    document.getElementById('fuelStatus').className = 'badge badge-danger';
                 }
             }
 
@@ -1545,7 +1625,7 @@
                             <div class="fuel-date">Updated: <span id="fuel${f.key.charAt(0).toUpperCase() + f.key.slice(1)}Date">${date}</span></div>
                             <div class="fuel-edit">
                                 <input type="number" id="edit${f.key.charAt(0).toUpperCase() + f.key.slice(1)}" step="0.5" placeholder="Price" value="${price}" />
-                                <button class="update-btn" onclick="updateFuel('${f.key}')">Update</button>
+                                <button class="update-btn" onclick="window.updateFuel('${f.key}')">Update</button>
                             </div>
                         </div>
                     `;
@@ -1586,7 +1666,7 @@
             async function fetchServicePrices() {
                 try {
                     const result = await getServicePrices();
-                    if (result.success && result.data) {
+                    if (result.success && result.data && Object.keys(result.data).length > 0) {
                         renderServicePrices(result.data);
                     } else {
                         renderFallbackServicePrices();
@@ -1623,7 +1703,7 @@
                             <div class="service-price" id="price${s.key.charAt(0).toUpperCase() + s.key.slice(1)}">KES ${price}</div>
                             <div class="service-edit">
                                 <input type="number" id="edit${s.key.charAt(0).toUpperCase() + s.key.slice(1)}" step="10" placeholder="Price" value="${price}" />
-                                <button class="update-btn" onclick="updateService('${s.key}')">Update</button>
+                                <button class="update-btn" onclick="window.updateService('${s.key}')">Update</button>
                             </div>
                         </div>
                     `;
@@ -1767,19 +1847,6 @@
                 }
             }
 
-            async function addAdminLog(action, user = 'system') {
-                const time = new Date().toLocaleTimeString();
-                activityLogs.unshift({ action, user, time });
-                renderLogs();
-                localStorage.setItem('auto_d_logs', JSON.stringify(activityLogs.slice(0, 50)));
-
-                try {
-                    await addAdminLog(action, user);
-                } catch (error) {
-                    console.warn('Could not save log to Supabase:', error);
-                }
-            }
-
             function renderLogs() {
                 const container = document.getElementById('activityLog');
                 if (activityLogs.length === 0) {
@@ -1874,6 +1941,29 @@
                 }
             };
 
+            window.exportCSV = function() {
+                try {
+                    const headers = ['Action', 'User', 'Timestamp'];
+                    const rows = activityLogs.map(log => [
+                        log.action,
+                        log.user,
+                        new Date().toISOString()
+                    ]);
+                    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+                    const blob = new Blob([csv], { type: 'text/csv' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `auto-d-logs-${new Date().toISOString().split('T')[0]}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    addAdminLog('📊 Logs exported as CSV', 'admin');
+                    showToast('✅ CSV exported!', 'success');
+                } catch (error) {
+                    showToast('❌ Export failed: ' + error.message, 'error');
+                }
+            };
+
             // ─── Keyboard Shortcuts ────────────────────────────────────
             document.addEventListener('keydown', function(e) {
                 if (e.ctrlKey && e.key === 'l' && isLoggedIn) {
@@ -1888,6 +1978,10 @@
                     e.preventDefault();
                     checkHealth();
                     showToast('🔄 Health check triggered', 'info');
+                }
+                if (e.ctrlKey && e.key === 's' && isLoggedIn) {
+                    e.preventDefault();
+                    syncAll();
                 }
             });
 
@@ -1910,12 +2004,17 @@
                     await checkHealth();
                     healthCheckInterval = setInterval(checkHealth, 30000);
                     
+                    // Start clock
+                    updateClock();
+                    clockInterval = setInterval(updateClock, 1000);
+                    
                     await loadDashboardData();
                 } else {
                     loginScreen.classList.remove('hidden');
                     dashboardScreen.classList.add('hidden');
                 }
 
+                // Listen for auth changes
                 if (supabaseClient) {
                     supabaseClient.auth.onAuthStateChange((event, session) => {
                         if (event === 'SIGNED_OUT') {
@@ -1927,6 +2026,11 @@
                                 clearInterval(healthCheckInterval);
                                 healthCheckInterval = null;
                             }
+                            if (clockInterval) {
+                                clearInterval(clockInterval);
+                                clockInterval = null;
+                            }
+                            showToast('👋 Session ended', 'info');
                         }
                     });
                 }
