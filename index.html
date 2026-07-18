@@ -223,15 +223,6 @@
             color: #0a0c15;
         }
 
-        .nav-links .btn-nav.logout {
-            background: linear-gradient(135deg, #ef4444, #dc2626);
-            color: #fff;
-        }
-
-        .nav-links .btn-nav.logout:hover {
-            box-shadow: 0 8px 30px rgba(239, 68, 68, 0.3);
-        }
-
         .mobile-toggle {
             display: none;
             background: none;
@@ -698,6 +689,12 @@
 
         .status-badge.online { background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); }
         .status-badge.offline { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+        .status-badge.checking { background: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); animation: pulse 1.5s ease-in-out infinite; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
 
         @media (prefers-reduced-motion: reduce) {
             html { scroll-behavior: auto; }
@@ -772,7 +769,7 @@
     <a href="/" class="logo">
         <span aria-hidden="true">🚗</span>
         Auto-D Kenya
-        <span class="status-badge online" id="apiStatus">● Online</span>
+        <span class="status-badge checking" id="apiStatus">● Checking...</span>
     </a>
 
     <button class="mobile-toggle" id="mobileToggle" aria-label="Toggle navigation menu" aria-expanded="false">
@@ -784,7 +781,8 @@
         <li><a href="/instant-value.html">Instant Value</a></li>
         <li><a href="/mileage.html">Mileage Cost</a></li>
         <li><a href="/ownership-cost.html">Ownership Cost</a></li>
-        <li><a href="#" class="btn-nav" id="authBtn">Log In</a></li>
+        <li><a href="/login.html" class="btn-nav" id="loginBtn">Log In</a></li>
+        <li><a href="/signup.html" id="signupBtn">Get Started</a></li>
     </ul>
 </nav>
 
@@ -916,7 +914,7 @@
         &copy; <span id="year">2026</span> <strong>Auto-D Kenya</strong>. All rights reserved.
         <span style="color: #64748b; font-size: 11px; margin-left: 12px;">
             <span id="apiVersion">v4.0.0</span> • 
-            <span id="apiStatusText">● Online</span>
+            <span id="apiStatusText">● Checking...</span>
         </span>
     </div>
     <div class="social-links">
@@ -941,7 +939,7 @@
         'use strict';
 
         // ─── CONFIGURATION ──────────────────────────────────────────
-        // FastAPI Backend URL
+        // 🔥 IMPORTANT: Update this to match your deployed backend URL
         const API_BASE_URL = 'https://auto-digital.onrender.com/api/v1';
         
         // Supabase Configuration
@@ -957,7 +955,8 @@
         const apiStatusText = document.getElementById('apiStatusText');
         const apiVersionEl = document.getElementById('apiVersion');
         const yearEl = document.getElementById('year');
-        const authBtn = document.getElementById('authBtn');
+        const loginBtn = document.getElementById('loginBtn');
+        const signupBtn = document.getElementById('signupBtn');
         const samplePrice = document.getElementById('samplePrice');
         const statVehicles = document.getElementById('statVehicles');
         const statUsers = document.getElementById('statUsers');
@@ -1008,39 +1007,51 @@
             }
         }
 
+        function updateAuthUI() {
+            if (!loginBtn) return;
+            if (currentUser) {
+                loginBtn.textContent = 'Dashboard';
+                loginBtn.href = '/dashboard.html';
+                if (signupBtn) {
+                    signupBtn.textContent = 'Logout';
+                    signupBtn.href = '#';
+                    signupBtn.onclick = function(e) {
+                        e.preventDefault();
+                        signOut();
+                    };
+                }
+            } else {
+                loginBtn.textContent = 'Log In';
+                loginBtn.href = '/login.html';
+                if (signupBtn) {
+                    signupBtn.textContent = 'Get Started';
+                    signupBtn.href = '/signup.html';
+                    signupBtn.onclick = null;
+                }
+            }
+        }
+
         async function signOut() {
             try {
-                if (!supabaseClient) initSupabase();
                 if (supabaseClient) {
                     await supabaseClient.auth.signOut();
                 }
                 currentUser = null;
                 localStorage.removeItem('auto_d_user');
+                localStorage.removeItem('access_token');
                 updateAuthUI();
                 showToast('👋 Logged out successfully', 'success');
-                return { success: true };
+                window.location.href = '/';
             } catch (error) {
                 console.error('❌ Sign out error:', error);
-                return { success: false, error: error.message };
-            }
-        }
-
-        function updateAuthUI() {
-            if (!authBtn) return;
-            if (currentUser) {
-                authBtn.textContent = '👤 Dashboard';
-                authBtn.href = '/dashboard.html';
-                authBtn.className = 'btn-nav';
-            } else {
-                authBtn.textContent = 'Log In';
-                authBtn.href = '/login.html';
-                authBtn.className = 'btn-nav';
+                showToast('Error signing out', 'error');
             }
         }
 
         // ─── API CALLS ──────────────────────────────────────────────────
         async function checkApiHealth() {
             try {
+                console.log(`🔍 Checking API health at: ${API_BASE_URL}/health`);
                 const response = await fetch(`${API_BASE_URL}/health`, {
                     method: 'GET',
                     headers: { 'Content-Type': 'application/json' }
@@ -1048,13 +1059,18 @@
 
                 if (response.ok) {
                     const data = await response.json();
+                    console.log('✅ API Health check passed:', data);
                     updateStatus(true, data);
+                    return true;
                 } else {
+                    console.warn('⚠️ API Health check failed with status:', response.status);
                     updateStatus(false);
+                    return false;
                 }
             } catch (error) {
-                console.warn('API health check failed:', error);
+                console.error('❌ API health check error:', error);
                 updateStatus(false);
+                return false;
             }
         }
 
@@ -1080,7 +1096,7 @@
 
         async function fetchSampleValuation() {
             try {
-                // Try to get a sample valuation from the API
+                console.log('🔍 Fetching sample valuation...');
                 const response = await fetch(`${API_BASE_URL}/valuation/makes`, {
                     method: 'GET',
                     headers: {
@@ -1092,64 +1108,32 @@
                 if (response.ok) {
                     const makes = await response.json();
                     if (makes && makes.length > 0) {
-                        // Get a sample variant to show
-                        const modelsResponse = await fetch(`${API_BASE_URL}/valuation/models/${makes[0].id}`, {
+                        // Update stats with real data
+                        const statsResponse = await fetch(`${API_BASE_URL}/admin/dashboard`, {
+                            method: 'GET',
                             headers: {
+                                'Content-Type': 'application/json',
                                 'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
                             }
                         });
-                        if (modelsResponse.ok) {
-                            const models = await modelsResponse.json();
-                            if (models && models.length > 0) {
-                                const variantsResponse = await fetch(`${API_BASE_URL}/valuation/variants/${models[0].id}`, {
-                                    headers: {
-                                        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
-                                    }
-                                });
-                                if (variantsResponse.ok) {
-                                    const variants = await variantsResponse.json();
-                                    if (variants && variants.length > 0) {
-                                        const variant = variants[0];
-                                        if (samplePrice && variant.market_value) {
-                                            samplePrice.textContent = `KES ${Number(variant.market_value).toLocaleString()}`;
-                                        }
-                                    }
-                                }
+
+                        if (statsResponse.ok) {
+                            const stats = await statsResponse.json();
+                            if (statVehicles && stats.total_vehicles) {
+                                statVehicles.textContent = stats.total_vehicles > 1000 
+                                    ? `${(stats.total_vehicles / 1000).toFixed(1)}K+` 
+                                    : `${stats.total_vehicles}+`;
+                            }
+                            if (statUsers && stats.total_users) {
+                                statUsers.textContent = stats.total_users > 1000 
+                                    ? `${(stats.total_users / 1000).toFixed(1)}K` 
+                                    : `${stats.total_users}`;
                             }
                         }
                     }
                 }
             } catch (error) {
                 console.debug('Sample data fetch skipped:', error);
-            }
-        }
-
-        async function fetchStats() {
-            try {
-                // Try to get admin dashboard stats
-                const response = await fetch(`${API_BASE_URL}/admin/dashboard`, {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
-                    }
-                });
-
-                if (response.ok) {
-                    const stats = await response.json();
-                    if (statVehicles && stats.total_vehicles) {
-                        statVehicles.textContent = stats.total_vehicles > 1000 
-                            ? `${(stats.total_vehicles / 1000).toFixed(1)}K+` 
-                            : `${stats.total_vehicles}+`;
-                    }
-                    if (statUsers && stats.total_users) {
-                        statUsers.textContent = stats.total_users > 1000 
-                            ? `${(stats.total_users / 1000).toFixed(1)}K` 
-                            : `${stats.total_users}`;
-                    }
-                }
-            } catch (error) {
-                console.debug('Stats fetch skipped:', error);
             }
         }
 
@@ -1263,15 +1247,22 @@
             await getCurrentUser();
             updateAuthUI();
 
-            // Check API health
-            await checkApiHealth();
+            // Check API health - this will show connection status
+            const isHealthy = await checkApiHealth();
 
-            // Fetch sample data
-            await fetchSampleValuation();
-            await fetchStats();
+            if (isHealthy) {
+                // Only fetch data if API is healthy
+                await fetchSampleValuation();
+            } else {
+                console.warn('⚠️ API is not healthy, showing fallback data');
+                apiStatus.textContent = '⚠️ Offline';
+                apiStatus.className = 'status-badge offline';
+                apiStatusText.textContent = '⚠️ Offline';
+                showToast('⚠️ Cannot connect to backend. Please try again later.', 'warning');
+            }
 
-            // Auto-refresh health check every 60 seconds
-            setInterval(checkApiHealth, 60000);
+            // Auto-refresh health check every 30 seconds
+            setInterval(checkApiHealth, 30000);
 
             // Expose API for debugging
             window.__AUTOD = {
