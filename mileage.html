@@ -947,7 +947,7 @@
 
                 <div class="form-group">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-                        <label for="variantSelect" style="margin-bottom:0;">Engine / Class</label>
+                        <label for="variantSelect" style="margin-bottom:0;">Vehicle Variant</label>
                         <div class="all-classes-toggle">
                             <label for="showAllClasses">
                                 <input type="checkbox" id="showAllClasses" checked />
@@ -1223,7 +1223,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
-        // Fixed: Engine/Class population, variant-level fuel filtering,
+        // FIXED: Engine/Class population, variant-level fuel filtering,
         // fuel-consumption reporting, health-check timeout/UI, price
         // display, selection persistence, XSS escaping on route chips
         // ═══════════════════════════════════════════════════════════════
@@ -1232,14 +1232,14 @@
             'use strict';
 
             // ─── Configuration ──────────────────────────────────────────
-            const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
-            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
-            
-            const API_BASE = 'https://auto-digital.onrender.com/api/v1';
-            const HEALTH_CHECK_URL = 'https://auto-digital.onrender.com/health';
-            // Render free-tier services cold-start after idling; give the
-            // health check enough time to avoid false "offline" reports.
-            const HEALTH_CHECK_TIMEOUT_MS = 20000;
+            // Configuration moved to a single object for easier maintenance
+            const CONFIG = {
+                SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
+                SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
+                API_BASE: 'https://auto-digital.onrender.com/api/v1',
+                HEALTH_CHECK_URL: 'https://auto-digital.onrender.com/health',
+                HEALTH_CHECK_TIMEOUT_MS: 20000
+            };
 
             // ─── DOM References ─────────────────────────────────────────
             const elements = {
@@ -1355,10 +1355,10 @@
                     elements.healthDot.className = 'status-dot checking';
                     elements.healthStatusText.textContent = 'Checking backend...';
                     
-                    const response = await fetch(HEALTH_CHECK_URL, {
+                    const response = await fetch(CONFIG.HEALTH_CHECK_URL, {
                         method: 'GET',
                         headers: { 'Accept': 'application/json' },
-                        signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS)
+                        signal: AbortSignal.timeout(CONFIG.HEALTH_CHECK_TIMEOUT_MS)
                     });
                     
                     if (response.ok) {
@@ -1390,7 +1390,7 @@
             async function initSupabase() {
                 try {
                     const { createClient } = supabase;
-                    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
                     console.log('✅ Supabase client initialized');
                     
                     const { data: { session } } = await supabaseClient.auth.getSession();
@@ -1432,13 +1432,7 @@
 
                     if (modelsError) throw modelsError;
 
-                    // Fetch variants with their models.
-                    // This table is OPTIONAL — if it doesn't exist yet (or the
-                    // query errors for any other reason), we must NOT let it
-                    // take down categories/makes/models, which already loaded
-                    // fine above. Isolate it in its own try/catch and fall
-                    // through to building variants straight from vehicle_models
-                    // instead (see the "no variants found" branch below).
+                    // Fetch variants with their models
                     let variantsData = [];
                     try {
                         const { data, error: variantsError } = await supabaseClient
@@ -1462,6 +1456,7 @@
                     // Build variants by category
                     const varMap = {};
                     
+                    // Process variants from vehicle_variants table
                     variantsData.forEach(variant => {
                         const model = variant.vehicle_models;
                         if (!model) return;
@@ -1474,7 +1469,6 @@
                         
                         if (!varMap[categoryId]) varMap[categoryId] = [];
                         
-                        // Build variant object with all required fields
                         varMap[categoryId].push({
                             id: variant.id,
                             label: variant.label || `${make.name} ${model.name}`,
@@ -1501,13 +1495,12 @@
                             engine_code: variant.engine_code || null,
                             engine_size_cc: variant.engine_size_cc || null,
                             drive_type: variant.drive_type || null,
-                            // Store make and model names for display
                             make_name: make.name,
                             model_name: model.name
                         });
                     });
 
-                    // If no variants found, try to build from models
+                    // If no variants found, build from models
                     if (Object.keys(varMap).length === 0) {
                         console.log('No variants found, building from models...');
                         modelsData.forEach(model => {
@@ -1558,10 +1551,6 @@
             }
 
             // ─── Fallback Data ──────────────────────────────────────────
-            // Fallback ids are proper UUIDs (not "v1", "v2a", etc.) so that
-            // if the backend IS reachable but Supabase isn't, a calculate
-            // request built from fallback data doesn't fail UUID validation
-            // server-side.
             const FALLBACK_DATA = {
                 categories: [
                     { id: 'fb-cat-car', name: 'Car', fuel_type: 'all' },
@@ -1838,9 +1827,6 @@
                     insuranceTrip,
                     depreciationTrip,
                     fuelType,
-                    // Effective km/L used for the calculation (post driving-style
-                    // and transmission adjustment) — previously omitted, which
-                    // made the "km/L" environmental stat always show 0.
                     fuelConsumption: adjustedFuelConsumption,
                     vehicleName: variant.label,
                     fuelTypeDisplay: variant.fuel_type || 'Petrol',
@@ -2097,8 +2083,7 @@
                 elements.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
 
                 try {
-                    // Try to use backend if available and we're not working
-                    // from synthetic fallback ids (those won't validate server-side).
+                    // Try to use backend if available and not using fallback data
                     if (isBackendAvailable && !usingFallbackData) {
                         const payload = {
                             variant_id: variant.id,
@@ -2115,7 +2100,7 @@
                         };
 
                         try {
-                            const response = await fetch(`${API_BASE}/mileage/calculate`, {
+                            const response = await fetch(`${CONFIG.API_BASE}/mileage/calculate`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify(payload)
@@ -2166,16 +2151,13 @@
 
             // ─── UI Population ──────────────────────────────────────────
             function populateCategories() {
-                // Show a category if it's "all"-fuel, or if ANY of its variants
-                // matches the active filter (fixed: category-level fuel_type was
-                // too coarse and hid categories that legitimately contained
-                // matching variants of mixed fuel types).
                 const showAll = currentFuelFilter === 'all';
                 const visible = showAll ? categories : categories.filter(c => {
                     const variants = allVariantsByCategory[c.id] || [];
                     return variants.some(v => (v.fuel_type || '').toLowerCase() === currentFuelFilter.toLowerCase());
                 });
 
+                // Clear and populate category dropdown
                 elements.categorySelect.innerHTML = '<option value="">Select category...</option>';
                 if (!visible || visible.length === 0) {
                     elements.categorySelect.innerHTML = '<option value="">No categories match</option>';
@@ -2196,9 +2178,7 @@
 
             function applyVariantFilter() {
                 const showAll = elements.showAllClasses.checked;
-                // Apply the fuel filter at the variant level too, so switching
-                // to e.g. "Diesel" only shows diesel variants within a category,
-                // not every variant of a mixed-fuel category.
+                // Apply fuel filter at variant level
                 let base = allVariants;
                 if (currentFuelFilter !== 'all') {
                     base = base.filter(v => (v.fuel_type || '').toLowerCase() === currentFuelFilter.toLowerCase());
@@ -2208,17 +2188,21 @@
             }
 
             function populateVariants() {
-                // Preserve the user's current selection across re-filters if
-                // it's still valid, instead of always forcing the first item.
                 const previousSelection = elements.variantSelect.value;
 
+                // Clear dropdown
                 elements.variantSelect.innerHTML = '';
+                
                 if (!filteredVariants || filteredVariants.length === 0) {
                     elements.variantSelect.innerHTML = '<option value="">No vehicles match</option>';
                     elements.variantSelect.disabled = true;
                     elements.calculateBtn.disabled = true;
                     return;
                 }
+                
+                // Sort variants alphabetically by label
+                filteredVariants.sort((a, b) => (a.label || '').localeCompare(b.label || ''));
+                
                 filteredVariants.forEach(v => {
                     const opt = document.createElement('option');
                     opt.value = v.id;
@@ -2226,9 +2210,11 @@
                     opt.textContent = displayName;
                     elements.variantSelect.appendChild(opt);
                 });
+                
                 elements.variantSelect.disabled = false;
                 elements.calculateBtn.disabled = false;
 
+                // Restore previous selection if still valid
                 const stillValid = filteredVariants.some(v => v.id === previousSelection);
                 elements.variantSelect.value = stillValid ? previousSelection : filteredVariants[0].id;
                 syncTransmissionFromVariant(currentVariant());
@@ -2252,7 +2238,6 @@
                     const chip = document.createElement('button');
                     chip.className = 'chip';
                     chip.dataset.km = r.km;
-                    // Escape city names — they can come from the database.
                     chip.innerHTML = `${escapeHTML(r.from_city || '?')} → ${escapeHTML(r.to_city || '?')} <span class="km-badge">${escapeHTML(String(r.km))}km</span>`;
                     elements.routeChips.appendChild(chip);
                 });
@@ -2287,9 +2272,6 @@
                     btn.setAttribute('aria-pressed', 'true');
                     currentFuelFilter = btn.dataset.fuel;
                     populateCategories();
-                    // Re-derive variants for the (possibly unchanged) current
-                    // category under the new fuel filter, instead of wiping
-                    // them out entirely.
                     const catId = elements.categorySelect.value;
                     allVariants = catId ? (allVariantsByCategory[catId] || []) : [];
                     applyVariantFilter();
