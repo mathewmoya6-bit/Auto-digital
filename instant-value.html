@@ -933,37 +933,26 @@
 
             console.log('📡 Calling valuation API:', `${API_BASE}/valuation/calculate`);
             
-            // Try both with and without /api/v1 prefix
-            const endpoints = [
-                `${API_BASE}/valuation/calculate`,
-                `${API_BASE.replace('/api/v1', '')}/api/v1/valuation/calculate`
-            ];
-            
-            let lastError = null;
-            for (const url of endpoints) {
-                try {
-                    console.log(`📡 Trying: ${url}`);
-                    const response = await fetch(url, {
-                        method: 'POST',
-                        headers: headers,
-                        body: JSON.stringify(payload),
-                        signal: AbortSignal.timeout(15000)
-                    });
+            // ✅ CORRECT: POST method for valuation endpoint
+            const response = await fetch(`${API_BASE}/valuation/calculate`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(15000)
+            });
 
-                    if (response.ok) {
-                        return await response.json();
-                    }
-                    
-                    const errorData = await response.json().catch(() => ({}));
-                    lastError = errorData.message || errorData.detail || `HTTP ${response.status}`;
-                    console.warn(`⚠️ API call failed at ${url}:`, lastError);
+            if (!response.ok) {
+                let errorData;
+                try {
+                    errorData = await response.json();
                 } catch (e) {
-                    lastError = e.message;
-                    console.warn(`⚠️ API call error at ${url}:`, e.message);
+                    errorData = { message: `HTTP ${response.status}` };
                 }
+                console.error('❌ API Error:', errorData);
+                throw new Error(errorData.message || errorData.detail || `HTTP ${response.status}`);
             }
-            
-            throw new Error(lastError || 'Valuation failed');
+
+            return await response.json();
         }
 
         // ─── CONVERT FILE TO BASE64 ──────────────────────────────
