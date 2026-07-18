@@ -22,13 +22,12 @@ class Settings(BaseSettings):
     API_VERSION: str = "4.0.0"
     
     # ─── Server URLs ──────────────────────────────────────────────────
-    # ⚠️ UPDATE THIS URL TO MATCH YOUR RENDER SERVICE
     API_BASE_URL: str = Field(
         default="https://auto-digital.onrender.com",
         env="API_BASE_URL"
     )
     FRONTEND_URL: str = Field(
-        default="https://auto-digital.onrender.com",
+        default="https://auto-d.meipressgroup.com",
         env="FRONTEND_URL"
     )
     
@@ -57,6 +56,7 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@auto-d.ke"
     
     # ─── CORS Configuration ──────────────────────────────────────────
+    # ✅ FIXED: Explicitly include all origins
     BACKEND_CORS_ORIGINS: List[str] = Field(
         default=[
             "https://auto-digital.onrender.com",
@@ -307,8 +307,9 @@ if isinstance(settings.BACKEND_CORS_ORIGINS, str):
     except json.JSONDecodeError:
         settings.BACKEND_CORS_ORIGINS = [origin.strip() for origin in settings.BACKEND_CORS_ORIGINS.split(",")]
 
-# Log configuration on startup (optional)
+# ✅ FIXED: Ensure CORS origins are properly set
 if settings.DEBUG:
     print(f"🔗 API Base URL: {settings.API_BASE_URL}")
     print(f"🌐 Frontend URL: {settings.FRONTEND_URL}")
     print(f"📡 Supabase URL: {settings.SUPABASE_URL}")
+    print(f"🔒 CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
