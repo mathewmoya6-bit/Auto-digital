@@ -912,7 +912,7 @@
         <div class="health-banner" id="healthBanner">
             <span>
                 <span class="status-dot checking" id="healthDot"></span>
-                <span id="healthStatusText">Checking backend...</span>
+                <span id="healthStatusText">Connecting to backend...</span>
             </span>
             <span id="healthVersion" style="color:#64748b;font-size:11px;">v4.0.0</span>
         </div>
@@ -929,14 +929,7 @@
                 <div class="form-group">
                     <label>Vehicle Type</label>
                     <select id="vehicleType">
-                        <option value="small_petrol_car">🚗 Small Petrol Car</option>
-                        <option value="diesel_suv">🚙 Diesel SUV</option>
-                        <option value="pickup">🛻 Pickup</option>
-                        <option value="van">🚐 Van</option>
-                        <option value="truck">🚛 Truck</option>
-                        <option value="motorcycle">🏍️ Motorcycle</option>
-                        <option value="tricycle">🛺 Tricycle</option>
-                        <option value="electric_vehicle">⚡ Electric Vehicle</option>
+                        <option value="">-- Select Vehicle Type --</option>
                     </select>
                 </div>
 
@@ -959,6 +952,13 @@
                     <label>Model</label>
                     <select id="vehicleModel">
                         <option value="">-- Select Model --</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Variant / Trim</label>
+                    <select id="vehicleVariant">
+                        <option value="">-- Select Variant --</option>
                     </select>
                 </div>
 
@@ -986,12 +986,12 @@
 
                 <div class="form-group">
                     <label>Initial Value (KES)</label>
-                    <input type="number" id="initialValue" placeholder="e.g., 5000000" value="5000000" />
+                    <input type="number" id="initialValue" placeholder="e.g., 5000000" />
                 </div>
 
                 <div class="form-group">
                     <label>Current Market Value (KES)</label>
-                    <input type="number" id="currentValue" placeholder="e.g., 0" value="0" />
+                    <input type="number" id="currentValue" placeholder="e.g., 3500000" />
                 </div>
 
                 <div class="form-group">
@@ -1370,7 +1370,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - COST OF OWNERSHIP CALCULATOR
-        // FIXED: Makes/Models populate, Engine CC displays, all features working
+        // FIXED: Full Supabase + FastAPI Integration
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1383,20 +1383,20 @@
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
             const HEALTH_CHECK_URL = 'https://auto-digital.onrender.com/health';
 
-            // ─── Fuel Prices ──────────────────────────────────────────
-            const FUEL_PRICES = {
-                petrol: 203.47,
-                diesel: 195.67,
-                hybrid: 150.00,
-                electric: 30.00,
-                lpg: 120.00
-            };
+            // ─── State ──────────────────────────────────────────────────
+            let supabaseClient = null;
+            let isBackendAvailable = false;
+            let isNewPurchase = true;
+            let vehicleData = {};
+            let fuelPrices = {};
+            let calculationResult = null;
 
             // ─── DOM References ─────────────────────────────────────────
             const elements = {
                 vehicleType: document.getElementById('vehicleType'),
                 vehicleMake: document.getElementById('vehicleMake'),
                 vehicleModel: document.getElementById('vehicleModel'),
+                vehicleVariant: document.getElementById('vehicleVariant'),
                 vehicleYear: document.getElementById('vehicleYear'),
                 vehicleEngine: document.getElementById('vehicleEngine'),
                 vehicleFuel: document.getElementById('vehicleFuel'),
@@ -1454,29 +1454,17 @@
                 valTerm: document.getElementById('valTerm')
             };
 
-            // ─── State ──────────────────────────────────────────────────
-            let vehicleData = {};
-            let isBackendAvailable = false;
-            let supabaseClient = null;
-            let isNewPurchase = true;
-            let calculationResult = null;
-
             // ─── Helpers ─────────────────────────────────────────────────
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
 
-            function fmt(n) { return "KES " + Math.round(n).toLocaleString("en-KE"); }
+            function fmt(v) { return "KES " + Math.round(v).toLocaleString("en-KE"); }
 
             function formatCurrency(val) {
                 if (val === undefined || val === null || isNaN(val)) return '0.00';
                 return Number(val).toLocaleString('en-KE', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
                 });
-            }
-
-            function formatNumber(val) {
-                if (val === undefined || val === null || isNaN(val)) return '0';
-                return Number(val).toLocaleString('en-KE');
             }
 
             function showToast(message, type = 'info') {
@@ -1494,13 +1482,13 @@
                 try {
                     elements.healthDot.className = 'status-dot checking';
                     elements.healthStatusText.textContent = 'Checking backend...';
-                    
+
                     const response = await fetch(HEALTH_CHECK_URL, {
                         method: 'GET',
                         headers: { 'Accept': 'application/json' },
                         signal: AbortSignal.timeout(5000)
                     });
-                    
+
                     if (response.ok) {
                         const data = await response.json();
                         isBackendAvailable = true;
@@ -1511,7 +1499,7 @@
                     } else {
                         isBackendAvailable = false;
                         elements.healthDot.className = 'status-dot offline';
-                        elements.healthStatusText.textContent = '⚠️ Backend offline - using local data';
+                        elements.healthStatusText.textContent = '⚠️ Backend offline - using local calculations';
                         console.warn('⚠️ Backend not reachable');
                     }
                 } catch (error) {
@@ -1535,199 +1523,332 @@
                 }
             }
 
+            // ─── LOAD VEHICLE DATA FROM SUPABASE ──────────────────────
+            async function loadVehicleDataFromSupabase() {
+                try {
+                    console.log('📡 Loading vehicle data from Supabase...');
+
+                    // 1. Load vehicle types
+                    const { data: types, error: typesError } = await supabaseClient
+                        .from('vehicle_types')
+                        .select('*')
+                        .order('name');
+                    if (typesError) throw typesError;
+
+                    // 2. Load vehicle makes
+                    const { data: makes, error: makesError } = await supabaseClient
+                        .from('vehicle_makes')
+                        .select('*')
+                        .order('name');
+                    if (makesError) throw makesError;
+
+                    // 3. Load vehicle models
+                    const { data: models, error: modelsError } = await supabaseClient
+                        .from('vehicle_models')
+                        .select('*, vehicle_makes(*)')
+                        .order('name');
+                    if (modelsError) throw modelsError;
+
+                    // 4. Load vehicle variants
+                    const { data: variants, error: variantsError } = await supabaseClient
+                        .from('vehicle_variants')
+                        .select('*, vehicle_models(*)')
+                        .order('name');
+                    if (variantsError) throw variantsError;
+
+                    // 5. Build vehicle data structure
+                    vehicleData = {};
+                    
+                    // Group models by make
+                    const modelsByMake = {};
+                    models.forEach(model => {
+                        const makeId = model.make_id;
+                        if (!modelsByMake[makeId]) modelsByMake[makeId] = [];
+                        modelsByMake[makeId].push(model);
+                    });
+
+                    // Group variants by model
+                    const variantsByModel = {};
+                    variants.forEach(variant => {
+                        const modelId = variant.model_id;
+                        if (!variantsByModel[modelId]) variantsByModel[modelId] = [];
+                        variantsByModel[modelId].push(variant);
+                    });
+
+                    // Build the full data structure
+                    makes.forEach(make => {
+                        vehicleData[make.id] = {
+                            label: make.name,
+                            type: make.type_id,
+                            models: {}
+                        };
+                        
+                        const makeModels = modelsByMake[make.id] || [];
+                        makeModels.forEach(model => {
+                            vehicleData[make.id].models[model.id] = {
+                                label: model.name,
+                                body_type: model.body_type,
+                                class_type: model.class_type,
+                                start_year: model.start_year,
+                                end_year: model.end_year,
+                                variants: variantsByModel[model.id] || []
+                            };
+                        });
+                    });
+
+                    console.log(`✅ Loaded ${makes.length} makes, ${models.length} models, ${variants.length} variants`);
+                    return true;
+
+                } catch (error) {
+                    console.warn('⚠️ Supabase vehicle data load failed:', error.message);
+                    return false;
+                }
+            }
+
+            // ─── LOAD FUEL PRICES FROM SUPABASE ──────────────────────
+            async function loadFuelPrices() {
+                try {
+                    const { data, error } = await supabaseClient
+                        .from('fuel_prices')
+                        .select('fuel_type, price, region')
+                        .eq('region', 'nairobi')
+                        .order('effective_date', { ascending: false })
+                        .limit(5);
+
+                    if (error) throw error;
+
+                    if (data && data.length > 0) {
+                        fuelPrices = {};
+                        data.forEach(item => {
+                            fuelPrices[item.fuel_type] = item.price;
+                        });
+                        console.log('✅ Fuel prices loaded:', fuelPrices);
+                        return true;
+                    }
+                    return false;
+                } catch (error) {
+                    console.warn('⚠️ Fuel price load failed:', error.message);
+                    return false;
+                }
+            }
+
+            // ─── LOAD FROM API ─────────────────────────────────────────
+            async function loadFromAPI() {
+                try {
+                    // Try Supabase first
+                    const supabaseOk = initSupabase();
+                    if (supabaseOk) {
+                        const dataOk = await loadVehicleDataFromSupabase();
+                        const fuelOk = await loadFuelPrices();
+                        if (dataOk && fuelOk) {
+                            return true;
+                        }
+                    }
+                    return false;
+                } catch (error) {
+                    console.warn('⚠️ API load failed:', error.message);
+                    return false;
+                }
+            }
+
             // ─── FALLBACK VEHICLE DATA ──────────────────────────────────
             function getFallbackData() {
                 return {
                     toyota: {
                         label: 'Toyota',
-                        type: 'Car',
+                        type: 'car',
                         models: {
-                            corolla: { price: 2000000, fuel: 15, serviceInterval: 15000, minor: 10000, major: 35000, tyres: "195/65R15", maintenancePerKm: 6, engine_cc: 1800 },
-                            camry: { price: 3500000, fuel: 13, serviceInterval: 15000, minor: 12000, major: 40000, tyres: "215/55R17", maintenancePerKm: 8, engine_cc: 2500 },
-                            rav4: { price: 4000000, fuel: 12, serviceInterval: 15000, minor: 15000, major: 45000, tyres: "225/65R17", maintenancePerKm: 9, engine_cc: 2000 },
-                            prado: { price: 7000000, fuel: 10, serviceInterval: 10000, minor: 20000, major: 65000, tyres: "265/65R17", maintenancePerKm: 14, engine_cc: 2800 },
-                            hilux: { price: 3800000, fuel: 12, serviceInterval: 10000, minor: 15000, major: 55000, tyres: "265/70R16", maintenancePerKm: 12, engine_cc: 2800 },
-                            fortuner: { price: 4500000, fuel: 11, serviceInterval: 10000, minor: 18000, major: 60000, tyres: "265/65R17", maintenancePerKm: 13, engine_cc: 2800 }
+                            corolla: { label: 'Corolla', body_type: 'Sedan', class_type: 'Compact', variants: [
+                                { id: 'corolla-base', label: '1.8L Base', engine_cc: 1800, fuel_type: 'petrol', transmission: 'cvt', market_value: 2800000 },
+                                { id: 'corolla-le', label: '1.8L LE', engine_cc: 1800, fuel_type: 'petrol', transmission: 'cvt', market_value: 3200000 }
+                            ]},
+                            prado: { label: 'Land Cruiser Prado', body_type: 'SUV', class_type: 'Mid-size SUV', variants: [
+                                { id: 'prado-gx', label: 'GX 2.7L', engine_cc: 2694, fuel_type: 'petrol', transmission: 'automatic', market_value: 4800000 },
+                                { id: 'prado-tx', label: 'TX 3.0L Diesel', engine_cc: 2982, fuel_type: 'diesel', transmission: 'automatic', market_value: 5500000 }
+                            ]}
                         }
                     },
                     honda: {
                         label: 'Honda',
-                        type: 'Car',
+                        type: 'car',
                         models: {
-                            civic: { price: 2200000, fuel: 14, serviceInterval: 12000, minor: 12000, major: 35000, tyres: "205/55R16", maintenancePerKm: 7, engine_cc: 1800 },
-                            crv: { price: 3500000, fuel: 12, serviceInterval: 15000, minor: 15000, major: 45000, tyres: "225/65R17", maintenancePerKm: 9, engine_cc: 2000 }
+                            civic: { label: 'Civic', body_type: 'Sedan', class_type: 'Compact', variants: [
+                                { id: 'civic-base', label: '1.8L Base', engine_cc: 1800, fuel_type: 'petrol', transmission: 'automatic', market_value: 1900000 }
+                            ]}
                         }
                     },
                     nissan: {
                         label: 'Nissan',
-                        type: 'Car',
+                        type: 'car',
                         models: {
-                            xtrail: { price: 3200000, fuel: 12, serviceInterval: 15000, minor: 12000, major: 42000, tyres: "225/60R17", maintenancePerKm: 8, engine_cc: 2000 },
-                            patrol: { price: 8000000, fuel: 7, serviceInterval: 10000, minor: 20000, major: 80000, tyres: "275/65R18", maintenancePerKm: 18, engine_cc: 3000 }
-                        }
-                    },
-                    bmw: {
-                        label: 'BMW',
-                        type: 'Car',
-                        models: {
-                            '3series': { price: 3500000, fuel: 12, serviceInterval: 15000, minor: 20000, major: 60000, tyres: "225/45R17", maintenancePerKm: 12, engine_cc: 2000 },
-                            x5: { price: 7500000, fuel: 9, serviceInterval: 15000, minor: 24000, major: 75000, tyres: "275/45R20", maintenancePerKm: 16, engine_cc: 3000 }
-                        }
-                    },
-                    mercedes: {
-                        label: 'Mercedes-Benz',
-                        type: 'Car',
-                        models: {
-                            cclass: { price: 4000000, fuel: 13, serviceInterval: 15000, minor: 22000, major: 65000, tyres: "225/50R17", maintenancePerKm: 13, engine_cc: 2000 },
-                            gle: { price: 8000000, fuel: 9, serviceInterval: 15000, minor: 25000, major: 80000, tyres: "275/50R20", maintenancePerKm: 15, engine_cc: 3000 }
-                        }
-                    },
-                    isuzu: {
-                        label: 'Isuzu',
-                        type: 'Car',
-                        models: {
-                            dmax: { price: 3400000, fuel: 11, serviceInterval: 10000, minor: 14000, major: 48000, tyres: "245/70R16", maintenancePerKm: 11, engine_cc: 3000 },
-                            'mu-x': { price: 3800000, fuel: 10, serviceInterval: 10000, minor: 15000, major: 50000, tyres: "255/65R17", maintenancePerKm: 12, engine_cc: 3000 }
-                        }
-                    },
-                    mitsubishi: {
-                        label: 'Mitsubishi',
-                        type: 'Car',
-                        models: {
-                            outlander: { price: 3000000, fuel: 12, serviceInterval: 15000, minor: 12000, major: 40000, tyres: "225/60R18", maintenancePerKm: 8, engine_cc: 2400 },
-                            l200: { price: 3200000, fuel: 11, serviceInterval: 10000, minor: 15000, major: 50000, tyres: "245/70R16", maintenancePerKm: 12, engine_cc: 2400 }
+                            xtrail: { label: 'X-Trail', body_type: 'SUV', class_type: 'Compact SUV', variants: [
+                                { id: 'xtrail-base', label: '2.0L Base', engine_cc: 2000, fuel_type: 'petrol', transmission: 'automatic', market_value: 3200000 }
+                            ]}
                         }
                     },
                     subaru: {
                         label: 'Subaru',
-                        type: 'Car',
+                        type: 'car',
                         models: {
-                            forester: { price: 2800000, fuel: 11, serviceInterval: 12000, minor: 15000, major: 45000, tyres: "225/60R17", maintenancePerKm: 10, engine_cc: 2500 },
-                            outback: { price: 3500000, fuel: 10, serviceInterval: 12000, minor: 16000, major: 48000, tyres: "225/65R17", maintenancePerKm: 11, engine_cc: 2500 }
-                        }
-                    },
-                    ford: {
-                        label: 'Ford',
-                        type: 'Car',
-                        models: {
-                            ranger: { price: 3500000, fuel: 11, serviceInterval: 10000, minor: 15000, major: 50000, tyres: "265/70R17", maintenancePerKm: 12, engine_cc: 3200 },
-                            everest: { price: 4000000, fuel: 10, serviceInterval: 10000, minor: 16000, major: 55000, tyres: "265/65R18", maintenancePerKm: 13, engine_cc: 3200 }
+                            forester: { label: 'Forester', body_type: 'SUV', class_type: 'Compact SUV', variants: [
+                                { id: 'forester-base', label: '2.0L Base', engine_cc: 2000, fuel_type: 'petrol', transmission: 'automatic', market_value: 4000000 }
+                            ]}
                         }
                     }
                 };
             }
 
-            // ─── Populate Makes ────────────────────────────────────────
-            function populateMakes(data) {
+            // ─── POPULATE DROPDOWNS ───────────────────────────────────
+            function populateVehicleTypes() {
+                const select = elements.vehicleType;
+                select.innerHTML = '<option value="">-- Select Vehicle Type --</option>';
+                
+                // Get unique types from vehicle data
+                const types = new Set();
+                Object.values(vehicleData).forEach(make => {
+                    if (make.type) types.add(make.type);
+                });
+                
+                // Map type IDs to labels
+                const typeLabels = {
+                    'car': '🚗 Car',
+                    'suv': '🚙 SUV',
+                    'pickup': '🛻 Pickup',
+                    'van': '🚐 Van',
+                    'minibus': '🚐 Minibus',
+                    'motorcycle': '🏍️ Motorcycle',
+                    'tricycle': '🛺 Tricycle',
+                    'truck': '🚛 Truck'
+                };
+                
+                types.forEach(type => {
+                    const opt = document.createElement('option');
+                    opt.value = type;
+                    opt.textContent = typeLabels[type] || type.charAt(0).toUpperCase() + type.slice(1);
+                    select.appendChild(opt);
+                });
+            }
+
+            function populateMakes() {
                 const select = elements.vehicleMake;
                 select.innerHTML = '<option value="">-- Select Make --</option>';
                 
-                if (!data || Object.keys(data).length === 0) {
-                    select.innerHTML = '<option value="">No data available</option>';
-                    return;
-                }
-                
-                // Sort makes alphabetically
-                const sortedKeys = Object.keys(data).sort();
+                const sortedKeys = Object.keys(vehicleData).sort();
                 sortedKeys.forEach(key => {
-                    const option = document.createElement('option');
-                    option.value = key;
-                    option.textContent = data[key].label || key.charAt(0).toUpperCase() + key.slice(1);
-                    select.appendChild(option);
+                    const opt = document.createElement('option');
+                    opt.value = key;
+                    opt.textContent = vehicleData[key].label;
+                    select.appendChild(opt);
                 });
-                
-                // Auto-select first make if available
-                if (sortedKeys.length > 0) {
-                    select.value = sortedKeys[0];
-                    populateModels(sortedKeys[0], data);
-                }
             }
 
-            // ─── Populate Models ────────────────────────────────────────
-            function populateModels(makeKey, data) {
+            function populateModels(makeKey) {
                 const select = elements.vehicleModel;
                 select.innerHTML = '<option value="">-- Select Model --</option>';
+                const variantSelect = elements.vehicleVariant;
+                variantSelect.innerHTML = '<option value="">-- Select Variant --</option>';
                 
-                if (!makeKey || !data || !data[makeKey]) {
+                if (!makeKey || !vehicleData[makeKey]) {
                     select.innerHTML = '<option value="">Select a make first</option>';
                     return;
                 }
                 
-                const make = data[makeKey];
-                if (!make.models || Object.keys(make.models).length === 0) {
+                const make = vehicleData[makeKey];
+                const models = Object.keys(make.models).sort();
+                
+                if (models.length === 0) {
                     select.innerHTML = '<option value="">No models available</option>';
                     return;
                 }
                 
-                // Sort models alphabetically
-                const sortedModels = Object.keys(make.models).sort();
-                sortedModels.forEach(key => {
-                    const option = document.createElement('option');
-                    option.value = key;
-                    const modelName = key.charAt(0).toUpperCase() + key.slice(1).replace('_', ' ');
-                    const price = make.models[key].price ? ` (KES ${formatNumber(make.models[key].price)})` : '';
-                    option.textContent = modelName + price;
-                    select.appendChild(option);
+                models.forEach(key => {
+                    const opt = document.createElement('option');
+                    opt.value = key;
+                    opt.textContent = make.models[key].label;
+                    select.appendChild(opt);
                 });
-                
-                // Auto-select first model
-                if (sortedModels.length > 0) {
-                    select.value = sortedModels[0];
-                }
-                
-                // Update preview after models are populated
-                updateVehiclePreview();
             }
 
-            // ─── Update Vehicle Preview ──────────────────────────────
-            function updateVehiclePreview() {
-                const make = elements.vehicleMake.value;
-                const model = elements.vehicleModel.value;
-                const data = vehicleData;
+            function populateVariants(modelKey) {
+                const select = elements.vehicleVariant;
+                select.innerHTML = '<option value="">-- Select Variant --</option>';
                 
-                if (make && model && data[make] && data[make].models && data[make].models[model]) {
-                    const info = data[make].models[model];
-                    const makeLabel = data[make].label || make;
-                    const modelLabel = model.charAt(0).toUpperCase() + model.slice(1).replace('_', ' ');
-                    
-                    // Update preview
-                    elements.previewPrice.textContent = info.price ? formatCurrency(info.price) : '—';
-                    elements.previewCurrent.textContent = info.price ? formatCurrency(info.price * 0.7) : '—';
-                    elements.previewFuel.textContent = info.fuel ? `${info.fuel} km/L` : '—';
-                    elements.previewService.textContent = info.serviceInterval ? `${info.serviceInterval} km` : '—';
-                    elements.previewMinor.textContent = info.minor ? formatCurrency(info.minor) : '—';
-                    elements.previewMajor.textContent = info.major ? formatCurrency(info.major) : '—';
-                    elements.previewTyres.textContent = info.tyres || '—';
-                    
-                    // Engine CC
-                    const engineCC = info.engine_cc || elements.vehicleEngine.value;
-                    elements.previewEngine.textContent = engineCC ? `${engineCC}cc` : '—';
+                const makeKey = elements.vehicleMake.value;
+                if (!makeKey || !modelKey || !vehicleData[makeKey] || !vehicleData[makeKey].models[modelKey]) {
+                    select.innerHTML = '<option value="">Select a model first</option>';
+                    return;
+                }
+                
+                const variants = vehicleData[makeKey].models[modelKey].variants || [];
+                if (variants.length === 0) {
+                    select.innerHTML = '<option value="">No variants available</option>';
+                    return;
+                }
+                
+                variants.forEach(variant => {
+                    const opt = document.createElement('option');
+                    opt.value = variant.id;
+                    const price = variant.market_value ? ` — KES ${formatCurrency(variant.market_value)}` : '';
+                    const engine = variant.engine_cc ? `${variant.engine_cc}cc` : '';
+                    const fuel = variant.fuel_type || '';
+                    const label = [variant.label, engine, fuel].filter(Boolean).join(' • ');
+                    opt.textContent = label + price;
+                    select.appendChild(opt);
+                });
+            }
+
+            // ─── UPDATE VEHICLE PREVIEW ──────────────────────────────
+            function updateVehiclePreview() {
+                const makeKey = elements.vehicleMake.value;
+                const modelKey = elements.vehicleModel.value;
+                const variantKey = elements.vehicleVariant.value;
+                
+                let make, model, variant;
+                
+                if (makeKey && vehicleData[makeKey]) {
+                    make = vehicleData[makeKey];
+                    if (modelKey && make.models[modelKey]) {
+                        model = make.models[modelKey];
+                        if (variantKey) {
+                            variant = model.variants.find(v => v.id === variantKey);
+                        }
+                    }
+                }
+                
+                if (make && model && variant) {
+                    // Update preview with variant data
+                    elements.previewPrice.textContent = variant.market_value ? formatCurrency(variant.market_value) : '—';
+                    elements.previewCurrent.textContent = variant.market_value ? formatCurrency(variant.market_value * 0.7) : '—';
+                    elements.previewFuel.textContent = variant.fuel_consumption ? `${variant.fuel_consumption} L/100km` : '—';
+                    elements.previewService.textContent = variant.service_interval ? `${variant.service_interval} km` : '—';
+                    elements.previewMinor.textContent = variant.service_cost ? formatCurrency(variant.service_cost) : '—';
+                    elements.previewMajor.textContent = variant.service_cost ? formatCurrency(variant.service_cost * 2.5) : '—';
+                    elements.previewTyres.textContent = variant.tyre_size || '—';
+                    elements.previewEngine.textContent = variant.engine_cc ? `${variant.engine_cc}cc` : '—';
                     
                     // Update vehicle label
-                    elements.vehicleLabel.textContent = `${makeLabel} ${modelLabel}`;
+                    elements.vehicleLabel.textContent = `${make.label} ${model.label} - ${variant.label}`;
                     
                     // Update fuel pill
-                    const fuelType = elements.vehicleFuel.value;
                     const fuelLabels = {
                         petrol: '⛽ Petrol',
                         diesel: '⛽ Diesel',
                         hybrid: '🔋 Hybrid',
-                        electric: '⚡ Electric',
-                        lpg: '🔥 LPG'
+                        electric: '⚡ Electric'
                     };
-                    elements.fuelPill.textContent = fuelLabels[fuelType] || fuelType;
+                    elements.fuelPill.textContent = fuelLabels[variant.fuel_type] || variant.fuel_type || '—';
                     
                     // Update engine CC pill
-                    const displayCC = info.engine_cc || elements.vehicleEngine.value;
-                    elements.engineCCPill.textContent = displayCC ? `${displayCC}cc` : '—';
+                    elements.engineCCPill.textContent = variant.engine_cc ? `${variant.engine_cc}cc` : '—';
                     
                     // Update specs
                     elements.vehicleSpecs.innerHTML = `
-                        <span class="spec-item">🚗 ${data[make].type || 'Vehicle'}</span>
+                        <span class="spec-item">🚗 ${model.body_type || 'Vehicle'}</span>
                         <span class="spec-item">📅 ${elements.vehicleYear.value}</span>
-                        <span class="spec-item">🔧 ${displayCC}cc</span>
-                        <span class="spec-item">⚙️ ${elements.vehicleTransmission.options[elements.vehicleTransmission.selectedIndex].text}</span>
-                        <span class="spec-item">🛞 ${info.tyres || '—'}</span>
+                        <span class="spec-item">🔧 ${variant.engine_cc || '—'}cc</span>
+                        <span class="spec-item">⚙️ ${variant.transmission || '—'}</span>
+                        <span class="spec-item">🛞 ${variant.tyre_size || '—'}</span>
+                        <span class="spec-item">💰 ${variant.market_value ? formatCurrency(variant.market_value) : '—'}</span>
                     `;
                 } else {
                     elements.previewPrice.textContent = '—';
@@ -1745,201 +1866,259 @@
                 }
             }
 
-            // ─── Calculate Ownership Cost ──────────────────────────────
-            function calculateOwnershipCost() {
+            // ─── CALL BACKEND API FOR CALCULATION ──────────────────────
+            async function callBackendAPI(formData) {
                 try {
-                    const make = elements.vehicleMake.value;
-                    const model = elements.vehicleModel.value;
-                    
-                    if (!make || !model) {
-                        showToast('⚠️ Please select a vehicle make and model.', 'warning');
-                        return null;
+                    const response = await fetch(`${API_BASE}/running-cost/calculate`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify(formData),
+                        signal: AbortSignal.timeout(15000)
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.message || errorData.detail || `HTTP ${response.status}`);
                     }
-                    
-                    const initialValue = num(elements.initialValue.value) || 5000000;
-                    const currentValue = num(elements.currentValue.value) || initialValue * 0.7;
-                    const annualMileage = num(elements.mileage.value) || 20000;
-                    const ownershipYears = num(elements.years.value) || 5;
-                    const insuranceRate = num(elements.insuranceRate.value) / 100 || 0.045;
-                    const fuelType = elements.vehicleFuel.value;
-                    const fuelPrice = FUEL_PRICES[fuelType] || 200;
-                    
-                    // Get vehicle info
-                    let vehicleInfo = null;
-                    if (vehicleData[make] && vehicleData[make].models && vehicleData[make].models[model]) {
-                        vehicleInfo = vehicleData[make].models[model];
-                    }
-                    
-                    const fuelConsumption = vehicleInfo?.fuel || 12;
-                    const serviceInterval = vehicleInfo?.serviceInterval || 10000;
-                    const minorCost = vehicleInfo?.minor || 15000;
-                    const majorCost = vehicleInfo?.major || 45000;
-                    const tyreLife = 50000;
-                    const tyreCost = 12000;
-                    const engineCC = vehicleInfo?.engine_cc || elements.vehicleEngine.value || 1800;
-                    
-                    // Calculate depreciation
-                    const depreciationRate = isNewPurchase ? 0.25 : 0.15;
-                    const depreciation = initialValue * depreciationRate;
-                    
-                    // Calculate fuel cost
-                    const annualFuelCost = (annualMileage / fuelConsumption) * fuelPrice;
-                    
-                    // Calculate maintenance cost
-                    const maintenancePerKm = vehicleInfo?.maintenancePerKm || 5;
-                    const annualMaintenanceCost = annualMileage * maintenancePerKm;
-                    
-                    // Calculate tyre cost
-                    const annualTyreCost = (annualMileage / tyreLife) * (tyreCost * 4);
-                    
-                    // Calculate licensing (1% of vehicle value)
-                    const licensingCost = initialValue * 0.01;
-                    
-                    // Calculate financing
-                    let financingCost = 0;
-                    let isFinanced = document.getElementById('btnFinanced').classList.contains('active');
-                    if (isFinanced) {
-                        const downPct = num(elements.downPct.value) / 100;
-                        const interestRate = num(elements.rate.value) / 100;
-                        const loanTerm = num(elements.term.value);
-                        const loanAmount = initialValue * (1 - downPct);
-                        financingCost = loanAmount * interestRate * loanTerm;
-                    }
-                    
-                    // Calculate insurance
-                    const annualInsurance = initialValue * insuranceRate;
-                    
-                    // Generate yearly breakdown
-                    let yearsData = [];
-                    let totalCost = 0;
-                    let totalMileage = 0;
-                    
-                    for (let i = 0; i < ownershipYears; i++) {
-                        const yearNumber = i + 1;
-                        const currentYearValue = initialValue * Math.pow(1 - (isNewPurchase ? 0.25 : 0.15), i + 1);
-                        
-                        const depreciationYear = isNewPurchase ? 
-                            initialValue * 0.25 * Math.pow(1 - 0.25, i) :
-                            initialValue * 0.15 * Math.pow(1 - 0.15, i);
-                        
-                        const fuelYear = annualFuelCost;
-                        const maintenanceYear = annualMaintenanceCost;
-                        const tyresYear = annualTyreCost;
-                        const licensingYear = licensingCost;
-                        const insuranceYear = annualInsurance;
-                        const financingYear = isFinanced ? financingCost / ownershipYears : 0;
-                        
-                        const yearTotal = depreciationYear + financingYear + insuranceYear + 
-                                         fuelYear + maintenanceYear + tyresYear + licensingYear;
-                        
-                        yearsData.push({
-                            year: yearNumber,
-                            depreciation: depreciationYear,
-                            financing: financingYear,
-                            insurance: insuranceYear,
-                            fuel: fuelYear,
-                            maintenance: maintenanceYear,
-                            tyres: tyresYear,
-                            licensing: licensingYear,
-                            total: yearTotal,
-                            value: currentYearValue
-                        });
-                        
-                        totalCost += yearTotal;
-                        totalMileage += annualMileage;
-                    }
-                    
-                    // Calculate summary stats
-                    const averageMonthly = totalCost / (ownershipYears * 12);
-                    const costPerKm = totalMileage > 0 ? totalCost / totalMileage : 0;
-                    const resaleValue = yearsData.length > 0 ? yearsData[yearsData.length - 1].value : 0;
-                    
-                    // Calculate RCI (Running Cost Index)
-                    const averageAnnualCost = totalCost / ownershipYears;
-                    const rciValue = (averageAnnualCost / initialValue) * 100;
-                    
-                    let rciRating, rciStars, rciClass;
-                    if (rciValue < 15) {
-                        rciRating = 'Excellent';
-                        rciStars = '⭐⭐⭐⭐⭐';
-                        rciClass = 'excellent';
-                    } else if (rciValue < 20) {
-                        rciRating = 'Good';
-                        rciStars = '⭐⭐⭐⭐';
-                        rciClass = 'good';
-                    } else if (rciValue < 25) {
-                        rciRating = 'Average';
-                        rciStars = '⭐⭐⭐';
-                        rciClass = 'average';
-                    } else if (rciValue < 30) {
-                        rciRating = 'Expensive';
-                        rciStars = '⭐⭐';
-                        rciClass = 'expensive';
-                    } else {
-                        rciRating = 'Very Expensive';
-                        rciStars = '⭐';
-                        rciClass = 'very-expensive';
-                    }
-                    
-                    // Calculate vehicle health score
-                    const healthScore = Math.max(0, 100 - (rciValue * 2));
-                    const healthPercentage = Math.min(100, healthScore);
-                    
-                    let healthLabel;
-                    if (healthPercentage >= 80) healthLabel = 'Excellent Condition';
-                    else if (healthPercentage >= 60) healthLabel = 'Good Condition';
-                    else if (healthPercentage >= 40) healthLabel = 'Fair Condition';
-                    else healthLabel = 'Needs Attention';
-                    
-                    // Store results
-                    calculationResult = {
-                        yearsData,
-                        totalCost,
-                        averageMonthly,
-                        costPerKm,
-                        resaleValue,
-                        rciValue,
-                        rciRating,
-                        rciStars,
-                        rciClass,
-                        healthPercentage,
-                        healthLabel,
-                        annualMileage,
-                        ownershipYears,
-                        initialValue,
-                        fuelConsumption,
-                        fuelPrice,
-                        engineCC
-                    };
-                    
-                    return calculationResult;
-                    
+
+                    return await response.json();
                 } catch (error) {
-                    console.error('Calculation error:', error);
-                    showToast('Error calculating costs. Please check your inputs.', 'error');
+                    console.warn('⚠️ API call failed:', error.message);
                     return null;
                 }
             }
 
-            // ─── Update UI with Results ────────────────────────────────
+            // ─── LOCAL CALCULATION ─────────────────────────────────────
+            function calculateLocally(formData) {
+                const {
+                    initialValue = 5000000,
+                    currentValue = 3500000,
+                    annualMileage = 20000,
+                    ownershipYears = 5,
+                    insuranceRate = 0.045,
+                    fuelConsumption = 12,
+                    fuelPrice = 200,
+                    maintenancePerKm = 5,
+                    tyreCost = 12000,
+                    tyreLife = 50000,
+                    isNew = true,
+                    isFinanced = false,
+                    downPct = 0.3,
+                    interestRate = 0.16,
+                    loanTerm = 4
+                } = formData;
+
+                // Depreciation
+                const depRate = isNew ? 0.25 : 0.15;
+                const depreciation = initialValue * depRate;
+
+                // Fuel
+                const annualFuelCost = (annualMileage / fuelConsumption) * fuelPrice;
+
+                // Maintenance
+                const annualMaintenanceCost = annualMileage * maintenancePerKm;
+
+                // Tyres
+                const annualTyreCost = (annualMileage / tyreLife) * (tyreCost * 4);
+
+                // Licensing (1% of value)
+                const licensingCost = initialValue * 0.01;
+
+                // Insurance
+                const annualInsurance = initialValue * insuranceRate;
+
+                // Financing
+                let financingCost = 0;
+                if (isFinanced) {
+                    const loanAmount = initialValue * (1 - downPct);
+                    financingCost = loanAmount * interestRate * loanTerm;
+                }
+
+                // Generate yearly breakdown
+                const yearsData = [];
+                let totalCost = 0;
+                let totalMileage = 0;
+
+                for (let i = 0; i < ownershipYears; i++) {
+                    const yearNumber = i + 1;
+                    const currentYearValue = initialValue * Math.pow(1 - depRate, i + 1);
+                    
+                    const depreciationYear = isNew ?
+                        initialValue * depRate * Math.pow(1 - depRate, i) :
+                        initialValue * depRate * Math.pow(1 - depRate, i);
+                    
+                    const fuelYear = annualFuelCost;
+                    const maintenanceYear = annualMaintenanceCost;
+                    const tyresYear = annualTyreCost;
+                    const licensingYear = licensingCost;
+                    const insuranceYear = annualInsurance;
+                    const financingYear = isFinanced ? financingCost / ownershipYears : 0;
+                    
+                    const yearTotal = depreciationYear + financingYear + insuranceYear +
+                        fuelYear + maintenanceYear + tyresYear + licensingYear;
+                    
+                    yearsData.push({
+                        year: yearNumber,
+                        depreciation: depreciationYear,
+                        financing: financingYear,
+                        insurance: insuranceYear,
+                        fuel: fuelYear,
+                        maintenance: maintenanceYear,
+                        tyres: tyresYear,
+                        licensing: licensingYear,
+                        total: yearTotal,
+                        value: currentYearValue
+                    });
+                    
+                    totalCost += yearTotal;
+                    totalMileage += annualMileage;
+                }
+
+                const averageMonthly = totalCost / (ownershipYears * 12);
+                const costPerKm = totalMileage > 0 ? totalCost / totalMileage : 0;
+                const resaleValue = yearsData.length > 0 ? yearsData[yearsData.length - 1].value : 0;
+                const averageAnnualCost = totalCost / ownershipYears;
+                const rciValue = (averageAnnualCost / initialValue) * 100;
+
+                let rciRating, rciStars, rciClass;
+                if (rciValue < 15) { rciRating = 'Excellent'; rciStars = '⭐⭐⭐⭐⭐'; rciClass = 'excellent'; }
+                else if (rciValue < 20) { rciRating = 'Good'; rciStars = '⭐⭐⭐⭐'; rciClass = 'good'; }
+                else if (rciValue < 25) { rciRating = 'Average'; rciStars = '⭐⭐⭐'; rciClass = 'average'; }
+                else if (rciValue < 30) { rciRating = 'Expensive'; rciStars = '⭐⭐'; rciClass = 'expensive'; }
+                else { rciRating = 'Very Expensive'; rciStars = '⭐'; rciClass = 'very-expensive'; }
+
+                const healthScore = Math.max(0, 100 - (rciValue * 2));
+                const healthPercentage = Math.min(100, healthScore);
+                const healthLabel = healthPercentage >= 80 ? 'Excellent Condition' :
+                    healthPercentage >= 60 ? 'Good Condition' :
+                    healthPercentage >= 40 ? 'Fair Condition' : 'Needs Attention';
+
+                return {
+                    yearsData,
+                    totalCost,
+                    averageMonthly,
+                    costPerKm,
+                    resaleValue,
+                    rciValue,
+                    rciRating,
+                    rciStars,
+                    rciClass,
+                    healthPercentage,
+                    healthLabel,
+                    annualMileage,
+                    ownershipYears,
+                    initialValue,
+                    fuelConsumption,
+                    fuelPrice
+                };
+            }
+
+            // ─── CALCULATE OWNERSHIP COST ──────────────────────────────
+            async function calculateOwnershipCost() {
+                const makeKey = elements.vehicleMake.value;
+                const modelKey = elements.vehicleModel.value;
+                const variantKey = elements.vehicleVariant.value;
+                
+                if (!makeKey || !modelKey || !variantKey) {
+                    showToast('⚠️ Please select a vehicle make, model, and variant.', 'warning');
+                    return null;
+                }
+                
+                // Get variant data
+                const variant = vehicleData[makeKey].models[modelKey].variants.find(v => v.id === variantKey);
+                if (!variant) {
+                    showToast('⚠️ Variant data not found.', 'error');
+                    return null;
+                }
+                
+                // Build form data
+                const formData = {
+                    variant_id: variantKey,
+                    initialValue: num(elements.initialValue.value) || variant.market_value || 5000000,
+                    currentValue: num(elements.currentValue.value) || (variant.market_value || 5000000) * 0.7,
+                    annualMileage: num(elements.mileage.value) || 20000,
+                    ownershipYears: num(elements.years.value) || 5,
+                    insuranceRate: num(elements.insuranceRate.value) / 100 || 0.045,
+                    insuranceType: elements.insuranceType.value,
+                    county: elements.county.value,
+                    fuelType: variant.fuel_type || elements.vehicleFuel.value,
+                    engineCC: variant.engine_cc || elements.vehicleEngine.value || 1800,
+                    transmission: variant.transmission || elements.vehicleTransmission.value,
+                    fuelConsumption: variant.fuel_consumption || 12,
+                    maintenanceCost: variant.service_cost || 15000,
+                    serviceInterval: variant.service_interval || 15000,
+                    tyreSize: variant.tyre_size || '205/55R16',
+                    tyreCost: variant.tyre_cost || 12000,
+                    isNew: isNewPurchase,
+                    isFinanced: document.getElementById('btnFinanced').classList.contains('active'),
+                    downPct: num(elements.downPct.value) / 100,
+                    interestRate: num(elements.rate.value) / 100,
+                    loanTerm: num(elements.term.value)
+                };
+
+                // Set fuel price
+                const fuelPrice = fuelPrices[formData.fuelType] || 200;
+                formData.fuelPrice = fuelPrice;
+
+                // Show loading state
+                elements.calcBtn.disabled = true;
+                elements.calcBtn.innerHTML = '<span class="spinner"></span> Calculating...';
+
+                try {
+                    // Try API first if available
+                    let result = null;
+                    if (isBackendAvailable) {
+                        result = await callBackendAPI(formData);
+                        if (result && result.data) {
+                            result = result.data;
+                        }
+                    }
+
+                    // Fallback to local calculation
+                    if (!result) {
+                        result = calculateLocally(formData);
+                    }
+
+                    // Store result
+                    calculationResult = result;
+                    
+                    // Update UI
+                    updateResults(result);
+                    
+                    showToast('✅ Ownership cost calculated successfully!', 'success');
+                    return result;
+
+                } catch (error) {
+                    console.error('Calculation error:', error);
+                    showToast('Error calculating costs. Please try again.', 'error');
+                    return null;
+                } finally {
+                    elements.calcBtn.disabled = false;
+                    elements.calcBtn.innerHTML = '🚀 Calculate Ownership Cost';
+                }
+            }
+
+            // ─── UPDATE UI WITH RESULTS ────────────────────────────────
             function updateResults(result) {
                 if (!result) return;
                 
-                // Update summary stats
+                // Summary stats
                 elements.outTotal.textContent = fmt(result.totalCost);
                 elements.outMonthly.textContent = fmt(result.averageMonthly);
                 elements.outPerKm.textContent = `KES ${result.costPerKm.toFixed(2)}`;
                 elements.outResale.textContent = fmt(result.resaleValue);
                 
-                // Update stacked bars
+                // Stacked bars
                 const stackedBars = elements.stackedBars;
                 stackedBars.innerHTML = '';
+                const maxTotal = Math.max(...result.yearsData.map(y => y.total), 1);
                 
                 result.yearsData.forEach((year, index) => {
                     const row = document.createElement('div');
                     row.className = 'year-row';
-                    
-                    const maxTotal = Math.max(...result.yearsData.map(y => y.total), 1);
                     
                     const depreciationPct = (year.depreciation / maxTotal) * 100;
                     const financingPct = (year.financing / maxTotal) * 100;
@@ -1965,7 +2144,7 @@
                     stackedBars.appendChild(row);
                 });
                 
-                // Update table
+                // Table
                 const tbody = elements.resultsBody;
                 tbody.innerHTML = '';
                 
@@ -1985,7 +2164,7 @@
                     tbody.appendChild(tr);
                 });
                 
-                // Add total row
+                // Total row
                 const totals = result.yearsData.reduce((acc, year) => {
                     acc.depreciation += year.depreciation;
                     acc.financing += year.financing;
@@ -2013,34 +2192,34 @@
                 `;
                 tbody.appendChild(totalTr);
                 
-                // Update RCI
+                // RCI
                 elements.rciValue.textContent = result.rciValue.toFixed(1) + '%';
                 elements.rciValue.className = `rci-value ${result.rciClass}`;
                 elements.rciStars.textContent = result.rciStars;
                 elements.rciLabel.textContent = result.rciRating;
                 
-                // Update health score
+                // Health
                 elements.healthRing.style.setProperty('--pct', `${result.healthPercentage}%`);
                 elements.healthScore.textContent = Math.round(result.healthPercentage);
                 elements.healthLabel.textContent = result.healthLabel;
                 
-                // Update environmental impact
+                // Environmental
                 const envGrid = elements.envGrid;
                 envGrid.innerHTML = `
                     <div class="env-item">
-                        <div class="env-value">${(result.fuelConsumption).toFixed(1)}</div>
-                        <div class="env-label">km/L</div>
+                        <div class="env-value">${(result.fuelConsumption || 0).toFixed(1)}</div>
+                        <div class="env-label">L/100km</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${result.engineCC || '—'}</div>
-                        <div class="env-label">Engine (cc)</div>
+                        <div class="env-value">${result.annualMileage || 0}</div>
+                        <div class="env-label">km/year</div>
                     </div>
                     <div class="env-item">
                         <div class="env-value">${Math.round(result.totalCost / 1000)}k</div>
                         <div class="env-label">Total Cost (KES)</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${Math.round(result.totalCost / result.ownershipYears / 12)}k</div>
+                        <div class="env-value">${Math.round(result.averageMonthly / 1000)}k</div>
                         <div class="env-label">Monthly (KES)</div>
                     </div>
                     <div class="env-item">
@@ -2053,32 +2232,30 @@
                     </div>
                 `;
                 
-                // Update recommendations
+                // Recommendations
                 const recList = elements.recList;
                 recList.innerHTML = '';
                 
                 const recommendations = [];
                 
-                // Fuel efficiency recommendation
-                if (result.fuelConsumption < 10) {
+                if (result.fuelConsumption && result.fuelConsumption > 10) {
                     recommendations.push({
                         icon: '⛽',
-                        text: `Your vehicle consumes ${result.fuelConsumption.toFixed(1)} km/L. Consider a more fuel-efficient vehicle to save on fuel costs.`,
+                        text: `Fuel consumption is ${result.fuelConsumption} L/100km. Consider a more fuel-efficient vehicle to save on running costs.`,
                         type: 'warning'
                     });
-                } else {
+                } else if (result.fuelConsumption) {
                     recommendations.push({
                         icon: '✅',
-                        text: `Good fuel efficiency at ${result.fuelConsumption.toFixed(1)} km/L. Maintain proper tyre pressure for optimal consumption.`,
+                        text: `Good fuel efficiency at ${result.fuelConsumption} L/100km. Maintain proper tyre pressure for optimal consumption.`,
                         type: 'success'
                     });
                 }
                 
-                // Cost recommendation
                 if (result.totalCost / result.initialValue > 0.5) {
                     recommendations.push({
                         icon: '💰',
-                        text: `Total ownership cost is ${Math.round(result.totalCost / result.initialValue * 100)}% of purchase price. Consider a lower-cost vehicle or shorter ownership period.`,
+                        text: `Total ownership cost is ${Math.round(result.totalCost / result.initialValue * 100)}% of purchase price. Consider a shorter ownership period.`,
                         type: 'warning'
                     });
                 } else {
@@ -2089,12 +2266,19 @@
                     });
                 }
                 
-                // Maintenance recommendation
-                recommendations.push({
-                    icon: '🔧',
-                    text: `Regular maintenance every ${Math.round(result.annualMileage / 12)} km is recommended to maintain vehicle health.`,
-                    type: 'info'
-                });
+                if (result.healthPercentage < 60) {
+                    recommendations.push({
+                        icon: '🔧',
+                        text: `Vehicle health score is ${Math.round(result.healthPercentage)}%. Consider regular maintenance to improve longevity.`,
+                        type: 'warning'
+                    });
+                } else {
+                    recommendations.push({
+                        icon: '✅',
+                        text: `Vehicle health score is ${Math.round(result.healthPercentage)}%. Good condition!`,
+                        type: 'success'
+                    });
+                }
                 
                 recommendations.forEach(rec => {
                     const div = document.createElement('div');
@@ -2107,39 +2291,74 @@
                     recList.appendChild(div);
                 });
                 
-                showToast('✅ Ownership cost calculated successfully!', 'success');
-            }
-
-            // ─── Handle Calculate Button ──────────────────────────────
-            function handleCalculate() {
-                const make = elements.vehicleMake.value;
-                const model = elements.vehicleModel.value;
-                
-                if (!make || !model) {
-                    showToast('⚠️ Please select a vehicle make and model.', 'warning');
-                    return;
-                }
-                
-                const result = calculateOwnershipCost();
-                if (result) {
-                    updateResults(result);
+                // If no recommendations, show default
+                if (recommendations.length === 0) {
+                    recList.innerHTML = `
+                        <div class="rec-item info">
+                            <span class="icon">💡</span>
+                            <span class="rec-text">No specific recommendations. Your vehicle appears to be in good standing.</span>
+                            <span class="rec-tag">✅</span>
+                        </div>
+                    `;
                 }
             }
 
-            // ─── Event Listeners ───────────────────────────────────────
+            // ─── EVENT LISTENERS ───────────────────────────────────────
 
-            // Vehicle make change
             elements.vehicleMake.addEventListener('change', function() {
-                populateModels(this.value, vehicleData);
+                populateModels(this.value);
+                populateVariants(null);
+                updateVehiclePreview();
             });
 
-            // Vehicle model change
-            elements.vehicleModel.addEventListener('change', updateVehiclePreview);
+            elements.vehicleModel.addEventListener('change', function() {
+                populateVariants(this.value);
+                updateVehiclePreview();
+            });
 
-            // Vehicle type change
-            elements.vehicleType.addEventListener('change', updateVehiclePreview);
+            elements.vehicleVariant.addEventListener('change', function() {
+                updateVehiclePreview();
+                // Auto-fill values from variant
+                const makeKey = elements.vehicleMake.value;
+                const modelKey = elements.vehicleModel.value;
+                if (makeKey && modelKey && vehicleData[makeKey] && vehicleData[makeKey].models[modelKey]) {
+                    const variant = vehicleData[makeKey].models[modelKey].variants.find(v => v.id === this.value);
+                    if (variant) {
+                        if (variant.market_value) {
+                            elements.initialValue.value = variant.market_value;
+                            elements.currentValue.value = Math.round(variant.market_value * 0.7);
+                        }
+                        if (variant.engine_cc) {
+                            const engineOptions = elements.vehicleEngine.options;
+                            for (let i = 0; i < engineOptions.length; i++) {
+                                if (parseInt(engineOptions[i].value) === variant.engine_cc) {
+                                    elements.vehicleEngine.value = variant.engine_cc;
+                                    break;
+                                }
+                            }
+                        }
+                        if (variant.fuel_type) {
+                            const fuelOptions = elements.vehicleFuel.options;
+                            for (let i = 0; i < fuelOptions.length; i++) {
+                                if (fuelOptions[i].value === variant.fuel_type) {
+                                    elements.vehicleFuel.value = variant.fuel_type;
+                                    break;
+                                }
+                            }
+                        }
+                        if (variant.transmission) {
+                            const transOptions = elements.vehicleTransmission.options;
+                            for (let i = 0; i < transOptions.length; i++) {
+                                if (transOptions[i].value === variant.transmission) {
+                                    elements.vehicleTransmission.value = variant.transmission;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
-            // Purchase type toggle
             document.getElementById('btnNew').addEventListener('click', function() {
                 this.classList.add('active');
                 document.getElementById('btnUsed').classList.remove('active');
@@ -2152,7 +2371,6 @@
                 isNewPurchase = false;
             });
 
-            // Financing toggle
             document.getElementById('btnCash').addEventListener('click', function() {
                 this.classList.add('active');
                 document.getElementById('btnFinanced').classList.remove('active');
@@ -2165,7 +2383,6 @@
                 document.getElementById('financedFields').classList.add('show');
             });
 
-            // Checkbox styling
             document.querySelectorAll('.checkbox-item').forEach(item => {
                 item.addEventListener('click', function(e) {
                     if (e.target.tagName === 'INPUT') return;
@@ -2173,14 +2390,12 @@
                     checkbox.checked = !checkbox.checked;
                     this.classList.toggle('checked');
                 });
-                
                 const checkbox = item.querySelector('input[type="checkbox"]');
                 checkbox.addEventListener('change', function() {
                     this.closest('.checkbox-item').classList.toggle('checked');
                 });
             });
 
-            // Range input value displays
             elements.mileage.addEventListener('input', function() {
                 elements.valMileage.textContent = `${parseInt(this.value).toLocaleString()} km`;
             });
@@ -2205,23 +2420,19 @@
                 elements.valTerm.textContent = `${this.value} years`;
             });
 
-            // Calculate button
-            elements.calcBtn.addEventListener('click', handleCalculate);
+            elements.calcBtn.addEventListener('click', calculateOwnershipCost);
 
-            // Initial value change - update current value
             elements.initialValue.addEventListener('input', function() {
                 const val = num(this.value);
-                if (val > 0) {
+                if (val > 0 && !elements.currentValue.value) {
                     elements.currentValue.value = Math.round(val * 0.7);
                 }
             });
 
-            // Print button
             document.getElementById('printBtn').addEventListener('click', function() {
                 window.print();
             });
 
-            // Share button
             document.getElementById('shareBtn').addEventListener('click', function() {
                 const url = window.location.href;
                 if (navigator.share) {
@@ -2239,7 +2450,7 @@
                 }
             });
 
-            // ─── Initialize ──────────────────────────────────────────────
+            // ─── INIT ──────────────────────────────────────────────────
 
             async function init() {
                 // Update last updated
@@ -2252,26 +2463,37 @@
 
                 // Check backend health
                 await checkBackendHealth();
-                
-                // Initialize Supabase
-                const supabaseInit = initSupabase();
-                
-                // Load vehicle data (fallback for now)
-                vehicleData = getFallbackData();
-                
-                // Populate makes and models
-                populateMakes(vehicleData);
-                
-                // Update preview
+
+                // Load data from Supabase
+                const loaded = await loadFromAPI();
+
+                if (!loaded) {
+                    console.warn('⚠️ Using fallback data');
+                    vehicleData = getFallbackData();
+                    // Set fallback fuel prices
+                    fuelPrices = {
+                        petrol: 203.47,
+                        diesel: 195.67,
+                        hybrid: 150.00,
+                        electric: 30.00,
+                        lpg: 120.00
+                    };
+                }
+
+                // Populate dropdowns
+                populateVehicleTypes();
+                populateMakes();
+                populateModels(elements.vehicleMake.value);
+                populateVariants(elements.vehicleModel.value);
                 updateVehiclePreview();
-                
+
                 // Auto-calculate on load
                 setTimeout(() => {
-                    handleCalculate();
-                }, 600);
-                
+                    calculateOwnershipCost();
+                }, 800);
+
                 console.log('✅ Auto-D Kenya Cost of Ownership initialized');
-                console.log(`📊 Makes: ${Object.keys(vehicleData).length}`);
+                console.log(`📊 Makes loaded: ${Object.keys(vehicleData).length}`);
             }
 
             // Start
