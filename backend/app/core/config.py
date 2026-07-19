@@ -1,4 +1,3 @@
-# backend/app/core/config.py
 """
 Configuration - Application settings
 """
@@ -77,7 +76,6 @@ class Settings(BaseSettings):
     CORS_ALLOW_HEADERS: str = "Authorization,Content-Type,Accept,Origin,X-Requested-With"
     
     # ─── M-PESA Configuration ──────────────────────────────────────
-    # These are the environment variables the mpesa_service.py expects
     MPESA_ENV: str = Field(
         default="sandbox",
         env="MPESA_ENV"
@@ -138,7 +136,39 @@ class Settings(BaseSettings):
     ENABLE_ANALYTICS: bool = True
     ENABLE_EMAIL_NOTIFICATIONS: bool = True
     ENABLE_CACHING: bool = True
-    ENABLE_DOCS: bool = False
+    
+    # ─── API Documentation ──────────────────────────────────────────
+    ENABLE_DOCS: bool = Field(
+        default=True,
+        env="ENABLE_DOCS"
+    )
+    
+    API_DOCS_URL: str = Field(
+        default="/docs",
+        env="API_DOCS_URL"
+    )
+    
+    API_REDOC_URL: str = Field(
+        default="/redoc",
+        env="API_REDOC_URL"
+    )
+    
+    API_OPENAPI_URL: str = Field(
+        default="/openapi.json",
+        env="API_OPENAPI_URL"
+    )
+    
+    # ─── Swagger/OpenAPI ────────────────────────────────────────────
+    SWAGGER_ENABLED: bool = Field(
+        default=True,
+        env="SWAGGER_ENABLED"
+    )
+    
+    SWAGGER_TITLE: str = "Auto-D Kenya API"
+    SWAGGER_DESCRIPTION: str = "Vehicle Cost Analysis, Valuation & Inspection API"
+    SWAGGER_CONTACT_NAME: str = "Auto-D Support"
+    SWAGGER_CONTACT_EMAIL: str = "support@auto-d.ke"
+    SWAGGER_LICENSE_NAME: str = "Proprietary"
     
     # ─── Default Values ──────────────────────────────────────────────
     DEFAULT_FUEL_PRICE_PETROL: float = 203.47
@@ -252,19 +282,6 @@ class Settings(BaseSettings):
     TABLE_SERVICE_PRICES: str = "service_prices"
     TABLE_AUDIT_LOGS: str = "audit_logs"
     
-    # ─── API Documentation ──────────────────────────────────────────
-    API_DOCS_URL: str = "/docs"
-    API_REDOC_URL: str = "/redoc"
-    API_OPENAPI_URL: str = "/openapi.json"
-    
-    # ─── Swagger/OpenAPI ────────────────────────────────────────────
-    SWAGGER_ENABLED: bool = False
-    SWAGGER_TITLE: str = "Auto-D Kenya API"
-    SWAGGER_DESCRIPTION: str = "Vehicle cost analysis and valuation system for Kenya"
-    SWAGGER_CONTACT_NAME: str = "Auto-D Support"
-    SWAGGER_CONTACT_EMAIL: str = "support@auto-d.ke"
-    SWAGGER_LICENSE_NAME: str = "Proprietary"
-    
     # ─── Session ──────────────────────────────────────────────────────
     SESSION_TYPE: str = "filesystem"
     PERMANENT_SESSION_LIFETIME: int = 86400
@@ -343,6 +360,21 @@ class Settings(BaseSettings):
             self.MPESA_PASSKEY,
             self.MPESA_SHORTCODE
         ])
+    
+    def get_docs_config(self) -> dict:
+        """Get API documentation configuration"""
+        return {
+            "enabled": self.ENABLE_DOCS,
+            "docs_url": self.API_DOCS_URL if self.ENABLE_DOCS else None,
+            "redoc_url": self.API_REDOC_URL if self.ENABLE_DOCS else None,
+            "openapi_url": self.API_OPENAPI_URL if self.ENABLE_DOCS else None,
+            "swagger_enabled": self.SWAGGER_ENABLED,
+            "title": self.SWAGGER_TITLE,
+            "description": self.SWAGGER_DESCRIPTION,
+            "contact_name": self.SWAGGER_CONTACT_NAME,
+            "contact_email": self.SWAGGER_CONTACT_EMAIL,
+            "license_name": self.SWAGGER_LICENSE_NAME
+        }
 
 
 # Create settings instance
@@ -364,3 +396,5 @@ if settings.DEBUG:
     print(f"📱 M-Pesa Shortcode: {settings.MPESA_SHORTCODE}")
     print(f"📱 M-Pesa Environment: {settings.MPESA_ENV}")
     print(f"📱 M-Pesa Configured: {settings.is_mpesa_configured()}")
+    print(f"📚 Docs Enabled: {settings.ENABLE_DOCS}")
+    print(f"📚 Docs URL: {settings.API_DOCS_URL}")
