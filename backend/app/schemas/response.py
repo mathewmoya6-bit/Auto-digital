@@ -14,7 +14,7 @@ class ValuationResponse(BaseModel):
     message: Optional[str] = Field(None, description="Additional message")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "status": "success",
                 "data": {
@@ -49,6 +49,95 @@ class ValuationResponse(BaseModel):
         }
 
 
+# ─── ADD MISSING RESPONSE SCHEMAS ──────────────────────────────────
+
+class VehicleMakeResponse(BaseModel):
+    """Vehicle make response"""
+    id: str
+    name: str
+    country: Optional[str] = None
+    founded_year: Optional[int] = None
+    logo_url: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class VehicleModelResponse(BaseModel):
+    """Vehicle model response"""
+    id: str
+    make_id: str
+    name: str
+    body_type: Optional[str] = None
+    class_type: Optional[str] = None
+    start_year: Optional[int] = None
+    end_year: Optional[int] = None
+    make: Optional[VehicleMakeResponse] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class VehicleVariantResponse(BaseModel):
+    """Vehicle variant response"""
+    id: str
+    model_id: str
+    name: str
+    year: int
+    engine_cc: float
+    fuel_type: str
+    transmission: str
+    drive_type: Optional[str] = None
+    fuel_consumption: float
+    insurance_group: int
+    service_interval: int
+    tyre_size: Optional[str] = None
+    tyre_cost: float
+    service_cost: float
+    market_value: float
+    depreciation_class: str
+    vehicle_class: Optional[str] = None
+    model: Optional[VehicleModelResponse] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class VehicleDetailResponse(BaseModel):
+    """Detailed vehicle response with all information"""
+    id: str
+    name: str
+    year: int
+    engine_cc: float
+    fuel_type: str
+    transmission: str
+    drive_type: Optional[str] = None
+    fuel_consumption: float
+    insurance_group: int
+    service_interval: int
+    tyre_size: Optional[str] = None
+    tyre_cost: float
+    service_cost: float
+    market_value: float
+    depreciation_class: str
+    vehicle_class: Optional[str] = None
+    model: Optional[VehicleModelResponse] = None
+    make: Optional[VehicleMakeResponse] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class VehicleSearchResponse(BaseModel):
+    """Vehicle search response"""
+    items: List[VehicleVariantResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 class ErrorResponse(BaseModel):
     """Error response"""
     status: str = "error"
@@ -57,25 +146,64 @@ class ErrorResponse(BaseModel):
     timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
-class VehicleVariantResponse(BaseModel):
-    """Vehicle variant details"""
-    id: str
-    name: str
-    model_name: Optional[str] = None
-    make_name: Optional[str] = None
-    year: Optional[int] = None
-    engine_cc: Optional[float] = None
-    fuel_type: Optional[str] = None
-    transmission: Optional[str] = None
-    market_value: float
-    depreciation_class: str
-    body_type: Optional[str] = None
-    fuel_consumption: Optional[float] = None
-    insurance_group: Optional[int] = None
-
-
 class MarketTrendsResponse(BaseModel):
     """Market trends response"""
     status: str
     data: Dict[str, Any]
     timestamp: str
+
+
+class RunningCostResponse(BaseModel):
+    """Running cost calculation response"""
+    total_annual_cost: float
+    cost_per_km: float
+    cost_per_month: float
+    breakdown: Dict[str, float]
+    projection: List[Dict[str, Any]]
+    currency: str = "KES"
+
+
+class MileageResponse(BaseModel):
+    """Mileage adjustment response"""
+    adjusted_value: float
+    adjustment_percentage: float
+    expected_mileage: float
+    current_mileage: float
+    recommendation: str
+
+
+class OwnershipResponse(BaseModel):
+    """Ownership cost response"""
+    total_cost: float
+    monthly_payment: float
+    total_interest: float
+    breakdown: Dict[str, float]
+    affordability_score: int
+    recommendations: List[str]
+
+
+class FuelResponse(BaseModel):
+    """Fuel cost response"""
+    monthly_cost: float
+    annual_cost: float
+    cost_per_km: float
+    fuel_consumption: float
+    total_km_per_month: float
+
+
+# ─── EXPORT ALL ─────────────────────────────────────────────────────
+
+__all__ = [
+    "ValuationResponse",
+    "VehicleMakeResponse",
+    "VehicleModelResponse",
+    "VehicleVariantResponse",
+    "VehicleDetailResponse",
+    "VehicleSearchResponse",
+    "ErrorResponse",
+    "MarketTrendsResponse",
+    "RunningCostResponse",
+    "MileageResponse",
+    "OwnershipResponse",
+    "FuelResponse",
+]
