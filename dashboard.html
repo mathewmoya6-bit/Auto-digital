@@ -1001,8 +1001,9 @@
             'use strict';
 
             // ─── Configuration ──────────────────────────────────────────────────────
-            // ✅ FIXED: Added /v1 to API_BASE
+            // ✅ FIXED: Try both /api/v1 and /api endpoints
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+            const API_BASE_FALLBACK = 'https://auto-digital.onrender.com/api';
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
@@ -1605,25 +1606,83 @@
                 try {
                     const token = await getAuthToken();
                     
-                    // ✅ FIXED: Using API_BASE which now includes /api/v1
-                    const result = await fetch(`${API_BASE}/mpesa/stkpush`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                        },
-                        body: JSON.stringify({
-                            phone: phone,
-                            amount: selectedService.price || 0,
-                            account_reference: selectedService.id,
-                            description: `Auto-D: ${selectedService.name}`
-                        })
-                    });
+                    // Try primary endpoint (with /v1)
+                    let url = `${API_BASE}/mpesa/stkpush`;
+                    let result, data;
+                    
+                    try {
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                            },
+                            body: JSON.stringify({
+                                phone: phone,
+                                amount: selectedService.price || 0,
+                                account_reference: selectedService.id,
+                                description: `Auto-D: ${selectedService.name}`
+                            })
+                        });
 
-                    const data = await result.json();
-                    if (!result.ok) {
-                        throw new Error(data.message || data.error || 'Payment initiation failed');
+                        data = await response.json();
+                        
+                        if (!response.ok) {
+                            // If 404, try fallback URL without /v1
+                            if (response.status === 404) {
+                                console.log('⚠️ Endpoint not found at /api/v1, trying fallback...');
+                                url = `${API_BASE_FALLBACK}/mpesa/stkpush`;
+                                const fallbackResponse = await fetch(url, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Accept': 'application/json',
+                                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                                    },
+                                    body: JSON.stringify({
+                                        phone: phone,
+                                        amount: selectedService.price || 0,
+                                        account_reference: selectedService.id,
+                                        description: `Auto-D: ${selectedService.name}`
+                                    })
+                                });
+                                
+                                data = await fallbackResponse.json();
+                                if (!fallbackResponse.ok) {
+                                    throw new Error(data.message || data.error || 'Payment initiation failed');
+                                }
+                            } else {
+                                throw new Error(data.message || data.error || 'Payment initiation failed');
+                            }
+                        }
+                    } catch (error) {
+                        // If both fail, try with /api/mpesa/stkpush
+                        if (error.message.includes('404')) {
+                            console.log('⚠️ Trying /api/mpesa/stkpush...');
+                            url = `${API_BASE_FALLBACK.replace('/api/v1', '/api')}/mpesa/stkpush`;
+                            const finalResponse = await fetch(url, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json',
+                                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                                },
+                                body: JSON.stringify({
+                                    phone: phone,
+                                    amount: selectedService.price || 0,
+                                    account_reference: selectedService.id,
+                                    description: `Auto-D: ${selectedService.name}`
+                                })
+                            });
+                            
+                            data = await finalResponse.json();
+                            if (!finalResponse.ok) {
+                                throw new Error(data.message || data.error || 'Payment initiation failed');
+                            }
+                        } else {
+                            throw error;
+                        }
                     }
 
                     const checkoutId = data.checkout_request_id;
@@ -1638,15 +1697,27 @@
                     const pollInterval = setInterval(async () => {
                         attempts++;
                         try {
-                            // ✅ FIXED: Using API_BASE which now includes /api/v1
-                            const statusResult = await fetch(`${API_BASE}/mpesa/status/${checkoutId}`, {
+                            // Try status check with fallback
+                            let statusUrl = `${API_BASE}/mpesa/status/${checkoutId}`;
+                            let statusResponse = await fetch(statusUrl, {
                                 headers: {
                                     'Accept': 'application/json',
                                     ...(token ? { 'Authorization': `Bearer ${token}` } : {})
                                 }
                             });
 
-                            if (statusResult.status === 404) {
+                            if (statusResponse.status === 404) {
+                                // Try fallback
+                                statusUrl = `${API_BASE_FALLBACK}/mpesa/status/${checkoutId}`;
+                                statusResponse = await fetch(statusUrl, {
+                                    headers: {
+                                        'Accept': 'application/json',
+                                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                                    }
+                                });
+                            }
+
+                            if (statusResponse.status === 404) {
                                 console.log('⏳ Payment status not yet available (404), waiting...');
                                 if (attempts > 20) {
                                     document.getElementById('paymentStatusText').textContent = '⏳ Waiting for confirmation...';
@@ -1660,11 +1731,11 @@
                                 return;
                             }
 
-                            if (!statusResult.ok) {
-                                throw new Error(`Status check failed: ${statusResult.status}`);
+                            if (!statusResponse.ok) {
+                                throw new Error(`Status check failed: ${statusResponse.status}`);
                             }
 
-                            const statusData = await statusResult.json();
+                            const statusData = await statusResponse.json();
                             
                             if (statusData.status === 'success' || statusData.status === 'completed') {
                                 clearInterval(pollInterval);
@@ -1924,7 +1995,6 @@
                 console.log('🚗 Auto-D Kenya Dashboard (Payment Gateway)');
                 console.log('📡 Supabase URL:', SUPABASE_URL);
                 console.log('💳 All service access goes through payment');
-                console.log('🔗 API Base URL:', API_BASE);
 
                 initSupabase();
 
