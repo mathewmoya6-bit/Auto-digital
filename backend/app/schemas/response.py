@@ -208,7 +208,7 @@ class RunningCostResponse(BaseModel):
         }
 
 
-# ─── OTHER RESPONSE SCHEMAS ───────────────────────────────────────
+# ─── MILEAGE RESPONSE SCHEMAS ─────────────────────────────────────
 
 class MileageResponse(BaseModel):
     """Mileage adjustment response"""
@@ -218,6 +218,52 @@ class MileageResponse(BaseModel):
     current_mileage: float
     recommendation: str
 
+
+# ─── ADD MISSING SCHEMA ──────────────────────────────────────────
+
+class MileageRateResponse(BaseModel):
+    """Mileage rate calculation response"""
+    total_cost_per_km: float = Field(..., description="Total cost per kilometer in KES")
+    total_annual_cost: float = Field(..., description="Total annual cost in KES")
+    monthly_cost: float = Field(..., description="Monthly cost in KES")
+    breakdown: Dict[str, float] = Field(..., description="Cost breakdown by category")
+    fuel_cost_per_km: float = Field(..., description="Fuel cost per kilometer")
+    depreciation_per_km: float = Field(..., description="Depreciation cost per kilometer")
+    insurance_per_km: float = Field(..., description="Insurance cost per kilometer")
+    maintenance_per_km: float = Field(..., description="Maintenance cost per kilometer")
+    tyre_per_km: float = Field(..., description="Tyre cost per kilometer")
+    annual_mileage: float = Field(..., description="Annual mileage in km")
+    currency: str = Field("KES", description="Currency code")
+    recommendations: List[str] = Field(default=[], description="Cost saving recommendations")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "total_cost_per_km": 12.50,
+                "total_annual_cost": 250000,
+                "monthly_cost": 20833.33,
+                "breakdown": {
+                    "fuel": 120000,
+                    "depreciation": 60000,
+                    "insurance": 50000,
+                    "maintenance": 30000,
+                    "tyres": 15000
+                },
+                "fuel_cost_per_km": 6.00,
+                "depreciation_per_km": 3.00,
+                "insurance_per_km": 2.50,
+                "maintenance_per_km": 1.50,
+                "tyre_per_km": 0.75,
+                "annual_mileage": 20000,
+                "currency": "KES",
+                "recommendations": [
+                    "Fuel cost is high. Consider a more fuel-efficient vehicle."
+                ]
+            }
+        }
+
+
+# ─── OTHER RESPONSE SCHEMAS ───────────────────────────────────────
 
 class OwnershipResponse(BaseModel):
     """Ownership cost response"""
@@ -265,6 +311,7 @@ __all__ = [
     "VehicleSearchResponse",
     "RunningCostResponse",
     "MileageResponse",
+    "MileageRateResponse",  # ← Added
     "OwnershipResponse",
     "FuelResponse",
     "MarketTrendsResponse",
