@@ -27,6 +27,7 @@ __all__ = [
     "MileageResponse",
     "MileageRateResponse",
     "OwnershipResponse",
+    "OwnershipCostResponse",
     "FuelResponse",
     "MarketTrendsResponse",
     "ErrorResponse",
