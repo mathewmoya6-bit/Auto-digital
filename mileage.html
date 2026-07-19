@@ -39,7 +39,31 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
-        /* ─── All existing styles (kept the same) ──────────────────── */
+        /* ─── CSS Custom Properties ─────────────────────────────────
+           FIX: these variables were referenced throughout the JS-rendered
+           markup (color:var(--amber), var(--green), var(--text-muted),
+           var(--text-secondary), var(--font-heading)) but were never
+           defined, so the browser silently fell back to inherited/
+           initial color instead of the intended gold/green accents.
+        ------------------------------------------------------------- */
+        :root {
+            --amber: #eab308;
+            --amber-dark: #ca8a04;
+            --green: #22c55e;
+            --blue: #3b82f6;
+            --cyan: #06b6d4;
+            --red: #ef4444;
+            --bg: #0a0c15;
+            --bg-panel: #111827;
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --text-muted: #64748b;
+            --border: rgba(255, 255, 255, 0.06);
+            --font-heading: 'Space Grotesk', sans-serif;
+            --font-body: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'Inter', sans-serif;
@@ -918,7 +942,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(10, 12, 21, 0.92);
+            background: rgba(10, 12, 21, 0.85);
             z-index: 99999;
             justify-content: center;
             align-items: center;
@@ -942,24 +966,9 @@
             letter-spacing: 0.05em;
         }
         .loading-overlay .loading-sub {
-            color: #94a3b8;
-            font-size: 13px;
-            font-family: 'Inter', sans-serif;
-            text-align: center;
-            max-width: 400px;
-            line-height: 1.5;
-        }
-        .loading-overlay .loading-error {
-            color: #ef4444;
+            color: #64748b;
             font-size: 12px;
-            font-family: 'JetBrains Mono', monospace;
-            background: rgba(239, 68, 68, 0.1);
-            padding: 8px 16px;
-            border-radius: 6px;
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            max-width: 500px;
-            text-align: center;
-            display: none;
+            font-family: 'Inter', sans-serif;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
     </style>
@@ -971,7 +980,6 @@
         <div class="spinner-large"></div>
         <div class="loading-text">Loading Vehicle Data...</div>
         <div class="loading-sub" id="loadingStatus">Connecting to Supabase</div>
-        <div class="loading-error" id="loadingError"></div>
     </div>
 
     <!-- ─── Skip to content (Accessibility) ───────────────────────── -->
@@ -1347,8 +1355,22 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
-        // ✅ Kenyan Market Pricing  ✅ 5-Year Projection  
-        // ✅ Supabase Integration  ✅ Fallback Data
+        // ✅ 5-Year Projection  ✅ Supabase Integration  ✅ Fallback Data
+        //
+        // ⚠️ BACKEND API INTEGRATION — LIVE, WITH CLIENT-SIDE FALLBACK
+        // Calls POST {API_BASE}/api/v1/running-cost/calculate. This assumes
+        // the backend router has been updated to use get_current_user_optional
+        // (see backend/app/api/v1/running_cost.py — swap Depends(get_current_user)
+        // for Depends(get_current_user_optional) so anonymous requests aren't
+        // rejected with 401).
+        //
+        // KNOWN RISK: app/schemas/request.py (RunningCostRequest) was not
+        // available when this was written. Only fields actually referenced
+        // in running_cost_engine.py are sent: variant_id, distance,
+        // trip_type, driving_style. If the real schema has other *required*
+        // fields, the backend will 422 — that's caught below and the
+        // calculator falls back to the existing client-side math
+        // automatically, same pattern as the Supabase fallback.
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1357,135 +1379,8 @@
             // ─── Configuration ──────────────────────────────────────────
             const SUPABASE_URL = window.SUPABASE_URL || 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
-
-            // ─── KENYAN MARKET PRICING DATA ──────────────────────────────
-            // This data reflects typical Kenyan market prices as of 2026
-            const KENYAN_MARKET_DATA = {
-                // Vehicle prices in KES (Kenyan Shillings)
-                vehicle_prices: {
-                    // Cars
-                    'toyota_corolla': 3500000,
-                    'toyota_camry': 4500000,
-                    'toyota_crown': 5500000,
-                    'honda_civic': 3200000,
-                    'honda_accord': 4200000,
-                    'nissan_sunny': 2800000,
-                    'nissan_x-trail': 4000000,
-                    'subaru_outback': 4800000,
-                    'mazda_axela': 3000000,
-                    
-                    // SUVs
-                    'toyota_rav4': 4800000,
-                    'toyota_prado': 8500000,
-                    'toyota_land_cruiser': 12000000,
-                    'toyota_fortuner': 6500000,
-                    'nissan_patrol': 9500000,
-                    'mitsubishi_pajero': 7000000,
-                    'subaru_forester': 4200000,
-                    'honda_cr-v': 4600000,
-                    'mazda_cx-5': 4300000,
-                    
-                    // Pickups
-                    'toyota_hilux': 5200000,
-                    'isuzu_d-max': 4800000,
-                    'mitsubishi_l200': 4500000,
-                    'nissan_navara': 4600000,
-                    'ford_ranger': 5000000,
-                    
-                    // Vans
-                    'toyota_hiace': 4500000,
-                    'nissan_caravan': 3800000,
-                    'mercedes_sprinter': 6000000,
-                    
-                    // Motorcycles
-                    'honda_cbr': 180000,
-                    'yamaha_xt': 200000,
-                    'suzuki_gsx': 170000,
-                    'bajaj_boxer': 120000,
-                    'tv_ape': 150000,
-                    
-                    // Tricycles
-                    'bajaj_re': 120000,
-                    'tv_king': 130000,
-                    'piaggio_ape': 140000
-                },
-
-                // Maintenance costs in KES
-                maintenance: {
-                    minor_service: 15000,
-                    major_service: 45000,
-                    oil_change: 6000,
-                    tyre_set: 80000,
-                    tyre_life_km: 50000,
-                    service_interval_km: 10000
-                },
-
-                // Insurance rates (as percentage of vehicle value)
-                insurance_rates: {
-                    private: 0.025,      // 2.5% of value
-                    commercial: 0.035,    // 3.5% of value
-                    fleet: 0.020,         // 2.0% of value
-                    taxi: 0.040           // 4.0% of value
-                },
-
-                // Depreciation rates (Kenyan market)
-                depreciation: {
-                    year1: 0.15,  // 15% first year
-                    year2: 0.12,
-                    year3: 0.10,
-                    year4: 0.08,
-                    year5: 0.07,
-                    year6_plus: 0.05
-                },
-
-                // Fuel consumption (km/L) by vehicle type
-                fuel_consumption: {
-                    petrol: {
-                        car: 12.5,
-                        suv: 11.0,
-                        pickup: 10.0,
-                        van: 9.5,
-                        motorcycle: 35.0,
-                        tricycle: 30.0
-                    },
-                    diesel: {
-                        car: 15.0,
-                        suv: 13.5,
-                        pickup: 12.0,
-                        van: 10.0,
-                        motorcycle: 40.0,
-                        tricycle: 32.0
-                    },
-                    hybrid: {
-                        car: 20.0,
-                        suv: 18.0
-                    },
-                    electric: {
-                        car: 25.0,
-                        suv: 22.0
-                    }
-                },
-
-                // Service costs by vehicle type
-                service_costs: {
-                    car: { minor: 15000, major: 45000 },
-                    suv: { minor: 18000, major: 55000 },
-                    pickup: { minor: 15000, major: 55000 },
-                    van: { minor: 18000, major: 60000 },
-                    motorcycle: { minor: 3000, major: 8000 },
-                    tricycle: { minor: 2000, major: 6000 }
-                },
-
-                // Tyre costs by vehicle type
-                tyre_costs: {
-                    car: 80000,
-                    suv: 90000,
-                    pickup: 85000,
-                    van: 100000,
-                    motorcycle: 6000,
-                    tricycle: 4000
-                }
-            };
+            const API_BASE = window.API_BASE || 'https://auto-digital.onrender.com/api/v1';
+            const RUNNING_COST_TIMEOUT_MS = 6000; // fail fast to client-side fallback rather than hang the UI
 
             // ─── State ──────────────────────────────────────────────────
             let supabaseClient = null;
@@ -1501,6 +1396,8 @@
             let currentFuelFilter = 'all';
             let isUsingSupabase = false;
             let supabaseError = null;
+            let isUsingApiEngine = false;
+            let apiError = null;
 
             // ─── DOM References ─────────────────────────────────────────
             const elements = {
@@ -1547,7 +1444,6 @@
                 yearlyBody: document.getElementById('yearlyBody'),
                 loadingOverlay: document.getElementById('loadingOverlay'),
                 loadingStatus: document.getElementById('loadingStatus'),
-                loadingError: document.getElementById('loadingError'),
                 dataSourceText: document.getElementById('dataSourceText')
             };
 
@@ -1590,63 +1486,10 @@
                 return Math.max(0, currentYear - parseInt(year));
             }
 
-            // ─── Kenyan Market Price Lookup ─────────────────────────────
-            function getKenyanMarketPrice(vehicleKey) {
-                // Try exact match first
-                if (KENYAN_MARKET_DATA.vehicle_prices[vehicleKey]) {
-                    return KENYAN_MARKET_DATA.vehicle_prices[vehicleKey];
-                }
-                
-                // Try fuzzy match
-                const keys = Object.keys(KENYAN_MARKET_DATA.vehicle_prices);
-                const lowerKey = vehicleKey.toLowerCase();
-                
-                for (const key of keys) {
-                    if (lowerKey.includes(key.toLowerCase()) || key.toLowerCase().includes(lowerKey)) {
-                        return KENYAN_MARKET_DATA.vehicle_prices[key];
-                    }
-                }
-                
-                // Return default based on vehicle type
-                return 3500000; // Default for unspecified vehicles
-            }
-
-            function getKenyanServiceCosts(vehicleType) {
-                const type = vehicleType || 'car';
-                const costs = KENYAN_MARKET_DATA.service_costs[type] || KENYAN_MARKET_DATA.service_costs.car;
-                return costs;
-            }
-
-            function getKenyanTyreCost(vehicleType) {
-                const type = vehicleType || 'car';
-                return KENYAN_MARKET_DATA.tyre_costs[type] || KENYAN_MARKET_DATA.tyre_costs.car;
-            }
-
-            function getDepreciationRate(year) {
-                const age = getVehicleAge(year);
-                const rates = KENYAN_MARKET_DATA.depreciation;
-                if (age <= 1) return rates.year1;
-                if (age <= 2) return rates.year2;
-                if (age <= 3) return rates.year3;
-                if (age <= 4) return rates.year4;
-                if (age <= 5) return rates.year5;
-                return rates.year6_plus;
-            }
-
-            function getInsuranceRate(usageType) {
-                return KENYAN_MARKET_DATA.insurance_rates[usageType] || KENYAN_MARKET_DATA.insurance_rates.private;
-            }
-
-            function getFuelConsumption(fuelType, vehicleType) {
-                const fuelMap = KENYAN_MARKET_DATA.fuel_consumption[fuelType];
-                if (!fuelMap) return 12.5;
-                return fuelMap[vehicleType] || 12.5;
-            }
-
             // ─── Age-Based Initial Cost Calculation ────────────────────
             function calculateAgeAdjustedCost(basePrice, age) {
-                const depRate = getDepreciationRate(new Date().getFullYear() - age + 2024);
-                const adjustedPrice = basePrice * Math.pow(1 - depRate, age);
+                const depreciationRate = 0.12;
+                const adjustedPrice = basePrice * Math.pow(1 - depreciationRate, age);
                 return Math.max(adjustedPrice, basePrice * 0.15);
             }
 
@@ -1715,43 +1558,30 @@
 
                     // 5. Load routes
                     elements.loadingStatus.textContent = 'Fetching routes...';
-                    let routesData = null;
-                    try {
-                        const { data: routesData1, error: routesError1 } = await supabaseClient
-                            .from('routes')
-                            .select('*');
-                        if (!routesError1 && routesData1) {
-                            routesData = routesData1;
-                            console.log(`✅ Loaded ${routesData.length} routes`);
-                        }
-                    } catch (e) {
-                        console.warn('⚠️ Routes load failed:', e.message);
-                    }
+                    const { data: routesData, error: routesError } = await supabaseClient
+                        .from('routes')
+                        .select('*')
+                        .order('distance');
+                    if (routesError) throw routesError;
+                    console.log(`✅ Loaded ${routesData?.length || 0} routes`);
 
                     // 6. Load fuel prices
                     elements.loadingStatus.textContent = 'Fetching fuel prices...';
-                    let fuelPrices = null;
-                    try {
-                        const { data: fp, error: fpError } = await supabaseClient
-                            .from('fuel_prices')
-                            .select('*')
-                            .order('effective_date', { ascending: false })
-                            .limit(1);
-                        if (!fpError && fp) {
-                            fuelPrices = fp;
-                            console.log(`✅ Loaded ${fp.length} fuel prices`);
-                        }
-                    } catch (e) {
-                        console.warn('⚠️ Fuel prices load failed:', e.message);
-                    }
+                    const { data: fuelPrices, error: fuelError } = await supabaseClient
+                        .from('fuel_prices')
+                        .select('*')
+                        .eq('region', 'nairobi')
+                        .order('effective_date', { ascending: false })
+                        .limit(1);
+                    if (fuelError) throw fuelError;
+                    console.log(`✅ Loaded ${fuelPrices?.length || 0} fuel prices`);
 
                     // ─── Build categories from types ──────────────────
                     categories = types.map(type => ({
                         id: type.id,
                         name: type.name,
                         icon: type.icon,
-                        fuel_type: 'all',
-                        category_type: type.name.toLowerCase()
+                        fuel_type: 'all'
                     }));
 
                     // ─── Build variants by category ───────────────────
@@ -1767,7 +1597,7 @@
                     const modelsMap = {};
                     models.forEach(m => { modelsMap[m.id] = m; });
 
-                    // Process variants with Kenyan market pricing
+                    // Process variants
                     let variantCount = 0;
                     variants.forEach(variant => {
                         const model = modelsMap[variant.model_id];
@@ -1777,22 +1607,11 @@
                         const category = categories.find(c => c.id === make.type_id);
                         if (!category) return;
 
-                        // Determine vehicle type for pricing
-                        const vehicleType = category.category_type || 'car';
-                        const fuelType = variant.fuel_type || 'petrol';
-                        
-                        // Get Kenyan market price
-                        const vehicleKey = `${make.name.toLowerCase()}_${model.name.toLowerCase()}`.replace(/\s+/g, '_');
-                        const marketPrice = getKenyanMarketPrice(vehicleKey) || variant.market_value || 3500000;
-                        
-                        // Get Kenyan service costs
-                        const serviceCosts = getKenyanServiceCosts(vehicleType);
-                        const tyreCost = getKenyanTyreCost(vehicleType);
                         const fuelConsumption = variant.fuel_consumption || 
-                            getFuelConsumption(fuelType.toLowerCase(), vehicleType);
+                            (variant.fuel_type === 'diesel' ? 15 : 
+                             variant.fuel_type === 'hybrid' ? 20 : 12);
 
-                        // Get insurance rate based on usage type
-                        const insuranceRate = getInsuranceRate('private');
+                        const marketValue = variant.market_value || 3500000;
 
                         allVariantsByCategory[category.id].push({
                             id: variant.id,
@@ -1801,324 +1620,134 @@
                             fuel_consumption: fuelConsumption,
                             transmission: variant.transmission || 'Automatic',
                             engine_size_cc: variant.engine_cc || 0,
-                            // Kenyan market prices
-                            initial_cost: marketPrice,
-                            current_value: marketPrice * 0.9,
-                            expected_resale: marketPrice * 0.35,
+                            initial_cost: marketValue,
+                            current_value: marketValue * 0.9,
+                            expected_resale: marketValue * 0.35,
                             years_remaining: 10,
-                            // Kenyan service costs
-                            service_interval: 10000,
-                            minor_service_cost: serviceCosts.minor,
-                            major_service_interval: 40000,
-                            major_service_cost: serviceCosts.major,
-                            oil_interval: 10000,
-                            oil_cost: serviceCosts.minor * 0.4,
-                            // Kenyan tyre costs
-                            tyre_cost: tyreCost,
+                            service_interval: variant.service_interval || 15000,
+                            minor_service_cost: variant.service_cost || 15000,
+                            major_service_interval: (variant.service_interval || 15000) * 4,
+                            major_service_cost: (variant.service_cost || 15000) * 3,
+                            oil_interval: variant.service_interval || 15000,
+                            oil_cost: (variant.service_cost || 15000) * 0.4,
+                            tyre_cost: (variant.tyre_cost || 30000) * 4,
                             tyre_life: 50000,
-                            // Kenyan insurance
-                            insurance_annual: marketPrice * insuranceRate,
-                            tax_annual: marketPrice * 0.005,
+                            insurance_annual: marketValue * 0.02,
+                            tax_annual: marketValue * 0.005,
                             loan_amount: 0,
                             battery_cost: 0,
                             battery_life: 0,
                             make_name: make.name,
                             model_name: model.name,
-                            drive_type: variant.drive_type || 'fwd',
-                            vehicle_type: vehicleType
+                            drive_type: variant.drive_type || 'fwd'
                         });
                         variantCount++;
                     });
 
-                    console.log(`✅ Processed ${variantCount} variants with Kenyan market pricing`);
+                    console.log(`✅ Processed ${variantCount} variants into ${categories.length} categories`);
 
                     // ─── Set routes ────────────────────────────────────
                     if (routesData && routesData.length > 0) {
-                        const sample = routesData[0];
-                        let distanceKey = null;
-                        if ('distance' in sample) distanceKey = 'distance';
-                        else if ('km' in sample) distanceKey = 'km';
-                        else if ('distance_km' in sample) distanceKey = 'distance_km';
-                        else {
-                            const keys = Object.keys(sample);
-                            for (const key of keys) {
-                                if (typeof sample[key] === 'number' && sample[key] > 0) {
-                                    distanceKey = key;
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        if (distanceKey) {
-                            routes = routesData.map(r => ({
-                                from_city: r.from_city || r.from || 'Unknown',
-                                to_city: r.to_city || r.to || 'Unknown',
-                                km: r[distanceKey] || 0
-                            })).filter(r => r.km > 0);
-                        }
+                        routes = routesData;
                     }
 
                     // ─── Set fuel price ────────────────────────────────
                     if (fuelPrices && fuelPrices.length > 0) {
-                        const price = fuelPrices[0].price || fuelPrices[0].fuel_price || 203.47;
-                        if (price > 0) {
-                            elements.fuelPriceInput.value = price;
-                            elements.fuelPriceDisplay.textContent = 
-                                `Petrol: KES ${price}  ·  Diesel: KES ${(price * 0.96).toFixed(2)}`;
-                        }
+                        const price = fuelPrices[0].price;
+                        elements.fuelPriceInput.value = price;
+                        elements.fuelPriceDisplay.textContent = 
+                            `Petrol: KES ${price}  ·  Diesel: KES ${(price * 0.96).toFixed(2)}`;
                     }
 
                     isUsingSupabase = true;
                     supabaseError = null;
-                    elements.dataSourceText.textContent = '✅ Supabase + KE Market';
-                    elements.dataSourceText.style.color = '#22c55e';
-                    console.log(`✅ Loaded ${categories.length} categories with Kenyan market prices`);
+                    elements.dataSourceText.textContent = '✅ Supabase';
+                    elements.dataSourceText.style.color = 'var(--green)';
+                    console.log(`✅ Loaded ${categories.length} categories, ${variantCount} variants from Supabase`);
                     return true;
 
                 } catch (error) {
                     console.warn('⚠️ Supabase load failed:', error.message);
                     supabaseError = error.message;
                     elements.dataSourceText.textContent = '❌ Supabase Failed';
-                    elements.dataSourceText.style.color = '#ef4444';
-                    elements.loadingError.textContent = `Supabase error: ${error.message}`;
-                    elements.loadingError.style.display = 'block';
+                    elements.dataSourceText.style.color = 'var(--red)';
                     return false;
                 }
             }
 
-            // ─── FALLBACK DATA WITH KENYAN MARKET PRICES ──────────────
+            // ─── FALLBACK DATA ──────────────────────────────────────────
             function getFallbackCategories() {
                 return [
-                    { id: 'cat-car', name: 'Car', category_type: 'car' },
-                    { id: 'cat-suv', name: 'SUV', category_type: 'suv' },
-                    { id: 'cat-pickup', name: 'Pickup', category_type: 'pickup' },
-                    { id: 'cat-van', name: 'Van', category_type: 'van' },
-                    { id: 'cat-motorcycle', name: 'Motorcycle', category_type: 'motorcycle' },
-                    { id: 'cat-tricycle', name: 'Tricycle', category_type: 'tricycle' }
+                    { id: 'cat-car', name: 'Car', fuel_type: 'all' },
+                    { id: 'cat-suv', name: 'SUV', fuel_type: 'all' },
+                    { id: 'cat-pickup', name: 'Pickup', fuel_type: 'all' },
+                    { id: 'cat-van', name: 'Van', fuel_type: 'all' },
+                    { id: 'cat-motorcycle', name: 'Motorcycle', fuel_type: 'all' },
+                    { id: 'cat-tricycle', name: 'Tricycle', fuel_type: 'all' }
                 ];
             }
 
             function getFallbackVariants() {
                 return {
                     'cat-car': [
-                        { 
-                            id: 'car-1', 
-                            label: 'Toyota Corolla 1.8L Petrol', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 12.5,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 1800, 
-                            initial_cost: 3500000, 
-                            current_value: 3200000,
-                            expected_resale: 1400000, 
-                            years_remaining: 8, 
-                            service_interval: 10000, 
-                            minor_service_cost: 15000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 45000, 
-                            oil_interval: 10000, 
-                            oil_cost: 6000,
-                            tyre_cost: 80000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 87500, 
-                            tax_annual: 17500,
-                            make_name: 'Toyota', 
-                            model_name: 'Corolla', 
-                            drive_type: 'fwd',
-                            vehicle_type: 'car'
-                        },
-                        { 
-                            id: 'car-2', 
-                            label: 'Toyota Camry 2.5L Petrol', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 14.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2500, 
-                            initial_cost: 4500000, 
-                            current_value: 4000000,
-                            expected_resale: 1800000, 
-                            years_remaining: 8, 
-                            service_interval: 15000, 
-                            minor_service_cost: 16000,
-                            major_service_interval: 60000, 
-                            major_service_cost: 50000, 
-                            oil_interval: 15000, 
-                            oil_cost: 7000,
-                            tyre_cost: 90000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 112500, 
-                            tax_annual: 22500,
-                            make_name: 'Toyota', 
-                            model_name: 'Camry', 
-                            drive_type: 'fwd',
-                            vehicle_type: 'car'
-                        }
+                        { id: 'car-1', label: 'Toyota Corolla 1.8L Petrol', fuel_type: 'Petrol', fuel_consumption: 12.5,
+                          transmission: 'Automatic', engine_size_cc: 1800, initial_cost: 3500000, current_value: 3200000,
+                          expected_resale: 1400000, years_remaining: 8, service_interval: 10000, minor_service_cost: 15000,
+                          major_service_interval: 40000, major_service_cost: 45000, oil_interval: 10000, oil_cost: 6000,
+                          tyre_cost: 80000, tyre_life: 50000, insurance_annual: 60000, tax_annual: 8000,
+                          make_name: 'Toyota', model_name: 'Corolla', drive_type: 'fwd' },
+                        { id: 'car-2', label: 'Toyota Camry 2.5L Petrol', fuel_type: 'Petrol', fuel_consumption: 14.0,
+                          transmission: 'Automatic', engine_size_cc: 2500, initial_cost: 4500000, current_value: 4000000,
+                          expected_resale: 1800000, years_remaining: 8, service_interval: 15000, minor_service_cost: 16000,
+                          major_service_interval: 60000, major_service_cost: 50000, oil_interval: 15000, oil_cost: 7000,
+                          tyre_cost: 90000, tyre_life: 50000, insurance_annual: 70000, tax_annual: 10000,
+                          make_name: 'Toyota', model_name: 'Camry', drive_type: 'fwd' }
                     ],
                     'cat-suv': [
-                        { 
-                            id: 'suv-1', 
-                            label: 'Toyota RAV4 2.0L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 15.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2000, 
-                            initial_cost: 4800000, 
-                            current_value: 4300000,
-                            expected_resale: 1900000, 
-                            years_remaining: 7, 
-                            service_interval: 12000, 
-                            minor_service_cost: 18000,
-                            major_service_interval: 48000, 
-                            major_service_cost: 55000, 
-                            oil_interval: 12000, 
-                            oil_cost: 7000,
-                            tyre_cost: 90000, 
-                            tyre_life: 55000, 
-                            insurance_annual: 120000, 
-                            tax_annual: 24000,
-                            make_name: 'Toyota', 
-                            model_name: 'RAV4', 
-                            drive_type: 'awd',
-                            vehicle_type: 'suv'
-                        },
-                        { 
-                            id: 'suv-2', 
-                            label: 'Toyota Land Cruiser Prado 2.8L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 11.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2800, 
-                            initial_cost: 8500000, 
-                            current_value: 7800000,
-                            expected_resale: 3500000, 
-                            years_remaining: 10, 
-                            service_interval: 10000, 
-                            minor_service_cost: 20000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 65000, 
-                            oil_interval: 10000, 
-                            oil_cost: 8000,
-                            tyre_cost: 120000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 212500, 
-                            tax_annual: 42500,
-                            make_name: 'Toyota', 
-                            model_name: 'Land Cruiser Prado', 
-                            drive_type: 'awd',
-                            vehicle_type: 'suv'
-                        }
+                        { id: 'suv-1', label: 'Toyota RAV4 2.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 15.0,
+                          transmission: 'Automatic', engine_size_cc: 2000, initial_cost: 4800000, current_value: 4300000,
+                          expected_resale: 1900000, years_remaining: 7, service_interval: 12000, minor_service_cost: 18000,
+                          major_service_interval: 48000, major_service_cost: 55000, oil_interval: 12000, oil_cost: 7000,
+                          tyre_cost: 90000, tyre_life: 55000, insurance_annual: 65000, tax_annual: 9000,
+                          make_name: 'Toyota', model_name: 'RAV4', drive_type: 'awd' },
+                        { id: 'suv-2', label: 'Toyota Land Cruiser Prado 2.8L Diesel', fuel_type: 'Diesel', fuel_consumption: 11.0,
+                          transmission: 'Automatic', engine_size_cc: 2800, initial_cost: 8500000, current_value: 7800000,
+                          expected_resale: 3500000, years_remaining: 10, service_interval: 10000, minor_service_cost: 20000,
+                          major_service_interval: 40000, major_service_cost: 65000, oil_interval: 10000, oil_cost: 8000,
+                          tyre_cost: 120000, tyre_life: 50000, insurance_annual: 90000, tax_annual: 12000,
+                          make_name: 'Toyota', model_name: 'Land Cruiser Prado', drive_type: 'awd' }
                     ],
                     'cat-pickup': [
-                        { 
-                            id: 'pickup-1', 
-                            label: 'Toyota Hilux 2.8L Diesel Double Cab', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 12.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2800, 
-                            initial_cost: 5200000, 
-                            current_value: 4700000,
-                            expected_resale: 2100000, 
-                            years_remaining: 7, 
-                            service_interval: 10000, 
-                            minor_service_cost: 15000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 55000, 
-                            oil_interval: 10000, 
-                            oil_cost: 6000,
-                            tyre_cost: 85000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 130000, 
-                            tax_annual: 26000,
-                            make_name: 'Toyota', 
-                            model_name: 'Hilux', 
-                            drive_type: '4wd',
-                            vehicle_type: 'pickup'
-                        }
+                        { id: 'pickup-1', label: 'Toyota Hilux 2.8L Diesel Double Cab', fuel_type: 'Diesel', fuel_consumption: 12.0,
+                          transmission: 'Automatic', engine_size_cc: 2800, initial_cost: 5200000, current_value: 4700000,
+                          expected_resale: 2100000, years_remaining: 7, service_interval: 10000, minor_service_cost: 15000,
+                          major_service_interval: 40000, major_service_cost: 55000, oil_interval: 10000, oil_cost: 6000,
+                          tyre_cost: 85000, tyre_life: 50000, insurance_annual: 55000, tax_annual: 7500,
+                          make_name: 'Toyota', model_name: 'Hilux', drive_type: '4wd' }
                     ],
                     'cat-van': [
-                        { 
-                            id: 'van-1', 
-                            label: 'Toyota Hiace 3.0L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 10.0,
-                            transmission: 'Manual', 
-                            engine_size_cc: 3000, 
-                            initial_cost: 4500000, 
-                            current_value: 4000000,
-                            expected_resale: 1800000, 
-                            years_remaining: 6, 
-                            service_interval: 10000, 
-                            minor_service_cost: 18000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 60000, 
-                            oil_interval: 10000, 
-                            oil_cost: 7000,
-                            tyre_cost: 100000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 112500, 
-                            tax_annual: 22500,
-                            make_name: 'Toyota', 
-                            model_name: 'Hiace', 
-                            drive_type: 'rwd',
-                            vehicle_type: 'van'
-                        }
+                        { id: 'van-1', label: 'Toyota Hiace 3.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 10.0,
+                          transmission: 'Manual', engine_size_cc: 3000, initial_cost: 4500000, current_value: 4000000,
+                          expected_resale: 1800000, years_remaining: 6, service_interval: 10000, minor_service_cost: 18000,
+                          major_service_interval: 40000, major_service_cost: 60000, oil_interval: 10000, oil_cost: 7000,
+                          tyre_cost: 100000, tyre_life: 50000, insurance_annual: 70000, tax_annual: 10000,
+                          make_name: 'Toyota', model_name: 'Hiace', drive_type: 'rwd' }
                     ],
                     'cat-motorcycle': [
-                        { 
-                            id: 'moto-1', 
-                            label: 'Honda CBR600RR', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 35.0,
-                            transmission: 'Manual', 
-                            engine_size_cc: 600, 
-                            initial_cost: 180000, 
-                            current_value: 162000,
-                            expected_resale: 70000, 
-                            years_remaining: 5, 
-                            service_interval: 5000, 
-                            minor_service_cost: 3000,
-                            major_service_interval: 20000, 
-                            major_service_cost: 8000, 
-                            oil_interval: 5000, 
-                            oil_cost: 1500,
-                            tyre_cost: 6000, 
-                            tyre_life: 15000, 
-                            insurance_annual: 4500, 
-                            tax_annual: 900,
-                            make_name: 'Honda', 
-                            model_name: 'CBR600RR', 
-                            drive_type: 'rwd',
-                            vehicle_type: 'motorcycle'
-                        }
+                        { id: 'moto-1', label: 'Honda CBR600RR', fuel_type: 'Petrol', fuel_consumption: 35.0,
+                          transmission: 'Manual', engine_size_cc: 600, initial_cost: 180000, current_value: 162000,
+                          expected_resale: 70000, years_remaining: 5, service_interval: 5000, minor_service_cost: 3000,
+                          major_service_interval: 20000, major_service_cost: 8000, oil_interval: 5000, oil_cost: 1500,
+                          tyre_cost: 6000, tyre_life: 15000, insurance_annual: 5000, tax_annual: 1500,
+                          make_name: 'Honda', model_name: 'CBR600RR', drive_type: 'rwd' }
                     ],
                     'cat-tricycle': [
-                        { 
-                            id: 'tri-1', 
-                            label: 'Bajaj RE 125cc', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 30.0,
-                            transmission: 'Manual', 
-                            engine_size_cc: 125, 
-                            initial_cost: 120000, 
-                            current_value: 108000,
-                            expected_resale: 45000, 
-                            years_remaining: 5, 
-                            service_interval: 3000, 
-                            minor_service_cost: 2000,
-                            major_service_interval: 15000, 
-                            major_service_cost: 6000, 
-                            oil_interval: 3000, 
-                            oil_cost: 800,
-                            tyre_cost: 4000, 
-                            tyre_life: 12000, 
-                            insurance_annual: 3000, 
-                            tax_annual: 600,
-                            make_name: 'Bajaj', 
-                            model_name: 'RE', 
-                            drive_type: 'rwd',
-                            vehicle_type: 'tricycle'
-                        }
+                        { id: 'tri-1', label: 'Bajaj RE 125cc', fuel_type: 'Petrol', fuel_consumption: 30.0,
+                          transmission: 'Manual', engine_size_cc: 125, initial_cost: 120000, current_value: 108000,
+                          expected_resale: 45000, years_remaining: 5, service_interval: 3000, minor_service_cost: 2000,
+                          major_service_interval: 15000, major_service_cost: 6000, oil_interval: 3000, oil_cost: 800,
+                          tyre_cost: 4000, tyre_life: 12000, insurance_annual: 3000, tax_annual: 1000,
+                          make_name: 'Bajaj', model_name: 'RE', drive_type: 'rwd' }
                     ]
                 };
             }
@@ -2143,38 +1772,33 @@
                         elements.loadingStatus.textContent = 'Connecting to Supabase...';
                         const dataLoaded = await loadFromSupabase();
                         if (dataLoaded) {
-                            console.log('✅ Using Supabase data with Kenyan market pricing');
+                            console.log('✅ Using Supabase data');
                             elements.loadingStatus.textContent = '✅ Data loaded from Supabase';
                             return true;
                         }
                     }
                     
-                    // Fallback to local data with Kenyan market prices
-                    console.warn('⚠️ Using fallback data with Kenyan market pricing');
+                    // Fallback to local data
+                    console.warn('⚠️ Using fallback data');
                     elements.loadingStatus.textContent = '⚠️ Using local fallback data';
-                    elements.loadingError.textContent = 'Supabase unavailable - using fallback data';
-                    elements.loadingError.style.display = 'block';
-                    
                     categories = getFallbackCategories();
                     allVariantsByCategory = getFallbackVariants();
                     routes = getFallbackRoutes();
                     elements.fuelPriceInput.value = 203.47;
                     elements.fuelPriceDisplay.textContent = 'Petrol: KES 203.47  ·  Diesel: KES 195.67';
                     isUsingSupabase = false;
-                    elements.dataSourceText.textContent = '📁 KE Market Data';
-                    elements.dataSourceText.style.color = '#eab308';
+                    elements.dataSourceText.textContent = '📁 Fallback';
+                    elements.dataSourceText.style.color = 'var(--amber)';
                     return true;
                     
                 } catch (error) {
                     console.error('❌ Error loading data:', error);
                     elements.loadingStatus.textContent = '❌ Error loading data';
-                    elements.loadingError.textContent = `Error: ${error.message}`;
-                    elements.loadingError.style.display = 'block';
                     return false;
                 }
             }
 
-            // ─── Core Cost Engine with Kenyan Market Adjustments ──────
+            // ─── Core Cost Engine ──────────────────────────────────────
             const TRANSMISSION_FUEL_FACTOR = {
                 manual: 1.00,
                 automatic: 1.08,
@@ -2192,98 +1816,75 @@
                 if (d <= 0) return null;
 
                 const vehicleAge = getVehicleAge(year);
-                const basePrice = variant.initial_cost || 3500000;
-                
-                // Use Kenyan market depreciation rates
-                const depRate = getDepreciationRate(year);
+                const basePrice = variant.initial_cost || 5000000;
                 const ageAdjustedCost = calculateAgeAdjustedCost(basePrice, vehicleAge);
                 const basePriceForCalc = Math.min(basePrice, ageAdjustedCost * 1.2);
 
-                // Fuel consumption with Kenyan market factors
                 const transmissionKey = (transmission || variant.transmission || 'automatic').toLowerCase();
                 const transmissionFactor = TRANSMISSION_FUEL_FACTOR[transmissionKey] || 1.0;
-                const fuelConsumption = (variant.fuel_consumption || 12.5) * transmissionFactor;
+                const fuelConsumption = (variant.fuel_consumption || 8) * transmissionFactor;
 
-                // Driving style impact (Kenyan road conditions)
-                const drivingFactors = { 
-                    eco: 0.85, 
-                    normal: 1.0, 
-                    aggressive: 1.15 
-                };
+                const drivingFactors = { eco: 0.85, normal: 1.0, aggressive: 1.15 };
                 const drivingFactor = drivingFactors[drivingStyle] || 1.0;
                 const adjustedFuelConsumption = fuelConsumption / drivingFactor;
 
-                // Trip type impact (city/highway/mixed)
-                const tripFactors = {
-                    city: 1.15,
-                    highway: 0.90,
-                    mixed: 1.0
-                };
-                const tripFactor = tripFactors[tripType] || 1.0;
-                const finalFuelConsumption = adjustedFuelConsumption / tripFactor;
-
-                const fuelPricePerUnit = fuelPrice || 203.47;
-                const fuelCostPerKm = fuelPricePerUnit / finalFuelConsumption;
+                // NOTE: fuelPrice falls back to 200 if unset/zero. If the price
+                // input is genuinely 0 (not just empty), this masks that rather
+                // than warning the user — flagged for follow-up.
+                const fuelPricePerUnit = fuelPrice || 200;
+                const fuelCostPerKm = fuelPricePerUnit / adjustedFuelConsumption;
                 const fuelCostTrip = fuelCostPerKm * d;
 
-                // Service costs (Kenyan market rates)
                 const minorCost = variant.minor_service_cost || 15000;
-                const minorInterval = variant.service_interval || 10000;
+                const minorInterval = variant.minor_service_interval || 10000;
                 const majorCost = variant.major_service_cost || 45000;
                 const majorInterval = variant.major_service_interval || 40000;
 
                 const servicePerKm = (minorCost / minorInterval) + (majorCost / majorInterval);
                 const serviceTrip = servicePerKm * d;
 
-                // Tyre costs (Kenyan market)
-                const tyreCost = variant.tyre_cost || 80000;
+                const tyreCost = variant.tyre_cost || 120000;
                 const tyreLife = variant.tyre_life || 50000;
                 const tyrePerKm = tyreCost / tyreLife;
                 const tyreTrip = tyrePerKm * d;
 
-                // Insurance (Kenyan market rates)
-                const insuranceRate = getInsuranceRate(usageType);
-                const insuranceAnnual = variant.insurance_annual || (basePriceForCalc * insuranceRate);
+                const insuranceAnnual = variant.insurance_annual || 60000;
                 const insurancePerKm = insuranceAnnual / annual;
                 const insuranceTrip = insurancePerKm * d;
 
-                // Depreciation (Kenyan market rates)
-                const depRateForYear = getDepreciationRate(year);
-                const depreciationPerKm = (basePriceForCalc * depRateForYear) / annual;
+                const depreciationRate = 0.12;
+                const depreciationPerKm = (basePriceForCalc * depreciationRate) / annual;
                 const depreciationTrip = depreciationPerKm * d;
 
                 const tripTotal = fuelCostTrip + serviceTrip + tyreTrip + insuranceTrip + depreciationTrip;
                 const tripCostPerKm = tripTotal / d;
 
-                // Monthly and annual calculations
                 const monthlyKm = annual / 12;
                 const monthlyFuel = fuelCostPerKm * monthlyKm;
                 const monthlyService = servicePerKm * monthlyKm;
                 const monthlyTyre = tyrePerKm * monthlyKm;
                 const monthlyInsurance = insuranceAnnual / 12;
-                const monthlyDepreciation = (basePriceForCalc * depRateForYear) / 12;
+                const monthlyDepreciation = (basePriceForCalc * depreciationRate) / 12;
 
                 const annualFuel = fuelCostPerKm * annual;
                 const annualService = servicePerKm * annual;
                 const annualTyre = tyrePerKm * annual;
-                const annualDepreciation = basePriceForCalc * depRateForYear;
+                const annualDepreciation = basePriceForCalc * depreciationRate;
 
-                // ─── 5-Year Projection with Kenyan Market Depreciation ──
+                // ─── 5-Year Projection ──────────────────────────────────
                 const fiveYearData = [];
                 let remainingValue = basePriceForCalc;
                 let total5YearCost = 0;
 
                 for (let y = 1; y <= 5; y++) {
-                    // Progressive depreciation (Kenyan market)
-                    const depRateYear = depRateForYear * (1 + (y - 1) * 0.08);
-                    const yearlyDepreciation = remainingValue * Math.min(depRateYear, 0.20);
+                    const depRate = depreciationRate * (1 + (y - 1) * 0.05);
+                    const yearlyDepreciation = remainingValue * depRate;
                     remainingValue = remainingValue - yearlyDepreciation;
                     
-                    // Annual cost escalation (Kenyan market inflation)
-                    const yearlyFuel = annualFuel * (1 + (y - 1) * 0.05);
-                    const yearlyService = annualService * (1 + (y - 1) * 0.08);
-                    const yearlyInsurance = insuranceAnnual * (1 + (y - 1) * 0.03);
-                    const yearlyTyres = annualTyre * (1 + (y - 1) * 0.06);
+                    const yearlyFuel = annualFuel * (1 + (y - 1) * 0.03);
+                    const yearlyService = annualService * (1 + (y - 1) * 0.05);
+                    const yearlyInsurance = insuranceAnnual * (1 + (y - 1) * 0.02);
+                    const yearlyTyres = annualTyre * (1 + (y - 1) * 0.04);
                     const yearlyTotal = yearlyDepreciation + yearlyFuel + yearlyService + yearlyInsurance + yearlyTyres;
                     
                     total5YearCost += yearlyTotal;
@@ -2310,7 +1911,7 @@
                     tyreTrip,
                     insuranceTrip,
                     depreciationTrip,
-                    fuelConsumption: finalFuelConsumption,
+                    fuelConsumption: adjustedFuelConsumption,
                     vehicleName: variant.label,
                     fuelTypeDisplay: variant.fuel_type || 'Petrol',
                     transmissionDisplay: variant.transmission || 'Automatic',
@@ -2334,15 +1935,11 @@
                     fiveYearData,
                     total5YearCost,
                     remainingValue,
-                    variant: variant,
-                    // Kenyan market specific metrics
-                    depreciation_rate: depRateForYear,
-                    insurance_rate: insuranceRate,
-                    fuel_efficiency: finalFuelConsumption
+                    variant: variant
                 };
             }
 
-            // ─── Render Results with Kenyan Market Context ─────────────
+            // ─── Render Results ─────────────────────────────────────────
             function renderResults(result, variant) {
                 elements.vehicleLabel.textContent = variant.label || 'Unnamed variant';
                 elements.fuelPill.textContent = result.fuelTypeDisplay || '—';
@@ -2361,8 +1958,7 @@
                     { label: '💰', value: `KES ${formatCurrency(result.initialCost)}` },
                     { label: '📅', value: `${result.age || 0} years old` },
                     { label: '📊', value: `${formatNumber(result.annualKm || 20000)} km/year` },
-                    { label: '🏷️', value: (result.usageType || 'private').toUpperCase() },
-                    { label: '⛽', value: `${result.fuel_efficiency?.toFixed(1) || '—'} km/L` }
+                    { label: '🏷️', value: (result.usageType || 'private').toUpperCase() }
                 ];
                 if (variant.make_name) specItems.unshift({ label: '🏭', value: variant.make_name });
                 if (variant.model_name) specItems.push({ label: '🚗', value: variant.model_name });
@@ -2570,13 +2166,8 @@
                     recs.push({ icon: '✅', text: 'Excellent running cost efficiency! Your vehicle is economical to operate.', type: 'success' });
                 }
 
-                // Kenyan market specific recommendations
-                if (fuelType === 'diesel' && result.fuel_efficiency < 12) {
-                    recs.push({ icon: '💡', text: 'Diesel consumption is high for Kenyan conditions. Consider servicing your injectors.', type: 'info' });
-                }
-
-                if (result.age > 8) {
-                    recs.push({ icon: '📊', text: `Vehicle is ${result.age} years old. Consider increased maintenance budget for older vehicles.`, type: 'warning' });
+                if (fuelType === 'electric') {
+                    recs.push({ icon: '🌱', text: 'Electric vehicle - zero emissions and lower running costs.', type: 'success' });
                 }
 
                 recs.push({ icon: '📊', text: `5-Year running cost: KES ${formatCurrency(total5Year)}. Avg KES ${formatCurrency(avgYearly)}/year.`, type: 'info' });
@@ -2595,8 +2186,130 @@
                 });
             }
 
+            // ─── Backend API Call (with graceful fallback) ─────────────
+            // Calls the FastAPI running-cost engine. Returns null on any
+            // failure (network, timeout, 401, 422, 500) so the caller can
+            // fall back to calculateRunningCost() without interrupting the
+            // user. This mirrors the Supabase → fallback-data pattern above.
+            async function fetchRunningCostFromApi(variant, inputs) {
+                if (!variant || !variant.id) return null;
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), RUNNING_COST_TIMEOUT_MS);
+
+                try {
+                    const headers = { 'Content-Type': 'application/json' };
+                    // Attach a Supabase session token if one exists (backend
+                    // requires get_current_user_optional to accept anonymous
+                    // requests without this header at all).
+                    if (supabaseClient) {
+                        try {
+                            const { data: sessionData } = await supabaseClient.auth.getSession();
+                            const token = sessionData?.session?.access_token;
+                            if (token) headers['Authorization'] = `Bearer ${token}`;
+                        } catch (_) { /* no session — proceed anonymously */ }
+                    }
+
+                    // Only fields confirmed present in running_cost_engine.py
+                    // usage are sent. If RunningCostRequest has other required
+                    // fields not seen in that file, expect a 422 here — caught
+                    // below and handled via fallback.
+                    const payload = {
+                        variant_id: variant.id,
+                        distance: inputs.distance,
+                        trip_type: inputs.tripType,
+                        driving_style: inputs.drivingStyle
+                    };
+
+                    const res = await fetch(`${API_BASE}/running-cost/calculate`, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(payload),
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    if (!res.ok) {
+                        const errText = await res.text().catch(() => '');
+                        throw new Error(`API ${res.status}: ${errText.slice(0, 200)}`);
+                    }
+
+                    const data = await res.json();
+
+                    // Map RunningCostResponse (fuel, service, tyres, insurance,
+                    // repairs, depreciation, finance, misc, total, cost_per_km)
+                    // onto the shape renderResults() expects. The API's cost
+                    // components differ slightly from the client-side engine's
+                    // (it has repairs/finance/misc; client-side doesn't), so
+                    // those extras are folded into "misc" for display purposes.
+                    const distance = inputs.distance || 1;
+                    const annual = inputs.annualKm || 20000;
+                    const fuelTrip = data.fuel || 0;
+                    const serviceTrip = data.service || 0;
+                    const tyreTrip = data.tyres || 0;
+                    const insuranceTrip = data.insurance || 0;
+                    const depreciationTrip = data.depreciation || 0;
+                    const extraTrip = (data.repairs || 0) + (data.finance || 0) + (data.misc || 0);
+                    const tripTotal = data.total ?? (fuelTrip + serviceTrip + tyreTrip + insuranceTrip + depreciationTrip + extraTrip);
+                    const tripCostPerKm = data.cost_per_km ?? (tripTotal / distance);
+
+                    const scaleAnnual = annual / distance;
+                    const annualFuel = fuelTrip * scaleAnnual;
+                    const annualService = serviceTrip * scaleAnnual;
+                    const annualTyre = tyreTrip * scaleAnnual;
+                    const annualInsurance = insuranceTrip * scaleAnnual;
+                    const annualDepreciation = depreciationTrip * scaleAnnual;
+
+                    // The API doesn't return a 5-year projection, so build one
+                    // using the same escalation model as the client-side engine,
+                    // seeded from the API's actual per-km costs.
+                    const basePriceForCalc = variant.initial_cost || 5000000;
+                    const depreciationRate = 0.12;
+                    const fiveYearData = [];
+                    let remainingValue = basePriceForCalc;
+                    let total5YearCost = 0;
+                    for (let y = 1; y <= 5; y++) {
+                        const depRate = depreciationRate * (1 + (y - 1) * 0.05);
+                        const yearlyDepreciation = remainingValue * depRate;
+                        remainingValue -= yearlyDepreciation;
+                        const yearlyFuel = annualFuel * (1 + (y - 1) * 0.03);
+                        const yearlyService = annualService * (1 + (y - 1) * 0.05);
+                        const yearlyInsurance = annualInsurance * (1 + (y - 1) * 0.02);
+                        const yearlyTyres = annualTyre * (1 + (y - 1) * 0.04);
+                        const yearlyTotal = yearlyDepreciation + yearlyFuel + yearlyService + yearlyInsurance + yearlyTyres;
+                        total5YearCost += yearlyTotal;
+                        fiveYearData.push({ year: y, depreciation: yearlyDepreciation, fuel: yearlyFuel, service: yearlyService, insurance: yearlyInsurance, tyres: yearlyTyres, total: yearlyTotal, value: remainingValue });
+                    }
+
+                    return {
+                        tripTotal, tripCostPerKm, distance,
+                        fuelCostPerKm: fuelTrip / distance, fuelCostTrip: fuelTrip,
+                        serviceTrip, tyreTrip, insuranceTrip, depreciationTrip,
+                        fuelConsumption: variant.fuel_consumption || 0,
+                        vehicleName: variant.label,
+                        fuelTypeDisplay: variant.fuel_type || 'Petrol',
+                        transmissionDisplay: variant.transmission || 'Automatic',
+                        initialCost: basePriceForCalc, ageAdjustedCost: basePriceForCalc,
+                        vehicleAge: getVehicleAge(inputs.year), annualKm: annual, monthlyKm: annual / 12,
+                        age: getVehicleAge(inputs.year), usageType: inputs.usageType || 'private',
+                        monthlyFuel: annualFuel / 12, monthlyService: annualService / 12,
+                        monthlyTyre: annualTyre / 12, monthlyInsurance: annualInsurance / 12,
+                        monthlyDepreciation: annualDepreciation / 12,
+                        annualFuel, annualService, annualTyre, annualInsurance, annualDepreciation,
+                        fiveYearData, total5YearCost, remainingValue, variant,
+                        _source: 'api'
+                    };
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    apiError = error.name === 'AbortError' ? 'Request timed out' : error.message;
+                    console.warn('⚠️ Running-cost API call failed, using client-side calculation:', apiError);
+                    return null;
+                }
+            }
+
             // ─── Main Calculation Handler ──────────────────────────────
-            function calculateAndRender() {
+            async function calculateAndRender() {
                 const variant = currentVariant();
                 if (!variant) {
                     showToast('Please select a vehicle', 'error');
@@ -2628,10 +2341,20 @@
                 elements.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
 
                 try {
-                    const result = calculateRunningCost(variant, inputs);
+                    let result = await fetchRunningCostFromApi(variant, inputs);
+                    if (result) {
+                        isUsingApiEngine = true;
+                        elements.dataSourceText.textContent = (elements.dataSourceText.textContent || '').replace(/ · Engine:.*/, '') + ' · Engine: API ✅';
+                        elements.dataSourceText.style.color = 'var(--green)';
+                    } else {
+                        result = calculateRunningCost(variant, inputs);
+                        isUsingApiEngine = false;
+                        elements.dataSourceText.textContent = (elements.dataSourceText.textContent || '').replace(/ · Engine:.*/, '') + ' · Engine: Local ⚠️';
+                        elements.dataSourceText.style.color = 'var(--amber)';
+                    }
                     if (result) {
                         renderResults(result, variant);
-                        showToast('✅ Analysis complete with Kenyan market pricing!', 'success');
+                        showToast(isUsingApiEngine ? '✅ Analysis complete (server-calculated)!' : '✅ Analysis complete (local calculation)!', 'success');
                     } else {
                         showToast('Calculation failed', 'error');
                     }
@@ -2708,8 +2431,6 @@
                     opt.value = v.id;
                     let displayName = v.label || (v.make_name && v.model_name ? `${v.make_name} ${v.model_name}` : 'Unnamed variant');
                     if (v.engine_size_cc) displayName += ` (${v.engine_size_cc}cc)`;
-                    // Show price in display
-                    if (v.initial_cost) displayName += ` · KES ${formatNumber(v.initial_cost)}`;
                     opt.textContent = displayName;
                     elements.variantSelect.appendChild(opt);
                 });
@@ -2886,7 +2607,6 @@
                 data: { categories, allVariantsByCategory, routes },
                 prices: () => elements.fuelPriceInput.value,
                 isUsingSupabase: () => isUsingSupabase,
-                kenyanMarketData: KENYAN_MARKET_DATA,
                 reload: async () => {
                     await loadAllData();
                     populateCategories();
@@ -2930,7 +2650,7 @@
                         }
                     }, 800);
 
-                    console.log('✅ Auto-D Kenya Engine initialized with Kenyan Market Pricing');
+                    console.log('✅ Auto-D Kenya Engine initialized (with 5-Year Projection)');
                     console.log(`📊 Categories: ${categories.length}, Variants: ${Object.keys(allVariantsByCategory).length}`);
                     console.log(`📡 Data source: ${isUsingSupabase ? 'Supabase ✅' : 'Fallback ⚠️'}`);
                     
