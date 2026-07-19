@@ -1282,8 +1282,8 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR (FIXED)
-        // ✅ 5-Year Projection  ✅ Age-based Initial Cost  ✅ No SW Error
+        // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
+        // ✅ 5-Year Projection  ✅ Supabase Integration  ✅ Fallback Data
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1297,7 +1297,6 @@
 
             // ─── State ──────────────────────────────────────────────────
             let supabaseClient = null;
-            let isBackendAvailable = false;
             let isFinanced = false;
             let isLoading = false;
             let isInitialized = false;
@@ -1308,6 +1307,7 @@
             let routes = [];
             let allVariantsByCategory = {};
             let currentFuelFilter = 'all';
+            let isUsingSupabase = false;
 
             // ─── DOM References ─────────────────────────────────────────
             const elements = {
@@ -1393,16 +1393,156 @@
                 return Math.max(0, currentYear - parseInt(year));
             }
 
-            // ─── FIXED: Age-Based Initial Cost Calculation ────────────
+            // ─── Age-Based Initial Cost Calculation ────────────────────
             function calculateAgeAdjustedCost(basePrice, age) {
-                // Vehicles depreciate ~12% per year
                 const depreciationRate = 0.12;
                 const adjustedPrice = basePrice * Math.pow(1 - depreciationRate, age);
-                // Never go below 15% of base price
                 return Math.max(adjustedPrice, basePrice * 0.15);
             }
 
-            // ─── FALLBACK DATA WITH REALISTIC KENYAN MARKET PRICES ────
+            // ─── SUPABASE DATA LOADING ──────────────────────────────────
+
+            function initSupabase() {
+                try {
+                    const { createClient } = supabase;
+                    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    console.log('✅ Supabase client initialized');
+                    return true;
+                } catch (error) {
+                    console.warn('⚠️ Supabase init failed:', error.message);
+                    return false;
+                }
+            }
+
+            async function loadFromSupabase() {
+                try {
+                    console.log('📡 Loading data from Supabase...');
+
+                    // 1. Load vehicle types
+                    const { data: types, error: typesError } = await supabaseClient
+                        .from('vehicle_types')
+                        .select('*')
+                        .order('name');
+                    if (typesError) throw typesError;
+
+                    // 2. Load vehicle makes
+                    const { data: makes, error: makesError } = await supabaseClient
+                        .from('vehicle_makes')
+                        .select('*')
+                        .order('name');
+                    if (makesError) throw makesError;
+
+                    // 3. Load vehicle models
+                    const { data: models, error: modelsError } = await supabaseClient
+                        .from('vehicle_models')
+                        .select('*, vehicle_makes(*)')
+                        .order('name');
+                    if (modelsError) throw modelsError;
+
+                    // 4. Load vehicle variants
+                    const { data: variants, error: variantsError } = await supabaseClient
+                        .from('vehicle_variants')
+                        .select('*, vehicle_models(*)')
+                        .order('name');
+                    if (variantsError) throw variantsError;
+
+                    // 5. Load routes
+                    const { data: routesData, error: routesError } = await supabaseClient
+                        .from('routes')
+                        .select('*')
+                        .order('distance');
+                    if (routesError) throw routesError;
+
+                    // 6. Load fuel prices
+                    const { data: fuelPrices, error: fuelError } = await supabaseClient
+                        .from('fuel_prices')
+                        .select('*')
+                        .eq('region', 'nairobi')
+                        .order('effective_date', { ascending: false })
+                        .limit(1);
+                    if (fuelError) throw fuelError;
+
+                    // ─── Build categories from types ──────────────────
+                    categories = types.map(type => ({
+                        id: type.id,
+                        name: type.name,
+                        icon: type.icon,
+                        fuel_type: 'all'
+                    }));
+
+                    // ─── Build variants by category ───────────────────
+                    allVariantsByCategory = {};
+                    categories.forEach(cat => {
+                        allVariantsByCategory[cat.id] = [];
+                    });
+
+                    // Process variants
+                    variants.forEach(variant => {
+                        const model = models.find(m => m.id === variant.model_id);
+                        if (!model) return;
+                        const make = makes.find(m => m.id === model.make_id);
+                        if (!make) return;
+                        const category = categories.find(c => c.id === make.type_id);
+                        if (!category) return;
+
+                        const fuelConsumption = variant.fuel_consumption || 
+                            (variant.fuel_type === 'diesel' ? 15 : 
+                             variant.fuel_type === 'hybrid' ? 20 : 12);
+
+                        allVariantsByCategory[category.id].push({
+                            id: variant.id,
+                            label: `${make.name} ${model.name} ${variant.name}`,
+                            fuel_type: variant.fuel_type || 'Petrol',
+                            fuel_consumption: fuelConsumption,
+                            transmission: variant.transmission || 'Automatic',
+                            engine_size_cc: variant.engine_cc || 0,
+                            initial_cost: variant.market_value || 3500000,
+                            current_value: variant.market_value * 0.9 || 3000000,
+                            expected_resale: variant.market_value * 0.35 || 1200000,
+                            years_remaining: 10,
+                            service_interval: variant.service_interval || 15000,
+                            minor_service_cost: variant.service_cost || 15000,
+                            major_service_interval: (variant.service_interval || 15000) * 4,
+                            major_service_cost: (variant.service_cost || 15000) * 3,
+                            oil_interval: variant.service_interval || 15000,
+                            oil_cost: (variant.service_cost || 15000) * 0.4,
+                            tyre_cost: (variant.tyre_cost || 30000) * 4,
+                            tyre_life: 50000,
+                            insurance_annual: variant.market_value * 0.02 || 60000,
+                            tax_annual: variant.market_value * 0.005 || 10000,
+                            loan_amount: 0,
+                            battery_cost: 0,
+                            battery_life: 0,
+                            make_name: make.name,
+                            model_name: model.name,
+                            drive_type: variant.drive_type || 'fwd'
+                        });
+                    });
+
+                    // ─── Set routes ────────────────────────────────────
+                    if (routesData && routesData.length > 0) {
+                        routes = routesData;
+                    }
+
+                    // ─── Set fuel price ────────────────────────────────
+                    if (fuelPrices && fuelPrices.length > 0) {
+                        const price = fuelPrices[0].price;
+                        elements.fuelPriceInput.value = price;
+                        elements.fuelPriceDisplay.textContent = 
+                            `Petrol: KES ${price}  ·  Diesel: KES ${price * 0.96}`;
+                    }
+
+                    isUsingSupabase = true;
+                    console.log(`✅ Loaded ${categories.length} categories, ${variants.length} variants from Supabase`);
+                    return true;
+
+                } catch (error) {
+                    console.warn('⚠️ Supabase load failed:', error.message);
+                    return false;
+                }
+            }
+
+            // ─── FALLBACK DATA ──────────────────────────────────────────
             function getFallbackCategories() {
                 return [
                     { id: 'cat-car', name: 'Car', fuel_type: 'all' },
@@ -1417,441 +1557,64 @@
             function getFallbackVariants() {
                 return {
                     'cat-car': [
-                        { 
-                            id: 'car-1', 
-                            label: 'Toyota Corolla 1.8L Petrol', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 12.5,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 1800, 
-                            initial_cost: 3500000, 
-                            current_value: 3200000, 
-                            expected_resale: 1400000,
-                            years_remaining: 8, 
-                            service_interval: 10000, 
-                            minor_service_cost: 15000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 45000, 
-                            oil_interval: 10000, 
-                            oil_cost: 6000,
-                            tyre_cost: 80000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 60000, 
-                            tax_annual: 8000,
-                            make_name: 'Toyota', 
-                            model_name: 'Corolla', 
-                            drive_type: 'fwd' 
-                        },
-                        { 
-                            id: 'car-2', 
-                            label: 'Toyota Camry 2.5L Petrol', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 14.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2500, 
-                            initial_cost: 4500000, 
-                            current_value: 4000000, 
-                            expected_resale: 1800000,
-                            years_remaining: 8, 
-                            service_interval: 15000, 
-                            minor_service_cost: 16000,
-                            major_service_interval: 60000, 
-                            major_service_cost: 50000, 
-                            oil_interval: 15000, 
-                            oil_cost: 7000,
-                            tyre_cost: 90000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 70000, 
-                            tax_annual: 10000,
-                            make_name: 'Toyota', 
-                            model_name: 'Camry', 
-                            drive_type: 'fwd' 
-                        },
-                        { 
-                            id: 'car-3', 
-                            label: 'Toyota Camry 2.5L Hybrid', 
-                            fuel_type: 'Hybrid', 
-                            fuel_consumption: 20.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2500, 
-                            initial_cost: 5200000, 
-                            current_value: 4700000, 
-                            expected_resale: 2200000,
-                            years_remaining: 8, 
-                            service_interval: 15000, 
-                            minor_service_cost: 18000,
-                            major_service_interval: 60000, 
-                            major_service_cost: 55000, 
-                            oil_interval: 15000, 
-                            oil_cost: 8000,
-                            tyre_cost: 90000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 75000, 
-                            tax_annual: 10000,
-                            make_name: 'Toyota', 
-                            model_name: 'Camry Hybrid', 
-                            drive_type: 'fwd' 
-                        },
-                        { 
-                            id: 'car-4', 
-                            label: 'Honda Civic 1.8L Petrol', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 14.0,
-                            transmission: 'CVT', 
-                            engine_size_cc: 1800, 
-                            initial_cost: 3200000, 
-                            current_value: 2900000, 
-                            expected_resale: 1300000,
-                            years_remaining: 8, 
-                            service_interval: 12000, 
-                            minor_service_cost: 12000,
-                            major_service_interval: 48000, 
-                            major_service_cost: 35000, 
-                            oil_interval: 12000, 
-                            oil_cost: 5000,
-                            tyre_cost: 70000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 50000, 
-                            tax_annual: 7000,
-                            make_name: 'Honda', 
-                            model_name: 'Civic', 
-                            drive_type: 'fwd' 
-                        },
-                        { 
-                            id: 'car-5', 
-                            label: 'BMW 3 Series 2.0L Petrol', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 10.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2000, 
-                            initial_cost: 6500000, 
-                            current_value: 5800000, 
-                            expected_resale: 2600000,
-                            years_remaining: 7, 
-                            service_interval: 10000, 
-                            minor_service_cost: 20000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 60000, 
-                            oil_interval: 10000, 
-                            oil_cost: 7000,
-                            tyre_cost: 120000, 
-                            tyre_life: 45000, 
-                            insurance_annual: 80000, 
-                            tax_annual: 10000,
-                            make_name: 'BMW', 
-                            model_name: '3 Series', 
-                            drive_type: 'rwd' 
-                        },
-                        { 
-                            id: 'car-6', 
-                            label: 'Mercedes C-Class 2.0L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 16.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2000, 
-                            initial_cost: 7000000, 
-                            current_value: 6300000, 
-                            expected_resale: 2800000,
-                            years_remaining: 7, 
-                            service_interval: 15000, 
-                            minor_service_cost: 22000,
-                            major_service_interval: 60000, 
-                            major_service_cost: 65000, 
-                            oil_interval: 15000, 
-                            oil_cost: 8000,
-                            tyre_cost: 130000, 
-                            tyre_life: 48000, 
-                            insurance_annual: 90000, 
-                            tax_annual: 11000,
-                            make_name: 'Mercedes', 
-                            model_name: 'C-Class', 
-                            drive_type: 'rwd' 
-                        },
-                        { 
-                            id: 'car-7', 
-                            label: 'Subaru Forester 2.0L Petrol', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 11.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2000, 
-                            initial_cost: 4200000, 
-                            current_value: 3800000, 
-                            expected_resale: 1700000,
-                            years_remaining: 8, 
-                            service_interval: 12000, 
-                            minor_service_cost: 18000,
-                            major_service_interval: 48000, 
-                            major_service_cost: 50000, 
-                            oil_interval: 12000, 
-                            oil_cost: 7000,
-                            tyre_cost: 90000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 65000, 
-                            tax_annual: 9000,
-                            make_name: 'Subaru', 
-                            model_name: 'Forester', 
-                            drive_type: 'awd' 
-                        }
+                        { id: 'car-1', label: 'Toyota Corolla 1.8L Petrol', fuel_type: 'Petrol', fuel_consumption: 12.5,
+                          transmission: 'Automatic', engine_size_cc: 1800, initial_cost: 3500000, current_value: 3200000,
+                          expected_resale: 1400000, years_remaining: 8, service_interval: 10000, minor_service_cost: 15000,
+                          major_service_interval: 40000, major_service_cost: 45000, oil_interval: 10000, oil_cost: 6000,
+                          tyre_cost: 80000, tyre_life: 50000, insurance_annual: 60000, tax_annual: 8000,
+                          make_name: 'Toyota', model_name: 'Corolla', drive_type: 'fwd' },
+                        { id: 'car-2', label: 'Toyota Camry 2.5L Petrol', fuel_type: 'Petrol', fuel_consumption: 14.0,
+                          transmission: 'Automatic', engine_size_cc: 2500, initial_cost: 4500000, current_value: 4000000,
+                          expected_resale: 1800000, years_remaining: 8, service_interval: 15000, minor_service_cost: 16000,
+                          major_service_interval: 60000, major_service_cost: 50000, oil_interval: 15000, oil_cost: 7000,
+                          tyre_cost: 90000, tyre_life: 50000, insurance_annual: 70000, tax_annual: 10000,
+                          make_name: 'Toyota', model_name: 'Camry', drive_type: 'fwd' }
                     ],
                     'cat-suv': [
-                        { 
-                            id: 'suv-1', 
-                            label: 'Toyota RAV4 2.0L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 15.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2000, 
-                            initial_cost: 4800000, 
-                            current_value: 4300000, 
-                            expected_resale: 1900000,
-                            years_remaining: 7, 
-                            service_interval: 12000, 
-                            minor_service_cost: 18000,
-                            major_service_interval: 48000, 
-                            major_service_cost: 55000, 
-                            oil_interval: 12000, 
-                            oil_cost: 7000,
-                            tyre_cost: 90000, 
-                            tyre_life: 55000, 
-                            insurance_annual: 65000, 
-                            tax_annual: 9000,
-                            make_name: 'Toyota', 
-                            model_name: 'RAV4', 
-                            drive_type: 'awd' 
-                        },
-                        { 
-                            id: 'suv-2', 
-                            label: 'Toyota Land Cruiser Prado 2.8L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 11.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2800, 
-                            initial_cost: 8500000, 
-                            current_value: 7800000, 
-                            expected_resale: 3500000,
-                            years_remaining: 10, 
-                            service_interval: 10000, 
-                            minor_service_cost: 20000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 65000, 
-                            oil_interval: 10000, 
-                            oil_cost: 8000,
-                            tyre_cost: 120000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 90000, 
-                            tax_annual: 12000,
-                            make_name: 'Toyota', 
-                            model_name: 'Land Cruiser Prado', 
-                            drive_type: 'awd' 
-                        },
-                        { 
-                            id: 'suv-3', 
-                            label: 'Toyota Fortuner 2.8L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 12.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2800, 
-                            initial_cost: 6800000, 
-                            current_value: 6200000, 
-                            expected_resale: 2700000,
-                            years_remaining: 8, 
-                            service_interval: 10000, 
-                            minor_service_cost: 18000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 60000, 
-                            oil_interval: 10000, 
-                            oil_cost: 7500,
-                            tyre_cost: 110000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 80000, 
-                            tax_annual: 11000,
-                            make_name: 'Toyota', 
-                            model_name: 'Fortuner', 
-                            drive_type: '4wd' 
-                        },
-                        { 
-                            id: 'suv-4', 
-                            label: 'BMW X5 3.0L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 9.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 3000, 
-                            initial_cost: 12000000, 
-                            current_value: 10800000, 
-                            expected_resale: 4800000,
-                            years_remaining: 8, 
-                            service_interval: 15000, 
-                            minor_service_cost: 24000,
-                            major_service_interval: 60000, 
-                            major_service_cost: 75000, 
-                            oil_interval: 15000, 
-                            oil_cost: 9000,
-                            tyre_cost: 150000, 
-                            tyre_life: 45000, 
-                            insurance_annual: 120000, 
-                            tax_annual: 15000,
-                            make_name: 'BMW', 
-                            model_name: 'X5', 
-                            drive_type: 'awd' 
-                        }
+                        { id: 'suv-1', label: 'Toyota RAV4 2.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 15.0,
+                          transmission: 'Automatic', engine_size_cc: 2000, initial_cost: 4800000, current_value: 4300000,
+                          expected_resale: 1900000, years_remaining: 7, service_interval: 12000, minor_service_cost: 18000,
+                          major_service_interval: 48000, major_service_cost: 55000, oil_interval: 12000, oil_cost: 7000,
+                          tyre_cost: 90000, tyre_life: 55000, insurance_annual: 65000, tax_annual: 9000,
+                          make_name: 'Toyota', model_name: 'RAV4', drive_type: 'awd' },
+                        { id: 'suv-2', label: 'Toyota Land Cruiser Prado 2.8L Diesel', fuel_type: 'Diesel', fuel_consumption: 11.0,
+                          transmission: 'Automatic', engine_size_cc: 2800, initial_cost: 8500000, current_value: 7800000,
+                          expected_resale: 3500000, years_remaining: 10, service_interval: 10000, minor_service_cost: 20000,
+                          major_service_interval: 40000, major_service_cost: 65000, oil_interval: 10000, oil_cost: 8000,
+                          tyre_cost: 120000, tyre_life: 50000, insurance_annual: 90000, tax_annual: 12000,
+                          make_name: 'Toyota', model_name: 'Land Cruiser Prado', drive_type: 'awd' }
                     ],
                     'cat-pickup': [
-                        { 
-                            id: 'pickup-1', 
-                            label: 'Toyota Hilux 2.8L Diesel Double Cab', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 12.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2800, 
-                            initial_cost: 5200000, 
-                            current_value: 4700000, 
-                            expected_resale: 2100000,
-                            years_remaining: 7, 
-                            service_interval: 10000, 
-                            minor_service_cost: 15000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 55000, 
-                            oil_interval: 10000, 
-                            oil_cost: 6000,
-                            tyre_cost: 85000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 55000, 
-                            tax_annual: 7500,
-                            make_name: 'Toyota', 
-                            model_name: 'Hilux', 
-                            drive_type: '4wd' 
-                        },
-                        { 
-                            id: 'pickup-2', 
-                            label: 'Isuzu D-Max 3.0L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 11.5,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 3000, 
-                            initial_cost: 4800000, 
-                            current_value: 4300000, 
-                            expected_resale: 1900000,
-                            years_remaining: 7, 
-                            service_interval: 10000, 
-                            minor_service_cost: 14000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 50000, 
-                            oil_interval: 10000, 
-                            oil_cost: 6500,
-                            tyre_cost: 80000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 50000, 
-                            tax_annual: 7500,
-                            make_name: 'Isuzu', 
-                            model_name: 'D-Max', 
-                            drive_type: '4wd' 
-                        },
-                        { 
-                            id: 'pickup-3', 
-                            label: 'Ford Ranger 2.2L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 11.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2200, 
-                            initial_cost: 4500000, 
-                            current_value: 4000000, 
-                            expected_resale: 1800000,
-                            years_remaining: 7, 
-                            service_interval: 10000, 
-                            minor_service_cost: 14000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 50000, 
-                            oil_interval: 10000, 
-                            oil_cost: 6500,
-                            tyre_cost: 80000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 50000, 
-                            tax_annual: 7500,
-                            make_name: 'Ford', 
-                            model_name: 'Ranger', 
-                            drive_type: '4wd' 
-                        }
+                        { id: 'pickup-1', label: 'Toyota Hilux 2.8L Diesel Double Cab', fuel_type: 'Diesel', fuel_consumption: 12.0,
+                          transmission: 'Automatic', engine_size_cc: 2800, initial_cost: 5200000, current_value: 4700000,
+                          expected_resale: 2100000, years_remaining: 7, service_interval: 10000, minor_service_cost: 15000,
+                          major_service_interval: 40000, major_service_cost: 55000, oil_interval: 10000, oil_cost: 6000,
+                          tyre_cost: 85000, tyre_life: 50000, insurance_annual: 55000, tax_annual: 7500,
+                          make_name: 'Toyota', model_name: 'Hilux', drive_type: '4wd' }
                     ],
                     'cat-van': [
-                        { 
-                            id: 'van-1', 
-                            label: 'Toyota Hiace 3.0L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 10.0,
-                            transmission: 'Manual', 
-                            engine_size_cc: 3000, 
-                            initial_cost: 4500000, 
-                            current_value: 4000000, 
-                            expected_resale: 1800000,
-                            years_remaining: 6, 
-                            service_interval: 10000, 
-                            minor_service_cost: 18000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 60000, 
-                            oil_interval: 10000, 
-                            oil_cost: 7000,
-                            tyre_cost: 100000, 
-                            tyre_life: 50000, 
-                            insurance_annual: 70000, 
-                            tax_annual: 10000,
-                            make_name: 'Toyota', 
-                            model_name: 'Hiace', 
-                            drive_type: 'rwd' 
-                        }
+                        { id: 'van-1', label: 'Toyota Hiace 3.0L Diesel', fuel_type: 'Diesel', fuel_consumption: 10.0,
+                          transmission: 'Manual', engine_size_cc: 3000, initial_cost: 4500000, current_value: 4000000,
+                          expected_resale: 1800000, years_remaining: 6, service_interval: 10000, minor_service_cost: 18000,
+                          major_service_interval: 40000, major_service_cost: 60000, oil_interval: 10000, oil_cost: 7000,
+                          tyre_cost: 100000, tyre_life: 50000, insurance_annual: 70000, tax_annual: 10000,
+                          make_name: 'Toyota', model_name: 'Hiace', drive_type: 'rwd' }
                     ],
                     'cat-motorcycle': [
-                        { 
-                            id: 'moto-1', 
-                            label: 'Honda CBR600RR', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 35.0,
-                            transmission: 'Manual', 
-                            engine_size_cc: 600, 
-                            initial_cost: 180000, 
-                            current_value: 162000, 
-                            expected_resale: 70000,
-                            years_remaining: 5, 
-                            service_interval: 5000, 
-                            minor_service_cost: 3000,
-                            major_service_interval: 20000, 
-                            major_service_cost: 8000, 
-                            oil_interval: 5000, 
-                            oil_cost: 1500,
-                            tyre_cost: 6000, 
-                            tyre_life: 15000, 
-                            insurance_annual: 5000, 
-                            tax_annual: 1500,
-                            make_name: 'Honda', 
-                            model_name: 'CBR600RR', 
-                            drive_type: 'rwd' 
-                        }
+                        { id: 'moto-1', label: 'Honda CBR600RR', fuel_type: 'Petrol', fuel_consumption: 35.0,
+                          transmission: 'Manual', engine_size_cc: 600, initial_cost: 180000, current_value: 162000,
+                          expected_resale: 70000, years_remaining: 5, service_interval: 5000, minor_service_cost: 3000,
+                          major_service_interval: 20000, major_service_cost: 8000, oil_interval: 5000, oil_cost: 1500,
+                          tyre_cost: 6000, tyre_life: 15000, insurance_annual: 5000, tax_annual: 1500,
+                          make_name: 'Honda', model_name: 'CBR600RR', drive_type: 'rwd' }
                     ],
                     'cat-tricycle': [
-                        { 
-                            id: 'tri-1', 
-                            label: 'Bajaj RE 125cc', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 30.0,
-                            transmission: 'Manual', 
-                            engine_size_cc: 125, 
-                            initial_cost: 120000, 
-                            current_value: 108000, 
-                            expected_resale: 45000,
-                            years_remaining: 5, 
-                            service_interval: 3000, 
-                            minor_service_cost: 2000,
-                            major_service_interval: 15000, 
-                            major_service_cost: 6000, 
-                            oil_interval: 3000, 
-                            oil_cost: 800,
-                            tyre_cost: 4000, 
-                            tyre_life: 12000, 
-                            insurance_annual: 3000, 
-                            tax_annual: 1000,
-                            make_name: 'Bajaj', 
-                            model_name: 'RE', 
-                            drive_type: 'rwd' 
-                        }
+                        { id: 'tri-1', label: 'Bajaj RE 125cc', fuel_type: 'Petrol', fuel_consumption: 30.0,
+                          transmission: 'Manual', engine_size_cc: 125, initial_cost: 120000, current_value: 108000,
+                          expected_resale: 45000, years_remaining: 5, service_interval: 3000, minor_service_cost: 2000,
+                          major_service_interval: 15000, major_service_cost: 6000, oil_interval: 3000, oil_cost: 800,
+                          tyre_cost: 4000, tyre_life: 12000, insurance_annual: 3000, tax_annual: 1000,
+                          make_name: 'Bajaj', model_name: 'RE', drive_type: 'rwd' }
                     ]
                 };
             }
@@ -1865,6 +1628,35 @@
                     { from_city: 'Nairobi', to_city: 'Malindi', km: 500 },
                     { from_city: 'Nairobi', to_city: 'Nanyuki', km: 210 }
                 ];
+            }
+
+            // ─── LOAD ALL DATA ──────────────────────────────────────────
+            async function loadAllData() {
+                try {
+                    // Try Supabase first
+                    const supabaseOk = initSupabase();
+                    if (supabaseOk) {
+                        const dataLoaded = await loadFromSupabase();
+                        if (dataLoaded) {
+                            console.log('✅ Using Supabase data');
+                            return true;
+                        }
+                    }
+                    
+                    // Fallback to local data
+                    console.warn('⚠️ Using fallback data');
+                    categories = getFallbackCategories();
+                    allVariantsByCategory = getFallbackVariants();
+                    routes = getFallbackRoutes();
+                    elements.fuelPriceInput.value = 203.47;
+                    elements.fuelPriceDisplay.textContent = 'Petrol: KES 203.47  ·  Diesel: KES 195.67';
+                    isUsingSupabase = false;
+                    return true;
+                    
+                } catch (error) {
+                    console.error('❌ Error loading data:', error);
+                    return false;
+                }
             }
 
             // ─── Core Cost Engine ──────────────────────────────────────
@@ -1884,10 +1676,7 @@
 
                 if (d <= 0) return null;
 
-                const fuelType = (variant.fuel_type || 'Petrol').toLowerCase();
                 const vehicleAge = getVehicleAge(year);
-                
-                // ─── FIXED: Age-adjusted initial cost ──────────────────
                 const basePrice = variant.initial_cost || 5000000;
                 const ageAdjustedCost = calculateAgeAdjustedCost(basePrice, vehicleAge);
                 const basePriceForCalc = Math.min(basePrice, ageAdjustedCost * 1.2);
@@ -2010,7 +1799,6 @@
 
             // ─── Render Results ─────────────────────────────────────────
             function renderResults(result, variant) {
-                // ─── Vehicle Profile ────────────────────────────────────
                 elements.vehicleLabel.textContent = variant.label || 'Unnamed variant';
                 elements.fuelPill.textContent = result.fuelTypeDisplay || '—';
                 elements.transmissionPill.textContent = result.transmissionDisplay || variant.transmission || '—';
@@ -2036,7 +1824,6 @@
                     `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
                 ).join('');
 
-                // ─── Trip Summary ──────────────────────────────────────
                 const tripTotal = result.tripTotal || 0;
                 const tripCostPerKm = result.tripCostPerKm || 0;
                 elements.tripTotal.textContent = formatCurrency(tripTotal);
@@ -2067,7 +1854,7 @@
                 `;
                 elements.tripCostGrid.innerHTML = tripHtml;
 
-                // ─── Per km Breakdown ──────────────────────────────────
+                // Per km breakdown
                 let perkmHtml = '';
                 const perkmComponents = {
                     'Fuel': result.fuelCostPerKm || 0,
@@ -2531,45 +2318,11 @@
                 });
             }
 
-            // ─── LOAD ALL DATA ──────────────────────────────────────────
-            async function loadAllData() {
-                try {
-                    console.log('📡 Loading data...');
-                    categories = getFallbackCategories();
-                    allVariantsByCategory = getFallbackVariants();
-                    routes = getFallbackRoutes();
-                    
-                    elements.fuelPriceInput.value = 203.47;
-                    elements.fuelPriceDisplay.textContent = 'Petrol: KES 203.47  ·  Diesel: KES 195.67';
-                    
-                    console.log('✅ Data loaded successfully');
-                    console.log(`📊 Categories: ${categories.length}`);
-                    console.log(`📊 Variant categories: ${Object.keys(allVariantsByCategory).length}`);
-                    return true;
-                } catch (error) {
-                    console.error('❌ Error loading data:', error);
-                    return false;
-                }
-            }
-
-            // ─── Keyboard Support ──────────────────────────────────────
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') {
-                    const toast = document.querySelector('.toast');
-                    if (toast) toast.remove();
-                }
-                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                    e.preventDefault();
-                    calculateAndRender();
-                }
-            });
-
-            // ─── Service Worker - FIXED: No error if sw.js doesn't exist ──
+            // ─── Service Worker - No error if sw.js doesn't exist ──
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('/sw.js')
                     .then(() => console.log('✅ Service Worker registered'))
                     .catch(() => {
-                        // Silently ignore - sw.js may not exist
                         console.log('ℹ️ Service Worker not available');
                     });
             }
@@ -2578,7 +2331,8 @@
             window.AutoD = {
                 calculate: calculateAndRender,
                 data: { categories, allVariantsByCategory, routes },
-                prices: () => elements.fuelPriceInput.value
+                prices: () => elements.fuelPriceInput.value,
+                isUsingSupabase: () => isUsingSupabase
             };
 
             // ─── INIT ──────────────────────────────────────────────────
@@ -2611,6 +2365,7 @@
 
                 console.log('✅ Auto-D Kenya Engine initialized (with 5-Year Projection)');
                 console.log(`📊 Categories: ${categories.length}, Variants: ${Object.keys(allVariantsByCategory).length}`);
+                console.log(`📡 Data source: ${isUsingSupabase ? 'Supabase' : 'Fallback'}`);
             }
 
             document.addEventListener('DOMContentLoaded', function() {
