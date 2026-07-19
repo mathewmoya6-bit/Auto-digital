@@ -1,49 +1,68 @@
-# backend/app/schemas/request.py
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+"""
+Request Schemas for API
+"""
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+from pydantic import BaseModel, Field, validator
 
-class RunningCostRequest(BaseModel):
-    variant_id: str
-    distance: float = Field(..., gt=0, description="Distance in km")
-    trip_type: str = Field("mixed", description="urban, highway, mixed, offroad")
-    driving_style: str = Field("normal", description="normal, aggressive, defensive")
-    year: Optional[int] = None
-    
-class MileageRateRequest(RunningCostRequest):
-    pass
-    
-class OwnershipCostRequest(BaseModel):
-    variant_id: str
-    years: int = Field(5, gt=0, le=20)
-    annual_distance: float = Field(20000, gt=0)
-    driving_style: str = Field("normal", description="normal, aggressive, defensive")
-    trip_type: str = Field("mixed", description="urban, highway, mixed, offroad")
-    include_finance: bool = False
-    down_payment: Optional[float] = None
-    interest_rate: Optional[float] = None
-    
+
 class ValuationRequest(BaseModel):
-    variant_id: str
-    year: int
-    mileage: float
-    condition: str = Field("good", description="excellent, good, fair, poor")
-    accident_history: bool = False
-    previous_owners: int = 1
-    service_history: bool = True
+    """Vehicle valuation request model"""
+    variant_id: str = Field(..., description="Vehicle variant ID from database")
+    year: int = Field(..., ge=1990, le=datetime.now().year, description="Year of manufacture")
+    mileage: float = Field(..., ge=0, le=1000000, description="Current odometer reading in km")
+    condition: str = Field("good", description="Vehicle condition: excellent, very_good, good, fair, poor")
+    accident_history: str = Field("none", description="Accident history: none, minor, major, total_loss")
+    previous_owners: int = Field(0, ge=0, le=20, description="Number of previous owners")
+    service_history: bool = Field(True, description="Whether service history is available")
+    location: str = Field("nairobi", description="Vehicle location/county")
+    modifications: Optional[List[str]] = Field(default=[], description="List of modifications")
+    custom_adjustments: Optional[Dict[str, float]] = Field(default={}, description="Custom value adjustments")
+    images: Optional[List[str]] = Field(None, description="Base64 encoded images for AI analysis")
+    
+    @validator('condition')
+    def validate_condition(cls, v):
+        allowed = ['excellent', 'very_good', 'good', 'fair', 'poor']
+        if v.lower() not in allowed:
+            raise ValueError(f"Condition must be one of: {', '.join(allowed)}")
+        return v.lower()
+    
+    @validator('accident_history')
+    def validate_accident(cls, v):
+        allowed = ['none', 'minor', 'major', 'total_loss']
+        if v.lower() not in allowed:
+            raise ValueError(f"Accident history must be one of: {', '.join(allowed)}")
+        return v.lower()
+    
+    @validator('location')
+    def validate_location(cls, v):
+        # Common Kenyan counties
+        allowed = [
+            'nairobi', 'mombasa', 'kisumu', 'nakuru', 'eldoret', 'thika',
+            'kiambu', 'kajiado', 'machakos', 'meru', 'nyeri', 'embu',
+            'malindi', 'nanyuki', 'other'
+        ]
+        if v.lower() not in allowed:
+            # Don't reject, just warn
+            pass
+        return v.lower()
 
-class FuelPriceRequest(BaseModel):
-    fuel_type: str
-    price: float
-    region: Optional[str] = None
 
-class AdminSettingsRequest(BaseModel):
-    setting_key: str
-    setting_value: Dict[str, Any]
-    description: Optional[str] = None
+class BatchValuationRequest(BaseModel):
+    """Batch valuation request"""
+    requests: List[ValuationRequest] = Field(..., min_items=1, max_items=20)
 
-class ReportRequest(BaseModel):
-    report_type: str = Field(..., description="mileage, ownership, valuation, fuel")
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    vehicle_ids: Optional[list[str]] = None
-    user_id: Optional[str] = None
+
+class VehicleSearchRequest(BaseModel):
+    """Vehicle search request"""
+    make: Optional[str] = None
+    model: Optional[str] = None
+    year_from: Optional[int] = None
+    year_to: Optional[int] = None
+    vehicle_type: Optional[str] = None
+    fuel_type: Optional[str] = None
+    transmission: Optional[str] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    limit: int = Field(20, ge=1, le=100)
+    offset: int = Field(0, ge=0)
