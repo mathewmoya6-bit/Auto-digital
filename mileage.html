@@ -918,7 +918,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(10, 12, 21, 0.85);
+            background: rgba(10, 12, 21, 0.92);
             z-index: 99999;
             justify-content: center;
             align-items: center;
@@ -942,9 +942,23 @@
             letter-spacing: 0.05em;
         }
         .loading-overlay .loading-sub {
-            color: #64748b;
-            font-size: 12px;
+            color: #94a3b8;
+            font-size: 13px;
             font-family: 'Inter', sans-serif;
+            text-align: center;
+            max-width: 400px;
+            line-height: 1.5;
+        }
+        .loading-overlay .loading-error {
+            color: #ef4444;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(239, 68, 68, 0.1);
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            max-width: 500px;
+            text-align: center;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
     </style>
@@ -956,6 +970,7 @@
         <div class="spinner-large"></div>
         <div class="loading-text">Loading Vehicle Data...</div>
         <div class="loading-sub" id="loadingStatus">Connecting to Supabase</div>
+        <div class="loading-error" id="loadingError" style="display:none;"></div>
     </div>
 
     <!-- ─── Skip to content (Accessibility) ───────────────────────── -->
@@ -1401,6 +1416,7 @@
                 yearlyBody: document.getElementById('yearlyBody'),
                 loadingOverlay: document.getElementById('loadingOverlay'),
                 loadingStatus: document.getElementById('loadingStatus'),
+                loadingError: document.getElementById('loadingError'),
                 dataSourceText: document.getElementById('dataSourceText')
             };
 
@@ -1513,14 +1529,37 @@
                     if (variantsError) throw variantsError;
                     console.log(`✅ Loaded ${variants?.length || 0} vehicle variants`);
 
-                    // 5. Load routes
+                    // 5. Load routes - try different column names
                     elements.loadingStatus.textContent = 'Fetching routes...';
-                    const { data: routesData, error: routesError } = await supabaseClient
+                    let routesData = null;
+                    let routesError = null;
+                    
+                    // Try with 'distance' column first
+                    const { data: routesData1, error: routesError1 } = await supabaseClient
                         .from('routes')
-                        .select('*')
-                        .order('distance');
-                    if (routesError) throw routesError;
-                    console.log(`✅ Loaded ${routesData?.length || 0} routes`);
+                        .select('*');
+                    
+                    if (routesError1) {
+                        // If 'distance' fails, try without order to see what columns exist
+                        console.warn('⚠️ Routes query failed:', routesError1.message);
+                        const { data: routesData2, error: routesError2 } = await supabaseClient
+                            .from('routes')
+                            .select('*');
+                        if (!routesError2 && routesData2) {
+                            routesData = routesData2;
+                            console.log(`✅ Loaded ${routesData.length} routes (without ordering)`);
+                        } else {
+                            routesError = routesError2 || routesError1;
+                        }
+                    } else {
+                        routesData = routesData1;
+                        console.log(`✅ Loaded ${routesData.length} routes`);
+                    }
+                    
+                    if (routesError) {
+                        console.warn('⚠️ Routes error:', routesError.message);
+                        // Continue with empty routes - fallback will handle it
+                    }
 
                     // 6. Load fuel prices
                     elements.loadingStatus.textContent = 'Fetching fuel prices...';
@@ -1530,8 +1569,25 @@
                         .eq('region', 'nairobi')
                         .order('effective_date', { ascending: false })
                         .limit(1);
-                    if (fuelError) throw fuelError;
-                    console.log(`✅ Loaded ${fuelPrices?.length || 0} fuel prices`);
+                    
+                    if (fuelError) {
+                        console.warn('⚠️ Fuel prices error:', fuelError.message);
+                        // Try without region filter
+                        const { data: fuelPrices2, error: fuelError2 } = await supabaseClient
+                            .from('fuel_prices')
+                            .select('*')
+                            .order('effective_date', { ascending: false })
+                            .limit(1);
+                        if (!fuelError2 && fuelPrices2) {
+                            fuelPrices = fuelPrices2;
+                        }
+                    }
+                    
+                    if (fuelPrices && fuelPrices.length > 0) {
+                        console.log(`✅ Loaded ${fuelPrices.length} fuel prices`);
+                    } else {
+                        console.log('ℹ️ No fuel prices found, using fallback');
+                    }
 
                     // ─── Build categories from types ──────────────────
                     categories = types.map(type => ({
@@ -1605,15 +1661,45 @@
 
                     // ─── Set routes ────────────────────────────────────
                     if (routesData && routesData.length > 0) {
-                        routes = routesData;
+                        // Check what column name is used for distance
+                        const sample = routesData[0];
+                        let distanceKey = null;
+                        if ('distance' in sample) distanceKey = 'distance';
+                        else if ('km' in sample) distanceKey = 'km';
+                        else if ('distance_km' in sample) distanceKey = 'distance_km';
+                        else if ('kilometers' in sample) distanceKey = 'kilometers';
+                        else {
+                            // Try to find any numeric column
+                            const keys = Object.keys(sample);
+                            for (const key of keys) {
+                                if (typeof sample[key] === 'number' && sample[key] > 0) {
+                                    distanceKey = key;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (distanceKey) {
+                            routes = routesData.map(r => ({
+                                from_city: r.from_city || r.from || 'Unknown',
+                                to_city: r.to_city || r.to || 'Unknown',
+                                km: r[distanceKey] || 0
+                            })).filter(r => r.km > 0);
+                            console.log(`✅ Loaded ${routes.length} routes with distance column: ${distanceKey}`);
+                        } else {
+                            console.warn('⚠️ Could not find distance column in routes');
+                            routes = [];
+                        }
                     }
 
                     // ─── Set fuel price ────────────────────────────────
                     if (fuelPrices && fuelPrices.length > 0) {
-                        const price = fuelPrices[0].price;
-                        elements.fuelPriceInput.value = price;
-                        elements.fuelPriceDisplay.textContent = 
-                            `Petrol: KES ${price}  ·  Diesel: KES ${(price * 0.96).toFixed(2)}`;
+                        const price = fuelPrices[0].price || fuelPrices[0].fuel_price || 200;
+                        if (price > 0) {
+                            elements.fuelPriceInput.value = price;
+                            elements.fuelPriceDisplay.textContent = 
+                                `Petrol: KES ${price}  ·  Diesel: KES ${(price * 0.96).toFixed(2)}`;
+                        }
                     }
 
                     isUsingSupabase = true;
@@ -1628,6 +1714,8 @@
                     supabaseError = error.message;
                     elements.dataSourceText.textContent = '❌ Supabase Failed';
                     elements.dataSourceText.style.color = '#ef4444';
+                    elements.loadingError.textContent = `Supabase error: ${error.message}`;
+                    elements.loadingError.style.display = 'block';
                     return false;
                 }
             }
@@ -1738,6 +1826,9 @@
                     // Fallback to local data
                     console.warn('⚠️ Using fallback data');
                     elements.loadingStatus.textContent = '⚠️ Using local fallback data';
+                    elements.loadingError.textContent = 'Supabase unavailable - using fallback data';
+                    elements.loadingError.style.display = 'block';
+                    
                     categories = getFallbackCategories();
                     allVariantsByCategory = getFallbackVariants();
                     routes = getFallbackRoutes();
@@ -1751,6 +1842,8 @@
                 } catch (error) {
                     console.error('❌ Error loading data:', error);
                     elements.loadingStatus.textContent = '❌ Error loading data';
+                    elements.loadingError.textContent = `Error: ${error.message}`;
+                    elements.loadingError.style.display = 'block';
                     return false;
                 }
             }
