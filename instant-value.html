@@ -50,32 +50,6 @@
         }
         .header .subtitle { color: #94a3b8; font-size: 14px; margin-top: 8px; }
         
-        .health-banner {
-            background: #1e293b;
-            border-radius: 8px;
-            padding: 8px 16px;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 8px;
-            font-size: 12px;
-            border-left: 4px solid #22c55e;
-        }
-        .health-banner .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 6px;
-        }
-        .health-banner .status-dot.online { background: #22c55e; }
-        .health-banner .status-dot.offline { background: #ef4444; }
-        .health-banner .status-dot.checking { background: #eab308; animation: pulse 1s ease-in-out infinite; }
-        .health-banner .status-dot.error { background: #ef4444; animation: pulse 0.5s ease-in-out infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        
         .progress-section { margin-bottom: 20px; }
         .progress-bar-bg { background: #1e293b; border-radius: 20px; height: 6px; overflow: hidden; }
         .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #eab308, #facc15); border-radius: 20px; transition: width 0.6s ease; }
@@ -119,7 +93,6 @@
         .vehicle-preview .info h4 { color: #eab308; font-size: 16px; font-weight: 600; }
         .vehicle-preview .info p { color: #94a3b8; font-size: 13px; }
         
-        /* ─── IMAGE UPLOAD SECTION ────────────────────────────────── */
         .image-upload-section {
             background: #1e293b;
             border-radius: 12px;
@@ -276,15 +249,6 @@
         <h1>Instant Value Check</h1>
         <span class="badge-ai">🤖 AI Powered</span>
         <p class="subtitle">AI-powered market estimate for vehicles in Kenya</p>
-    </div>
-
-    <!-- ─── HEALTH BANNER ─────────────────────────────────────────── -->
-    <div class="health-banner" id="healthBanner">
-        <span>
-            <span class="status-dot checking" id="healthDot"></span>
-            <span id="healthStatusText">Checking backend...</span>
-        </span>
-        <span id="healthVersion" style="color:#64748b;font-size:11px;">v4.0.0</span>
     </div>
 
     <div class="progress-section">
@@ -550,9 +514,8 @@
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
         
-        // ✅ CORRECT: FastAPI Backend URLs
+        // ✅ FastAPI Backend URLs
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
-        const HEALTH_CHECK_URL = 'https://auto-digital.onrender.com/health';
 
         // ─── STATE ──────────────────────────────────────────────────
         let supabaseClient = null;
@@ -560,8 +523,6 @@
         let vehicleData = { types: [], makes: [], models: [], years: [] };
         let capturedPhotos = {};
         let isDataLoaded = false;
-        let isBackendAvailable = false;
-        let backendChecked = false;
 
         // ─── DOM REFS ──────────────────────────────────────────────
         const vehicleTypeSelect = document.getElementById('vehicleType');
@@ -580,9 +541,6 @@
         const previewIcon = document.getElementById('previewIcon');
         const previewTitle = document.getElementById('previewTitle');
         const previewSubtitle = document.getElementById('previewSubtitle');
-        const healthDot = document.getElementById('healthDot');
-        const healthStatusText = document.getElementById('healthStatusText');
-        const healthVersion = document.getElementById('healthVersion');
 
         // ─── TOAST ──────────────────────────────────────────────────
         function showToast(message, type = 'info') {
@@ -611,12 +569,9 @@
         // ─── LOAD VEHICLE DATA FROM SUPABASE ──────────────────────
         async function loadVehicleData() {
             try {
-                const { data: types, error: typesError } = await supabaseClient.from('vehicle_types').select('*').order('name');
-                if (typesError) throw typesError;
-                const { data: makes, error: makesError } = await supabaseClient.from('vehicle_makes').select('*').order('name');
-                if (makesError) throw makesError;
-                const { data: models, error: modelsError } = await supabaseClient.from('vehicle_models').select('*').order('name');
-                if (modelsError) throw modelsError;
+                const { data: types } = await supabaseClient.from('vehicle_types').select('*').order('name');
+                const { data: makes } = await supabaseClient.from('vehicle_makes').select('*').order('name');
+                const { data: models } = await supabaseClient.from('vehicle_models').select('*').order('name');
 
                 vehicleData.types = types || [];
                 vehicleData.makes = makes || [];
@@ -841,68 +796,8 @@
             return true;
         }
 
-        // ─── CHECK BACKEND HEALTH ──────────────────────────────────
-        async function checkBackendHealth() {
-            try {
-                healthDot.className = 'status-dot checking';
-                healthStatusText.textContent = 'Checking backend...';
-                
-                // Try multiple health check paths
-                const healthPaths = [
-                    HEALTH_CHECK_URL,
-                    `${API_BASE}/health`,
-                    `${API_BASE.replace('/api/v1', '')}/health`
-                ];
-                
-                let connected = false;
-                let version = 'v4.0.0';
-                
-                for (const url of healthPaths) {
-                    try {
-                        console.log(`🏥 Trying health check: ${url}`);
-                        const response = await fetch(url, {
-                            method: 'GET',
-                            headers: { 'Accept': 'application/json' },
-                            signal: AbortSignal.timeout(5000)
-                        });
-                        
-                        if (response.ok) {
-                            const data = await response.json();
-                            connected = true;
-                            version = data.version || data.status || 'v4.0.0';
-                            console.log(`✅ Health check successful at: ${url}`);
-                            break;
-                        }
-                    } catch (e) {
-                        console.warn(`⚠️ Health check failed at ${url}:`, e.message);
-                    }
-                }
-                
-                if (connected) {
-                    isBackendAvailable = true;
-                    healthDot.className = 'status-dot online';
-                    healthStatusText.textContent = '✅ Backend connected';
-                    healthVersion.textContent = version;
-                    console.log('✅ FastAPI Backend connected');
-                } else {
-                    isBackendAvailable = false;
-                    healthDot.className = 'status-dot offline';
-                    healthStatusText.textContent = '⚠️ Backend offline - using local data';
-                    healthVersion.textContent = 'v4.0.0 (local)';
-                    console.warn('⚠️ Backend not reachable');
-                }
-            } catch (error) {
-                isBackendAvailable = false;
-                healthDot.className = 'status-dot offline';
-                healthStatusText.textContent = '⚠️ Backend unavailable';
-                console.warn('⚠️ Backend health check error:', error.message);
-            }
-            backendChecked = true;
-        }
-
         // ─── FASTAPI API CALL ────────────────────────────────────
         async function callValuationAPI(formData, imageFiles) {
-            // Convert images to base64 if provided
             let images = [];
             if (imageFiles && imageFiles.length > 0) {
                 for (const file of imageFiles) {
@@ -933,7 +828,6 @@
 
             console.log('📡 Calling valuation API:', `${API_BASE}/valuation/calculate`);
             
-            // ✅ CORRECT: POST method for valuation endpoint
             const response = await fetch(`${API_BASE}/valuation/calculate`, {
                 method: 'POST',
                 headers: headers,
@@ -1137,11 +1031,6 @@
                 return;
             }
 
-            // Check backend health first if not checked yet
-            if (!backendChecked) {
-                await checkBackendHealth();
-            }
-
             // Collect image files
             const imageFiles = [];
             const req = { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 };
@@ -1206,18 +1095,12 @@
         });
 
         // ─── INIT ──────────────────────────────────────────────────
-        async function init() {
+        function init() {
             console.log('🚗 Auto-D Kenya Instant Value Check');
             console.log('📡 API:', API_BASE);
-            console.log('🏥 Health:', HEALTH_CHECK_URL);
-            
-            await checkBackendHealth();
             initSupabase();
             renderPhotoGrid();
             loadDraft();
-            
-            // Retry health check after 30 seconds
-            setTimeout(checkBackendHealth, 30000);
         }
 
         document.addEventListener('DOMContentLoaded', init);
