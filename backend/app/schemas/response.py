@@ -1,79 +1,81 @@
-# backend/app/schemas/response.py
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+"""
+Response Schemas for API
+"""
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+from pydantic import BaseModel, Field
 
-class CostComponent(BaseModel):
-    component: str
-    amount: float
-    description: Optional[str] = None
-
-class RunningCostResponse(BaseModel):
-    fuel: float
-    service: float
-    tyres: float
-    insurance: float
-    repairs: float
-    depreciation: float
-    finance: float
-    misc: float
-    total: float
-    cost_per_km: float
-    components: List[CostComponent]
-
-class MileageRateResponse(BaseModel):
-    total_rate: float
-    fuel_rate: float
-    maintenance_rate: float
-    tyre_rate: float
-    insurance_rate: float
-    depreciation_rate: float
-    finance_rate: float
-    misc_rate: float
-    total_running_cost: float
-    distance: float
-    vehicle_details: Optional[Dict[str, Any]] = None
-
-class OwnershipCostResponse(BaseModel):
-    total_cost: float
-    annual_cost: float
-    cost_per_km: float
-    breakdown: Dict[str, float]
-    year_by_year: List[Dict[str, Any]]
 
 class ValuationResponse(BaseModel):
-    trade_value: float
-    dealer_value: float
-    retail_value: float
-    quick_sale: float
-    insurance_value: float
-    depreciation_rate: float
-    estimated_life: int
+    """Vehicle valuation response"""
+    status: str = Field(..., description="Response status: success, error")
+    data: Dict[str, Any] = Field(..., description="Valuation data")
+    timestamp: str = Field(..., description="Response timestamp")
+    message: Optional[str] = Field(None, description="Additional message")
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "status": "success",
+                "data": {
+                    "market_value": 3500000,
+                    "trade_value": 2975000,
+                    "retail_value": 4200000,
+                    "dealer_value": 3850000,
+                    "quick_sale": 2800000,
+                    "insurance_value": 4375000,
+                    "base_value": 5000000,
+                    "depreciation_rate": 30.0,
+                    "estimated_life": 12,
+                    "confidence_score": 82.5,
+                    "recommendations": [
+                        "✅ Excellent value retention!",
+                        "📊 With 45,000 km, this vehicle has below-average mileage"
+                    ],
+                    "market_adjustments": {
+                        "age": -30.0,
+                        "mileage": 5.0,
+                        "condition": 6.0,
+                        "location": 5.0,
+                        "owners": -2.0
+                    },
+                    "valuation_date": "2026-07-19T10:30:00",
+                    "age_years": 3,
+                    "value_retained": 70.0
+                },
+                "timestamp": "2026-07-19T10:30:00",
+                "message": "Valuation calculated successfully"
+            }
+        }
 
-class VehicleDetailResponse(BaseModel):
-    variant_id: str
-    make: Optional[str]
-    model: Optional[str]
-    variant: str
-    year: int
-    engine_cc: float
-    fuel_type: str
-    transmission: str
-    fuel_consumption: float
-    insurance_group: int
-    service_interval: int
-    tyre_size: Optional[str]
+
+class ErrorResponse(BaseModel):
+    """Error response"""
+    status: str = "error"
+    message: str
+    errors: Optional[List[Dict[str, Any]]] = None
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+class VehicleVariantResponse(BaseModel):
+    """Vehicle variant details"""
+    id: str
+    name: str
+    model_name: Optional[str] = None
+    make_name: Optional[str] = None
+    year: Optional[int] = None
+    engine_cc: Optional[float] = None
+    fuel_type: Optional[str] = None
+    transmission: Optional[str] = None
     market_value: float
     depreciation_class: str
-    tyre_cost: float
-    service_cost: float
+    body_type: Optional[str] = None
+    fuel_consumption: Optional[float] = None
+    insurance_group: Optional[int] = None
 
-class FuelPriceResponse(BaseModel):
-    fuel_type: str
-    price: float
-    updated_at: str
 
-class ReportResponse(BaseModel):
-    report_type: str
-    generated_at: str
+class MarketTrendsResponse(BaseModel):
+    """Market trends response"""
+    status: str
     data: Dict[str, Any]
-    summary: Dict[str, Any]
+    timestamp: str
