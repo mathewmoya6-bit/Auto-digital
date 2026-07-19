@@ -145,13 +145,53 @@ class MileageRateResponse(BaseModel):
 # ─── OWNERSHIP RESPONSE SCHEMAS ───────────────────────────────────
 
 class OwnershipResponse(BaseModel):
-    """Ownership cost response"""
+    """Ownership cost response (paired with OwnershipRequest)"""
     total_cost: float
     monthly_payment: float
     total_interest: float
     breakdown: Dict[str, float]
     affordability_score: int
     recommendations: List[str]
+
+
+class OwnershipCostResponse(BaseModel):
+    """
+    Ownership cost response (paired with OwnershipCostRequest).
+
+    This was previously missing from response.py even though the request
+    schema (OwnershipCostRequest) and the service (ownership_service.py)
+    both already reference it — that mismatch is what caused:
+    ImportError: cannot import name 'OwnershipCostResponse' from
+    'app.schemas.response'.
+
+    Fields are intentionally Optional with safe defaults beyond the core
+    totals, so this stays compatible even if ownership_service.py doesn't
+    populate every single one on every call.
+    """
+    # Core totals
+    total_cost: float = Field(..., description="Total cost of ownership over the projection period")
+    monthly_payment: float = Field(0, description="Estimated monthly loan payment")
+    monthly_cost: Optional[float] = Field(None, description="Estimated total monthly cost (loan + running costs)")
+    total_interest: Optional[float] = Field(None, description="Total interest paid over the loan term")
+
+    # Cost breakdown
+    breakdown: Dict[str, float] = Field(default_factory=dict, description="Cost breakdown by category")
+    components: Optional[List[CostComponent]] = Field(default=None, description="Detailed cost components")
+
+    # Individual cost drivers (optional, for UIs that want granular figures)
+    depreciation_cost: Optional[float] = Field(None, description="Total depreciation cost")
+    insurance_cost: Optional[float] = Field(None, description="Total insurance cost")
+    maintenance_cost: Optional[float] = Field(None, description="Total maintenance cost")
+    tyre_cost: Optional[float] = Field(None, description="Total tyre replacement cost")
+    fuel_cost: Optional[float] = Field(None, description="Total fuel cost")
+
+    # Projection / metadata
+    projection: List[Dict[str, Any]] = Field(default_factory=list, description="Year-by-year cost projection")
+    loan_term_years: Optional[int] = Field(None, description="Loan term in years, echoed from the request")
+    annual_mileage: Optional[float] = Field(None, description="Annual mileage used in the calculation")
+    affordability_score: Optional[int] = Field(None, description="Affordability score (0-100)")
+    currency: str = "KES"
+    recommendations: List[str] = Field(default_factory=list, description="Ownership recommendations")
 
 
 # ─── FUEL RESPONSE SCHEMAS ────────────────────────────────────────
@@ -196,6 +236,7 @@ __all__ = [
     "MileageResponse",
     "MileageRateResponse",
     "OwnershipResponse",
+    "OwnershipCostResponse",
     "FuelResponse",
     "MarketTrendsResponse",
     "ErrorResponse",
