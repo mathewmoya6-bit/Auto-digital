@@ -522,7 +522,6 @@
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
         
-        // ✅ FastAPI Backend URL
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
 
         // ─── STATE ──────────────────────────────────────────────────
@@ -574,11 +573,6 @@
         }
 
         // ─── TOKEN HELPERS ──────────────────────────────────────────
-        // FIX: previously nothing ever wrote 'access_token' to localStorage,
-        // so callValuationAPI() always sent requests with no Authorization
-        // header, even while logged in. persistSession() keeps it in sync
-        // with the real Supabase session on load, login, logout, and
-        // refresh.
         function persistSession(session) {
             if (session && session.access_token) {
                 localStorage.setItem('access_token', session.access_token);
@@ -610,8 +604,6 @@
                     persistSession(session);
                 });
 
-                // Keep the stored token fresh across login/logout/refresh
-                // events, not just at page load.
                 supabaseClient.auth.onAuthStateChange((event, session) => {
                     currentUser = session?.user || null;
                     persistSession(session);
@@ -629,48 +621,41 @@
             try {
                 console.log('📡 Loading vehicle data from Supabase...');
                 
-                // Load types
                 const { data: types, error: typesError } = await supabaseClient
                     .from('vehicle_types')
                     .select('*')
                     .order('name');
                 if (typesError) throw typesError;
 
-                // Load makes
                 const { data: makes, error: makesError } = await supabaseClient
                     .from('vehicle_makes')
                     .select('*')
                     .order('name');
                 if (makesError) throw makesError;
 
-                // Load models
                 const { data: models, error: modelsError } = await supabaseClient
                     .from('vehicle_models')
                     .select('*')
                     .order('name');
                 if (modelsError) throw modelsError;
 
-                // Load variants
                 const { data: variants, error: variantsError } = await supabaseClient
                     .from('vehicle_variants')
                     .select('*')
-                    .order('label');
+                    .order('name');
                 if (variantsError) throw variantsError;
 
-                // Store data
                 vehicleData.types = types || [];
                 vehicleData.makes = makes || [];
                 vehicleData.models = models || [];
                 vehicleData.variants = variants || [];
                 
-                // Build years
                 const currentYear = new Date().getFullYear();
                 vehicleData.years = [];
                 for (let y = currentYear; y >= 1990; y--) {
                     vehicleData.years.push(y);
                 }
 
-                // Build lookup maps
                 vehicleData.makesByType = {};
                 makes.forEach(make => {
                     const typeId = make.type_id;
@@ -759,7 +744,6 @@
             ];
             
             vehicleData.models = [
-                // Car models
                 { id: 'fb-corolla', name: 'Corolla', make_id: 'fb-toyota' },
                 { id: 'fb-camry', name: 'Camry', make_id: 'fb-toyota' },
                 { id: 'fb-civic', name: 'Civic', make_id: 'fb-honda' },
@@ -772,8 +756,6 @@
                 { id: 'fb-forester', name: 'Forester', make_id: 'fb-subaru' },
                 { id: 'fb-elantra', name: 'Elantra', make_id: 'fb-hyundai' },
                 { id: 'fb-focus', name: 'Focus', make_id: 'fb-ford' },
-                
-                // SUV models
                 { id: 'fb-rav4', name: 'RAV4', make_id: 'fb-toyota-suv' },
                 { id: 'fb-prado', name: 'Land Cruiser Prado', make_id: 'fb-toyota-suv' },
                 { id: 'fb-fortuner', name: 'Fortuner', make_id: 'fb-toyota-suv' },
@@ -786,59 +768,52 @@
                 { id: 'fb-xtrail', name: 'X-Trail', make_id: 'fb-nissan-suv' },
                 { id: 'fb-patrol', name: 'Patrol', make_id: 'fb-nissan-suv' },
                 { id: 'fb-outback', name: 'Outback', make_id: 'fb-subaru' },
-                
-                // Pickup models
                 { id: 'fb-hilux', name: 'Hilux', make_id: 'fb-toyota-pickup' },
                 { id: 'fb-dmax', name: 'D-Max', make_id: 'fb-isuzu-pickup' },
                 { id: 'fb-ranger', name: 'Ranger', make_id: 'fb-ford-pickup' },
-                
-                // Van models
                 { id: 'fb-hiace', name: 'Hiace', make_id: 'fb-toyota-van' },
                 { id: 'fb-nv350', name: 'NV350', make_id: 'fb-nissan-van' }
             ];
 
-            // Fallback variants — one plausible trim per model so the
-            // Variant dropdown and API payload still work in fallback mode.
+            // ✅ FIXED: Complete fallback variants with all fields
             vehicleData.variants = [
-                { id: 'fb-var-corolla-1', model_id: 'fb-corolla', label: '1.8L Petrol Automatic', market_value: 1800000 },
-                { id: 'fb-var-camry-1', model_id: 'fb-camry', label: '2.5L Petrol Automatic', market_value: 3200000 },
-                { id: 'fb-var-civic-1', model_id: 'fb-civic', label: '1.8L Petrol Automatic', market_value: 1900000 },
-                { id: 'fb-var-accord-1', model_id: 'fb-accord', label: '2.0L Petrol Automatic', market_value: 2600000 },
-                { id: 'fb-var-3series-1', model_id: 'fb-3series', label: '2.0L Petrol Automatic', market_value: 4200000 },
-                { id: 'fb-var-cclass-1', model_id: 'fb-cclass', label: '2.0L Petrol Automatic', market_value: 4500000 },
-                { id: 'fb-var-sentra-1', model_id: 'fb-sentra', label: '1.6L Petrol Automatic', market_value: 1500000 },
-                { id: 'fb-var-mazda3-1', model_id: 'fb-mazda3', label: '1.5L Petrol Automatic', market_value: 1700000 },
-                { id: 'fb-var-a4-1', model_id: 'fb-a4', label: '2.0L Petrol Automatic', market_value: 3800000 },
-                { id: 'fb-var-forester-1', model_id: 'fb-forester', label: '2.0L Petrol Automatic', market_value: 2900000 },
-                { id: 'fb-var-elantra-1', model_id: 'fb-elantra', label: '1.6L Petrol Automatic', market_value: 1600000 },
-                { id: 'fb-var-focus-1', model_id: 'fb-focus', label: '1.5L Petrol Automatic', market_value: 1400000 },
-                { id: 'fb-var-rav4-1', model_id: 'fb-rav4', label: '2.0L Petrol Automatic', market_value: 3500000 },
-                { id: 'fb-var-prado-1', model_id: 'fb-prado', label: '3.0L Diesel Automatic', market_value: 7500000 },
-                { id: 'fb-var-fortuner-1', model_id: 'fb-fortuner', label: '2.8L Diesel Automatic', market_value: 6800000 },
-                { id: 'fb-var-crv-1', model_id: 'fb-crv', label: '2.0L Petrol Automatic', market_value: 3300000 },
-                { id: 'fb-var-hrv-1', model_id: 'fb-hrv', label: '1.8L Petrol Automatic', market_value: 2400000 },
-                { id: 'fb-var-x5-1', model_id: 'fb-x5', label: '3.0L Petrol Automatic', market_value: 8500000 },
-                { id: 'fb-var-x3-1', model_id: 'fb-x3', label: '2.0L Petrol Automatic', market_value: 5800000 },
-                { id: 'fb-var-gle-1', model_id: 'fb-gle', label: '3.0L Petrol Automatic', market_value: 9200000 },
-                { id: 'fb-var-glc-1', model_id: 'fb-glc', label: '2.0L Petrol Automatic', market_value: 6200000 },
-                { id: 'fb-var-xtrail-1', model_id: 'fb-xtrail', label: '2.5L Petrol Automatic', market_value: 3100000 },
-                { id: 'fb-var-patrol-1', model_id: 'fb-patrol', label: '4.8L Petrol Automatic', market_value: 8900000 },
-                { id: 'fb-var-outback-1', model_id: 'fb-outback', label: '2.5L Petrol Automatic', market_value: 3400000 },
-                { id: 'fb-var-hilux-1', model_id: 'fb-hilux', label: '2.8L Diesel Automatic', market_value: 4700000 },
-                { id: 'fb-var-dmax-1', model_id: 'fb-dmax', label: '3.0L Diesel Automatic', market_value: 4300000 },
-                { id: 'fb-var-ranger-1', model_id: 'fb-ranger', label: '2.2L Diesel Automatic', market_value: 4100000 },
-                { id: 'fb-var-hiace-1', model_id: 'fb-hiace', label: '2.5L Diesel Manual', market_value: 3600000 },
-                { id: 'fb-var-nv350-1', model_id: 'fb-nv350', label: '2.5L Diesel Manual', market_value: 3200000 }
+                { id: 'fb-var-corolla-1', model_id: 'fb-corolla', name: '1.8L Petrol CVT', engine_cc: 1798, fuel_type: 'petrol', transmission: 'cvt', market_value: 1800000 },
+                { id: 'fb-var-camry-1', model_id: 'fb-camry', name: '2.5L Petrol Automatic', engine_cc: 2494, fuel_type: 'petrol', transmission: 'automatic', market_value: 3200000 },
+                { id: 'fb-var-civic-1', model_id: 'fb-civic', name: '1.8L Petrol Automatic', engine_cc: 1798, fuel_type: 'petrol', transmission: 'automatic', market_value: 1900000 },
+                { id: 'fb-var-accord-1', model_id: 'fb-accord', name: '2.0L Petrol Automatic', engine_cc: 1998, fuel_type: 'petrol', transmission: 'automatic', market_value: 2600000 },
+                { id: 'fb-var-3series-1', model_id: 'fb-3series', name: '2.0L Petrol Automatic', engine_cc: 1998, fuel_type: 'petrol', transmission: 'automatic', market_value: 4200000 },
+                { id: 'fb-var-cclass-1', model_id: 'fb-cclass', name: '2.0L Petrol Automatic', engine_cc: 1998, fuel_type: 'petrol', transmission: 'automatic', market_value: 4500000 },
+                { id: 'fb-var-sentra-1', model_id: 'fb-sentra', name: '1.6L Petrol Automatic', engine_cc: 1598, fuel_type: 'petrol', transmission: 'automatic', market_value: 1500000 },
+                { id: 'fb-var-mazda3-1', model_id: 'fb-mazda3', name: '1.5L Petrol Automatic', engine_cc: 1498, fuel_type: 'petrol', transmission: 'automatic', market_value: 1700000 },
+                { id: 'fb-var-a4-1', model_id: 'fb-a4', name: '2.0L Petrol Automatic', engine_cc: 1984, fuel_type: 'petrol', transmission: 'automatic', market_value: 3800000 },
+                { id: 'fb-var-forester-1', model_id: 'fb-forester', name: '2.0L Petrol Automatic', engine_cc: 1995, fuel_type: 'petrol', transmission: 'automatic', market_value: 2900000 },
+                { id: 'fb-var-elantra-1', model_id: 'fb-elantra', name: '1.6L Petrol Automatic', engine_cc: 1598, fuel_type: 'petrol', transmission: 'automatic', market_value: 1600000 },
+                { id: 'fb-var-focus-1', model_id: 'fb-focus', name: '1.5L Petrol Automatic', engine_cc: 1498, fuel_type: 'petrol', transmission: 'automatic', market_value: 1400000 },
+                { id: 'fb-var-rav4-1', model_id: 'fb-rav4', name: '2.0L Petrol Automatic', engine_cc: 1998, fuel_type: 'petrol', transmission: 'automatic', market_value: 3500000 },
+                { id: 'fb-var-prado-1', model_id: 'fb-prado', name: '3.0L Diesel Automatic', engine_cc: 2982, fuel_type: 'diesel', transmission: 'automatic', market_value: 7500000 },
+                { id: 'fb-var-fortuner-1', model_id: 'fb-fortuner', name: '2.8L Diesel Automatic', engine_cc: 2755, fuel_type: 'diesel', transmission: 'automatic', market_value: 6800000 },
+                { id: 'fb-var-crv-1', model_id: 'fb-crv', name: '2.0L Petrol Automatic', engine_cc: 1998, fuel_type: 'petrol', transmission: 'automatic', market_value: 3300000 },
+                { id: 'fb-var-hrv-1', model_id: 'fb-hrv', name: '1.8L Petrol Automatic', engine_cc: 1799, fuel_type: 'petrol', transmission: 'automatic', market_value: 2400000 },
+                { id: 'fb-var-x5-1', model_id: 'fb-x5', name: '3.0L Petrol Automatic', engine_cc: 2998, fuel_type: 'petrol', transmission: 'automatic', market_value: 8500000 },
+                { id: 'fb-var-x3-1', model_id: 'fb-x3', name: '2.0L Petrol Automatic', engine_cc: 1998, fuel_type: 'petrol', transmission: 'automatic', market_value: 5800000 },
+                { id: 'fb-var-gle-1', model_id: 'fb-gle', name: '3.0L Petrol Automatic', engine_cc: 2998, fuel_type: 'petrol', transmission: 'automatic', market_value: 9200000 },
+                { id: 'fb-var-glc-1', model_id: 'fb-glc', name: '2.0L Petrol Automatic', engine_cc: 1998, fuel_type: 'petrol', transmission: 'automatic', market_value: 6200000 },
+                { id: 'fb-var-xtrail-1', model_id: 'fb-xtrail', name: '2.5L Petrol Automatic', engine_cc: 2488, fuel_type: 'petrol', transmission: 'automatic', market_value: 3100000 },
+                { id: 'fb-var-patrol-1', model_id: 'fb-patrol', name: '4.8L Petrol Automatic', engine_cc: 4799, fuel_type: 'petrol', transmission: 'automatic', market_value: 8900000 },
+                { id: 'fb-var-outback-1', model_id: 'fb-outback', name: '2.5L Petrol Automatic', engine_cc: 2498, fuel_type: 'petrol', transmission: 'automatic', market_value: 3400000 },
+                { id: 'fb-var-hilux-1', model_id: 'fb-hilux', name: '2.8L Diesel Automatic', engine_cc: 2755, fuel_type: 'diesel', transmission: 'automatic', market_value: 4700000 },
+                { id: 'fb-var-dmax-1', model_id: 'fb-dmax', name: '3.0L Diesel Automatic', engine_cc: 2999, fuel_type: 'diesel', transmission: 'automatic', market_value: 4300000 },
+                { id: 'fb-var-ranger-1', model_id: 'fb-ranger', name: '2.2L Diesel Automatic', engine_cc: 2198, fuel_type: 'diesel', transmission: 'automatic', market_value: 4100000 },
+                { id: 'fb-var-hiace-1', model_id: 'fb-hiace', name: '2.5L Diesel Manual', engine_cc: 2499, fuel_type: 'diesel', transmission: 'manual', market_value: 3600000 },
+                { id: 'fb-var-nv350-1', model_id: 'fb-nv350', name: '2.5L Diesel Manual', engine_cc: 2499, fuel_type: 'diesel', transmission: 'manual', market_value: 3200000 }
             ];
 
-            // Build years
             const currentYear = new Date().getFullYear();
             vehicleData.years = [];
             for (let y = currentYear; y >= 1990; y--) {
                 vehicleData.years.push(y);
             }
 
-            // Build lookup maps
             vehicleData.makesByType = {};
             vehicleData.makes.forEach(make => {
                 const typeId = make.type_id;
@@ -912,7 +887,6 @@
             
             const makes = vehicleData.makesByType[vehicleTypeId] || [];
             if (makes.length === 0) {
-                // Fallback: show all makes
                 vehicleData.makes.forEach(m => {
                     const opt = document.createElement('option');
                     opt.value = m.id;
@@ -955,14 +929,7 @@
             modelSelect.disabled = false;
         }
 
-        // FIX: this is the core bug fix. Previously there was no Variant
-        // dropdown at all, and the form submitted modelSelect.value as
-        // "variant_id" straight to the backend. The backend looks up
-        // vehicle_variants.id == variant_id, so a model id essentially
-        // never matches, causing a 404 "variant not found" on every real
-        // submission. This populates a real Trim/Variant selector from
-        // vehicleData.variantsByModel (already being built, but unused
-        // before this fix), keyed off the selected model.
+        // ✅ FIXED: populate variants when model is selected
         function populateVariants(modelId) {
             variantSelect.innerHTML = '<option value="">-- Select Trim/Variant --</option>';
             variantSelect.disabled = true;
@@ -981,15 +948,13 @@
             variants.forEach(v => {
                 const opt = document.createElement('option');
                 opt.value = v.id;
-                const label = v.label || v.name || [v.engine_cc ? `${v.engine_cc}cc` : null, v.fuel_type, v.transmission].filter(Boolean).join(' ');
+                const label = v.name || v.label || [v.engine_cc ? `${v.engine_cc}cc` : null, v.fuel_type, v.transmission].filter(Boolean).join(' ');
                 const price = v.market_value ? ` — KES ${Math.round(v.market_value).toLocaleString()}` : '';
                 opt.textContent = (label || 'Variant') + price;
                 variantSelect.appendChild(opt);
             });
             variantSelect.disabled = false;
 
-            // If there's exactly one variant for this model, auto-select
-            // it so single-trim models don't force an extra click.
             if (variants.length === 1) {
                 variantSelect.value = variants[0].id;
             }
@@ -999,13 +964,19 @@
         function updatePreview() {
             const make = makeSelect.options[makeSelect.selectedIndex]?.text || '';
             const model = modelSelect.options[modelSelect.selectedIndex]?.text || '';
+            const variant = variantSelect.options[variantSelect.selectedIndex]?.text || '';
             const year = yearSelect.value;
             const vehicleType = vehicleTypeSelect.options[vehicleTypeSelect.selectedIndex]?.text || '';
             
-            if (make && model) {
+            if (make && model && variant) {
+                previewIcon.textContent = vehicleTypeSelect.value ? getTypeIcon(vehicleTypeSelect.value) : '🚗';
+                previewTitle.textContent = `${make} ${model} - ${variant}`;
+                previewSubtitle.textContent = year ? `${year} • ${vehicleType}` : vehicleType;
+                vehiclePreview.classList.add('show');
+            } else if (make && model) {
                 previewIcon.textContent = vehicleTypeSelect.value ? getTypeIcon(vehicleTypeSelect.value) : '🚗';
                 previewTitle.textContent = `${make} ${model}`;
-                previewSubtitle.textContent = year ? `${year} • ${vehicleType}` : vehicleType;
+                previewSubtitle.textContent = 'Select variant...';
                 vehiclePreview.classList.add('show');
             } else if (make) {
                 previewIcon.textContent = vehicleTypeSelect.value ? getTypeIcon(vehicleTypeSelect.value) : '🚗';
@@ -1095,7 +1066,7 @@
                 document.getElementById('usageType'), document.getElementById('condition'),
                 document.getElementById('accidentHistory'), document.getElementById('location')];
             let filled = 0;
-            fields.forEach(field => { if (field.value && !field.value.startsWith('-- Select')) filled++; });
+            fields.forEach(field => { if (field.value && !field.value.startsWith('-- Select') && field.value !== '') filled++; });
             
             const req = { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 };
             const mandatoryAngles = req.mandatory.map(a => a.toLowerCase().replace(/ /g, '_'));
@@ -1143,27 +1114,25 @@
                 }
             }
 
+            // ✅ FIXED: Use variant_id from the selected variant
             const payload = {
-                // FIX: was modelSelect.value (a model id, never matches a
-                // vehicle_variants row) — now the actual selected variant.
                 variant_id: formData.variant_id || 'sample',
                 year: formData.year || 2020,
                 mileage: formData.mileage || 50000,
                 condition: formData.condition || 'good',
-                accident_history: formData.accident_history === 'none' ? false : true,
+                accident_history: formData.accident_history === 'none' ? 'none' : formData.accident_history,
                 previous_owners: parseInt(formData.previous_owners) || 1,
                 service_history: true,
                 location: formData.location || 'nairobi',
                 images: images.length > 0 ? images : undefined
             };
 
-            // FIX: this now reads a token that persistSession() actually
-            // populates (see initSupabase / onAuthStateChange above).
             const token = localStorage.getItem('access_token') || '';
             const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
-            console.log('📡 Calling valuation API:', `${API_BASE}/valuation/calculate`, token ? '(authenticated)' : '(anonymous)');
+            console.log('📡 Calling valuation API:', `${API_BASE}/valuation/calculate`);
+            console.log('📦 Payload:', payload);
             
             const response = await fetch(`${API_BASE}/valuation/calculate`, {
                 method: 'POST',
@@ -1231,7 +1200,7 @@
             }
 
             document.getElementById('resultRange').textContent = `KES ${Math.round(rangeMin).toLocaleString()} - ${Math.round(rangeMax).toLocaleString()}`;
-            document.getElementById('resultVehicle').textContent = `${makeSelect.options[makeSelect.selectedIndex]?.text || ''} ${modelSelect.options[modelSelect.selectedIndex]?.text || ''}`;
+            document.getElementById('resultVehicle').textContent = `${makeSelect.options[makeSelect.selectedIndex]?.text || ''} ${modelSelect.options[modelSelect.selectedIndex]?.text || ''} - ${variantSelect.options[variantSelect.selectedIndex]?.text || ''}`;
             document.getElementById('resultYear').textContent = yearSelect.value;
             document.getElementById('resultEngine').textContent = `${engineCapacityInput.value}cc`;
             document.getElementById('resultLocation').textContent = document.getElementById('location').options[document.getElementById('location').selectedIndex]?.text || '';
@@ -1396,9 +1365,8 @@
             saveDraft(); 
         });
 
+        // ✅ FIXED: Variant select event listener
         variantSelect.addEventListener('change', function() {
-            // If the selected variant carries its own engine_cc/fuel_type/
-            // transmission, use it to prefill those fields for the person.
             const modelId = modelSelect.value;
             const variants = vehicleData.variantsByModel[modelId] || [];
             const variant = variants.find(v => v.id === this.value);
@@ -1420,6 +1388,7 @@
                     }
                 }
             }
+            updatePreview();
             updateProgress();
             saveDraft();
         });
@@ -1447,7 +1416,7 @@
         document.getElementById('printBtn').addEventListener('click', function() { window.print(); });
         
         document.getElementById('shareBtn').addEventListener('click', function() {
-            const text = `🚗 Auto-D Kenya Vehicle Valuation\nVehicle: ${makeSelect.options[makeSelect.selectedIndex]?.text || ''} ${modelSelect.options[modelSelect.selectedIndex]?.text || ''}\nYear: ${yearSelect.value}\nEstimated Value: ${document.getElementById('resultMarketValue').textContent}\nRange: ${document.getElementById('resultRange').textContent}\nConfidence: ${document.getElementById('confidenceLabel').textContent}\n\nGenerated by Auto-D Kenya`;
+            const text = `🚗 Auto-D Kenya Vehicle Valuation\nVehicle: ${makeSelect.options[makeSelect.selectedIndex]?.text || ''} ${modelSelect.options[modelSelect.selectedIndex]?.text || ''} - ${variantSelect.options[variantSelect.selectedIndex]?.text || ''}\nYear: ${yearSelect.value}\nEstimated Value: ${document.getElementById('resultMarketValue').textContent}\nRange: ${document.getElementById('resultRange').textContent}\nConfidence: ${document.getElementById('confidenceLabel').textContent}\n\nGenerated by Auto-D Kenya`;
             if (navigator.share) { navigator.share({ title: 'Auto-D Kenya Vehicle Valuation', text: text }); } 
             else { navigator.clipboard.writeText(text).then(() => { showToast('📋 Report copied to clipboard!', 'success'); }); }
         });
@@ -1463,7 +1432,6 @@
                 return;
             }
 
-            // Collect image files
             const imageFiles = [];
             const req = { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 };
             const mandatoryAngles = req.mandatory.map(a => a.toLowerCase().replace(/ /g, '_'));
@@ -1473,8 +1441,8 @@
                 }
             });
 
+            // ✅ FIXED: Use the actual variant ID
             const formData = {
-                // FIX: send the real variant, not the model.
                 variant_id: variantSelect.value || 'sample',
                 year: parseInt(yearSelect.value),
                 mileage: parseFloat(document.getElementById('mileage').value),
