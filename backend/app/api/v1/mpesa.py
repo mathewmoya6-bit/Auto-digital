@@ -6,13 +6,13 @@ Handles STK Push, payment status, service access, and webhooks
 
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from fastapi.responses import JSONResponse
 from datetime import datetime
 
 from app.services.mpesa_service import MpesaService
-from app.core.database import supabase  # <-- Use supabase, not db
-from app.core.security import get_current_user, verify_api_key
+from app.core.database import supabase
+from app.core.security import get_current_user, verify_api_key, verify_admin
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ async def mpesa_health():
         "environment": mpesa_service.environment,
         "shortcode": mpesa_service.shortcode,
         "callback_url": mpesa_service.callback_url,
-        "mpesa_configured": mpesa_service.is_configured()
+        "mpesa_configured": mpesa_service.is_configured() if hasattr(mpesa_service, 'is_configured') else False
     }
 
 
@@ -293,7 +293,6 @@ async def get_payment_history(
         if not user_id:
             raise HTTPException(status_code=401, detail="User authentication required")
         
-        # Query payments from database - use supabase directly
         response = supabase.table('payments') \
             .select('*') \
             .eq('user_id', user_id) \
@@ -340,92 +339,9 @@ async def webhook_receiver(request: Request):
 @router.post("/mpesa/admin/service-prices")
 async def set_service_price(
     request: Request,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(verify_admin),
     api_key: str = Depends(verify_api_key)
 ):
     """
     Admin endpoint to set service prices.
     """
-    try:
-        # Verify admin role
-        if current_user.get('role') != 'admin':
-            raise HTTPException(status_code=403, detail="Admin access required")
-        
-        data = await request.json()
-        service_type = data.get('service_type')
-        price = data.get('price')
-        
-        if not service_type or price is None:
-            raise HTTPException(status_code=400, detail="service_type and price are required")
-        
-        # Insert into database - use supabase directly
-        response = supabase.table('service_prices').insert({
-            'service_type': service_type,
-            'price': price,
-            'created_at': datetime.now().isoformat()
-        }).execute()
-        
-        if response.data:
-            return {
-                "success": True,
-                "message": f"Price for {service_type} set to {price}",
-                "data": response.data[0]
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to set price")
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Set service price error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/mpesa/admin/stats")
-async def get_mpesa_stats(
-    current_user: dict = Depends(get_current_user),
-    api_key: str = Depends(verify_api_key)
-):
-    """
-    Admin endpoint to get M-Pesa payment statistics.
-    """
-    try:
-        # Verify admin role
-        if current_user.get('role') != 'admin':
-            raise HTTPException(status_code=403, detail="Admin access required")
-        
-        # Get total payments - use supabase directly
-        total_response = supabase.table('payments') \
-            .select('*') \
-            .execute()
-        
-        # Get successful payments
-        success_response = supabase.table('payments') \
-            .select('*') \
-            .eq('status', 'completed') \
-            .execute()
-        
-        # Get failed payments
-        failed_response = supabase.table('payments') \
-            .select('*') \
-            .eq('status', 'failed') \
-            .execute()
-        
-        # Calculate total amount
-        total_amount = sum(p.get('amount', 0) for p in total_response.data) if total_response.data else 0
-        
-        return {
-            "success": True,
-            "stats": {
-                "total_payments": len(total_response.data) if total_response.data else 0,
-                "successful_payments": len(success_response.data) if success_response.data else 0,
-                "failed_payments": len(failed_response.data) if failed_response.data else 0,
-                "total_amount": total_amount,
-                "currency": "KES"
-            }
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Get M-Pesa stats error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
