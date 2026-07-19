@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@auto-d.ke"
     
     # ─── CORS Configuration ──────────────────────────────────────────
+    # ✅ FIXED: Added all necessary CORS origins
     BACKEND_CORS_ORIGINS: List[str] = Field(
         default=[
             "https://auto-digital.onrender.com",
@@ -67,7 +68,7 @@ class Settings(BaseSettings):
             "http://localhost:5000",
             "http://localhost:8000",
             "http://127.0.0.1:5500",
-            "https://auto-d-kenya.github.io"
+            "https://auto-d-kenya.github.io",
         ],
         env="BACKEND_CORS_ORIGINS"
     )
@@ -77,7 +78,6 @@ class Settings(BaseSettings):
     CORS_ALLOW_HEADERS: str = "Authorization,Content-Type,Accept,Origin,X-Requested-With"
     
     # ─── M-PESA Configuration ──────────────────────────────────────
-    # These are the environment variables the mpesa_service.py expects
     MPESA_ENV: str = Field(
         default="sandbox",
         env="MPESA_ENV"
