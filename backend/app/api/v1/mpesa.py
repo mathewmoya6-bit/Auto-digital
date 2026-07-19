@@ -345,3 +345,73 @@ async def set_service_price(
     """
     Admin endpoint to set service prices.
     """
+    try:
+        data = await request.json()
+        service_type = data.get('service_type')
+        price = data.get('price')
+        
+        if not service_type or price is None:
+            raise HTTPException(status_code=400, detail="service_type and price are required")
+        
+        response = supabase.table('service_prices').insert({
+            'service_type': service_type,
+            'price': price,
+            'created_at': datetime.now().isoformat()
+        }).execute()
+        
+        if response.data:
+            return {
+                "success": True,
+                "message": f"Price for {service_type} set to {price}",
+                "data": response.data[0]
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to set price")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Set service price error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/mpesa/admin/stats")
+async def get_mpesa_stats(
+    current_user: dict = Depends(verify_admin),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Admin endpoint to get M-Pesa payment statistics.
+    """
+    try:
+        total_response = supabase.table('payments') \
+            .select('*') \
+            .execute()
+        
+        success_response = supabase.table('payments') \
+            .select('*') \
+            .eq('status', 'completed') \
+            .execute()
+        
+        failed_response = supabase.table('payments') \
+            .select('*') \
+            .eq('status', 'failed') \
+            .execute()
+        
+        total_amount = sum(p.get('amount', 0) for p in total_response.data) if total_response.data else 0
+        
+        return {
+            "success": True,
+            "stats": {
+                "total_payments": len(total_response.data) if total_response.data else 0,
+                "successful_payments": len(success_response.data) if success_response.data else 0,
+                "failed_payments": len(failed_response.data) if failed_response.data else 0,
+                "total_amount": total_amount,
+                "currency": "KES"
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Get M-Pesa stats error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
