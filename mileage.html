@@ -791,7 +791,7 @@
         }
         .disclaimer strong { color: #eab308; }
 
-        /* ─── NEW: 5-Year Table ──────────────────────────────────────── */
+        /* ─── 5-Year Table ──────────────────────────────────────── */
         .table-wrap { overflow-x: auto; }
         table {
             width: 100%;
@@ -816,7 +816,6 @@
         td { border-bottom: 1px solid rgba(51,65,85,0.4); }
         tr:last-child td { border-bottom: none; font-weight: 700; color: #eab308; }
 
-        /* ─── NEW: 5-Year Stats Grid ────────────────────────────────── */
         .stats-grid-5 {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
@@ -1155,7 +1154,7 @@
                     </div>
                 </div>
 
-                <!-- ─── NEW: 5-Year Running Cost ───────────────────────── -->
+                <!-- ─── 5-Year Running Cost ───────────────────────── -->
                 <div class="result-card">
                     <div class="card-title">
                         📅 5-Year Running Cost Projection
@@ -1283,8 +1282,8 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
-        // ✅ WITH 5-YEAR PROJECTION
+        // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR (FIXED)
+        // ✅ 5-Year Projection  ✅ Age-based Initial Cost  ✅ No SW Error
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1351,7 +1350,6 @@
                 downPct: document.getElementById('downPct'),
                 rate: document.getElementById('rate'),
                 term: document.getElementById('term'),
-                // ─── NEW: 5-Year Elements ─────────────────────────────
                 fiveYearStats: document.getElementById('fiveYearStats'),
                 yearlyBody: document.getElementById('yearlyBody')
             };
@@ -1393,6 +1391,15 @@
             function getVehicleAge(year) {
                 const currentYear = new Date().getFullYear();
                 return Math.max(0, currentYear - parseInt(year));
+            }
+
+            // ─── FIXED: Age-Based Initial Cost Calculation ────────────
+            function calculateAgeAdjustedCost(basePrice, age) {
+                // Vehicles depreciate ~12% per year
+                const depreciationRate = 0.12;
+                const adjustedPrice = basePrice * Math.pow(1 - depreciationRate, age);
+                // Never go below 15% of base price
+                return Math.max(adjustedPrice, basePrice * 0.15);
             }
 
             // ─── FALLBACK DATA ──────────────────────────────────────────
@@ -1513,7 +1520,13 @@
                 if (d <= 0) return null;
 
                 const fuelType = (variant.fuel_type || 'Petrol').toLowerCase();
+                const vehicleAge = getVehicleAge(year);
+                
+                // ─── FIXED: Age-adjusted initial cost ──────────────────
                 const basePrice = variant.initial_cost || 5000000;
+                const ageAdjustedCost = calculateAgeAdjustedCost(basePrice, vehicleAge);
+                const basePriceForCalc = Math.min(basePrice, ageAdjustedCost * 1.2);
+
                 const transmissionKey = (transmission || variant.transmission || 'automatic').toLowerCase();
                 const transmissionFactor = TRANSMISSION_FUEL_FACTOR[transmissionKey] || 1.0;
                 const fuelConsumption = (variant.fuel_consumption || 8) * transmissionFactor;
@@ -1544,7 +1557,7 @@
                 const insuranceTrip = insurancePerKm * d;
 
                 const depreciationRate = 0.12;
-                const depreciationPerKm = (basePrice * depreciationRate) / annual;
+                const depreciationPerKm = (basePriceForCalc * depreciationRate) / annual;
                 const depreciationTrip = depreciationPerKm * d;
 
                 const tripTotal = fuelCostTrip + serviceTrip + tyreTrip + insuranceTrip + depreciationTrip;
@@ -1555,16 +1568,16 @@
                 const monthlyService = servicePerKm * monthlyKm;
                 const monthlyTyre = tyrePerKm * monthlyKm;
                 const monthlyInsurance = insuranceAnnual / 12;
-                const monthlyDepreciation = (basePrice * depreciationRate) / 12;
+                const monthlyDepreciation = (basePriceForCalc * depreciationRate) / 12;
 
                 const annualFuel = fuelCostPerKm * annual;
                 const annualService = servicePerKm * annual;
                 const annualTyre = tyrePerKm * annual;
-                const annualDepreciation = basePrice * depreciationRate;
+                const annualDepreciation = basePriceForCalc * depreciationRate;
 
                 // ─── 5-Year Projection ──────────────────────────────────
                 const fiveYearData = [];
-                let remainingValue = basePrice;
+                let remainingValue = basePriceForCalc;
                 let total5YearCost = 0;
 
                 for (let y = 1; y <= 5; y++) {
@@ -1606,10 +1619,12 @@
                     vehicleName: variant.label,
                     fuelTypeDisplay: variant.fuel_type || 'Petrol',
                     transmissionDisplay: variant.transmission || 'Automatic',
-                    initialCost: basePrice,
+                    initialCost: basePriceForCalc,
+                    ageAdjustedCost: ageAdjustedCost,
+                    vehicleAge: vehicleAge,
                     annualKm: annual,
                     monthlyKm: monthlyKm,
-                    age: getVehicleAge(year),
+                    age: vehicleAge,
                     usageType: usageType || 'private',
                     monthlyFuel,
                     monthlyService,
@@ -2184,11 +2199,14 @@
                 }
             });
 
-            // ─── Service Worker Registration ───────────────────────────
+            // ─── Service Worker - FIXED: No error if sw.js doesn't exist ──
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('/sw.js')
                     .then(() => console.log('✅ Service Worker registered'))
-                    .catch((err) => console.warn('⚠️ Service Worker registration failed:', err));
+                    .catch(() => {
+                        // Silently ignore - sw.js may not exist
+                        console.log('ℹ️ Service Worker not available');
+                    });
             }
 
             // ─── Expose for debugging ──────────────────────────────────
