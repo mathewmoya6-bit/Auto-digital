@@ -28,6 +28,7 @@ from app.api.v1.fuel import router as fuel_router
 from app.api.v1.admin import router as admin_router
 from app.api.v1.reports import router as reports_router
 from app.api.v1.running_cost import router as running_cost_router
+from app.api.v1.mpesa import router as mpesa_router  # <-- Added M-Pesa router
 
 # ─── Configure Logging ─────────────────────────────────────────────
 try:
@@ -61,6 +62,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"📍 Environment: {settings.ENVIRONMENT}")
     logger.info(f"🔗 API Base URL: {settings.API_BASE_URL}")
     logger.info(f"🔗 Supabase URL: {settings.SUPABASE_URL}")
+    logger.info(f"📱 M-Pesa Environment: {getattr(settings, 'MPESA_ENV', 'sandbox')}")
+    logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
     
     # Check Supabase connection
     try:
@@ -68,6 +71,17 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Supabase connection successful")
     except Exception as e:
         logger.error(f"❌ Supabase connection failed: {e}")
+    
+    # Check M-Pesa configuration
+    mpesa_configured = bool(
+        getattr(settings, 'MPESA_CONSUMER_KEY', '') and 
+        getattr(settings, 'MPESA_CONSUMER_SECRET', '') and 
+        getattr(settings, 'MPESA_PASSKEY', '')
+    )
+    if mpesa_configured:
+        logger.info("✅ M-Pesa configuration loaded")
+    else:
+        logger.warning("⚠️ M-Pesa configuration incomplete - payment endpoints may not work")
     
     logger.info("=" * 60)
     logger.info("✅ Application is ready to serve requests")
@@ -108,7 +122,9 @@ except Exception:
         "http://localhost:3000",
         "http://localhost:5173",
         "http://localhost:5000",
-        "http://localhost:8000"
+        "http://localhost:8000",
+        "http://127.0.0.1:5500",  # Live Server
+        "https://auto-d-kenya.github.io",  # GitHub Pages
     ]
 
 # ✅ FIXED: Log CORS origins for debugging
@@ -168,6 +184,7 @@ app.include_router(ownership_router, prefix=api_prefix + "/ownership", tags=["Ow
 app.include_router(fuel_router, prefix=api_prefix + "/fuel", tags=["Fuel"])
 app.include_router(admin_router, prefix=api_prefix + "/admin", tags=["Admin"])
 app.include_router(reports_router, prefix=api_prefix + "/reports", tags=["Reports"])
+app.include_router(mpesa_router, prefix=api_prefix + "/mpesa", tags=["M-Pesa"])  # <-- Added M-Pesa router
 
 logger.info("✅ All routers registered")
 
@@ -184,10 +201,19 @@ async def health_check():
         supabase_status = f"error: {str(e)}"
         logger.error(f"Supabase health check failed: {e}")
     
+    # Check M-Pesa status
+    mpesa_status = "configured" if (
+        getattr(settings, 'MPESA_CONSUMER_KEY', '') and 
+        getattr(settings, 'MPESA_CONSUMER_SECRET', '') and 
+        getattr(settings, 'MPESA_PASSKEY', '')
+    ) else "not_configured"
+    
     return {
         "status": "healthy" if supabase_status == "connected" else "degraded",
         "timestamp": datetime.utcnow().isoformat(),
         "supabase": supabase_status,
+        "mpesa": mpesa_status,
+        "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "version": getattr(settings, "API_VERSION", "4.0.0")
     }
@@ -232,7 +258,12 @@ async def root():
         "status": "operational",
         "timestamp": datetime.utcnow().isoformat(),
         "documentation": getattr(settings, "API_DOCS_URL", "/docs") if getattr(settings, "ENABLE_DOCS", False) else "disabled",
-        "api_prefix": getattr(settings, "API_V1_PREFIX", "/api/v1")
+        "api_prefix": getattr(settings, "API_V1_PREFIX", "/api/v1"),
+        "features": {
+            "mpesa": getattr(settings, "ENABLE_MPESA", True),
+            "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
+            "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
+        }
     }
 
 
@@ -250,7 +281,12 @@ async def metrics():
         "timestamp": datetime.utcnow().isoformat(),
         "metrics": {
             "uptime": "running",
-            "supabase": "connected"
+            "supabase": "connected",
+            "mpesa": "configured" if (
+                getattr(settings, 'MPESA_CONSUMER_KEY', '') and 
+                getattr(settings, 'MPESA_CONSUMER_SECRET', '') and 
+                getattr(settings, 'MPESA_PASSKEY', '')
+            ) else "not_configured"
         }
     }
 
@@ -264,6 +300,8 @@ async def info():
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "features": {
             "mpesa": getattr(settings, "ENABLE_MPESA", True),
+            "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
+            "mpesa_environment": getattr(settings, "MPESA_ENV", "sandbox"),
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
             "analytics": getattr(settings, "ENABLE_ANALYTICS", True),
             "caching": getattr(settings, "ENABLE_CACHING", True),
@@ -287,6 +325,7 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info(f"🚀 Starting server on {host}:{port}")
     logger.info(f"🐛 Debug mode: {debug}")
+    logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
     logger.info(f"📡 API Base URL: {getattr(settings, 'API_BASE_URL', 'http://localhost:' + str(port))}")
     logger.info("=" * 60)
     
