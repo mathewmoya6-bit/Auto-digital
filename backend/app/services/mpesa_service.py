@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from uuid import uuid4
 
-from app.core.database import supabase  # <-- Changed from db to supabase
+from app.core.database import supabase
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -119,11 +119,14 @@ class MpesaService:
         Format phone number for M-Pesa API.
         Removes leading 0 or +254 and adds 254 prefix.
         """
+        # Remove any non-numeric characters
         phone = ''.join(filter(str.isdigit, phone))
         
+        # Remove leading 0 if present
         if phone.startswith('0'):
             phone = phone[1:]
         
+        # Add 254 prefix if not present
         if not phone.startswith('254'):
             phone = f"254{phone}"
         
