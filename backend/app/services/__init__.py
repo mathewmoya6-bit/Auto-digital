@@ -8,7 +8,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Import core services
 from app.services.vehicle_service import VehicleService
 from app.services.fuel_service import FuelService
 from app.services.mileage_service import MileageService
@@ -37,12 +36,4 @@ __all__ = [
     "MpesaService",
 ]
 
-# Optional: Log service availability
-logger.info("📦 Services loaded:")
-logger.info(f"  - VehicleService: {VehicleService is not None}")
-logger.info(f"  - FuelService: {FuelService is not None}")
-logger.info(f"  - MileageService: {MileageService is not None}")
-logger.info(f"  - OwnershipService: {OwnershipService is not None}")
-logger.info(f"  - ValuationService: {ValuationService is not None}")
-logger.info(f"  - ReportService: {ReportService is not None}")
-logger.info(f"  - MpesaService: {MpesaService is not None}")
+logger.info("📦 Services loaded successfully")
