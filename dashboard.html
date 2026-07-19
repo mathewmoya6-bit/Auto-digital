@@ -1001,7 +1001,6 @@
             'use strict';
 
             // ─── Configuration ──────────────────────────────────────────────────────
-            // ✅ FIXED: Try both /api/v1 and /api endpoints
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
             const API_BASE_FALLBACK = 'https://auto-digital.onrender.com/api';
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
@@ -1045,6 +1044,20 @@
                 }, 4000);
             }
 
+            // ─── Extract a readable error message from a fetch Response ───────────
+            // FastAPI's HTTPException puts the message under "detail", not
+            // "message" or "error" — check all three so real backend errors
+            // (400/401/404/500) are never masked by the generic fallback.
+            function extractErrorMessage(status, data, fallback) {
+                if (data && typeof data === 'object') {
+                    if (typeof data.detail === 'string') return data.detail;
+                    if (Array.isArray(data.detail) && data.detail[0]?.msg) return data.detail[0].msg;
+                    if (data.message) return data.message;
+                    if (data.error) return data.error;
+                }
+                return `${fallback} (${status})`;
+            }
+
             // ─── Connection Status ──────────────────────────────────────────────────
             function setConnectionStatus(status, message) {
                 const dot = document.getElementById('connectionDot');
@@ -1071,6 +1084,11 @@
             }
 
             // ─── Get Auth Token ────────────────────────────────────────────────────
+            // Returns a valid, non-expired Supabase access token, or null if the
+            // session cannot be established/refreshed. Callers MUST check for
+            // null before sending authenticated requests — do not send the
+            // request anyway with a missing Authorization header, since that
+            // silently 401s server-side with no clear signal to the user.
             async function getAuthToken() {
                 try {
                     if (!supabaseClient) {
@@ -1079,21 +1097,48 @@
 
                     const { data: { session }, error } = await supabaseClient.auth.getSession();
                     if (error) throw error;
-                    if (session?.access_token) return session.access_token;
 
-                    const stored = localStorage.getItem('auto_d_user');
-                    if (stored) {
-                        const user = JSON.parse(stored);
-                        const { data: { session: refreshSession }, error: refreshError } = 
-                            await supabaseClient.auth.refreshSession();
-                        if (refreshError) throw refreshError;
-                        if (refreshSession?.access_token) return refreshSession.access_token;
+                    if (session?.access_token) {
+                        // Proactively refresh if the token is expired or about to expire
+                        // (within 60s), rather than waiting for a 401 from the backend.
+                        const expiresAt = session.expires_at ? session.expires_at * 1000 : 0;
+                        if (expiresAt && expiresAt - Date.now() < 60000) {
+                            const { data: { session: refreshed }, error: refreshError } =
+                                await supabaseClient.auth.refreshSession();
+                            if (refreshError) {
+                                console.warn('⚠️ Token refresh failed:', refreshError.message);
+                                return session.access_token; // fall back to the (soon-expiring) token
+                            }
+                            if (refreshed?.access_token) return refreshed.access_token;
+                        }
+                        return session.access_token;
                     }
+
+                    // No active session — try one refresh attempt using whatever
+                    // Supabase has in its own persisted storage.
+                    const { data: { session: refreshSession }, error: refreshError } =
+                        await supabaseClient.auth.refreshSession();
+                    if (refreshError) throw refreshError;
+                    if (refreshSession?.access_token) return refreshSession.access_token;
+
                     return null;
                 } catch (error) {
                     console.warn('⚠️ Auth token error:', error.message);
                     return null;
                 }
+            }
+
+            // ─── Require a valid token or bail with a clear message ────────────────
+            async function requireAuthToken() {
+                const token = await getAuthToken();
+                if (!token) {
+                    showToast('⚠️ Your session has expired. Please log in again.', 'error');
+                    setTimeout(() => {
+                        window.location.href = 'https://auto-d.meipressgroup.com/';
+                    }, 1500);
+                    return null;
+                }
+                return token;
             }
 
             // ─── Supabase API Request ──────────────────────────────────────────────
@@ -1594,6 +1639,13 @@
                 }
 
                 if (isProcessingPayment) return;
+
+                // Fail fast if we don't have a usable session — do NOT send the
+                // request without a token, since that just produces an opaque
+                // 401 from the backend.
+                const token = await requireAuthToken();
+                if (!token) return;
+
                 isProcessingPayment = true;
                 payBtn.disabled = true;
                 payBtn.textContent = '⏳ Processing...';
@@ -1603,82 +1655,80 @@
                 document.getElementById('paymentStatusDetail').textContent = 'Please wait...';
                 overlay.classList.add('open');
 
+                const authHeaders = {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                };
+
+                const requestBody = JSON.stringify({
+                    phone: phone,
+                    amount: selectedService.price || 0,
+                    account_reference: selectedService.id,
+                    description: `Auto-D: ${selectedService.name}`
+                });
+
                 try {
-                    const token = await getAuthToken();
-                    
                     // Try primary endpoint (with /v1)
                     let url = `${API_BASE}/mpesa/stkpush`;
-                    let result, data;
-                    
+                    let data;
+
                     try {
                         const response = await fetch(url, {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Accept': 'application/json',
-                                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                            },
-                            body: JSON.stringify({
-                                phone: phone,
-                                amount: selectedService.price || 0,
-                                account_reference: selectedService.id,
-                                description: `Auto-D: ${selectedService.name}`
-                            })
+                            headers: authHeaders,
+                            body: requestBody
                         });
 
-                        data = await response.json();
-                        
+                        data = await response.json().catch(() => ({}));
+
                         if (!response.ok) {
+                            console.error('❌ STK push failed:', response.status, data);
+
+                            if (response.status === 401) {
+                                throw new Error('Your session has expired. Please log in again.');
+                            }
+
                             // If 404, try fallback URL without /v1
                             if (response.status === 404) {
                                 console.log('⚠️ Endpoint not found at /api/v1, trying fallback...');
                                 url = `${API_BASE_FALLBACK}/mpesa/stkpush`;
                                 const fallbackResponse = await fetch(url, {
                                     method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json',
-                                        'Accept': 'application/json',
-                                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                                    },
-                                    body: JSON.stringify({
-                                        phone: phone,
-                                        amount: selectedService.price || 0,
-                                        account_reference: selectedService.id,
-                                        description: `Auto-D: ${selectedService.name}`
-                                    })
+                                    headers: authHeaders,
+                                    body: requestBody
                                 });
-                                
-                                data = await fallbackResponse.json();
+
+                                data = await fallbackResponse.json().catch(() => ({}));
                                 if (!fallbackResponse.ok) {
-                                    throw new Error(data.message || data.error || 'Payment initiation failed');
+                                    console.error('❌ STK push fallback failed:', fallbackResponse.status, data);
+                                    if (fallbackResponse.status === 401) {
+                                        throw new Error('Your session has expired. Please log in again.');
+                                    }
+                                    throw new Error(extractErrorMessage(fallbackResponse.status, data, 'Payment initiation failed'));
                                 }
                             } else {
-                                throw new Error(data.message || data.error || 'Payment initiation failed');
+                                throw new Error(extractErrorMessage(response.status, data, 'Payment initiation failed'));
                             }
                         }
                     } catch (error) {
-                        // If both fail, try with /api/mpesa/stkpush
+                        // If both fail with 404-style routing issues, try /api/mpesa/stkpush
                         if (error.message.includes('404')) {
                             console.log('⚠️ Trying /api/mpesa/stkpush...');
                             url = `${API_BASE_FALLBACK.replace('/api/v1', '/api')}/mpesa/stkpush`;
                             const finalResponse = await fetch(url, {
                                 method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Accept': 'application/json',
-                                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                                },
-                                body: JSON.stringify({
-                                    phone: phone,
-                                    amount: selectedService.price || 0,
-                                    account_reference: selectedService.id,
-                                    description: `Auto-D: ${selectedService.name}`
-                                })
+                                headers: authHeaders,
+                                body: requestBody
                             });
-                            
-                            data = await finalResponse.json();
+
+                            data = await finalResponse.json().catch(() => ({}));
                             if (!finalResponse.ok) {
-                                throw new Error(data.message || data.error || 'Payment initiation failed');
+                                console.error('❌ STK push final fallback failed:', finalResponse.status, data);
+                                if (finalResponse.status === 401) {
+                                    throw new Error('Your session has expired. Please log in again.');
+                                }
+                                throw new Error(extractErrorMessage(finalResponse.status, data, 'Payment initiation failed'));
                             }
                         } else {
                             throw error;
@@ -1697,24 +1747,29 @@
                     const pollInterval = setInterval(async () => {
                         attempts++;
                         try {
-                            // Try status check with fallback
+                            // Refresh the token if needed before each poll — a long-running
+                            // payment could otherwise outlive the original token.
+                            const pollToken = await getAuthToken();
+                            const pollHeaders = {
+                                'Accept': 'application/json',
+                                ...(pollToken ? { 'Authorization': `Bearer ${pollToken}` } : {})
+                            };
+
                             let statusUrl = `${API_BASE}/mpesa/status/${checkoutId}`;
-                            let statusResponse = await fetch(statusUrl, {
-                                headers: {
-                                    'Accept': 'application/json',
-                                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                                }
-                            });
+                            let statusResponse = await fetch(statusUrl, { headers: pollHeaders });
 
                             if (statusResponse.status === 404) {
-                                // Try fallback
                                 statusUrl = `${API_BASE_FALLBACK}/mpesa/status/${checkoutId}`;
-                                statusResponse = await fetch(statusUrl, {
-                                    headers: {
-                                        'Accept': 'application/json',
-                                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                                    }
-                                });
+                                statusResponse = await fetch(statusUrl, { headers: pollHeaders });
+                            }
+
+                            if (statusResponse.status === 401) {
+                                clearInterval(pollInterval);
+                                document.getElementById('paymentStatusText').textContent = '⚠️ Session Expired';
+                                document.getElementById('paymentStatusDetail').textContent =
+                                    'Please log in again to check this payment\'s status.';
+                                showToast('⚠️ Session expired while checking payment status.', 'error');
+                                return;
                             }
 
                             if (statusResponse.status === 404) {
@@ -1732,7 +1787,8 @@
                             }
 
                             if (!statusResponse.ok) {
-                                throw new Error(`Status check failed: ${statusResponse.status}`);
+                                const statusErrData = await statusResponse.json().catch(() => ({}));
+                                throw new Error(extractErrorMessage(statusResponse.status, statusErrData, 'Status check failed'));
                             }
 
                             const statusData = await statusResponse.json();
@@ -1816,6 +1872,10 @@
                         overlay.classList.remove('open');
                         closePaymentModal();
                     }, 2000);
+                } finally {
+                    isProcessingPayment = false;
+                    payBtn.disabled = false;
+                    payBtn.textContent = '💳 Pay Now';
                 }
             };
 
