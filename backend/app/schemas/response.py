@@ -6,6 +6,26 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+# ─── BASE RESPONSE SCHEMAS ─────────────────────────────────────────
+
+class CostComponent(BaseModel):
+    """Individual cost component for running cost calculations"""
+    name: str = Field(..., description="Name of the cost component")
+    amount: float = Field(..., description="Cost amount in KES")
+    percentage: float = Field(..., description="Percentage of total cost")
+    description: Optional[str] = Field(None, description="Additional description")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "name": "Fuel",
+                "amount": 120000,
+                "percentage": 45.5,
+                "description": "Annual fuel cost based on 20,000km/year"
+            }
+        }
+
+
 class ValuationResponse(BaseModel):
     """Vehicle valuation response"""
     status: str = Field(..., description="Response status: success, error")
@@ -49,7 +69,7 @@ class ValuationResponse(BaseModel):
         }
 
 
-# ─── ADD MISSING RESPONSE SCHEMAS ──────────────────────────────────
+# ─── VEHICLE RESPONSE SCHEMAS ─────────────────────────────────────
 
 class VehicleMakeResponse(BaseModel):
     """Vehicle make response"""
@@ -138,30 +158,57 @@ class VehicleSearchResponse(BaseModel):
     offset: int
 
 
-class ErrorResponse(BaseModel):
-    """Error response"""
-    status: str = "error"
-    message: str
-    errors: Optional[List[Dict[str, Any]]] = None
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
-
-
-class MarketTrendsResponse(BaseModel):
-    """Market trends response"""
-    status: str
-    data: Dict[str, Any]
-    timestamp: str
-
+# ─── RUNNING COST RESPONSE SCHEMAS ────────────────────────────────
 
 class RunningCostResponse(BaseModel):
     """Running cost calculation response"""
-    total_annual_cost: float
-    cost_per_km: float
-    cost_per_month: float
-    breakdown: Dict[str, float]
-    projection: List[Dict[str, Any]]
-    currency: str = "KES"
+    total_annual_cost: float = Field(..., description="Total annual cost in KES")
+    cost_per_km: float = Field(..., description="Cost per kilometer in KES")
+    cost_per_month: float = Field(..., description="Cost per month in KES")
+    breakdown: Dict[str, float] = Field(..., description="Cost breakdown by category")
+    components: List[CostComponent] = Field(..., description="Detailed cost components")
+    projection: List[Dict[str, Any]] = Field(default=[], description="Cost projection over years")
+    currency: str = Field("KES", description="Currency code")
+    recommendations: List[str] = Field(default=[], description="Cost saving recommendations")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "total_annual_cost": 265000,
+                "cost_per_km": 13.25,
+                "cost_per_month": 22083.33,
+                "breakdown": {
+                    "fuel": 120000,
+                    "insurance": 50000,
+                    "maintenance": 30000,
+                    "tyres": 15000,
+                    "depreciation": 50000
+                },
+                "components": [
+                    {
+                        "name": "Fuel",
+                        "amount": 120000,
+                        "percentage": 45.28,
+                        "description": "Annual fuel cost based on 20,000km/year"
+                    },
+                    {
+                        "name": "Insurance",
+                        "amount": 50000,
+                        "percentage": 18.87,
+                        "description": "Annual comprehensive insurance premium"
+                    }
+                ],
+                "projection": [],
+                "currency": "KES",
+                "recommendations": [
+                    "Consider diesel variant for lower fuel costs",
+                    "Regular servicing can reduce maintenance costs"
+                ]
+            }
+        }
 
+
+# ─── OTHER RESPONSE SCHEMAS ───────────────────────────────────────
 
 class MileageResponse(BaseModel):
     """Mileage adjustment response"""
@@ -191,19 +238,35 @@ class FuelResponse(BaseModel):
     total_km_per_month: float
 
 
+class MarketTrendsResponse(BaseModel):
+    """Market trends response"""
+    status: str
+    data: Dict[str, Any]
+    timestamp: str
+
+
+class ErrorResponse(BaseModel):
+    """Error response"""
+    status: str = "error"
+    message: str
+    errors: Optional[List[Dict[str, Any]]] = None
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
 # ─── EXPORT ALL ─────────────────────────────────────────────────────
 
 __all__ = [
+    "CostComponent",
     "ValuationResponse",
     "VehicleMakeResponse",
     "VehicleModelResponse",
     "VehicleVariantResponse",
     "VehicleDetailResponse",
     "VehicleSearchResponse",
-    "ErrorResponse",
-    "MarketTrendsResponse",
     "RunningCostResponse",
     "MileageResponse",
     "OwnershipResponse",
     "FuelResponse",
+    "MarketTrendsResponse",
+    "ErrorResponse",
 ]
