@@ -55,6 +55,22 @@ class MileageRequest(BaseModel):
     age_years: int = Field(..., ge=0, description="Vehicle age in years")
 
 
+# ─── ADD MISSING SCHEMA ──────────────────────────────────────────
+
+class MileageRateRequest(BaseModel):
+    """Mileage rate calculation request"""
+    variant_id: str = Field(..., description="Vehicle variant ID")
+    annual_mileage: float = Field(20000, ge=0, description="Annual mileage in km")
+    fuel_price: float = Field(200, ge=0, description="Fuel price per liter (KES)")
+    maintenance_cost_per_km: float = Field(1.5, ge=0, description="Maintenance cost per km")
+    tyre_cost_per_km: float = Field(0.8, ge=0, description="Tyre cost per km")
+    insurance_cost_per_km: float = Field(2.5, ge=0, description="Insurance cost per km")
+    include_depreciation: bool = Field(True, description="Include depreciation in calculation")
+    include_insurance: bool = Field(True, description="Include insurance in calculation")
+    include_maintenance: bool = Field(True, description="Include maintenance in calculation")
+    include_tyres: bool = Field(True, description="Include tyres in calculation")
+
+
 class OwnershipRequest(BaseModel):
     """Ownership cost request"""
     variant_id: str = Field(..., description="Vehicle variant ID")
@@ -108,3 +124,17 @@ class VehicleCreateRequest(BaseModel):
     drive_type: Optional[str] = "2WD"
     vehicle_class: Optional[str] = None
     tyre_size: Optional[str] = None
+
+
+# ─── EXPORT ALL ─────────────────────────────────────────────────────
+
+__all__ = [
+    "ValuationRequest",
+    "RunningCostRequest",
+    "MileageRequest",
+    "MileageRateRequest",  # ← Added
+    "OwnershipRequest",
+    "FuelRequest",
+    "VehicleSearchRequest",
+    "VehicleCreateRequest",
+]
