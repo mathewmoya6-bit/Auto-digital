@@ -10,6 +10,7 @@ from app.services.mileage_service import MileageService
 from app.services.ownership_service import OwnershipService
 from app.services.valuation_service import ValuationService
 from app.services.report_service import ReportService
+from app.services.mpesa_service import MpesaService
 
 __all__ = [
     "VehicleService",
@@ -18,4 +19,5 @@ __all__ = [
     "OwnershipService",
     "ValuationService",
     "ReportService",
+    "MpesaService",
 ]
