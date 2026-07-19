@@ -12,18 +12,19 @@ from app.schemas.request import (
 )
 
 from app.schemas.response import (
+    CostComponent,
     ValuationResponse,
     VehicleMakeResponse,
     VehicleModelResponse,
     VehicleVariantResponse,
     VehicleDetailResponse,
     VehicleSearchResponse,
-    ErrorResponse,
-    MarketTrendsResponse,
     RunningCostResponse,
     MileageResponse,
     OwnershipResponse,
     FuelResponse,
+    MarketTrendsResponse,
+    ErrorResponse,
 )
 
 __all__ = [
@@ -36,16 +37,17 @@ __all__ = [
     "VehicleSearchRequest",
     "VehicleCreateRequest",
     # Response schemas
+    "CostComponent",
     "ValuationResponse",
     "VehicleMakeResponse",
     "VehicleModelResponse",
     "VehicleVariantResponse",
     "VehicleDetailResponse",
     "VehicleSearchResponse",
-    "ErrorResponse",
-    "MarketTrendsResponse",
     "RunningCostResponse",
     "MileageResponse",
     "OwnershipResponse",
     "FuelResponse",
+    "MarketTrendsResponse",
+    "ErrorResponse",
 ]
