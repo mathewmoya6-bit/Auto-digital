@@ -31,10 +31,6 @@ from app.api.v1.reports import router as reports_router
 from app.api.v1.running_cost import router as running_cost_router
 
 # ─── Configure Logging ─────────────────────────────────────────────
-# Moved above the M-Pesa import attempt so that import failure is
-# logged through `logger` (with a full traceback) instead of a bare
-# `print()`, which is easy to miss in Render's log stream and gives
-# no indication of *where* the failure happened.
 try:
     log_level_name = getattr(settings, "LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_name, logging.INFO)
@@ -58,15 +54,7 @@ logger.info(f"📋 Log Level: {logging.getLevelName(log_level)}")
 logger.info("=" * 60)
 
 
-# ─── Try to import M-Pesa router - graceful fallback if not available ─
-# IMPORTANT: a bare `except Exception` here previously swallowed the
-# real cause of any import-time failure (e.g. MpesaConfigError from a
-# missing env var, or a SyntaxError in the mpesa service module) and
-# only printed `str(e)`, which drops the traceback entirely. That made
-# every M-Pesa endpoint 404 with zero indication of why the router was
-# never registered. We now log the full traceback via `logger.error(
-# ..., exc_info=True)` and keep the specific failure reason around so
-# it can be surfaced in /health below.
+# ─── Try to import M-Pesa router ──────────────────────────────────
 MPESA_AVAILABLE = False
 mpesa_router = None
 MPESA_IMPORT_ERROR = None
@@ -77,17 +65,13 @@ try:
 except ImportError as e:
     MPESA_IMPORT_ERROR = f"ImportError: {e}"
     logger.error(
-        "⚠️ M-Pesa router failed to import (ImportError) — endpoints will 404. "
-        "This usually means a required package or module path is wrong.",
+        "⚠️ M-Pesa router failed to import (ImportError) — endpoints will 404.",
         exc_info=True,
     )
 except Exception as e:
     MPESA_IMPORT_ERROR = f"{type(e).__name__}: {e}"
     logger.error(
-        "❌ M-Pesa router failed to import (non-ImportError) — endpoints will 404. "
-        "Common causes: a missing MPESA_* environment variable raising "
-        "MpesaConfigError at module import time, or a syntax error in the "
-        "mpesa service module.",
+        "❌ M-Pesa router failed to import (non-ImportError) — endpoints will 404.",
         exc_info=True,
     )
 
@@ -138,18 +122,24 @@ async def lifespan(app: FastAPI):
 
 # ─── Initialize FastAPI App ────────────────────────────────────────
 app = FastAPI(
-    title=getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
-    description="Vehicle cost analysis and valuation system for Kenya",
-    version=getattr(settings, "API_VERSION", "4.0.0"),
-    docs_url=getattr(settings, "API_DOCS_URL", "/docs") if getattr(settings, "ENABLE_DOCS", False) else None,
-    redoc_url=getattr(settings, "API_REDOC_URL", "/redoc") if getattr(settings, "ENABLE_DOCS", False) else None,
-    openapi_url=getattr(settings, "API_OPENAPI_URL", "/openapi.json") if getattr(settings, "ENABLE_DOCS", False) else None,
+    title=settings.PROJECT_NAME,
+    description=settings.SWAGGER_DESCRIPTION,
+    version=settings.API_VERSION,
+    docs_url=settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
+    redoc_url=settings.API_REDOC_URL if settings.ENABLE_DOCS else None,
+    openapi_url=settings.API_OPENAPI_URL if settings.ENABLE_DOCS else None,
+    contact={
+        "name": settings.SWAGGER_CONTACT_NAME,
+        "email": settings.SWAGGER_CONTACT_EMAIL,
+    },
+    license_info={
+        "name": settings.SWAGGER_LICENSE_NAME,
+    },
     lifespan=lifespan,
 )
 
 
 # ─── CORS Configuration ────────────────────────────────────────────
-# Get CORS origins from settings
 try:
     cors_origins = settings.BACKEND_CORS_ORIGINS
     if isinstance(cors_origins, str):
@@ -173,7 +163,6 @@ except Exception:
 
 logger.info(f"🔒 Configuring CORS with origins: {cors_origins}")
 
-# ✅ FIXED: CORS Middleware with proper configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -229,7 +218,7 @@ app.include_router(fuel_router, prefix=api_prefix + "/fuel", tags=["Fuel"])
 app.include_router(admin_router, prefix=api_prefix + "/admin", tags=["Admin"])
 app.include_router(reports_router, prefix=api_prefix + "/reports", tags=["Reports"])
 
-# Include M-Pesa router only if it imported successfully above.
+# Include M-Pesa router only if it imported successfully
 if MPESA_AVAILABLE and mpesa_router is not None:
     app.include_router(mpesa_router, prefix=api_prefix, tags=["M-Pesa"])
     logger.info(f"✅ M-Pesa router registered at {api_prefix}/mpesa/*")
@@ -251,7 +240,6 @@ async def health_check():
         supabase_status = f"error: {str(e)}"
         logger.error(f"Supabase health check failed: {e}")
     
-    # Check M-Pesa status
     mpesa_env_configured = bool(
         getattr(settings, 'MPESA_CONSUMER_KEY', '') and 
         getattr(settings, 'MPESA_CONSUMER_SECRET', '') and 
@@ -259,8 +247,6 @@ async def health_check():
     )
 
     if not MPESA_AVAILABLE:
-        # Router failed to import — surface the real reason here so it's
-        # visible by just hitting /health, without needing log access.
         mpesa_status = "router_not_loaded"
     elif mpesa_env_configured:
         mpesa_status = "configured"
@@ -276,7 +262,9 @@ async def health_check():
         "mpesa_router_error": MPESA_IMPORT_ERROR if not MPESA_AVAILABLE else None,
         "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
         "environment": getattr(settings, "ENVIRONMENT", "production"),
-        "version": getattr(settings, "API_VERSION", "4.0.0")
+        "version": getattr(settings, "API_VERSION", "4.0.0"),
+        "docs_enabled": settings.ENABLE_DOCS,
+        "docs_url": settings.API_DOCS_URL if settings.ENABLE_DOCS else None
     }
 
 
@@ -318,37 +306,13 @@ async def root():
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "status": "operational",
         "timestamp": datetime.utcnow().isoformat(),
-        "documentation": getattr(settings, "API_DOCS_URL", "/docs") if getattr(settings, "ENABLE_DOCS", False) else "disabled",
+        "documentation": settings.API_DOCS_URL if settings.ENABLE_DOCS else "disabled",
         "api_prefix": getattr(settings, "API_V1_PREFIX", "/api/v1"),
         "features": {
             "mpesa": getattr(settings, "ENABLE_MPESA", True) and MPESA_AVAILABLE,
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
-        }
-    }
-
-
-@app.get("/metrics")
-async def metrics():
-    """Metrics endpoint for monitoring (placeholder)"""
-    if not getattr(settings, "METRICS_ENABLED", True):
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content={"status": "error", "message": "Metrics disabled"}
-        )
-    
-    return {
-        "status": "ok",
-        "timestamp": datetime.utcnow().isoformat(),
-        "metrics": {
-            "uptime": "running",
-            "supabase": "connected",
-            "mpesa": "configured" if (
-                MPESA_AVAILABLE and
-                getattr(settings, 'MPESA_CONSUMER_KEY', '') and 
-                getattr(settings, 'MPESA_CONSUMER_SECRET', '') and 
-                getattr(settings, 'MPESA_PASSKEY', '')
-            ) else "not_configured"
+            "docs": settings.ENABLE_DOCS
         }
     }
 
@@ -360,6 +324,8 @@ async def info():
         "name": getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
         "version": getattr(settings, "API_VERSION", "4.0.0"),
         "environment": getattr(settings, "ENVIRONMENT", "production"),
+        "docs_enabled": settings.ENABLE_DOCS,
+        "docs_url": settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
         "features": {
             "mpesa": getattr(settings, "ENABLE_MPESA", True) and MPESA_AVAILABLE,
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
@@ -389,6 +355,9 @@ if __name__ == "__main__":
     logger.info(f"🐛 Debug mode: {debug}")
     logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
     logger.info(f"📡 API Base URL: {getattr(settings, 'API_BASE_URL', 'http://localhost:' + str(port))}")
+    logger.info(f"📚 Docs enabled: {settings.ENABLE_DOCS}")
+    if settings.ENABLE_DOCS:
+        logger.info(f"📚 Docs URL: {settings.API_DOCS_URL}")
     logger.info("=" * 60)
     
     uvicorn.run(
