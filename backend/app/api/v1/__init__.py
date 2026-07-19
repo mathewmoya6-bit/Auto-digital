@@ -14,6 +14,7 @@ from .fuel import router as fuel_router
 from .admin import router as admin_router
 from .reports import router as reports_router
 from .running_cost import router as running_cost_router
+from .mpesa import router as mpesa_router
 
 __all__ = [
     "auth_router",
@@ -25,4 +26,5 @@ __all__ = [
     "admin_router",
     "reports_router",
     "running_cost_router",
+    "mpesa_router",
 ]
