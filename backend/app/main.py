@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
-from app.core.config import settings  # <-- ADD THIS IMPORT
+from app.core.config import settings
 from app.core.database import supabase
 
 # Import routers directly from their modules
@@ -141,12 +141,13 @@ except Exception:
 
 logger.info(f"🔒 Configuring CORS with origins: {cors_origins}")
 
+# ✅ FIXED: CORS Middleware with proper configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
-    allow_methods=settings.CORS_ALLOW_METHODS,
-    allow_headers=settings.CORS_ALLOW_HEADERS,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
     max_age=settings.CORS_MAX_AGE,
 )
 
