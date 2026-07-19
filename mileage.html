@@ -909,9 +909,54 @@
             .stat-card-sm .num { color: #000 !important; }
             .stats-grid-5 { display: grid !important; }
         }
+
+        /* ─── Loading Overlay ────────────────────────────────────────── */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(10, 12, 21, 0.85);
+            z-index: 99999;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .loading-overlay.active { display: flex; }
+        .loading-overlay .spinner-large {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(234, 179, 8, 0.2);
+            border-top: 4px solid #eab308;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        .loading-overlay .loading-text {
+            color: #eab308;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+        }
+        .loading-overlay .loading-sub {
+            color: #64748b;
+            font-size: 12px;
+            font-family: 'Inter', sans-serif;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
+
+    <!-- ─── Loading Overlay ────────────────────────────────────────── -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner-large"></div>
+        <div class="loading-text">Loading Vehicle Data...</div>
+        <div class="loading-sub" id="loadingStatus">Connecting to Supabase</div>
+    </div>
 
     <!-- ─── Skip to content (Accessibility) ───────────────────────── -->
     <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -936,6 +981,9 @@
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div style="margin-top:4px;font-size:9px;color:var(--text-muted);">
                     ⛽ Fuel Price: <span id="fuelPriceDisplay">—</span>
+                </div>
+                <div style="margin-top:4px;font-size:9px;color:var(--text-muted);" id="dataSourceDisplay">
+                    📡 Data: <span id="dataSourceText">Loading...</span>
                 </div>
             </div>
         </header>
@@ -1293,8 +1341,6 @@
             const SUPABASE_URL = window.SUPABASE_URL || 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-            const API_BASE = window.API_BASE || 'https://auto-digital.onrender.com/api/v1';
-
             // ─── State ──────────────────────────────────────────────────
             let supabaseClient = null;
             let isFinanced = false;
@@ -1308,6 +1354,7 @@
             let allVariantsByCategory = {};
             let currentFuelFilter = 'all';
             let isUsingSupabase = false;
+            let supabaseError = null;
 
             // ─── DOM References ─────────────────────────────────────────
             const elements = {
@@ -1351,7 +1398,10 @@
                 rate: document.getElementById('rate'),
                 term: document.getElementById('term'),
                 fiveYearStats: document.getElementById('fiveYearStats'),
-                yearlyBody: document.getElementById('yearlyBody')
+                yearlyBody: document.getElementById('yearlyBody'),
+                loadingOverlay: document.getElementById('loadingOverlay'),
+                loadingStatus: document.getElementById('loadingStatus'),
+                dataSourceText: document.getElementById('dataSourceText')
             };
 
             // ─── Helpers ─────────────────────────────────────────────────
@@ -1404,18 +1454,28 @@
 
             function initSupabase() {
                 try {
+                    if (typeof supabase === 'undefined') {
+                        throw new Error('Supabase SDK not loaded');
+                    }
                     const { createClient } = supabase;
-                    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                        auth: {
+                            persistSession: false,
+                            autoRefreshToken: false
+                        }
+                    });
                     console.log('✅ Supabase client initialized');
                     return true;
                 } catch (error) {
                     console.warn('⚠️ Supabase init failed:', error.message);
+                    supabaseError = error.message;
                     return false;
                 }
             }
 
             async function loadFromSupabase() {
                 try {
+                    elements.loadingStatus.textContent = 'Fetching vehicle types...';
                     console.log('📡 Loading data from Supabase...');
 
                     // 1. Load vehicle types
@@ -1424,36 +1484,46 @@
                         .select('*')
                         .order('name');
                     if (typesError) throw typesError;
+                    console.log(`✅ Loaded ${types?.length || 0} vehicle types`);
 
                     // 2. Load vehicle makes
+                    elements.loadingStatus.textContent = 'Fetching vehicle makes...';
                     const { data: makes, error: makesError } = await supabaseClient
                         .from('vehicle_makes')
                         .select('*')
                         .order('name');
                     if (makesError) throw makesError;
+                    console.log(`✅ Loaded ${makes?.length || 0} vehicle makes`);
 
                     // 3. Load vehicle models
+                    elements.loadingStatus.textContent = 'Fetching vehicle models...';
                     const { data: models, error: modelsError } = await supabaseClient
                         .from('vehicle_models')
-                        .select('*, vehicle_makes(*)')
+                        .select('*')
                         .order('name');
                     if (modelsError) throw modelsError;
+                    console.log(`✅ Loaded ${models?.length || 0} vehicle models`);
 
                     // 4. Load vehicle variants
+                    elements.loadingStatus.textContent = 'Fetching vehicle variants...';
                     const { data: variants, error: variantsError } = await supabaseClient
                         .from('vehicle_variants')
-                        .select('*, vehicle_models(*)')
+                        .select('*')
                         .order('name');
                     if (variantsError) throw variantsError;
+                    console.log(`✅ Loaded ${variants?.length || 0} vehicle variants`);
 
                     // 5. Load routes
+                    elements.loadingStatus.textContent = 'Fetching routes...';
                     const { data: routesData, error: routesError } = await supabaseClient
                         .from('routes')
                         .select('*')
                         .order('distance');
                     if (routesError) throw routesError;
+                    console.log(`✅ Loaded ${routesData?.length || 0} routes`);
 
                     // 6. Load fuel prices
+                    elements.loadingStatus.textContent = 'Fetching fuel prices...';
                     const { data: fuelPrices, error: fuelError } = await supabaseClient
                         .from('fuel_prices')
                         .select('*')
@@ -1461,6 +1531,7 @@
                         .order('effective_date', { ascending: false })
                         .limit(1);
                     if (fuelError) throw fuelError;
+                    console.log(`✅ Loaded ${fuelPrices?.length || 0} fuel prices`);
 
                     // ─── Build categories from types ──────────────────
                     categories = types.map(type => ({
@@ -1476,11 +1547,19 @@
                         allVariantsByCategory[cat.id] = [];
                     });
 
+                    // Create lookup maps
+                    const makesMap = {};
+                    makes.forEach(m => { makesMap[m.id] = m; });
+
+                    const modelsMap = {};
+                    models.forEach(m => { modelsMap[m.id] = m; });
+
                     // Process variants
+                    let variantCount = 0;
                     variants.forEach(variant => {
-                        const model = models.find(m => m.id === variant.model_id);
+                        const model = modelsMap[variant.model_id];
                         if (!model) return;
-                        const make = makes.find(m => m.id === model.make_id);
+                        const make = makesMap[model.make_id];
                         if (!make) return;
                         const category = categories.find(c => c.id === make.type_id);
                         if (!category) return;
@@ -1489,16 +1568,18 @@
                             (variant.fuel_type === 'diesel' ? 15 : 
                              variant.fuel_type === 'hybrid' ? 20 : 12);
 
+                        const marketValue = variant.market_value || 3500000;
+
                         allVariantsByCategory[category.id].push({
                             id: variant.id,
-                            label: `${make.name} ${model.name} ${variant.name}`,
+                            label: `${make.name} ${model.name} ${variant.name || ''}`.trim(),
                             fuel_type: variant.fuel_type || 'Petrol',
                             fuel_consumption: fuelConsumption,
                             transmission: variant.transmission || 'Automatic',
                             engine_size_cc: variant.engine_cc || 0,
-                            initial_cost: variant.market_value || 3500000,
-                            current_value: variant.market_value * 0.9 || 3000000,
-                            expected_resale: variant.market_value * 0.35 || 1200000,
+                            initial_cost: marketValue,
+                            current_value: marketValue * 0.9,
+                            expected_resale: marketValue * 0.35,
                             years_remaining: 10,
                             service_interval: variant.service_interval || 15000,
                             minor_service_cost: variant.service_cost || 15000,
@@ -1508,8 +1589,8 @@
                             oil_cost: (variant.service_cost || 15000) * 0.4,
                             tyre_cost: (variant.tyre_cost || 30000) * 4,
                             tyre_life: 50000,
-                            insurance_annual: variant.market_value * 0.02 || 60000,
-                            tax_annual: variant.market_value * 0.005 || 10000,
+                            insurance_annual: marketValue * 0.02,
+                            tax_annual: marketValue * 0.005,
                             loan_amount: 0,
                             battery_cost: 0,
                             battery_life: 0,
@@ -1517,7 +1598,10 @@
                             model_name: model.name,
                             drive_type: variant.drive_type || 'fwd'
                         });
+                        variantCount++;
                     });
+
+                    console.log(`✅ Processed ${variantCount} variants into ${categories.length} categories`);
 
                     // ─── Set routes ────────────────────────────────────
                     if (routesData && routesData.length > 0) {
@@ -1529,15 +1613,21 @@
                         const price = fuelPrices[0].price;
                         elements.fuelPriceInput.value = price;
                         elements.fuelPriceDisplay.textContent = 
-                            `Petrol: KES ${price}  ·  Diesel: KES ${price * 0.96}`;
+                            `Petrol: KES ${price}  ·  Diesel: KES ${(price * 0.96).toFixed(2)}`;
                     }
 
                     isUsingSupabase = true;
-                    console.log(`✅ Loaded ${categories.length} categories, ${variants.length} variants from Supabase`);
+                    supabaseError = null;
+                    elements.dataSourceText.textContent = '✅ Supabase';
+                    elements.dataSourceText.style.color = '#22c55e';
+                    console.log(`✅ Loaded ${categories.length} categories, ${variantCount} variants from Supabase`);
                     return true;
 
                 } catch (error) {
                     console.warn('⚠️ Supabase load failed:', error.message);
+                    supabaseError = error.message;
+                    elements.dataSourceText.textContent = '❌ Supabase Failed';
+                    elements.dataSourceText.style.color = '#ef4444';
                     return false;
                 }
             }
@@ -1636,25 +1726,31 @@
                     // Try Supabase first
                     const supabaseOk = initSupabase();
                     if (supabaseOk) {
+                        elements.loadingStatus.textContent = 'Connecting to Supabase...';
                         const dataLoaded = await loadFromSupabase();
                         if (dataLoaded) {
                             console.log('✅ Using Supabase data');
+                            elements.loadingStatus.textContent = '✅ Data loaded from Supabase';
                             return true;
                         }
                     }
                     
                     // Fallback to local data
                     console.warn('⚠️ Using fallback data');
+                    elements.loadingStatus.textContent = '⚠️ Using local fallback data';
                     categories = getFallbackCategories();
                     allVariantsByCategory = getFallbackVariants();
                     routes = getFallbackRoutes();
                     elements.fuelPriceInput.value = 203.47;
                     elements.fuelPriceDisplay.textContent = 'Petrol: KES 203.47  ·  Diesel: KES 195.67';
                     isUsingSupabase = false;
+                    elements.dataSourceText.textContent = '📁 Fallback';
+                    elements.dataSourceText.style.color = '#eab308';
                     return true;
                     
                 } catch (error) {
                     console.error('❌ Error loading data:', error);
+                    elements.loadingStatus.textContent = '❌ Error loading data';
                     return false;
                 }
             }
@@ -2332,7 +2428,16 @@
                 calculate: calculateAndRender,
                 data: { categories, allVariantsByCategory, routes },
                 prices: () => elements.fuelPriceInput.value,
-                isUsingSupabase: () => isUsingSupabase
+                isUsingSupabase: () => isUsingSupabase,
+                reload: async () => {
+                    await loadAllData();
+                    populateCategories();
+                    renderRouteChips();
+                    if (categories.length > 0) {
+                        elements.categorySelect.value = categories[0].id;
+                        elements.categorySelect.dispatchEvent(new Event('change'));
+                    }
+                }
             };
 
             // ─── INIT ──────────────────────────────────────────────────
@@ -2341,31 +2446,47 @@
                 if (isInitialized) return;
                 isInitialized = true;
 
-                await loadAllData();
+                // Show loading overlay
+                elements.loadingOverlay.classList.add('active');
 
-                populateCategories();
-                renderRouteChips();
+                try {
+                    await loadAllData();
 
-                if (categories.length > 0) {
-                    elements.categorySelect.value = categories[0].id;
-                    elements.categorySelect.dispatchEvent(new Event('change'));
-                }
+                    populateCategories();
+                    renderRouteChips();
 
-                elements.showAllClasses.checked = true;
-
-                elements.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
-                    year: 'numeric', month: 'short', day: 'numeric'
-                });
-
-                setTimeout(() => {
-                    if (currentVariant() && num(elements.distanceInput.value) > 0) {
-                        calculateAndRender();
+                    if (categories.length > 0) {
+                        elements.categorySelect.value = categories[0].id;
+                        elements.categorySelect.dispatchEvent(new Event('change'));
                     }
-                }, 800);
 
-                console.log('✅ Auto-D Kenya Engine initialized (with 5-Year Projection)');
-                console.log(`📊 Categories: ${categories.length}, Variants: ${Object.keys(allVariantsByCategory).length}`);
-                console.log(`📡 Data source: ${isUsingSupabase ? 'Supabase' : 'Fallback'}`);
+                    elements.showAllClasses.checked = true;
+
+                    elements.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
+                        year: 'numeric', month: 'short', day: 'numeric'
+                    });
+
+                    setTimeout(() => {
+                        if (currentVariant() && num(elements.distanceInput.value) > 0) {
+                            calculateAndRender();
+                        }
+                    }, 800);
+
+                    console.log('✅ Auto-D Kenya Engine initialized (with 5-Year Projection)');
+                    console.log(`📊 Categories: ${categories.length}, Variants: ${Object.keys(allVariantsByCategory).length}`);
+                    console.log(`📡 Data source: ${isUsingSupabase ? 'Supabase ✅' : 'Fallback ⚠️'}`);
+                    
+                    if (supabaseError) {
+                        console.warn(`⚠️ Supabase error: ${supabaseError}`);
+                    }
+
+                } catch (error) {
+                    console.error('❌ Init error:', error);
+                    showToast('Error initializing calculator', 'error');
+                } finally {
+                    // Hide loading overlay
+                    elements.loadingOverlay.classList.remove('active');
+                }
             }
 
             document.addEventListener('DOMContentLoaded', function() {
