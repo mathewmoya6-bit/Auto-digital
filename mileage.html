@@ -195,34 +195,10 @@
             margin-left: 6px;
         }
 
+        /* ─── Health Banner - HIDDEN ───────────────────────────────── */
         .health-banner {
-            background: #1e293b;
-            border-radius: 8px;
-            padding: 8px 16px;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 8px;
-            font-size: 12px;
-            border-left: 4px solid #eab308;
-            transition: border-left-color 0.3s ease;
+            display: none !important;
         }
-        .health-banner.online { border-left-color: #22c55e; }
-        .health-banner.offline { border-left-color: #ef4444; }
-        .health-banner.checking { border-left-color: #eab308; }
-        .health-banner .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 6px;
-        }
-        .health-banner .status-dot.online { background: #22c55e; }
-        .health-banner .status-dot.offline { background: #ef4444; }
-        .health-banner .status-dot.checking { background: #eab308; animation: pulse 1s ease-in-out infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
         .main-grid {
             display: grid;
@@ -953,15 +929,6 @@
             </div>
         </header>
 
-        <!-- ─── HEALTH BANNER ─────────────────────────────────────────── -->
-        <div class="health-banner checking" id="healthBanner">
-            <span>
-                <span class="status-dot checking" id="healthDot"></span>
-                <span id="healthStatusText">Connecting to backend...</span>
-            </span>
-            <span id="healthVersion" style="color:#64748b;font-size:11px;">v4.0.0</span>
-        </div>
-
         <div class="main-grid">
 
             <section class="calculator-panel" aria-label="Vehicle cost calculator">
@@ -1282,7 +1249,6 @@
             'use strict';
 
             // ─── Configuration ──────────────────────────────────────────
-            // ✅ Environment variables via window object
             const SUPABASE_URL = window.SUPABASE_URL || 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
@@ -1343,11 +1309,7 @@
                 financedFields: document.getElementById('financedFields'),
                 downPct: document.getElementById('downPct'),
                 rate: document.getElementById('rate'),
-                term: document.getElementById('term'),
-                healthBanner: document.getElementById('healthBanner'),
-                healthDot: document.getElementById('healthDot'),
-                healthStatusText: document.getElementById('healthStatusText'),
-                healthVersion: document.getElementById('healthVersion')
+                term: document.getElementById('term')
             };
 
             // ─── Helpers ─────────────────────────────────────────────────
@@ -1410,46 +1372,6 @@
                 console.error(`❌ Error${context ? ' in ' + context : ''}:`, error);
                 if (window.Sentry) {
                     window.Sentry.captureException(error, { extra: { context } });
-                }
-                if (context !== 'background') {
-                    showToast('An error occurred. Please try again.', 'error');
-                }
-            }
-
-            // ─── CHECK BACKEND HEALTH ──────────────────────────────────
-            async function checkBackendHealth() {
-                try {
-                    elements.healthDot.className = 'status-dot checking';
-                    elements.healthStatusText.textContent = 'Connecting to backend...';
-                    elements.healthBanner.className = 'health-banner checking';
-
-                    const response = await fetch(HEALTH_CHECK_URL, {
-                        method: 'GET',
-                        headers: { 'Accept': 'application/json' },
-                        signal: AbortSignal.timeout(5000)
-                    });
-
-                    if (response.ok) {
-                        const data = await response.json();
-                        isBackendAvailable = true;
-                        elements.healthDot.className = 'status-dot online';
-                        elements.healthStatusText.textContent = '✅ Backend connected';
-                        elements.healthBanner.className = 'health-banner online';
-                        if (data.version) elements.healthVersion.textContent = data.version;
-                        console.log('✅ FastAPI Backend connected');
-                    } else {
-                        isBackendAvailable = false;
-                        elements.healthDot.className = 'status-dot offline';
-                        elements.healthStatusText.textContent = '⚠️ Backend offline - using fallback';
-                        elements.healthBanner.className = 'health-banner offline';
-                        console.warn('⚠️ Backend not reachable');
-                    }
-                } catch (error) {
-                    isBackendAvailable = false;
-                    elements.healthDot.className = 'status-dot offline';
-                    elements.healthStatusText.textContent = '⚠️ Backend unavailable - using fallback';
-                    elements.healthBanner.className = 'health-banner offline';
-                    console.warn('⚠️ Backend health check error:', error.message);
                 }
             }
 
@@ -1578,7 +1500,6 @@
                         });
                         console.log('✅ Fuel prices loaded:', fuelPrices);
 
-                        // Set fuel price input based on selected fuel type
                         const fuelType = document.querySelector('.fuel-filter-btn.active')?.dataset.fuel || 'petrol';
                         if (fuelPrices[fuelType]) {
                             elements.fuelPriceInput.value = fuelPrices[fuelType];
@@ -2280,7 +2201,6 @@
             // ─── LOAD ALL DATA ──────────────────────────────────────────
             async function loadAllData() {
                 try {
-                    // Try Supabase first
                     const supabaseOk = initSupabase();
                     if (supabaseOk) {
                         const dataOk = await loadVehicleDataFromSupabase();
@@ -2293,13 +2213,11 @@
                         }
                     }
                     
-                    // Fallback
                     console.warn('⚠️ Using fallback data');
                     categories = getFallbackCategories();
                     allVariantsByCategory = getFallbackVariants();
                     routes = getFallbackRoutes();
                     
-                    // Set default fuel price
                     elements.fuelPriceInput.value = 203.47;
                     elements.fuelPriceDisplay.textContent = 'Petrol: KES 203.47  ·  Diesel: KES 195.67';
                     
@@ -2330,26 +2248,26 @@
                     .catch((err) => console.warn('⚠️ Service Worker registration failed:', err));
             }
 
+            // ─── Expose for debugging ──────────────────────────────────
+            window.AutoD = {
+                calculate: calculateAndRender,
+                data: { categories, allVariantsByCategory, routes },
+                prices: () => elements.fuelPriceInput.value
+            };
+
             // ─── INIT ──────────────────────────────────────────────────
 
             async function init() {
                 if (isInitialized) return;
                 isInitialized = true;
 
-                // Track performance
                 trackPerformance();
 
-                // Check backend health
-                await checkBackendHealth();
-
-                // Load all data
                 await loadAllData();
 
-                // Populate UI
                 populateCategories();
                 renderRouteChips();
 
-                // Set initial category
                 if (categories.length > 0) {
                     elements.categorySelect.value = categories[0].id;
                     elements.categorySelect.dispatchEvent(new Event('change'));
@@ -2357,12 +2275,10 @@
 
                 elements.showAllClasses.checked = true;
 
-                // Set last updated
                 elements.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
                     year: 'numeric', month: 'short', day: 'numeric'
                 });
 
-                // Auto-calculate after init
                 setTimeout(() => {
                     if (currentVariant() && num(elements.distanceInput.value) > 0) {
                         calculateAndRender();
@@ -2373,14 +2289,6 @@
                 console.log(`📊 Categories: ${categories.length}, Variants: ${Object.keys(allVariantsByCategory).length}`);
             }
 
-            // ─── Expose for debugging ──────────────────────────────────
-            window.AutoD = {
-                calculate: calculateAndRender,
-                data: { categories, allVariantsByCategory, routes },
-                prices: () => elements.fuelPriceInput.value
-            };
-
-            // Start
             document.addEventListener('DOMContentLoaded', init);
 
         })();
