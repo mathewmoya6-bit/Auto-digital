@@ -736,6 +736,177 @@
             .pwa-install-banner { padding: 12px 16px; bottom: 10px; }
             .pwa-install-banner p { font-size: 12px; }
         }
+
+        /* ─── Login/Signup Modal ────────────────────────────────────── */
+        .auth-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .auth-modal.open {
+            display: flex;
+        }
+
+        .auth-modal .auth-box {
+            background: #0f172a;
+            border: 1px solid #1e293b;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 420px;
+            width: 100%;
+            position: relative;
+        }
+
+        .auth-modal .auth-box .close-auth {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: #64748b;
+            font-size: 24px;
+            cursor: pointer;
+        }
+
+        .auth-modal .auth-box .close-auth:hover {
+            color: #f8fafc;
+        }
+
+        .auth-modal .auth-box h2 {
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            color: #f8fafc;
+        }
+
+        .auth-modal .auth-box .auth-sub {
+            color: #94a3b8;
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        .auth-modal .auth-box .form-group {
+            margin-bottom: 16px;
+        }
+
+        .auth-modal .auth-box label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+
+        .auth-modal .auth-box input {
+            width: 100%;
+            padding: 10px 14px;
+            background: #0b1120;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            color: #f8fafc;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+
+        .auth-modal .auth-box input:focus {
+            outline: none;
+            border-color: #eab308;
+        }
+
+        .auth-modal .auth-box .auth-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #eab308, #ca8a04);
+            color: #0a0c15;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .auth-modal .auth-box .auth-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(234, 179, 8, 0.3);
+        }
+
+        .auth-modal .auth-box .auth-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .auth-modal .auth-box .auth-switch {
+            text-align: center;
+            margin-top: 16px;
+            font-size: 13px;
+            color: #94a3b8;
+        }
+
+        .auth-modal .auth-box .auth-switch a {
+            color: #eab308;
+            text-decoration: none;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .auth-modal .auth-box .auth-switch a:hover {
+            text-decoration: underline;
+        }
+
+        .auth-modal .auth-box .social-login {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .auth-modal .auth-box .social-login .social-btn {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            background: transparent;
+            color: #94a3b8;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .auth-modal .auth-box .social-login .social-btn:hover {
+            border-color: #eab308;
+            color: #f8fafc;
+        }
+
+        .auth-modal .auth-box .divider {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin: 16px 0;
+            color: #64748b;
+            font-size: 12px;
+        }
+
+        .auth-modal .auth-box .divider::before,
+        .auth-modal .auth-box .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #1e293b;
+        }
     </style>
 </head>
 <body>
@@ -763,8 +934,8 @@
         <li><a href="/instant-value.html">Instant Value</a></li>
         <li><a href="/mileage.html">Mileage Cost</a></li>
         <li><a href="/ownership-cost.html">Ownership Cost</a></li>
-        <li><a href="/login.html" class="btn-nav" id="loginBtn">Log In</a></li>
-        <li><a href="/signup.html" id="signupBtn">Get Started</a></li>
+        <li><a href="#" class="btn-nav" id="loginBtn" onclick="openLogin()">Log In</a></li>
+        <li><a href="#" id="signupBtn" onclick="openSignup()">Get Started</a></li>
     </ul>
 </nav>
 
@@ -890,6 +1061,47 @@
     </section>
 </main>
 
+<!-- ─── AUTH MODAL ────────────────────────────────────────────── -->
+<div class="auth-modal" id="authModal">
+    <div class="auth-box">
+        <button class="close-auth" onclick="closeAuth()">&times;</button>
+        <h2 id="authTitle">Welcome Back</h2>
+        <p class="auth-sub" id="authSub">Sign in to access your dashboard and vehicle reports.</p>
+
+        <form id="authForm" onsubmit="handleAuth(event)">
+            <div class="form-group" id="nameGroup" style="display:none;">
+                <label for="authName">Full Name</label>
+                <input type="text" id="authName" placeholder="John Doe" />
+            </div>
+            <div class="form-group">
+                <label for="authEmail">Email Address</label>
+                <input type="email" id="authEmail" placeholder="you@example.com" required />
+            </div>
+            <div class="form-group">
+                <label for="authPassword">Password</label>
+                <input type="password" id="authPassword" placeholder="••••••••" required minlength="6" />
+            </div>
+            <button type="submit" class="auth-btn" id="authBtn">Sign In</button>
+        </form>
+
+        <div class="divider">or continue with</div>
+
+        <div class="social-login">
+            <button class="social-btn" onclick="socialLogin('google')">
+                <i class="fab fa-google" aria-hidden="true"></i> Google
+            </button>
+            <button class="social-btn" onclick="socialLogin('facebook')">
+                <i class="fab fa-facebook" aria-hidden="true"></i> Facebook
+            </button>
+        </div>
+
+        <div class="auth-switch">
+            <span id="authSwitchText">Don't have an account?</span>
+            <a id="authSwitchLink" onclick="switchAuthMode()">Sign Up</a>
+        </div>
+    </div>
+</div>
+
 <!-- ─── FOOTER ────────────────────────────────────────────────── -->
 <footer class="footer">
     <div class="copyright">
@@ -917,31 +1129,35 @@
         'use strict';
 
         // ─── CONFIGURATION ──────────────────────────────────────────
-        // 🔥 IMPORTANT: Update this to match your deployed backend URL
         const API_BASE_URL = 'https://auto-digital.onrender.com/api/v1';
-
-        // Supabase Configuration
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-        const APP_VERSION = 'v4.0.0';
-        const HEALTH_RETRY_INTERVAL_MS = 30000;
+        // ─── STATE ──────────────────────────────────────────────────
+        let supabaseClient = null;
+        let currentUser = null;
+        let isSignupMode = false;
+        let apiHealthy = false;
 
         // ─── DOM REFS ──────────────────────────────────────────────────
-        const mobileToggle = document.getElementById('mobileToggle');
-        const navLinks = document.getElementById('navLinks');
-        const yearEl = document.getElementById('year');
+        const authModal = document.getElementById('authModal');
+        const authTitle = document.getElementById('authTitle');
+        const authSub = document.getElementById('authSub');
+        const authBtn = document.getElementById('authBtn');
+        const authForm = document.getElementById('authForm');
+        const authEmail = document.getElementById('authEmail');
+        const authPassword = document.getElementById('authPassword');
+        const authName = document.getElementById('authName');
+        const nameGroup = document.getElementById('nameGroup');
+        const authSwitchText = document.getElementById('authSwitchText');
+        const authSwitchLink = document.getElementById('authSwitchLink');
         const loginBtn = document.getElementById('loginBtn');
         const signupBtn = document.getElementById('signupBtn');
         const samplePrice = document.getElementById('samplePrice');
         const statVehicles = document.getElementById('statVehicles');
         const statUsers = document.getElementById('statUsers');
 
-        // ─── SUPABASE CLIENT ──────────────────────────────────────────
-        let supabaseClient = null;
-        let currentUser = null;
-        let apiHealthy = false;
-
+        // ─── SUPABASE INIT ──────────────────────────────────────────
         function initSupabase() {
             try {
                 if (typeof supabase === 'undefined') {
@@ -958,7 +1174,7 @@
             }
         }
 
-        // ─── AUTH FUNCTIONS ────────────────────────────────────────────
+        // ─── AUTH FUNCTIONS ──────────────────────────────────────────
         async function getCurrentUser() {
             try {
                 if (!supabaseClient) initSupabase();
@@ -984,42 +1200,72 @@
             }
         }
 
-        // Reads the live Supabase session token first (source of truth),
-        // falling back to a manually stored token if present.
-        async function getAccessToken() {
+        async function signIn(email, password) {
             try {
                 if (!supabaseClient) initSupabase();
-                if (supabaseClient) {
-                    const { data: { session } } = await supabaseClient.auth.getSession();
-                    if (session?.access_token) return session.access_token;
-                }
+                if (!supabaseClient) throw new Error('Supabase not initialized');
+
+                const { data, error } = await supabaseClient.auth.signInWithPassword({
+                    email: email,
+                    password: password
+                });
+
+                if (error) throw error;
+
+                currentUser = data.user;
+                localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                updateUI();
+                showToast('✅ Welcome back, ' + (currentUser.user_metadata?.full_name || currentUser.email) + '!', 'success');
+
+                // Redirect to dashboard after a moment
+                setTimeout(() => {
+                    window.location.href = '/dashboard.html';
+                }, 1000);
+
+                return data;
             } catch (error) {
-                console.warn('⚠️ Get access token error:', error.message);
+                console.error('❌ Sign in error:', error);
+                showToast(error.message || 'Failed to sign in', 'error');
+                throw error;
             }
-            return localStorage.getItem('access_token') || '';
         }
 
-        function updateAuthUI() {
-            if (!loginBtn) return;
-            if (currentUser) {
-                loginBtn.textContent = 'Dashboard';
-                loginBtn.href = '/dashboard.html';
-                if (signupBtn) {
-                    signupBtn.textContent = 'Logout';
-                    signupBtn.href = '#';
-                    signupBtn.onclick = function(e) {
-                        e.preventDefault();
-                        signOut();
-                    };
+        async function signUp(email, password, fullName) {
+            try {
+                if (!supabaseClient) initSupabase();
+                if (!supabaseClient) throw new Error('Supabase not initialized');
+
+                const { data, error } = await supabaseClient.auth.signUp({
+                    email: email,
+                    password: password,
+                    options: {
+                        data: {
+                            full_name: fullName || '',
+                            created_at: new Date().toISOString()
+                        }
+                    }
+                });
+
+                if (error) throw error;
+
+                if (data.user) {
+                    currentUser = data.user;
+                    localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                    showToast('🎉 Account created! Welcome to Auto-D Kenya!', 'success');
+                    updateUI();
+
+                    setTimeout(() => {
+                        window.location.href = '/dashboard.html';
+                    }, 1000);
+                } else {
+                    showToast('📧 Please check your email for confirmation.', 'info');
                 }
-            } else {
-                loginBtn.textContent = 'Log In';
-                loginBtn.href = '/login.html';
-                if (signupBtn) {
-                    signupBtn.textContent = 'Get Started';
-                    signupBtn.href = '/signup.html';
-                    signupBtn.onclick = null;
-                }
+
+                return data;
+            } catch (error) {
+                console.error('❌ Sign up error:', error);
+                showToast(error.message || 'Failed to sign up', 'error');
+                throw error;
             }
         }
 
@@ -1030,8 +1276,7 @@
                 }
                 currentUser = null;
                 localStorage.removeItem('auto_d_user');
-                localStorage.removeItem('access_token');
-                updateAuthUI();
+                updateUI();
                 showToast('👋 Logged out successfully', 'success');
                 window.location.href = '/';
             } catch (error) {
@@ -1040,10 +1285,177 @@
             }
         }
 
+        // ─── UI UPDATES ──────────────────────────────────────────────
+        function updateUI() {
+            if (currentUser) {
+                const name = currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || 'User';
+                if (loginBtn) {
+                    loginBtn.textContent = '👤 Dashboard';
+                    loginBtn.onclick = function(e) {
+                        e.preventDefault();
+                        window.location.href = '/dashboard.html';
+                    };
+                }
+                if (signupBtn) {
+                    signupBtn.textContent = '🚪 Logout';
+                    signupBtn.onclick = function(e) {
+                        e.preventDefault();
+                        signOut();
+                    };
+                }
+            } else {
+                if (loginBtn) {
+                    loginBtn.textContent = 'Log In';
+                    loginBtn.onclick = function(e) {
+                        e.preventDefault();
+                        openLogin();
+                    };
+                }
+                if (signupBtn) {
+                    signupBtn.textContent = 'Get Started';
+                    signupBtn.onclick = function(e) {
+                        e.preventDefault();
+                        openSignup();
+                    };
+                }
+            }
+        }
+
+        // ─── AUTH MODAL ──────────────────────────────────────────────
+        window.openLogin = function() {
+            isSignupMode = false;
+            authTitle.textContent = 'Welcome Back';
+            authSub.textContent = 'Sign in to access your dashboard and vehicle reports.';
+            authBtn.textContent = 'Sign In';
+            authSwitchText.textContent = "Don't have an account?";
+            authSwitchLink.textContent = 'Sign Up';
+            nameGroup.style.display = 'none';
+            authName.required = false;
+            authEmail.value = '';
+            authPassword.value = '';
+            authModal.classList.add('open');
+        };
+
+        window.openSignup = function() {
+            isSignupMode = true;
+            authTitle.textContent = 'Create Your Account';
+            authSub.textContent = 'Join Auto-D Kenya and start valuing vehicles instantly.';
+            authBtn.textContent = 'Sign Up';
+            authSwitchText.textContent = 'Already have an account?';
+            authSwitchLink.textContent = 'Sign In';
+            nameGroup.style.display = 'block';
+            authName.required = true;
+            authEmail.value = '';
+            authPassword.value = '';
+            authName.value = '';
+            authModal.classList.add('open');
+        };
+
+        window.closeAuth = function() {
+            authModal.classList.remove('open');
+        };
+
+        window.switchAuthMode = function() {
+            if (isSignupMode) {
+                openLogin();
+            } else {
+                openSignup();
+            }
+        };
+
+        // ─── HANDLE AUTH FORM ──────────────────────────────────────
+        window.handleAuth = async function(event) {
+            event.preventDefault();
+
+            const email = authEmail.value.trim();
+            const password = authPassword.value;
+            const fullName = authName.value.trim();
+
+            if (!email || !password) {
+                showToast('Please fill in all required fields', 'error');
+                return;
+            }
+
+            if (password.length < 6) {
+                showToast('Password must be at least 6 characters', 'error');
+                return;
+            }
+
+            authBtn.disabled = true;
+            authBtn.textContent = '⏳ Loading...';
+
+            try {
+                if (isSignupMode) {
+                    await signUp(email, password, fullName);
+                } else {
+                    await signIn(email, password);
+                }
+            } catch (error) {
+                // Error already handled in the functions
+            } finally {
+                authBtn.disabled = false;
+                authBtn.textContent = isSignupMode ? 'Sign Up' : 'Sign In';
+            }
+        };
+
+        // ─── SOCIAL LOGIN ────────────────────────────────────────────
+        window.socialLogin = function(provider) {
+            if (!supabaseClient) initSupabase();
+            if (!supabaseClient) {
+                showToast('Authentication service unavailable', 'error');
+                return;
+            }
+
+            showToast(`🔐 Redirecting to ${provider}...`, 'info');
+
+            const redirectUrl = window.location.origin + '/dashboard.html';
+
+            supabaseClient.auth.signInWithOAuth({
+                provider: provider,
+                options: {
+                    redirectTo: redirectUrl
+                }
+            }).catch(error => {
+                console.error('❌ Social login error:', error);
+                showToast('Failed to sign in with ' + provider, 'error');
+            });
+        };
+
+        // ─── CHECK AUTH ──────────────────────────────────────────────
+        async function checkAuth() {
+            try {
+                if (!supabaseClient) initSupabase();
+                if (!supabaseClient) return false;
+
+                const { data: { session }, error } = await supabaseClient.auth.getSession();
+                if (error) throw error;
+
+                if (session?.user) {
+                    currentUser = session.user;
+                    localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                    updateUI();
+                    return true;
+                }
+
+                const stored = localStorage.getItem('auto_d_user');
+                if (stored) {
+                    try {
+                        currentUser = JSON.parse(stored);
+                        updateUI();
+                        return true;
+                    } catch (e) {}
+                }
+
+                return false;
+            } catch (error) {
+                console.warn('⚠️ Auth check error:', error.message);
+                return false;
+            }
+        }
+
         // ─── API CALLS ──────────────────────────────────────────────────
         async function checkApiHealth() {
             try {
-                console.log(`🔍 Checking API health at: ${API_BASE_URL}/health`);
                 const response = await fetch(`${API_BASE_URL}/health`, {
                     method: 'GET',
                     headers: { 'Content-Type': 'application/json' }
@@ -1051,16 +1463,12 @@
 
                 if (response.ok) {
                     const data = await response.json();
-                    console.log('✅ API Health check passed:', data);
                     apiHealthy = true;
                     return true;
                 }
-
-                console.warn('⚠️ API Health check failed with status:', response.status);
                 apiHealthy = false;
                 return false;
             } catch (error) {
-                console.error('❌ API health check error:', error);
                 apiHealthy = false;
                 return false;
             }
@@ -1068,8 +1476,7 @@
 
         async function fetchSampleValuation() {
             try {
-                console.log('🔍 Fetching sample valuation...');
-                const token = await getAccessToken();
+                const token = localStorage.getItem('access_token') || '';
                 const response = await fetch(`${API_BASE_URL}/valuation/makes`, {
                     method: 'GET',
                     headers: {
@@ -1081,26 +1488,14 @@
                 if (response.ok) {
                     const makes = await response.json();
                     if (makes && makes.length > 0) {
-                        // Update stats with real data
-                        const statsResponse = await fetch(`${API_BASE_URL}/admin/dashboard`, {
-                            method: 'GET',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${token}`
-                            }
-                        });
-
-                        if (statsResponse.ok) {
-                            const stats = await statsResponse.json();
-                            if (statVehicles && stats.total_vehicles) {
-                                statVehicles.textContent = stats.total_vehicles > 1000
-                                    ? `${(stats.total_vehicles / 1000).toFixed(1)}K+`
-                                    : `${stats.total_vehicles}+`;
-                            }
-                            if (statUsers && stats.total_users) {
-                                statUsers.textContent = stats.total_users > 1000
-                                    ? `${(stats.total_users / 1000).toFixed(1)}K`
-                                    : `${stats.total_users}`;
+                        // Update sample price
+                        if (samplePrice) {
+                            const randomMake = makes[Math.floor(Math.random() * makes.length)];
+                            if (randomMake && randomMake.models && randomMake.models.length > 0) {
+                                const randomModel = randomMake.models[Math.floor(Math.random() * randomMake.models.length)];
+                                if (randomModel && randomModel.price) {
+                                    samplePrice.textContent = 'KES ' + randomModel.price.toLocaleString();
+                                }
                             }
                         }
                     }
@@ -1110,7 +1505,7 @@
             }
         }
 
-        // ─── TOAST SYSTEM ──────────────────────────────────────────────
+        // ─── TOAST ────────────────────────────────────────────────────
         function showToast(message, type = 'info') {
             const existing = document.querySelector('.toast');
             if (existing) existing.remove();
@@ -1126,7 +1521,13 @@
             }, 3000);
         }
 
+        // Expose toast globally
+        window.showToast = showToast;
+
         // ─── MOBILE MENU ──────────────────────────────────────────────
+        const mobileToggle = document.getElementById('mobileToggle');
+        const navLinks = document.getElementById('navLinks');
+
         if (mobileToggle && navLinks) {
             mobileToggle.addEventListener('click', function() {
                 const isOpen = navLinks.classList.toggle('open');
@@ -1163,6 +1564,7 @@
         }
 
         // ─── DYNAMIC YEAR ──────────────────────────────────────────────
+        const yearEl = document.getElementById('year');
         if (yearEl) yearEl.textContent = String(new Date().getFullYear());
 
         // ─── PWA INSTALL ──────────────────────────────────────────────
@@ -1209,45 +1611,50 @@
 
         // ─── INIT ──────────────────────────────────────────────────────
         async function init() {
-            console.log(`🚗 Auto-D Kenya ${APP_VERSION} initialized`);
-            console.log(`🔗 API: ${API_BASE_URL}`);
-            console.log(`🔐 Supabase: ${SUPABASE_URL}`);
+            console.log('🚗 Auto-D Kenya v4.0.0 - Workflow: Landing → Login → Dashboard');
 
-            // Initialize Supabase and restore any existing session
+            // Initialize Supabase
             initSupabase();
-            await getCurrentUser();
-            updateAuthUI();
 
-            // Check backend API health quietly in the background.
-            // No status indicator is shown to the user; this only
-            // gates whether we attempt to pull live stats.
+            // Check auth status
+            const isAuthenticated = await checkAuth();
+
+            if (isAuthenticated) {
+                console.log('✅ User is authenticated:', currentUser?.email);
+                // Update login button to show dashboard
+                updateUI();
+            } else {
+                console.log('ℹ️ User not authenticated - showing landing page');
+            }
+
+            // Check API health
             const isHealthy = await checkApiHealth();
             if (isHealthy) {
                 await fetchSampleValuation();
-            } else {
-                console.warn('⚠️ API is not reachable right now; showing fallback data.');
             }
 
-            // Periodically retry in the background so live stats populate
-            // as soon as the backend becomes reachable, without any UI churn.
-            setInterval(async function() {
-                const wasHealthy = apiHealthy;
-                const healthy = await checkApiHealth();
-                if (healthy && !wasHealthy) {
-                    await fetchSampleValuation();
+            // Close modal on outside click
+            authModal.addEventListener('click', function(e) {
+                if (e.target === authModal) closeAuth();
+            });
+
+            // Close modal on Escape key
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape' && authModal.classList.contains('open')) {
+                    closeAuth();
                 }
-            }, HEALTH_RETRY_INTERVAL_MS);
+            });
 
             // Expose API for debugging
             window.__AUTOD = {
                 API_BASE_URL,
-                APP_VERSION,
                 supabase: supabaseClient,
                 currentUser,
                 checkApiHealth,
-                getAccessToken,
                 signOut,
-                showToast
+                showToast,
+                openLogin,
+                openSignup
             };
         }
 
