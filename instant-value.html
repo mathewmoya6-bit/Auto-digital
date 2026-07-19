@@ -292,6 +292,13 @@
                 </select>
                 <div class="error-text" id="modelError">Please select a model</div>
             </div>
+            <div class="form-group full-width">
+                <label>Trim / Variant <span class="required">*</span></label>
+                <select id="variant" required disabled>
+                    <option value="">-- Select Model first --</option>
+                </select>
+                <div class="error-text" id="variantError">Please select a trim/variant</div>
+            </div>
             <div class="form-group">
                 <label>Year of Manufacture <span class="required">*</span></label>
                 <select id="year" required disabled>
@@ -540,6 +547,7 @@
         const vehicleTypeSelect = document.getElementById('vehicleType');
         const makeSelect = document.getElementById('make');
         const modelSelect = document.getElementById('model');
+        const variantSelect = document.getElementById('variant');
         const yearSelect = document.getElementById('year');
         const engineCapacityInput = document.getElementById('engineCapacity');
         const form = document.getElementById('instantForm');
@@ -565,6 +573,24 @@
             setTimeout(() => toast.remove(), 4000);
         }
 
+        // ─── TOKEN HELPERS ──────────────────────────────────────────
+        // FIX: previously nothing ever wrote 'access_token' to localStorage,
+        // so callValuationAPI() always sent requests with no Authorization
+        // header, even while logged in. persistSession() keeps it in sync
+        // with the real Supabase session on load, login, logout, and
+        // refresh.
+        function persistSession(session) {
+            if (session && session.access_token) {
+                localStorage.setItem('access_token', session.access_token);
+                if (session.refresh_token) {
+                    localStorage.setItem('refresh_token', session.refresh_token);
+                }
+            } else {
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('refresh_token');
+            }
+        }
+
         // ─── SUPABASE INIT ──────────────────────────────────────────
         function initSupabase() {
             try {
@@ -575,12 +601,22 @@
                 }
                 const { createClient } = supabase;
                 supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
                 supabaseClient.auth.getSession().then(({ data: { session } }) => {
                     if (session?.user) { 
                         currentUser = session.user; 
                         console.log('👤 User authenticated:', currentUser.email); 
                     }
+                    persistSession(session);
                 });
+
+                // Keep the stored token fresh across login/logout/refresh
+                // events, not just at page load.
+                supabaseClient.auth.onAuthStateChange((event, session) => {
+                    currentUser = session?.user || null;
+                    persistSession(session);
+                });
+
                 loadVehicleData();
             } catch (e) { 
                 console.warn('⚠️ Supabase init failed:', e);
@@ -761,6 +797,40 @@
                 { id: 'fb-nv350', name: 'NV350', make_id: 'fb-nissan-van' }
             ];
 
+            // Fallback variants — one plausible trim per model so the
+            // Variant dropdown and API payload still work in fallback mode.
+            vehicleData.variants = [
+                { id: 'fb-var-corolla-1', model_id: 'fb-corolla', label: '1.8L Petrol Automatic', market_value: 1800000 },
+                { id: 'fb-var-camry-1', model_id: 'fb-camry', label: '2.5L Petrol Automatic', market_value: 3200000 },
+                { id: 'fb-var-civic-1', model_id: 'fb-civic', label: '1.8L Petrol Automatic', market_value: 1900000 },
+                { id: 'fb-var-accord-1', model_id: 'fb-accord', label: '2.0L Petrol Automatic', market_value: 2600000 },
+                { id: 'fb-var-3series-1', model_id: 'fb-3series', label: '2.0L Petrol Automatic', market_value: 4200000 },
+                { id: 'fb-var-cclass-1', model_id: 'fb-cclass', label: '2.0L Petrol Automatic', market_value: 4500000 },
+                { id: 'fb-var-sentra-1', model_id: 'fb-sentra', label: '1.6L Petrol Automatic', market_value: 1500000 },
+                { id: 'fb-var-mazda3-1', model_id: 'fb-mazda3', label: '1.5L Petrol Automatic', market_value: 1700000 },
+                { id: 'fb-var-a4-1', model_id: 'fb-a4', label: '2.0L Petrol Automatic', market_value: 3800000 },
+                { id: 'fb-var-forester-1', model_id: 'fb-forester', label: '2.0L Petrol Automatic', market_value: 2900000 },
+                { id: 'fb-var-elantra-1', model_id: 'fb-elantra', label: '1.6L Petrol Automatic', market_value: 1600000 },
+                { id: 'fb-var-focus-1', model_id: 'fb-focus', label: '1.5L Petrol Automatic', market_value: 1400000 },
+                { id: 'fb-var-rav4-1', model_id: 'fb-rav4', label: '2.0L Petrol Automatic', market_value: 3500000 },
+                { id: 'fb-var-prado-1', model_id: 'fb-prado', label: '3.0L Diesel Automatic', market_value: 7500000 },
+                { id: 'fb-var-fortuner-1', model_id: 'fb-fortuner', label: '2.8L Diesel Automatic', market_value: 6800000 },
+                { id: 'fb-var-crv-1', model_id: 'fb-crv', label: '2.0L Petrol Automatic', market_value: 3300000 },
+                { id: 'fb-var-hrv-1', model_id: 'fb-hrv', label: '1.8L Petrol Automatic', market_value: 2400000 },
+                { id: 'fb-var-x5-1', model_id: 'fb-x5', label: '3.0L Petrol Automatic', market_value: 8500000 },
+                { id: 'fb-var-x3-1', model_id: 'fb-x3', label: '2.0L Petrol Automatic', market_value: 5800000 },
+                { id: 'fb-var-gle-1', model_id: 'fb-gle', label: '3.0L Petrol Automatic', market_value: 9200000 },
+                { id: 'fb-var-glc-1', model_id: 'fb-glc', label: '2.0L Petrol Automatic', market_value: 6200000 },
+                { id: 'fb-var-xtrail-1', model_id: 'fb-xtrail', label: '2.5L Petrol Automatic', market_value: 3100000 },
+                { id: 'fb-var-patrol-1', model_id: 'fb-patrol', label: '4.8L Petrol Automatic', market_value: 8900000 },
+                { id: 'fb-var-outback-1', model_id: 'fb-outback', label: '2.5L Petrol Automatic', market_value: 3400000 },
+                { id: 'fb-var-hilux-1', model_id: 'fb-hilux', label: '2.8L Diesel Automatic', market_value: 4700000 },
+                { id: 'fb-var-dmax-1', model_id: 'fb-dmax', label: '3.0L Diesel Automatic', market_value: 4300000 },
+                { id: 'fb-var-ranger-1', model_id: 'fb-ranger', label: '2.2L Diesel Automatic', market_value: 4100000 },
+                { id: 'fb-var-hiace-1', model_id: 'fb-hiace', label: '2.5L Diesel Manual', market_value: 3600000 },
+                { id: 'fb-var-nv350-1', model_id: 'fb-nv350', label: '2.5L Diesel Manual', market_value: 3200000 }
+            ];
+
             // Build years
             const currentYear = new Date().getFullYear();
             vehicleData.years = [];
@@ -788,6 +858,17 @@
                         vehicleData.modelsByMake[makeId] = [];
                     }
                     vehicleData.modelsByMake[makeId].push(model);
+                }
+            });
+
+            vehicleData.variantsByModel = {};
+            vehicleData.variants.forEach(variant => {
+                const modelId = variant.model_id;
+                if (modelId) {
+                    if (!vehicleData.variantsByModel[modelId]) {
+                        vehicleData.variantsByModel[modelId] = [];
+                    }
+                    vehicleData.variantsByModel[modelId].push(variant);
                 }
             });
 
@@ -872,6 +953,46 @@
                 modelSelect.appendChild(opt);
             });
             modelSelect.disabled = false;
+        }
+
+        // FIX: this is the core bug fix. Previously there was no Variant
+        // dropdown at all, and the form submitted modelSelect.value as
+        // "variant_id" straight to the backend. The backend looks up
+        // vehicle_variants.id == variant_id, so a model id essentially
+        // never matches, causing a 404 "variant not found" on every real
+        // submission. This populates a real Trim/Variant selector from
+        // vehicleData.variantsByModel (already being built, but unused
+        // before this fix), keyed off the selected model.
+        function populateVariants(modelId) {
+            variantSelect.innerHTML = '<option value="">-- Select Trim/Variant --</option>';
+            variantSelect.disabled = true;
+            if (!modelId) {
+                variantSelect.innerHTML = '<option value="">-- Select Model first --</option>';
+                return;
+            }
+
+            const variants = vehicleData.variantsByModel[modelId] || [];
+            if (variants.length === 0) {
+                variantSelect.innerHTML = '<option value="">No variants available</option>';
+                variantSelect.disabled = true;
+                return;
+            }
+
+            variants.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.id;
+                const label = v.label || v.name || [v.engine_cc ? `${v.engine_cc}cc` : null, v.fuel_type, v.transmission].filter(Boolean).join(' ');
+                const price = v.market_value ? ` — KES ${Math.round(v.market_value).toLocaleString()}` : '';
+                opt.textContent = (label || 'Variant') + price;
+                variantSelect.appendChild(opt);
+            });
+            variantSelect.disabled = false;
+
+            // If there's exactly one variant for this model, auto-select
+            // it so single-trim models don't force an extra click.
+            if (variants.length === 1) {
+                variantSelect.value = variants[0].id;
+            }
         }
 
         // ─── UPDATE PREVIEW ─────────────────────────────────────────
@@ -968,7 +1089,7 @@
 
         // ─── PROGRESS ──────────────────────────────────────────────
         function updateProgress() {
-            const fields = [vehicleTypeSelect, makeSelect, modelSelect, yearSelect, engineCapacityInput,
+            const fields = [vehicleTypeSelect, makeSelect, modelSelect, variantSelect, yearSelect, engineCapacityInput,
                 document.getElementById('fuelType'), document.getElementById('transmission'),
                 document.getElementById('mileage'), document.getElementById('previousOwners'),
                 document.getElementById('usageType'), document.getElementById('condition'),
@@ -1001,6 +1122,7 @@
             if (!vehicleTypeSelect.value) { showToast('Please select a vehicle type', 'error'); return false; }
             if (!makeSelect.value) { showToast('Please select a make', 'error'); return false; }
             if (!modelSelect.value) { showToast('Please select a model', 'error'); return false; }
+            if (!variantSelect.value) { showToast('Please select a trim/variant', 'error'); return false; }
             if (!year || year < 1990 || year > currentYear) { showToast('Enter a valid year', 'error'); return false; }
             if (!engineCC || engineCC < 50 || engineCC > 8000) { showToast('Enter a valid engine capacity (50-8000cc)', 'error'); return false; }
             if (!mileage || mileage < 0 || mileage > 1000000) { showToast('Enter a valid odometer reading', 'error'); return false; }
@@ -1022,7 +1144,9 @@
             }
 
             const payload = {
-                variant_id: modelSelect.value || 'sample',
+                // FIX: was modelSelect.value (a model id, never matches a
+                // vehicle_variants row) — now the actual selected variant.
+                variant_id: formData.variant_id || 'sample',
                 year: formData.year || 2020,
                 mileage: formData.mileage || 50000,
                 condition: formData.condition || 'good',
@@ -1033,11 +1157,13 @@
                 images: images.length > 0 ? images : undefined
             };
 
+            // FIX: this now reads a token that persistSession() actually
+            // populates (see initSupabase / onAuthStateChange above).
             const token = localStorage.getItem('access_token') || '';
             const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
-            console.log('📡 Calling valuation API:', `${API_BASE}/valuation/calculate`);
+            console.log('📡 Calling valuation API:', `${API_BASE}/valuation/calculate`, token ? '(authenticated)' : '(anonymous)');
             
             const response = await fetch(`${API_BASE}/valuation/calculate`, {
                 method: 'POST',
@@ -1054,6 +1180,14 @@
                     errorData = { message: `HTTP ${response.status}` };
                 }
                 console.error('❌ API Error:', errorData);
+
+                if (response.status === 401) {
+                    throw new Error('Your session has expired. Please log in again.');
+                }
+                if (response.status === 404) {
+                    throw new Error(errorData.detail || 'That vehicle variant could not be found. Please check your selection.');
+                }
+
                 throw new Error(errorData.message || errorData.detail || `HTTP ${response.status}`);
             }
 
@@ -1176,6 +1310,7 @@
                     vehicleType: vehicleTypeSelect.value, 
                     make: makeSelect.value, 
                     model: modelSelect.value,
+                    variant: variantSelect.value,
                     year: yearSelect.value, 
                     engineCapacity: engineCapacityInput.value,
                     fuelType: document.getElementById('fuelType').value,
@@ -1209,21 +1344,27 @@
                         populateModels(data.make); 
                     }
                     setTimeout(() => {
-                        if (data.model) modelSelect.value = data.model;
-                        if (data.year) yearSelect.value = data.year;
-                        if (data.engineCapacity) engineCapacityInput.value = data.engineCapacity;
-                        if (data.fuelType) document.getElementById('fuelType').value = data.fuelType;
-                        if (data.transmission) document.getElementById('transmission').value = data.transmission;
-                        if (data.bodyType) document.getElementById('bodyType').value = data.bodyType;
-                        if (data.bodyColor) document.getElementById('bodyColor').value = data.bodyColor;
-                        if (data.mileage) document.getElementById('mileage').value = data.mileage;
-                        if (data.previousOwners) document.getElementById('previousOwners').value = data.previousOwners;
-                        if (data.usageType) document.getElementById('usageType').value = data.usageType;
-                        if (data.condition) document.getElementById('condition').value = data.condition;
-                        if (data.accidentHistory) document.getElementById('accidentHistory').value = data.accidentHistory;
-                        if (data.location) document.getElementById('location').value = data.location;
-                        updatePreview();
-                        updateProgress();
+                        if (data.model) {
+                            modelSelect.value = data.model;
+                            populateVariants(data.model);
+                        }
+                        setTimeout(() => {
+                            if (data.variant) variantSelect.value = data.variant;
+                            if (data.year) yearSelect.value = data.year;
+                            if (data.engineCapacity) engineCapacityInput.value = data.engineCapacity;
+                            if (data.fuelType) document.getElementById('fuelType').value = data.fuelType;
+                            if (data.transmission) document.getElementById('transmission').value = data.transmission;
+                            if (data.bodyType) document.getElementById('bodyType').value = data.bodyType;
+                            if (data.bodyColor) document.getElementById('bodyColor').value = data.bodyColor;
+                            if (data.mileage) document.getElementById('mileage').value = data.mileage;
+                            if (data.previousOwners) document.getElementById('previousOwners').value = data.previousOwners;
+                            if (data.usageType) document.getElementById('usageType').value = data.usageType;
+                            if (data.condition) document.getElementById('condition').value = data.condition;
+                            if (data.accidentHistory) document.getElementById('accidentHistory').value = data.accidentHistory;
+                            if (data.location) document.getElementById('location').value = data.location;
+                            updatePreview();
+                            updateProgress();
+                        }, 100);
                     }, 100);
                 }, 100);
             } catch (e) {}
@@ -1234,6 +1375,7 @@
             populateMakes(this.value); 
             modelSelect.innerHTML = '<option value="">-- Select Model --</option>'; 
             modelSelect.disabled = true; 
+            populateVariants(null);
             updatePreview(); 
             updateProgress(); 
             saveDraft(); 
@@ -1241,15 +1383,45 @@
         
         makeSelect.addEventListener('change', function() { 
             populateModels(this.value); 
+            populateVariants(null);
             updatePreview(); 
             updateProgress(); 
             saveDraft(); 
         });
         
         modelSelect.addEventListener('change', function() { 
+            populateVariants(this.value);
             updatePreview(); 
             updateProgress(); 
             saveDraft(); 
+        });
+
+        variantSelect.addEventListener('change', function() {
+            // If the selected variant carries its own engine_cc/fuel_type/
+            // transmission, use it to prefill those fields for the person.
+            const modelId = modelSelect.value;
+            const variants = vehicleData.variantsByModel[modelId] || [];
+            const variant = variants.find(v => v.id === this.value);
+            if (variant) {
+                if (variant.engine_cc && !engineCapacityInput.value) {
+                    engineCapacityInput.value = variant.engine_cc;
+                }
+                if (variant.fuel_type) {
+                    const fuelSelect = document.getElementById('fuelType');
+                    if ([...fuelSelect.options].some(o => o.value === variant.fuel_type)) {
+                        fuelSelect.value = variant.fuel_type;
+                    }
+                }
+                if (variant.transmission) {
+                    const transSelect = document.getElementById('transmission');
+                    const t = variant.transmission.toLowerCase();
+                    if ([...transSelect.options].some(o => o.value === t)) {
+                        transSelect.value = t;
+                    }
+                }
+            }
+            updateProgress();
+            saveDraft();
         });
         
         yearSelect.addEventListener('change', function() { 
@@ -1302,7 +1474,8 @@
             });
 
             const formData = {
-                variant_id: modelSelect.value || 'sample',
+                // FIX: send the real variant, not the model.
+                variant_id: variantSelect.value || 'sample',
                 year: parseInt(yearSelect.value),
                 mileage: parseFloat(document.getElementById('mileage').value),
                 condition: document.getElementById('condition').value,
