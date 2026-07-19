@@ -56,7 +56,6 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@auto-d.ke"
     
     # ─── CORS Configuration ──────────────────────────────────────────
-    # ✅ FIXED: Explicitly include all origins
     BACKEND_CORS_ORIGINS: List[str] = Field(
         default=[
             "https://auto-digital.onrender.com",
@@ -66,7 +65,9 @@ class Settings(BaseSettings):
             "http://localhost:3000",
             "http://localhost:5173",
             "http://localhost:5000",
-            "http://localhost:8000"
+            "http://localhost:8000",
+            "http://127.0.0.1:5500",
+            "https://auto-d-kenya.github.io"
         ],
         env="BACKEND_CORS_ORIGINS"
     )
@@ -76,11 +77,33 @@ class Settings(BaseSettings):
     CORS_ALLOW_HEADERS: str = "Authorization,Content-Type,Accept,Origin,X-Requested-With"
     
     # ─── M-PESA Configuration ──────────────────────────────────────
-    MPESA_ENVIRONMENT: str = Field(default="sandbox", env="MPESA_ENV")
-    MPESA_CONSUMER_KEY: Optional[str] = Field(None, env="MPESA_CONSUMER_KEY")
-    MPESA_CONSUMER_SECRET: Optional[str] = Field(None, env="MPESA_CONSUMER_SECRET")
-    MPESA_PASSKEY: Optional[str] = Field(None, env="MPESA_PASSKEY")
-    MPESA_SHORTCODE: Optional[str] = Field(None, env="MPESA_SHORTCODE")
+    # These are the environment variables the mpesa_service.py expects
+    MPESA_ENV: str = Field(
+        default="sandbox",
+        env="MPESA_ENV"
+    )
+    MPESA_CONSUMER_KEY: Optional[str] = Field(
+        None,
+        env="MPESA_CONSUMER_KEY"
+    )
+    MPESA_CONSUMER_SECRET: Optional[str] = Field(
+        None,
+        env="MPESA_CONSUMER_SECRET"
+    )
+    MPESA_PASSKEY: Optional[str] = Field(
+        None,
+        env="MPESA_PASSKEY"
+    )
+    MPESA_SHORTCODE: str = Field(
+        default="4095377",
+        env="MPESA_SHORTCODE"
+    )
+    CALLBACK_BASE_URL: str = Field(
+        default="https://auto-digital.onrender.com",
+        env="CALLBACK_BASE_URL"
+    )
+    
+    # ─── M-PESA Callback URLs ──────────────────────────────────────
     MPESA_CALLBACK_URL: str = Field(
         default="https://auto-digital.onrender.com/api/v1/mpesa/callback",
         env="MPESA_CALLBACK_URL"
@@ -225,6 +248,8 @@ class Settings(BaseSettings):
     TABLE_OWNERSHIP_REPORTS: str = "ownership_reports"
     TABLE_VALUATION_REPORTS: str = "valuation_reports"
     TABLE_PAYMENTS: str = "payments"
+    TABLE_SERVICE_ACCESS: str = "service_access"
+    TABLE_SERVICE_PRICES: str = "service_prices"
     TABLE_AUDIT_LOGS: str = "audit_logs"
     
     # ─── API Documentation ──────────────────────────────────────────
@@ -295,6 +320,29 @@ class Settings(BaseSettings):
     def get_frontend_url(self) -> str:
         """Get the frontend URL"""
         return self.FRONTEND_URL
+    
+    def get_mpesa_config(self) -> dict:
+        """Get M-Pesa configuration as a dictionary"""
+        return {
+            "environment": self.MPESA_ENV,
+            "shortcode": self.MPESA_SHORTCODE,
+            "consumer_key": self.MPESA_CONSUMER_KEY,
+            "consumer_secret": self.MPESA_CONSUMER_SECRET,
+            "passkey": self.MPESA_PASSKEY,
+            "callback_url": self.MPESA_CALLBACK_URL,
+            "result_url": self.MPESA_RESULT_URL,
+            "timeout_url": self.MPESA_TIMEOUT_URL,
+            "enabled": self.ENABLE_MPESA
+        }
+    
+    def is_mpesa_configured(self) -> bool:
+        """Check if M-Pesa is fully configured"""
+        return all([
+            self.MPESA_CONSUMER_KEY,
+            self.MPESA_CONSUMER_SECRET,
+            self.MPESA_PASSKEY,
+            self.MPESA_SHORTCODE
+        ])
 
 
 # Create settings instance
@@ -307,9 +355,12 @@ if isinstance(settings.BACKEND_CORS_ORIGINS, str):
     except json.JSONDecodeError:
         settings.BACKEND_CORS_ORIGINS = [origin.strip() for origin in settings.BACKEND_CORS_ORIGINS.split(",")]
 
-# ✅ FIXED: Ensure CORS origins are properly set
+# Log configuration on startup (only in debug mode)
 if settings.DEBUG:
     print(f"🔗 API Base URL: {settings.API_BASE_URL}")
     print(f"🌐 Frontend URL: {settings.FRONTEND_URL}")
     print(f"📡 Supabase URL: {settings.SUPABASE_URL}")
     print(f"🔒 CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
+    print(f"📱 M-Pesa Shortcode: {settings.MPESA_SHORTCODE}")
+    print(f"📱 M-Pesa Environment: {settings.MPESA_ENV}")
+    print(f"📱 M-Pesa Configured: {settings.is_mpesa_configured()}")
