@@ -1,10 +1,12 @@
 """
-Request Schemas for API
+Request Schemas for API - COMPLETE
 """
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
 
+
+# ─── VALUATION SCHEMAS ─────────────────────────────────────────────
 
 class ValuationRequest(BaseModel):
     """Vehicle valuation request model"""
@@ -35,6 +37,8 @@ class ValuationRequest(BaseModel):
         return v.lower()
 
 
+# ─── RUNNING COST SCHEMAS ──────────────────────────────────────────
+
 class RunningCostRequest(BaseModel):
     """Running cost calculation request"""
     variant_id: str = Field(..., description="Vehicle variant ID")
@@ -46,6 +50,8 @@ class RunningCostRequest(BaseModel):
     include_depreciation: bool = Field(True, description="Include depreciation in calculation")
     years: int = Field(5, ge=1, le=15, description="Number of years to project")
 
+
+# ─── MILEAGE SCHEMAS ───────────────────────────────────────────────
 
 class MileageRequest(BaseModel):
     """Mileage adjustment request"""
@@ -69,6 +75,8 @@ class MileageRateRequest(BaseModel):
     include_tyres: bool = Field(True, description="Include tyres in calculation")
 
 
+# ─── OWNERSHIP SCHEMAS ─────────────────────────────────────────────
+
 class OwnershipRequest(BaseModel):
     """Ownership cost request"""
     variant_id: str = Field(..., description="Vehicle variant ID")
@@ -79,8 +87,6 @@ class OwnershipRequest(BaseModel):
     annual_insurance: float = Field(50000, ge=0, description="Annual insurance premium")
     annual_maintenance: float = Field(30000, ge=0, description="Annual maintenance cost")
 
-
-# ─── ADD MISSING SCHEMA ──────────────────────────────────────────
 
 class OwnershipCostRequest(BaseModel):
     """Ownership cost calculation request (alternative schema)"""
@@ -100,12 +106,16 @@ class OwnershipCostRequest(BaseModel):
     include_tyres: bool = Field(True, description="Include tyres in calculation")
 
 
+# ─── FUEL SCHEMAS ──────────────────────────────────────────────────
+
 class FuelRequest(BaseModel):
     """Fuel cost request"""
     variant_id: str = Field(..., description="Vehicle variant ID")
     monthly_km: float = Field(1500, ge=0, description="Monthly kilometers driven")
     fuel_price: float = Field(200, ge=0, description="Fuel price per liter (KES)")
 
+
+# ─── VEHICLE SEARCH SCHEMAS ────────────────────────────────────────
 
 class VehicleSearchRequest(BaseModel):
     """Vehicle search request"""
@@ -152,7 +162,7 @@ __all__ = [
     "MileageRequest",
     "MileageRateRequest",
     "OwnershipRequest",
-    "OwnershipCostRequest",  # ← Added
+    "OwnershipCostRequest",
     "FuelRequest",
     "VehicleSearchRequest",
     "VehicleCreateRequest",
