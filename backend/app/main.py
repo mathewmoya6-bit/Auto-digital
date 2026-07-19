@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import logging
+import traceback
 from datetime import datetime
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
@@ -29,20 +30,11 @@ from app.api.v1.admin import router as admin_router
 from app.api.v1.reports import router as reports_router
 from app.api.v1.running_cost import router as running_cost_router
 
-# Try to import M-Pesa router - graceful fallback if not available
-try:
-    from app.api.v1.mpesa import router as mpesa_router
-    MPESA_AVAILABLE = True
-except ImportError as e:
-    mpesa_router = None
-    MPESA_AVAILABLE = False
-    print(f"⚠️ M-Pesa router not available: {e}")
-except Exception as e:
-    mpesa_router = None
-    MPESA_AVAILABLE = False
-    print(f"❌ Error loading M-Pesa router: {e}")
-
 # ─── Configure Logging ─────────────────────────────────────────────
+# Moved above the M-Pesa import attempt so that import failure is
+# logged through `logger` (with a full traceback) instead of a bare
+# `print()`, which is easy to miss in Render's log stream and gives
+# no indication of *where* the failure happened.
 try:
     log_level_name = getattr(settings, "LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_name, logging.INFO)
@@ -66,6 +58,43 @@ logger.info(f"📋 Log Level: {logging.getLevelName(log_level)}")
 logger.info("=" * 60)
 
 
+# ─── Try to import M-Pesa router - graceful fallback if not available ─
+# IMPORTANT: a bare `except Exception` here previously swallowed the
+# real cause of any import-time failure (e.g. MpesaConfigError from a
+# missing env var, or a SyntaxError in the mpesa service module) and
+# only printed `str(e)`, which drops the traceback entirely. That made
+# every M-Pesa endpoint 404 with zero indication of why the router was
+# never registered. We now log the full traceback via `logger.error(
+# ..., exc_info=True)` and keep the specific failure reason around so
+# it can be surfaced in /health below.
+MPESA_AVAILABLE = False
+mpesa_router = None
+MPESA_IMPORT_ERROR = None
+
+try:
+    from app.api.v1.mpesa import router as mpesa_router
+    MPESA_AVAILABLE = True
+except ImportError as e:
+    MPESA_IMPORT_ERROR = f"ImportError: {e}"
+    logger.error(
+        "⚠️ M-Pesa router failed to import (ImportError) — endpoints will 404. "
+        "This usually means a required package or module path is wrong.",
+        exc_info=True,
+    )
+except Exception as e:
+    MPESA_IMPORT_ERROR = f"{type(e).__name__}: {e}"
+    logger.error(
+        "❌ M-Pesa router failed to import (non-ImportError) — endpoints will 404. "
+        "Common causes: a missing MPESA_* environment variable raising "
+        "MpesaConfigError at module import time, or a syntax error in the "
+        "mpesa service module.",
+        exc_info=True,
+    )
+
+if not MPESA_AVAILABLE:
+    logger.error(f"❌ M-Pesa router disabled. Reason: {MPESA_IMPORT_ERROR}")
+
+
 # ─── Lifespan Context Manager ──────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -76,7 +105,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"🔗 Supabase URL: {settings.SUPABASE_URL}")
     logger.info(f"📱 M-Pesa Environment: {getattr(settings, 'MPESA_ENV', 'sandbox')}")
     logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
-    
+
+    if not MPESA_AVAILABLE:
+        logger.warning(f"⚠️ M-Pesa router is NOT registered. Reason: {MPESA_IMPORT_ERROR}")
+
     # Check Supabase connection
     try:
         response = supabase.table("vehicle_makes").select("count", count="exact").limit(1).execute()
@@ -197,12 +229,12 @@ app.include_router(fuel_router, prefix=api_prefix + "/fuel", tags=["Fuel"])
 app.include_router(admin_router, prefix=api_prefix + "/admin", tags=["Admin"])
 app.include_router(reports_router, prefix=api_prefix + "/reports", tags=["Reports"])
 
-# Include M-Pesa router only if available
+# Include M-Pesa router only if it imported successfully above.
 if MPESA_AVAILABLE and mpesa_router is not None:
     app.include_router(mpesa_router, prefix=api_prefix, tags=["M-Pesa"])
-    logger.info("✅ M-Pesa router registered")
+    logger.info(f"✅ M-Pesa router registered at {api_prefix}/mpesa/*")
 else:
-    logger.warning("⚠️ M-Pesa router not available - payment endpoints disabled")
+    logger.warning(f"⚠️ M-Pesa router not available - payment endpoints disabled. Reason: {MPESA_IMPORT_ERROR}")
 
 logger.info("✅ All routers registered")
 
@@ -220,17 +252,28 @@ async def health_check():
         logger.error(f"Supabase health check failed: {e}")
     
     # Check M-Pesa status
-    mpesa_status = "configured" if (
+    mpesa_env_configured = bool(
         getattr(settings, 'MPESA_CONSUMER_KEY', '') and 
         getattr(settings, 'MPESA_CONSUMER_SECRET', '') and 
         getattr(settings, 'MPESA_PASSKEY', '')
-    ) else "not_configured"
+    )
+
+    if not MPESA_AVAILABLE:
+        # Router failed to import — surface the real reason here so it's
+        # visible by just hitting /health, without needing log access.
+        mpesa_status = "router_not_loaded"
+    elif mpesa_env_configured:
+        mpesa_status = "configured"
+    else:
+        mpesa_status = "not_configured"
     
     return {
         "status": "healthy" if supabase_status == "connected" else "degraded",
         "timestamp": datetime.utcnow().isoformat(),
         "supabase": supabase_status,
         "mpesa": mpesa_status,
+        "mpesa_router_loaded": MPESA_AVAILABLE,
+        "mpesa_router_error": MPESA_IMPORT_ERROR if not MPESA_AVAILABLE else None,
         "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "version": getattr(settings, "API_VERSION", "4.0.0")
@@ -278,7 +321,7 @@ async def root():
         "documentation": getattr(settings, "API_DOCS_URL", "/docs") if getattr(settings, "ENABLE_DOCS", False) else "disabled",
         "api_prefix": getattr(settings, "API_V1_PREFIX", "/api/v1"),
         "features": {
-            "mpesa": getattr(settings, "ENABLE_MPESA", True),
+            "mpesa": getattr(settings, "ENABLE_MPESA", True) and MPESA_AVAILABLE,
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
         }
@@ -301,6 +344,7 @@ async def metrics():
             "uptime": "running",
             "supabase": "connected",
             "mpesa": "configured" if (
+                MPESA_AVAILABLE and
                 getattr(settings, 'MPESA_CONSUMER_KEY', '') and 
                 getattr(settings, 'MPESA_CONSUMER_SECRET', '') and 
                 getattr(settings, 'MPESA_PASSKEY', '')
@@ -317,7 +361,7 @@ async def info():
         "version": getattr(settings, "API_VERSION", "4.0.0"),
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "features": {
-            "mpesa": getattr(settings, "ENABLE_MPESA", True),
+            "mpesa": getattr(settings, "ENABLE_MPESA", True) and MPESA_AVAILABLE,
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
             "mpesa_environment": getattr(settings, "MPESA_ENV", "sandbox"),
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
