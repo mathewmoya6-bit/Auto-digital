@@ -77,6 +77,7 @@
         .input-error { border-color: #ef4444 !important; }
         .error-text { color: #ef4444; font-size: 11px; margin-top: 3px; display: none; }
         .error-text.show { display: block; }
+        select:disabled { opacity: 0.6; cursor: not-allowed; }
         
         .vehicle-preview {
             background: #1e293b;
@@ -514,15 +515,26 @@
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
         
-        // ✅ FastAPI Backend URLs
+        // ✅ FastAPI Backend URL
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
 
         // ─── STATE ──────────────────────────────────────────────────
         let supabaseClient = null;
         let currentUser = null;
-        let vehicleData = { types: [], makes: [], models: [], years: [] };
-        let capturedPhotos = {};
         let isDataLoaded = false;
+        let capturedPhotos = {};
+
+        // ─── VEHICLE DATA ──────────────────────────────────────────
+        let vehicleData = {
+            types: [],
+            makes: [],
+            models: [],
+            variants: [],
+            years: [],
+            makesByType: {},
+            modelsByMake: {},
+            variantsByModel: {}
+        };
 
         // ─── DOM REFS ──────────────────────────────────────────────
         const vehicleTypeSelect = document.getElementById('vehicleType');
@@ -556,66 +568,76 @@
         // ─── SUPABASE INIT ──────────────────────────────────────────
         function initSupabase() {
             try {
-                if (typeof supabase === 'undefined') { loadFallbackData(); return; }
+                if (typeof supabase === 'undefined') { 
+                    console.warn('⚠️ Supabase SDK not loaded, using fallback');
+                    loadFallbackData(); 
+                    return; 
+                }
                 const { createClient } = supabase;
                 supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 supabaseClient.auth.getSession().then(({ data: { session } }) => {
-                    if (session?.user) { currentUser = session.user; console.log('👤 User authenticated:', currentUser.email); }
+                    if (session?.user) { 
+                        currentUser = session.user; 
+                        console.log('👤 User authenticated:', currentUser.email); 
+                    }
                 });
                 loadVehicleData();
-            } catch (e) { loadFallbackData(); }
+            } catch (e) { 
+                console.warn('⚠️ Supabase init failed:', e);
+                loadFallbackData(); 
+            }
         }
 
         // ─── LOAD VEHICLE DATA FROM SUPABASE ──────────────────────
         async function loadVehicleData() {
             try {
-                // Get vehicle types
+                console.log('📡 Loading vehicle data from Supabase...');
+                
+                // Load types
                 const { data: types, error: typesError } = await supabaseClient
                     .from('vehicle_types')
                     .select('*')
                     .order('name');
                 if (typesError) throw typesError;
 
-                // Get vehicle makes with type_id
+                // Load makes
                 const { data: makes, error: makesError } = await supabaseClient
                     .from('vehicle_makes')
-                    .select('*, vehicle_types!inner(*)')
+                    .select('*')
                     .order('name');
                 if (makesError) throw makesError;
 
-                // Get vehicle models with make_id
+                // Load models
                 const { data: models, error: modelsError } = await supabaseClient
                     .from('vehicle_models')
-                    .select('*, vehicle_makes!inner(*)')
+                    .select('*')
                     .order('name');
                 if (modelsError) throw modelsError;
 
-                // Get vehicle variants with model_id
+                // Load variants
                 const { data: variants, error: variantsError } = await supabaseClient
                     .from('vehicle_variants')
-                    .select('*, vehicle_models!inner(*)')
+                    .select('*')
                     .order('label');
                 if (variantsError) throw variantsError;
 
+                // Store data
                 vehicleData.types = types || [];
                 vehicleData.makes = makes || [];
                 vehicleData.models = models || [];
                 vehicleData.variants = variants || [];
                 
-                // Build years array
-                vehicleData.years = [];
+                // Build years
                 const currentYear = new Date().getFullYear();
+                vehicleData.years = [];
                 for (let y = currentYear; y >= 1990; y--) {
                     vehicleData.years.push(y);
                 }
 
-                // Build lookup maps for quick access
+                // Build lookup maps
                 vehicleData.makesByType = {};
-                vehicleData.modelsByMake = {};
-                vehicleData.variantsByModel = {};
-
                 makes.forEach(make => {
-                    const typeId = make.type_id || make.vehicle_types?.id;
+                    const typeId = make.type_id;
                     if (typeId) {
                         if (!vehicleData.makesByType[typeId]) {
                             vehicleData.makesByType[typeId] = [];
@@ -624,8 +646,9 @@
                     }
                 });
 
+                vehicleData.modelsByMake = {};
                 models.forEach(model => {
-                    const makeId = model.make_id || model.vehicle_makes?.id;
+                    const makeId = model.make_id;
                     if (makeId) {
                         if (!vehicleData.modelsByMake[makeId]) {
                             vehicleData.modelsByMake[makeId] = [];
@@ -634,8 +657,9 @@
                     }
                 });
 
+                vehicleData.variantsByModel = {};
                 variants.forEach(variant => {
-                    const modelId = variant.model_id || variant.vehicle_models?.id;
+                    const modelId = variant.model_id;
                     if (modelId) {
                         if (!vehicleData.variantsByModel[modelId]) {
                             vehicleData.variantsByModel[modelId] = [];
@@ -644,72 +668,126 @@
                     }
                 });
 
+                console.log('✅ Vehicle data loaded from Supabase');
+                console.log(`📊 Types: ${types.length}, Makes: ${makes.length}, Models: ${models.length}, Variants: ${variants.length}`);
+
                 populateVehicleTypes();
                 populateYears();
                 isDataLoaded = true;
                 submitBtn.disabled = false;
                 updateProgress();
-                console.log('✅ Vehicle data loaded from Supabase');
-                console.log(`📊 Types: ${types.length}, Makes: ${makes.length}, Models: ${models.length}, Variants: ${variants.length}`);
+
             } catch (error) {
-                console.warn('Supabase load failed:', error);
+                console.warn('⚠️ Supabase load failed:', error);
                 loadFallbackData();
             }
         }
 
         // ─── FALLBACK DATA ──────────────────────────────────────────
         function loadFallbackData() {
+            console.log('📡 Using fallback vehicle data');
+            
             vehicleData.types = [
                 { id: 'fb-car', name: 'Car', icon: '🚗' }, 
                 { id: 'fb-suv', name: 'SUV', icon: '🚙' },
                 { id: 'fb-pickup', name: 'Pickup', icon: '🛻' }, 
                 { id: 'fb-minibus', name: 'Minibus', icon: '🚐' },
                 { id: 'fb-motorcycle', name: 'Motorcycle', icon: '🏍️' },
-                { id: 'fb-tricycle', name: 'Tricycle', icon: '🛺' }
+                { id: 'fb-tricycle', name: 'Tricycle', icon: '🛺' },
+                { id: 'fb-truck', name: 'Truck', icon: '🚛' },
+                { id: 'fb-van', name: 'Van', icon: '🚐' }
             ];
+            
             vehicleData.makes = [
                 { id: 'fb-toyota', name: 'Toyota', type_id: 'fb-car' }, 
                 { id: 'fb-nissan', name: 'Nissan', type_id: 'fb-car' },
                 { id: 'fb-bmw', name: 'BMW', type_id: 'fb-car' }, 
                 { id: 'fb-mercedes', name: 'Mercedes-Benz', type_id: 'fb-car' },
                 { id: 'fb-honda', name: 'Honda', type_id: 'fb-car' }, 
-                { id: 'fb-mazda', name: 'Mazda', type_id: 'fb-car' }
+                { id: 'fb-mazda', name: 'Mazda', type_id: 'fb-car' },
+                { id: 'fb-audi', name: 'Audi', type_id: 'fb-car' },
+                { id: 'fb-subaru', name: 'Subaru', type_id: 'fb-car' },
+                { id: 'fb-isuzu', name: 'Isuzu', type_id: 'fb-car' },
+                { id: 'fb-hyundai', name: 'Hyundai', type_id: 'fb-car' },
+                { id: 'fb-ford', name: 'Ford', type_id: 'fb-car' },
+                { id: 'fb-toyota-suv', name: 'Toyota', type_id: 'fb-suv' },
+                { id: 'fb-nissan-suv', name: 'Nissan', type_id: 'fb-suv' },
+                { id: 'fb-bmw-suv', name: 'BMW', type_id: 'fb-suv' },
+                { id: 'fb-mercedes-suv', name: 'Mercedes-Benz', type_id: 'fb-suv' },
+                { id: 'fb-honda-suv', name: 'Honda', type_id: 'fb-suv' },
+                { id: 'fb-toyota-pickup', name: 'Toyota', type_id: 'fb-pickup' },
+                { id: 'fb-isuzu-pickup', name: 'Isuzu', type_id: 'fb-pickup' },
+                { id: 'fb-ford-pickup', name: 'Ford', type_id: 'fb-pickup' },
+                { id: 'fb-toyota-van', name: 'Toyota', type_id: 'fb-van' },
+                { id: 'fb-nissan-van', name: 'Nissan', type_id: 'fb-van' }
             ];
+            
             vehicleData.models = [
-                { id: 'fb-corolla', name: 'Corolla', make_id: 'fb-toyota' }, 
+                // Car models
+                { id: 'fb-corolla', name: 'Corolla', make_id: 'fb-toyota' },
                 { id: 'fb-camry', name: 'Camry', make_id: 'fb-toyota' },
-                { id: 'fb-rav4', name: 'RAV4', make_id: 'fb-toyota' }, 
-                { id: 'fb-prado', name: 'Prado', make_id: 'fb-toyota' },
-                { id: 'fb-x5', name: 'X5', make_id: 'fb-bmw' }, 
-                { id: 'fb-cclass', name: 'C-Class', make_id: 'fb-mercedes' }
+                { id: 'fb-civic', name: 'Civic', make_id: 'fb-honda' },
+                { id: 'fb-accord', name: 'Accord', make_id: 'fb-honda' },
+                { id: 'fb-3series', name: '3 Series', make_id: 'fb-bmw' },
+                { id: 'fb-cclass', name: 'C-Class', make_id: 'fb-mercedes' },
+                { id: 'fb-sentra', name: 'Sentra', make_id: 'fb-nissan' },
+                { id: 'fb-mazda3', name: 'Mazda 3', make_id: 'fb-mazda' },
+                { id: 'fb-a4', name: 'A4', make_id: 'fb-audi' },
+                { id: 'fb-forester', name: 'Forester', make_id: 'fb-subaru' },
+                { id: 'fb-elantra', name: 'Elantra', make_id: 'fb-hyundai' },
+                { id: 'fb-focus', name: 'Focus', make_id: 'fb-ford' },
+                
+                // SUV models
+                { id: 'fb-rav4', name: 'RAV4', make_id: 'fb-toyota-suv' },
+                { id: 'fb-prado', name: 'Land Cruiser Prado', make_id: 'fb-toyota-suv' },
+                { id: 'fb-fortuner', name: 'Fortuner', make_id: 'fb-toyota-suv' },
+                { id: 'fb-crv', name: 'CR-V', make_id: 'fb-honda-suv' },
+                { id: 'fb-hrv', name: 'HR-V', make_id: 'fb-honda-suv' },
+                { id: 'fb-x5', name: 'X5', make_id: 'fb-bmw-suv' },
+                { id: 'fb-x3', name: 'X3', make_id: 'fb-bmw-suv' },
+                { id: 'fb-gle', name: 'GLE', make_id: 'fb-mercedes-suv' },
+                { id: 'fb-glc', name: 'GLC', make_id: 'fb-mercedes-suv' },
+                { id: 'fb-xtrail', name: 'X-Trail', make_id: 'fb-nissan-suv' },
+                { id: 'fb-patrol', name: 'Patrol', make_id: 'fb-nissan-suv' },
+                { id: 'fb-outback', name: 'Outback', make_id: 'fb-subaru' },
+                
+                // Pickup models
+                { id: 'fb-hilux', name: 'Hilux', make_id: 'fb-toyota-pickup' },
+                { id: 'fb-dmax', name: 'D-Max', make_id: 'fb-isuzu-pickup' },
+                { id: 'fb-ranger', name: 'Ranger', make_id: 'fb-ford-pickup' },
+                
+                // Van models
+                { id: 'fb-hiace', name: 'Hiace', make_id: 'fb-toyota-van' },
+                { id: 'fb-nv350', name: 'NV350', make_id: 'fb-nissan-van' }
             ];
-            vehicleData.variants = [];
-            vehicleData.years = [];
+
+            // Build years
             const currentYear = new Date().getFullYear();
+            vehicleData.years = [];
             for (let y = currentYear; y >= 1990; y--) {
                 vehicleData.years.push(y);
             }
 
-            // Build lookup maps for fallback data
+            // Build lookup maps
             vehicleData.makesByType = {};
-            vehicleData.modelsByMake = {};
-            vehicleData.variantsByModel = {};
-
             vehicleData.makes.forEach(make => {
-                if (make.type_id) {
-                    if (!vehicleData.makesByType[make.type_id]) {
-                        vehicleData.makesByType[make.type_id] = [];
+                const typeId = make.type_id;
+                if (typeId) {
+                    if (!vehicleData.makesByType[typeId]) {
+                        vehicleData.makesByType[typeId] = [];
                     }
-                    vehicleData.makesByType[make.type_id].push(make);
+                    vehicleData.makesByType[typeId].push(make);
                 }
             });
 
+            vehicleData.modelsByMake = {};
             vehicleData.models.forEach(model => {
-                if (model.make_id) {
-                    if (!vehicleData.modelsByMake[model.make_id]) {
-                        vehicleData.modelsByMake[model.make_id] = [];
+                const makeId = model.make_id;
+                if (makeId) {
+                    if (!vehicleData.modelsByMake[makeId]) {
+                        vehicleData.modelsByMake[makeId] = [];
                     }
-                    vehicleData.modelsByMake[model.make_id].push(model);
+                    vehicleData.modelsByMake[makeId].push(model);
                 }
             });
 
@@ -718,7 +796,7 @@
             isDataLoaded = true;
             submitBtn.disabled = false;
             updateProgress();
-            console.log('⚠️ Using fallback vehicle data');
+            console.log('✅ Fallback data loaded');
         }
 
         // ─── POPULATE DROPDOWNS ──────────────────────────────────
@@ -746,11 +824,14 @@
         function populateMakes(vehicleTypeId) {
             makeSelect.innerHTML = '<option value="">-- Select Make --</option>';
             makeSelect.disabled = true;
-            if (!vehicleTypeId) { makeSelect.disabled = true; return; }
+            if (!vehicleTypeId) { 
+                makeSelect.disabled = true; 
+                return; 
+            }
             
             const makes = vehicleData.makesByType[vehicleTypeId] || [];
             if (makes.length === 0) {
-                // If no makes found for this type, show all makes
+                // Fallback: show all makes
                 vehicleData.makes.forEach(m => {
                     const opt = document.createElement('option');
                     opt.value = m.id;
@@ -771,9 +852,19 @@
         function populateModels(makeId) {
             modelSelect.innerHTML = '<option value="">-- Select Model --</option>';
             modelSelect.disabled = true;
-            if (!makeId) { modelSelect.disabled = true; return; }
+            if (!makeId) { 
+                modelSelect.disabled = true; 
+                return; 
+            }
             
             const models = vehicleData.modelsByMake[makeId] || [];
+            if (models.length === 0) {
+                console.warn('⚠️ No models found for make:', makeId);
+                modelSelect.innerHTML = '<option value="">No models available</option>';
+                modelSelect.disabled = true;
+                return;
+            }
+            
             models.forEach(m => {
                 const opt = document.createElement('option');
                 opt.value = m.id;
@@ -789,6 +880,7 @@
             const model = modelSelect.options[modelSelect.selectedIndex]?.text || '';
             const year = yearSelect.value;
             const vehicleType = vehicleTypeSelect.options[vehicleTypeSelect.selectedIndex]?.text || '';
+            
             if (make && model) {
                 previewIcon.textContent = vehicleTypeSelect.value ? getTypeIcon(vehicleTypeSelect.value) : '🚗';
                 previewTitle.textContent = `${make} ${model}`;
@@ -799,7 +891,9 @@
                 previewTitle.textContent = make;
                 previewSubtitle.textContent = 'Select model...';
                 vehiclePreview.classList.add('show');
-            } else { vehiclePreview.classList.remove('show'); }
+            } else { 
+                vehiclePreview.classList.remove('show'); 
+            }
             updateProgress();
         }
 
@@ -928,7 +1022,7 @@
             }
 
             const payload = {
-                variant_id: formData.variant_id || modelSelect.value || 'sample',
+                variant_id: modelSelect.value || 'sample',
                 year: formData.year || 2020,
                 mileage: formData.mileage || 50000,
                 condition: formData.condition || 'good',
@@ -944,7 +1038,6 @@
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
             console.log('📡 Calling valuation API:', `${API_BASE}/valuation/calculate`);
-            console.log('📦 Payload:', payload);
             
             const response = await fetch(`${API_BASE}/valuation/calculate`, {
                 method: 'POST',
@@ -1078,48 +1171,62 @@
 
         // ─── SAVE DRAFT ─────────────────────────────────────────────
         function saveDraft() {
-            const data = {
-                vehicleType: vehicleTypeSelect.value, make: makeSelect.value, model: modelSelect.value,
-                year: yearSelect.value, engineCapacity: engineCapacityInput.value,
-                fuelType: document.getElementById('fuelType').value,
-                transmission: document.getElementById('transmission').value,
-                bodyType: document.getElementById('bodyType').value,
-                bodyColor: document.getElementById('bodyColor').value,
-                mileage: document.getElementById('mileage').value,
-                previousOwners: document.getElementById('previousOwners').value,
-                usageType: document.getElementById('usageType').value,
-                condition: document.getElementById('condition').value,
-                accidentHistory: document.getElementById('accidentHistory').value,
-                location: document.getElementById('location').value
-            };
-            try { localStorage.setItem('valuationDraft', JSON.stringify(data)); } catch (e) {}
+            try {
+                const data = {
+                    vehicleType: vehicleTypeSelect.value, 
+                    make: makeSelect.value, 
+                    model: modelSelect.value,
+                    year: yearSelect.value, 
+                    engineCapacity: engineCapacityInput.value,
+                    fuelType: document.getElementById('fuelType').value,
+                    transmission: document.getElementById('transmission').value,
+                    bodyType: document.getElementById('bodyType').value,
+                    bodyColor: document.getElementById('bodyColor').value,
+                    mileage: document.getElementById('mileage').value,
+                    previousOwners: document.getElementById('previousOwners').value,
+                    usageType: document.getElementById('usageType').value,
+                    condition: document.getElementById('condition').value,
+                    accidentHistory: document.getElementById('accidentHistory').value,
+                    location: document.getElementById('location').value
+                };
+                localStorage.setItem('valuationDraft', JSON.stringify(data));
+            } catch (e) {}
         }
 
         function loadDraft() {
-            let data;
-            try { data = JSON.parse(localStorage.getItem('valuationDraft')); } catch (e) { return; }
-            if (!data) return;
-            if (data.vehicleType) { vehicleTypeSelect.value = data.vehicleType; populateMakes(data.vehicleType); }
-            setTimeout(() => {
-                if (data.make) { makeSelect.value = data.make; populateModels(data.make); }
+            try {
+                const data = JSON.parse(localStorage.getItem('valuationDraft'));
+                if (!data) return;
+                
+                if (data.vehicleType) { 
+                    vehicleTypeSelect.value = data.vehicleType; 
+                    populateMakes(data.vehicleType); 
+                }
+                
                 setTimeout(() => {
-                    if (data.model) modelSelect.value = data.model;
-                    if (data.year) yearSelect.value = data.year;
-                    if (data.engineCapacity) engineCapacityInput.value = data.engineCapacity;
-                    if (data.fuelType) document.getElementById('fuelType').value = data.fuelType;
-                    if (data.transmission) document.getElementById('transmission').value = data.transmission;
-                    if (data.bodyType) document.getElementById('bodyType').value = data.bodyType;
-                    if (data.bodyColor) document.getElementById('bodyColor').value = data.bodyColor;
-                    if (data.mileage) document.getElementById('mileage').value = data.mileage;
-                    if (data.previousOwners) document.getElementById('previousOwners').value = data.previousOwners;
-                    if (data.usageType) document.getElementById('usageType').value = data.usageType;
-                    if (data.condition) document.getElementById('condition').value = data.condition;
-                    if (data.accidentHistory) document.getElementById('accidentHistory').value = data.accidentHistory;
-                    if (data.location) document.getElementById('location').value = data.location;
-                    updatePreview();
-                    updateProgress();
+                    if (data.make) { 
+                        makeSelect.value = data.make; 
+                        populateModels(data.make); 
+                    }
+                    setTimeout(() => {
+                        if (data.model) modelSelect.value = data.model;
+                        if (data.year) yearSelect.value = data.year;
+                        if (data.engineCapacity) engineCapacityInput.value = data.engineCapacity;
+                        if (data.fuelType) document.getElementById('fuelType').value = data.fuelType;
+                        if (data.transmission) document.getElementById('transmission').value = data.transmission;
+                        if (data.bodyType) document.getElementById('bodyType').value = data.bodyType;
+                        if (data.bodyColor) document.getElementById('bodyColor').value = data.bodyColor;
+                        if (data.mileage) document.getElementById('mileage').value = data.mileage;
+                        if (data.previousOwners) document.getElementById('previousOwners').value = data.previousOwners;
+                        if (data.usageType) document.getElementById('usageType').value = data.usageType;
+                        if (data.condition) document.getElementById('condition').value = data.condition;
+                        if (data.accidentHistory) document.getElementById('accidentHistory').value = data.accidentHistory;
+                        if (data.location) document.getElementById('location').value = data.location;
+                        updatePreview();
+                        updateProgress();
+                    }, 100);
                 }, 100);
-            }, 100);
+            } catch (e) {}
         }
 
         // ─── EVENT LISTENERS ──────────────────────────────────────
