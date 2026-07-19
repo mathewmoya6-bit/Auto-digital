@@ -1,4 +1,4 @@
-# backend/app/api/v1/endpoints/mpesa.py
+# backend/app/api/v1/mpesa.py
 """
 M-Pesa API Endpoints - Version 1
 Handles STK Push, payment status, service access, and webhooks
@@ -6,12 +6,12 @@ Handles STK Push, payment status, service access, and webhooks
 
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, Request, Header
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from datetime import datetime
 
 from app.services.mpesa_service import MpesaService
-from app.core.database import db
+from app.core.database import supabase  # <-- Use supabase, not db
 from app.core.security import get_current_user, verify_api_key
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,8 @@ async def mpesa_health():
         "timestamp": datetime.now().isoformat(),
         "environment": mpesa_service.environment,
         "shortcode": mpesa_service.shortcode,
-        "callback_url": mpesa_service.callback_url
+        "callback_url": mpesa_service.callback_url,
+        "mpesa_configured": mpesa_service.is_configured()
     }
 
 
@@ -292,8 +293,8 @@ async def get_payment_history(
         if not user_id:
             raise HTTPException(status_code=401, detail="User authentication required")
         
-        # Query payments from database
-        response = db.table('payments') \
+        # Query payments from database - use supabase directly
+        response = supabase.table('payments') \
             .select('*') \
             .eq('user_id', user_id) \
             .order('created_at', desc=True) \
@@ -357,8 +358,8 @@ async def set_service_price(
         if not service_type or price is None:
             raise HTTPException(status_code=400, detail="service_type and price are required")
         
-        # Insert into database
-        response = db.table('service_prices').insert({
+        # Insert into database - use supabase directly
+        response = supabase.table('service_prices').insert({
             'service_type': service_type,
             'price': price,
             'created_at': datetime.now().isoformat()
@@ -393,19 +394,19 @@ async def get_mpesa_stats(
         if current_user.get('role') != 'admin':
             raise HTTPException(status_code=403, detail="Admin access required")
         
-        # Get total payments
-        total_response = db.table('payments') \
+        # Get total payments - use supabase directly
+        total_response = supabase.table('payments') \
             .select('*') \
             .execute()
         
         # Get successful payments
-        success_response = db.table('payments') \
+        success_response = supabase.table('payments') \
             .select('*') \
             .eq('status', 'completed') \
             .execute()
         
         # Get failed payments
-        failed_response = db.table('payments') \
+        failed_response = supabase.table('payments') \
             .select('*') \
             .eq('status', 'failed') \
             .execute()
