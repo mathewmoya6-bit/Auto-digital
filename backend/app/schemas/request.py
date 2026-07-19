@@ -33,24 +33,46 @@ class ValuationRequest(BaseModel):
         if v.lower() not in allowed:
             raise ValueError(f"Accident history must be one of: {', '.join(allowed)}")
         return v.lower()
-    
-    @validator('location')
-    def validate_location(cls, v):
-        # Common Kenyan counties
-        allowed = [
-            'nairobi', 'mombasa', 'kisumu', 'nakuru', 'eldoret', 'thika',
-            'kiambu', 'kajiado', 'machakos', 'meru', 'nyeri', 'embu',
-            'malindi', 'nanyuki', 'other'
-        ]
-        if v.lower() not in allowed:
-            # Don't reject, just warn
-            pass
-        return v.lower()
 
 
-class BatchValuationRequest(BaseModel):
-    """Batch valuation request"""
-    requests: List[ValuationRequest] = Field(..., min_items=1, max_items=20)
+# ─── ADD MISSING SCHEMAS ──────────────────────────────────────────
+
+class RunningCostRequest(BaseModel):
+    """Running cost calculation request"""
+    variant_id: str = Field(..., description="Vehicle variant ID")
+    annual_mileage: float = Field(15000, ge=0, description="Annual mileage in km")
+    fuel_price: float = Field(200, ge=0, description="Fuel price per liter (KES)")
+    include_insurance: bool = Field(True, description="Include insurance in calculation")
+    include_maintenance: bool = Field(True, description="Include maintenance in calculation")
+    include_tyres: bool = Field(True, description="Include tyre replacement in calculation")
+    include_depreciation: bool = Field(True, description="Include depreciation in calculation")
+    years: int = Field(5, ge=1, le=15, description="Number of years to project")
+
+
+class MileageRequest(BaseModel):
+    """Mileage adjustment request"""
+    variant_id: str = Field(..., description="Vehicle variant ID")
+    current_mileage: float = Field(..., ge=0, description="Current odometer reading")
+    expected_annual_mileage: float = Field(20000, ge=0, description="Expected annual mileage")
+    age_years: int = Field(..., ge=0, description="Vehicle age in years")
+
+
+class OwnershipRequest(BaseModel):
+    """Ownership cost request"""
+    variant_id: str = Field(..., description="Vehicle variant ID")
+    purchase_price: float = Field(..., ge=0, description="Purchase price in KES")
+    down_payment: float = Field(0, ge=0, description="Down payment in KES")
+    loan_term_months: int = Field(36, ge=1, le=84, description="Loan term in months")
+    interest_rate: float = Field(14.0, ge=0, le=100, description="Annual interest rate %")
+    annual_insurance: float = Field(50000, ge=0, description="Annual insurance premium")
+    annual_maintenance: float = Field(30000, ge=0, description="Annual maintenance cost")
+
+
+class FuelRequest(BaseModel):
+    """Fuel cost request"""
+    variant_id: str = Field(..., description="Vehicle variant ID")
+    monthly_km: float = Field(1500, ge=0, description="Monthly kilometers driven")
+    fuel_price: float = Field(200, ge=0, description="Fuel price per liter (KES)")
 
 
 class VehicleSearchRequest(BaseModel):
@@ -66,3 +88,25 @@ class VehicleSearchRequest(BaseModel):
     max_price: Optional[float] = None
     limit: int = Field(20, ge=1, le=100)
     offset: int = Field(0, ge=0)
+
+
+class VehicleCreateRequest(BaseModel):
+    """Vehicle creation request"""
+    make_id: str = Field(..., description="Make ID")
+    model_id: str = Field(..., description="Model ID")
+    name: str = Field(..., description="Variant name")
+    year: int = Field(..., ge=1900, le=datetime.now().year + 1)
+    engine_cc: float = Field(..., ge=50, le=10000)
+    fuel_type: str = Field(..., description="petrol, diesel, hybrid, electric")
+    transmission: str = Field(..., description="automatic, manual, cvt")
+    market_value: float = Field(..., ge=0)
+    depreciation_class: str = Field("DEFAULT")
+    fuel_consumption: float = Field(8.0, ge=0)
+    insurance_group: int = Field(5, ge=1, le=20)
+    service_interval: int = Field(15000, ge=0)
+    service_cost: float = Field(15000, ge=0)
+    tyre_cost: float = Field(12000, ge=0)
+    body_type: Optional[str] = "sedan"
+    drive_type: Optional[str] = "2WD"
+    vehicle_class: Optional[str] = None
+    tyre_size: Optional[str] = None
