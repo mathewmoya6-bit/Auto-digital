@@ -39,7 +39,6 @@ class SupabaseClient:
             )
 
         if not key.startswith("eyJ"):
-            # Supabase anon/service_role keys are JWTs and always start with "eyJ"
             logger.error("SUPABASE_KEY does not look like a valid JWT (check for typos, quotes, or wrong var).")
             raise ValueError(
                 "SUPABASE_KEY does not look like a valid Supabase API key."
@@ -58,4 +57,9 @@ class SupabaseClient:
 
 # Module-level singleton instance used across the app
 supabase_client = SupabaseClient()
+
+# Primary export - use this in all files
 supabase: Client = supabase_client.get_client()
+
+# Alias for backward compatibility (for files that import 'db')
+db = supabase
