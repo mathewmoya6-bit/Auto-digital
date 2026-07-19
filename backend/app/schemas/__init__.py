@@ -5,6 +5,7 @@ from app.schemas.request import (
     ValuationRequest,
     RunningCostRequest,
     MileageRequest,
+    MileageRateRequest,  # ← Added
     OwnershipRequest,
     FuelRequest,
     VehicleSearchRequest,
@@ -32,6 +33,7 @@ __all__ = [
     "ValuationRequest",
     "RunningCostRequest",
     "MileageRequest",
+    "MileageRateRequest",  # ← Added
     "OwnershipRequest",
     "FuelRequest",
     "VehicleSearchRequest",
