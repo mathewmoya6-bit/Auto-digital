@@ -5,7 +5,7 @@ from app.schemas.request import (
     ValuationRequest,
     RunningCostRequest,
     MileageRequest,
-    MileageRateRequest,  # ← Added
+    MileageRateRequest,
     OwnershipRequest,
     FuelRequest,
     VehicleSearchRequest,
@@ -22,6 +22,7 @@ from app.schemas.response import (
     VehicleSearchResponse,
     RunningCostResponse,
     MileageResponse,
+    MileageRateResponse,  # ← Added
     OwnershipResponse,
     FuelResponse,
     MarketTrendsResponse,
@@ -33,7 +34,7 @@ __all__ = [
     "ValuationRequest",
     "RunningCostRequest",
     "MileageRequest",
-    "MileageRateRequest",  # ← Added
+    "MileageRateRequest",
     "OwnershipRequest",
     "FuelRequest",
     "VehicleSearchRequest",
@@ -48,6 +49,7 @@ __all__ = [
     "VehicleSearchResponse",
     "RunningCostResponse",
     "MileageResponse",
+    "MileageRateResponse",  # ← Added
     "OwnershipResponse",
     "FuelResponse",
     "MarketTrendsResponse",
