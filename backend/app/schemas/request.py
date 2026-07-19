@@ -35,8 +35,6 @@ class ValuationRequest(BaseModel):
         return v.lower()
 
 
-# ─── ADD MISSING SCHEMAS ──────────────────────────────────────────
-
 class RunningCostRequest(BaseModel):
     """Running cost calculation request"""
     variant_id: str = Field(..., description="Vehicle variant ID")
