@@ -3,19 +3,27 @@ Schemas Package
 """
 from app.schemas.request import (
     ValuationRequest,
-    RunningCostRequest,  # ← This should now work
+    RunningCostRequest,
     MileageRequest,
     OwnershipRequest,
     FuelRequest,
     VehicleSearchRequest,
     VehicleCreateRequest,
 )
+
 from app.schemas.response import (
     ValuationResponse,
-    ErrorResponse,
+    VehicleMakeResponse,
+    VehicleModelResponse,
     VehicleVariantResponse,
-    MarketTrendsResponse,
     VehicleDetailResponse,
+    VehicleSearchResponse,
+    ErrorResponse,
+    MarketTrendsResponse,
+    RunningCostResponse,
+    MileageResponse,
+    OwnershipResponse,
+    FuelResponse,
 )
 
 __all__ = [
@@ -29,8 +37,15 @@ __all__ = [
     "VehicleCreateRequest",
     # Response schemas
     "ValuationResponse",
-    "ErrorResponse",
+    "VehicleMakeResponse",
+    "VehicleModelResponse",
     "VehicleVariantResponse",
-    "MarketTrendsResponse",
     "VehicleDetailResponse",
+    "VehicleSearchResponse",
+    "ErrorResponse",
+    "MarketTrendsResponse",
+    "RunningCostResponse",
+    "MileageResponse",
+    "OwnershipResponse",
+    "FuelResponse",
 ]
