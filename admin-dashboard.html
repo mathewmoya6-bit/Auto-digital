@@ -1084,50 +1084,37 @@
                         return false;
                     }
 
-                    // Check admin_users table
+                    // The real signup trigger (handle_new_user, on
+                    // auth.users) writes to public.users, keyed by
+                    // auth_user_id, with an account_type_enum column whose
+                    // valid values include 'admin', 'staff', 'agent',
+                    // 'individual', 'corporate'. admin_users and profiles
+                    // (checked here previously) are unrelated/dead tables
+                    // nothing in the actual signup flow populates.
                     const { data, error } = await client
-                        .from('admin_users')
-                        .select('role')
-                        .eq('user_id', uid)
+                        .from('users')
+                        .select('account_type')
+                        .eq('auth_user_id', uid)
                         .single();
 
                     if (!error && data) {
-                        console.log(`✅ Admin check: found in admin_users (role=${data.role})`);
-                        return true;
+                        const isAdminType = data.account_type === 'admin' || data.account_type === 'staff';
+                        console.log(`${isAdminType ? '✅' : 'ℹ️'} Admin check: public.users.account_type=${data.account_type}`);
+                        return isAdminType;
                     }
                     if (error) {
-                        // PGRST116 = no row found (expected/benign if the
-                        // user just isn't in this table). Anything else —
-                        // especially 401/403-style codes — usually means
-                        // Row Level Security is blocking the read, which
-                        // looks identical to "not an admin" unless logged.
+                        // PGRST116 = no row found. Anything else usually
+                        // means RLS is blocking the read — verify
+                        // public.users has a SELECT policy allowing
+                        // auth_user_id = auth.uid().
                         if (error.code === 'PGRST116') {
-                            console.log(`ℹ️ Admin check: no row in admin_users for user_id=${uid}`);
+                            console.log(`ℹ️ Admin check: no row in public.users for auth_user_id=${uid}`);
                         } else {
-                            console.warn(`⚠️ Admin check: admin_users query failed (code=${error.code || '?'}): ${error.message}. This may be RLS blocking the read rather than the user simply not being an admin — verify the table's Row Level Security policy allows a user to select their own row (e.g. user_id = auth.uid()).`);
+                            console.warn(`⚠️ Admin check: public.users query failed (code=${error.code || '?'}): ${error.message}. This may be RLS blocking the read — verify the table's Row Level Security policy allows a user to select their own row (auth_user_id = auth.uid()).`);
                         }
                     }
 
-                    // Fallback: check profiles.is_admin
-                    const { data: profile, error: profileError } = await client
-                        .from('profiles')
-                        .select('is_admin')
-                        .eq('user_id', uid)
-                        .single();
-
-                    if (!profileError && profile) {
-                        console.log(`${profile.is_admin ? '✅' : 'ℹ️'} Admin check: profiles.is_admin=${profile.is_admin}`);
-                        return profile.is_admin === true;
-                    }
-                    if (profileError) {
-                        if (profileError.code === 'PGRST116') {
-                            console.log(`ℹ️ Admin check: no row in profiles for user_id=${uid}`);
-                        } else {
-                            console.warn(`⚠️ Admin check: profiles query failed (code=${profileError.code || '?'}): ${profileError.message}. Same RLS caveat as above applies here.`);
-                        }
-                    }
-
-                    console.warn(`❌ Admin check: user_id=${uid} is not in admin_users and has no is_admin=true row in profiles (or RLS is blocking both reads — see warnings above).`);
+                    console.warn(`❌ Admin check: auth_user_id=${uid} has no public.users row with account_type 'admin'/'staff' (or RLS is blocking the read — see warning above).`);
                     return false;
                 } catch (error) {
                     console.warn('⚠️ Admin check error (unexpected exception, not a normal "not admin" result):', error.message);
@@ -1295,9 +1282,15 @@
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
+                    // Filtered to 'nairobi' to match the region the
+                    // mileage calculator actually reads — without this,
+                    // "latest per fuel_type" could pick a row from any
+                    // region, showing the admin a price that isn't the
+                    // one customers are actually being quoted.
                     const { data, error } = await client
                         .from('fuel_prices')
                         .select('*')
+                        .eq('region', 'nairobi')
                         .order('created_at', { ascending: false });
                     if (error) throw error;
                     
@@ -1328,11 +1321,22 @@
                 const apiResult = await updateFuelPriceViaApi(fuelType, price);
                 if (apiResult.success) return apiResult;
                 // Fallback: write directly to Supabase (previous behavior).
+                // FIXED: the real unique constraint is
+                // (fuel_type, region, effective_date) — not fuel_type
+                // alone — so the upsert must supply region and
+                // effective_date and match the conflict key to all three,
+                // or Postgres has nothing to match ON CONFLICT against.
+                // region defaults to 'nairobi' to match what the mileage
+                // calculator reads (see fuel_prices .eq('region','nairobi')
+                // in mileage-calculator.html); effective_date is today.
+                const today = new Date().toISOString().split('T')[0];
                 return await upsert('fuel_prices', {
                     fuel_type: fuelType,
+                    region: 'nairobi',
+                    effective_date: today,
                     price: price,
                     currency: 'KES'
-                }, 'fuel_type');
+                }, 'fuel_type,region,effective_date');
             }
 
             // ─── Service Prices ─────────────────────────────────────────
@@ -1479,10 +1483,14 @@
                     if (!client) throw new Error('Supabase not initialized');
                     
                     // Get counts from multiple tables
+                    // NOTE: was counting 'profiles' for the users stat —
+                    // that table turned out to be dead/unused (see
+                    // isAdmin() comment above); the real user table is
+                    // public.users, populated by the actual signup trigger.
                     const [{ count: vehicles }, { count: reports }, { count: users }, { count: apiCalls }] = await Promise.all([
                         client.from('vehicle_variants').select('*', { count: 'exact', head: true }),
                         client.from('mileage_reports').select('*', { count: 'exact', head: true }),
-                        client.from('profiles').select('*', { count: 'exact', head: true }),
+                        client.from('users').select('*', { count: 'exact', head: true }),
                         client.from('api_logs').select('*', { count: 'exact', head: true })
                             .gte('created_at', new Date(new Date().setHours(0,0,0,0)).toISOString())
                     ]);
@@ -1740,7 +1748,7 @@
 
                     const admin = await isAdmin(result.user.id);
                     if (!admin) {
-                        console.warn(`❌ Login blocked: ${email} (user_id: ${result.user.id}) authenticated successfully but failed the admin check. See the "Admin check" logs above for the specific reason. To grant access, add this user_id to admin_users or set is_admin=true on their profiles row.`);
+                        console.warn(`❌ Login blocked: ${email} (auth_user_id: ${result.user.id}) authenticated successfully but failed the admin check. See the "Admin check" logs above for the specific reason. To grant access: update public.users set account_type = 'admin' where auth_user_id = '${result.user.id}';`);
                         await signOut();
                         throw new Error('Unauthorized: Admin access required');
                     }
