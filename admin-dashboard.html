@@ -1072,29 +1072,65 @@
             }
 
             async function isAdmin(userId) {
+                const uid = userId || currentUser?.id;
                 try {
                     const client = getSupabaseClient();
-                    if (!client) return false;
+                    if (!client) {
+                        console.warn('⚠️ Admin check: Supabase client not initialized');
+                        return false;
+                    }
+                    if (!uid) {
+                        console.warn('⚠️ Admin check: no user id available to check');
+                        return false;
+                    }
+
                     // Check admin_users table
                     const { data, error } = await client
                         .from('admin_users')
                         .select('role')
-                        .eq('user_id', userId || currentUser?.id)
+                        .eq('user_id', uid)
                         .single();
-                    if (!error && data) return true;
-                    
+
+                    if (!error && data) {
+                        console.log(`✅ Admin check: found in admin_users (role=${data.role})`);
+                        return true;
+                    }
+                    if (error) {
+                        // PGRST116 = no row found (expected/benign if the
+                        // user just isn't in this table). Anything else —
+                        // especially 401/403-style codes — usually means
+                        // Row Level Security is blocking the read, which
+                        // looks identical to "not an admin" unless logged.
+                        if (error.code === 'PGRST116') {
+                            console.log(`ℹ️ Admin check: no row in admin_users for user_id=${uid}`);
+                        } else {
+                            console.warn(`⚠️ Admin check: admin_users query failed (code=${error.code || '?'}): ${error.message}. This may be RLS blocking the read rather than the user simply not being an admin — verify the table's Row Level Security policy allows a user to select their own row (e.g. user_id = auth.uid()).`);
+                        }
+                    }
+
                     // Fallback: check profiles.is_admin
                     const { data: profile, error: profileError } = await client
                         .from('profiles')
                         .select('is_admin')
-                        .eq('user_id', userId || currentUser?.id)
+                        .eq('user_id', uid)
                         .single();
+
                     if (!profileError && profile) {
+                        console.log(`${profile.is_admin ? '✅' : 'ℹ️'} Admin check: profiles.is_admin=${profile.is_admin}`);
                         return profile.is_admin === true;
                     }
+                    if (profileError) {
+                        if (profileError.code === 'PGRST116') {
+                            console.log(`ℹ️ Admin check: no row in profiles for user_id=${uid}`);
+                        } else {
+                            console.warn(`⚠️ Admin check: profiles query failed (code=${profileError.code || '?'}): ${profileError.message}. Same RLS caveat as above applies here.`);
+                        }
+                    }
+
+                    console.warn(`❌ Admin check: user_id=${uid} is not in admin_users and has no is_admin=true row in profiles (or RLS is blocking both reads — see warnings above).`);
                     return false;
                 } catch (error) {
-                    console.warn('⚠️ Admin check error:', error.message);
+                    console.warn('⚠️ Admin check error (unexpected exception, not a normal "not admin" result):', error.message);
                     return false;
                 }
             }
@@ -1704,6 +1740,7 @@
 
                     const admin = await isAdmin(result.user.id);
                     if (!admin) {
+                        console.warn(`❌ Login blocked: ${email} (user_id: ${result.user.id}) authenticated successfully but failed the admin check. See the "Admin check" logs above for the specific reason. To grant access, add this user_id to admin_users or set is_admin=true on their profiles row.`);
                         await signOut();
                         throw new Error('Unauthorized: Admin access required');
                     }
