@@ -665,6 +665,23 @@
             }
         }
 
+        // FIXED: always ask Supabase for the current (auto-refreshed) session first,
+        // and only fall back to whatever's cached in localStorage.
+        async function getFreshAccessToken() {
+            try {
+                if (supabaseClient) {
+                    const { data: { session } } = await supabaseClient.auth.getSession();
+                    if (session && session.access_token) {
+                        persistSession(session);
+                        return session.access_token;
+                    }
+                }
+            } catch (e) {
+                console.warn('⚠️ Could not refresh Supabase session:', e.message);
+            }
+            return localStorage.getItem('access_token') || '';
+        }
+
         // ─── CONDITIONAL FIELD VISIBILITY ──────────────────────────
         function updateConditionalFields() {
             const selectedType = vehicleTypeSelect.value;
@@ -703,7 +720,12 @@
                     return; 
                 }
                 const { createClient } = supabase;
-                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                    auth: {
+                        persistSession: true,
+                        autoRefreshToken: true
+                    }
+                });
 
                 supabaseClient.auth.getSession().then(({ data: { session } }) => {
                     if (session?.user) { 
@@ -1218,6 +1240,8 @@
         }
 
         // ─── FASTAPI API CALL ────────────────────────────────────
+        // FIXED: fetches a fresh Supabase-backed token (auto-refreshed) instead of
+        // trusting a possibly-stale value sitting in localStorage.
         async function callValuationAPI(formData, imageFiles) {
             let images = [];
             if (imageFiles && imageFiles.length > 0) {
@@ -1243,7 +1267,7 @@
                 images: images.length > 0 ? images : undefined
             };
 
-            const token = localStorage.getItem('access_token') || '';
+            const token = await getFreshAccessToken();
             const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
