@@ -225,7 +225,9 @@
             justify-content: space-between;
             flex-wrap: wrap;
             gap: 12px;
+            cursor: pointer;
         }
+        .health-bar:hover { border-color: var(--primary); }
         .health-bar .health-status {
             display: flex;
             align-items: center;
@@ -703,111 +705,6 @@
             font-size: 13px;
             font-family: monospace;
         }
-
-        /* ─── Admin Setup Section ───────────────────────────────────── */
-        .admin-setup {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 24px;
-            margin-bottom: 28px;
-        }
-        .admin-setup .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .admin-setup .card-header h3 {
-            font-family: var(--font-heading);
-            font-size: 17px;
-            color: var(--text-secondary);
-        }
-        .admin-setup .form-group-inline {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        .admin-setup input {
-            padding: 10px 14px;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text);
-            font-size: 14px;
-            font-family: var(--font-body);
-            flex: 1;
-            min-width: 200px;
-        }
-        .admin-setup input:focus {
-            outline: none;
-            border-color: var(--primary);
-        }
-        .admin-setup .grant-btn {
-            padding: 10px 24px;
-            background: var(--success);
-            color: var(--bg);
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 700;
-            font-family: var(--font-body);
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .admin-setup .grant-btn:hover {
-            opacity: 0.85;
-            transform: translateY(-2px);
-        }
-        .admin-setup .grant-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-        .admin-setup .admin-list {
-            margin-top: 16px;
-        }
-        .admin-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 14px;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            margin-bottom: 6px;
-        }
-        .admin-item .admin-email {
-            color: var(--text-secondary);
-            font-weight: 500;
-        }
-        .admin-item .admin-role {
-            font-size: 11px;
-            padding: 2px 12px;
-            border-radius: 12px;
-            background: rgba(234, 179, 8, 0.15);
-            color: var(--primary);
-            font-weight: 600;
-        }
-        .admin-item .revoke-btn {
-            padding: 4px 12px;
-            background: transparent;
-            border: 1px solid var(--danger);
-            color: var(--danger);
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 11px;
-            font-weight: 600;
-            font-family: var(--font-body);
-            transition: all 0.2s;
-        }
-        .admin-item .revoke-btn:hover {
-            background: var(--danger);
-            color: var(--bg);
-        }
     </style>
 </head>
 <body>
@@ -852,7 +749,7 @@
             </div>
 
             <!-- ─── Health Status Bar ─────────────────────────────────── -->
-            <div class="health-bar" id="healthBar">
+            <div class="health-bar" id="healthBar" title="Click to check now">
                 <div class="health-status">
                     <div class="health-dot checking" id="healthDot"></div>
                     <span class="health-label checking" id="healthLabel">Checking backend...</span>
@@ -883,21 +780,6 @@
                     <p>Here's what's happening with Auto-D Kenya today</p>
                 </div>
                 <div class="time" id="currentTime"></div>
-            </div>
-
-            <!-- Admin Setup Section -->
-            <div class="admin-setup" id="adminSetup">
-                <div class="card-header">
-                    <h3>👑 Admin Management</h3>
-                    <span class="badge badge-success">Super Admin</span>
-                </div>
-                <div class="form-group-inline">
-                    <input type="email" id="grantEmail" placeholder="Enter user email to grant admin access" />
-                    <button class="grant-btn" id="grantAdminBtn">👑 Grant Admin</button>
-                </div>
-                <div class="admin-list" id="adminList">
-                    <div style="color:var(--text-muted);font-size:13px;padding:8px 0;">Loading admins...</div>
-                </div>
             </div>
 
             <!-- Stats -->
@@ -1055,7 +937,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - ADMIN DASHBOARD
-        // Full Supabase + FastAPI Integration with Admin Management
+        // Full Supabase + FastAPI Integration
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1068,6 +950,8 @@
             // ✅ FastAPI endpoints
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
             const HEALTH_CHECK_URL = 'https://auto-digital.onrender.com/health';
+            const HEALTH_CHECK_INTERVAL_MS = 15000; // was 30000 — halved for a "live-er" feel
+            const HEALTH_FETCH_TIMEOUT_MS = 5000;
 
             // ─── STATE ──────────────────────────────────────────────────
             let supabaseClient = null;
@@ -1076,7 +960,7 @@
             let activityLogs = [];
             let healthCheckInterval = null;
             let clockInterval = null;
-            let adminList = [];
+            let healthCheckInFlight = false; // guards against overlapping checks
 
             // ─── DOM Elements ──────────────────────────────────────────
             const loginScreen = document.getElementById('loginScreen');
@@ -1088,11 +972,9 @@
             const connectionStatus = document.getElementById('connectionStatus');
             const fuelGrid = document.getElementById('fuelGrid');
             const serviceList = document.getElementById('serviceList');
-            const grantEmail = document.getElementById('grantEmail');
-            const grantAdminBtn = document.getElementById('grantAdminBtn');
-            const adminListEl = document.getElementById('adminList');
 
             // Health status elements
+            const healthBar = document.getElementById('healthBar');
             const healthDot = document.getElementById('healthDot');
             const healthLabel = document.getElementById('healthLabel');
             const healthPing = document.getElementById('healthPing');
@@ -1181,14 +1063,7 @@
                     await client.auth.signOut();
                     currentUser = null;
                     localStorage.removeItem('auto_d_user');
-                    if (healthCheckInterval) {
-                        clearInterval(healthCheckInterval);
-                        healthCheckInterval = null;
-                    }
-                    if (clockInterval) {
-                        clearInterval(clockInterval);
-                        clockInterval = null;
-                    }
+                    stopLiveUpdates();
                     return { success: true };
                 } catch (error) {
                     console.error('❌ Sign out error:', error);
@@ -1196,12 +1071,10 @@
                 }
             }
 
-            // ─── Admin Management Functions ─────────────────────────────
             async function isAdmin(userId) {
                 try {
                     const client = getSupabaseClient();
                     if (!client) return false;
-                    
                     // Check admin_users table
                     const { data, error } = await client
                         .from('admin_users')
@@ -1225,144 +1098,6 @@
                     return false;
                 }
             }
-
-            async function grantAdminAccess(email) {
-                try {
-                    const client = getSupabaseClient();
-                    if (!client) throw new Error('Supabase not initialized');
-
-                    // First, find the user by email
-                    const { data: userData, error: userError } = await client
-                        .from('auth.users')
-                        .select('id, email')
-                        .eq('email', email.toLowerCase().trim())
-                        .single();
-
-                    if (userError || !userData) {
-                        throw new Error('User not found. Please make sure the user has signed up first.');
-                    }
-
-                    const userId = userData.id;
-
-                    // Insert into admin_users
-                    const { error: adminError } = await client
-                        .from('admin_users')
-                        .upsert({
-                            user_id: userId,
-                            role: 'admin'
-                        }, { onConflict: 'user_id' });
-
-                    if (adminError) throw adminError;
-
-                    // Update profile
-                    const { error: profileError } = await client
-                        .from('profiles')
-                        .upsert({
-                            user_id: userId,
-                            is_admin: true
-                        }, { onConflict: 'user_id' });
-
-                    if (profileError) throw profileError;
-
-                    await addAdminLog(`👑 Granted admin access to ${email}`, currentUser?.email);
-                    await loadAdmins();
-                    showToast(`✅ Admin access granted to ${email}!`, 'success');
-                    return { success: true };
-
-                } catch (error) {
-                    console.error('❌ Grant admin error:', error);
-                    showToast(`❌ ${error.message}`, 'error');
-                    return { success: false, error: error.message };
-                }
-            }
-
-            async function revokeAdminAccess(userId, email) {
-                try {
-                    const client = getSupabaseClient();
-                    if (!client) throw new Error('Supabase not initialized');
-
-                    // Don't allow revoking your own admin access
-                    if (userId === currentUser?.id) {
-                        throw new Error('You cannot revoke your own admin access!');
-                    }
-
-                    // Delete from admin_users
-                    const { error: adminError } = await client
-                        .from('admin_users')
-                        .delete()
-                        .eq('user_id', userId);
-
-                    if (adminError) throw adminError;
-
-                    // Update profile
-                    const { error: profileError } = await client
-                        .from('profiles')
-                        .update({ is_admin: false })
-                        .eq('user_id', userId);
-
-                    if (profileError) throw profileError;
-
-                    await addAdminLog(`🔴 Revoked admin access from ${email}`, currentUser?.email);
-                    await loadAdmins();
-                    showToast(`✅ Admin access revoked from ${email}`, 'success');
-                    return { success: true };
-
-                } catch (error) {
-                    console.error('❌ Revoke admin error:', error);
-                    showToast(`❌ ${error.message}`, 'error');
-                    return { success: false, error: error.message };
-                }
-            }
-
-            async function loadAdmins() {
-                try {
-                    const client = getSupabaseClient();
-                    if (!client) return;
-
-                    const { data, error } = await client
-                        .from('admin_users')
-                        .select('user_id, role, profiles(email, full_name)');
-
-                    if (error) throw error;
-
-                    adminList = data || [];
-                    renderAdminList();
-
-                } catch (error) {
-                    console.warn('⚠️ Load admins error:', error.message);
-                    adminListEl.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">❌ Error loading admins: ${error.message}</div>`;
-                }
-            }
-
-            function renderAdminList() {
-                if (adminList.length === 0) {
-                    adminListEl.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">No admin users found.</div>`;
-                    return;
-                }
-
-                adminListEl.innerHTML = adminList.map(admin => {
-                    const email = admin.profiles?.email || 'Unknown';
-                    const name = admin.profiles?.full_name || email.split('@')[0];
-                    const isCurrentUser = admin.user_id === currentUser?.id;
-                    return `
-                        <div class="admin-item">
-                            <div>
-                                <span class="admin-email">${email}</span>
-                                <span class="admin-role">${admin.role || 'admin'}</span>
-                                ${isCurrentUser ? ' <span style="color:var(--primary);font-size:11px;">(You)</span>' : ''}
-                            </div>
-                            ${!isCurrentUser ? `<button class="revoke-btn" onclick="window.revokeAdmin('${admin.user_id}', '${email}')">Revoke</button>` : ''}
-                        </div>
-                    `;
-                }).join('');
-            }
-
-            // Expose revoke function globally
-            window.revokeAdmin = function(userId, email) {
-                if (confirm(`Are you sure you want to revoke admin access from ${email}?`)) {
-                    revokeAdminAccess(userId, email);
-                }
-            };
 
             // ─── Database Functions ─────────────────────────────────────
             async function query(table, select = '*', filters = {}, order = null, limit = null) {
@@ -1411,7 +1146,115 @@
                 }
             }
 
+            // ─── Backend API auth helper ─────────────────────────────────
+            // admin.py's endpoints require an authenticated admin user
+            // (Depends(get_current_user) + role check per security.py's
+            // verify_admin). Since login here goes through Supabase, we
+            // attach the Supabase session's access_token as the bearer —
+            // that's what get_current_user expects (it calls
+            // supabase.auth.get_user(token) to verify).
+            async function getAuthHeaders() {
+                const headers = { 'Content-Type': 'application/json' };
+                try {
+                    const client = getSupabaseClient();
+                    if (client) {
+                        const { data } = await client.auth.getSession();
+                        const token = data?.session?.access_token;
+                        if (token) headers['Authorization'] = `Bearer ${token}`;
+                    }
+                } catch (_) { /* proceed without auth header */ }
+                return headers;
+            }
+
+            async function apiFetch(path, options = {}) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 6000);
+                try {
+                    const headers = await getAuthHeaders();
+                    const res = await fetch(`${API_BASE}${path}`, {
+                        ...options,
+                        headers: { ...headers, ...(options.headers || {}) },
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                    if (!res.ok) {
+                        const text = await res.text().catch(() => '');
+                        throw new Error(`API ${res.status}: ${text.slice(0, 200)}`);
+                    }
+                    return await res.json();
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    throw error;
+                }
+            }
+
             // ─── Fuel Prices ────────────────────────────────────────────
+            // FIXED: previously wrote/read fuel_prices directly in Supabase,
+            // bypassing the backend entirely — meaning /api/v1/admin/fuel-prices
+            // (which the mileage calculator's server-side engine actually
+            // reads through) could disagree with what the admin saw here.
+            // Now the backend is tried first; Supabase read/write is kept
+            // as a fallback so the dashboard doesn't break if the backend
+            // is down or if the payload shape below doesn't match exactly
+            // (unconfirmed — I don't have admin.py's real request/response
+            // schema, only the endpoint path and method from the docs list).
+            async function getFuelPricesFromApi() {
+                try {
+                    // GET /api/v1/fuel/prices is documented as unauthenticated
+                    // under the "Fuel" tag (unlike the Admin-tagged write).
+                    const data = await apiFetch('/fuel/prices', { method: 'GET' });
+                    // Response shape assumed to be either an array of
+                    // {fuel_type, price, currency, effective_date} or an
+                    // object keyed by fuel_type — handle both.
+                    const prices = {};
+                    if (Array.isArray(data)) {
+                        data.forEach(item => {
+                            const key = item.fuel_type || item.type;
+                            if (!key) return;
+                            prices[key] = {
+                                price: item.price,
+                                date: item.effective_date || item.date || item.created_at,
+                                currency: item.currency || 'KES'
+                            };
+                        });
+                    } else if (data && typeof data === 'object') {
+                        Object.entries(data).forEach(([key, val]) => {
+                            if (val && typeof val === 'object') {
+                                prices[key] = {
+                                    price: val.price,
+                                    date: val.effective_date || val.date,
+                                    currency: val.currency || 'KES'
+                                };
+                            } else if (typeof val === 'number') {
+                                prices[key] = { price: val, date: null, currency: 'KES' };
+                            }
+                        });
+                    }
+                    if (Object.keys(prices).length === 0) throw new Error('Unrecognized response shape from /fuel/prices');
+                    return { success: true, data: prices };
+                } catch (error) {
+                    console.warn('⚠️ /fuel/prices API call failed, falling back to Supabase:', error.message);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            async function updateFuelPriceViaApi(fuelType, price) {
+                try {
+                    // Payload assumed to mirror the fuel_prices table's own
+                    // column names (fuel_type, price, currency), matching
+                    // the convention used by every other engine in this
+                    // codebase. Unconfirmed against the real schema.
+                    await apiFetch('/admin/fuel-prices', {
+                        method: 'PUT',
+                        body: JSON.stringify({ fuel_type: fuelType, price, currency: 'KES' })
+                    });
+                    return { success: true };
+                } catch (error) {
+                    console.warn(`⚠️ Admin fuel-price API update failed for ${fuelType}, falling back to direct Supabase write:`, error.message);
+                    return { success: false, error: error.message };
+                }
+            }
+
             async function getFuelPrices() {
                 try {
                     const client = getSupabaseClient();
@@ -1422,6 +1265,7 @@
                         .order('created_at', { ascending: false });
                     if (error) throw error;
                     
+                    // Get latest per fuel type
                     const latest = {};
                     data.forEach(item => {
                         if (!latest[item.fuel_type] || new Date(item.created_at) > new Date(latest[item.fuel_type].created_at)) {
@@ -1445,6 +1289,9 @@
             }
 
             async function updateFuelPrice(fuelType, price) {
+                const apiResult = await updateFuelPriceViaApi(fuelType, price);
+                if (apiResult.success) return apiResult;
+                // Fallback: write directly to Supabase (previous behavior).
                 return await upsert('fuel_prices', {
                     fuel_type: fuelType,
                     price: price,
@@ -1500,6 +1347,7 @@
                         .eq('key', 'engine_settings')
                         .single();
                     if (error) {
+                        // Return defaults if not found
                         return { success: true, data: {
                             depreciation_rate: 0.15,
                             insurance_rate: 0.045,
@@ -1551,11 +1399,50 @@
             }
 
             // ─── Dashboard Stats ────────────────────────────────────────
+            // FIXED: previously computed stats by aggregating four Supabase
+            // tables client-side, ignoring /api/v1/admin/dashboard entirely.
+            // Now tries that endpoint first. Field names in the response
+            // are unconfirmed (no schema available), so this reads several
+            // plausible key spellings per stat rather than assuming one —
+            // if none match, it's treated as a failed call and falls back.
+            function pickField(obj, candidates) {
+                for (const key of candidates) {
+                    if (obj && obj[key] !== undefined && obj[key] !== null) return obj[key];
+                }
+                return undefined;
+            }
+
+            async function getDashboardStatsFromApi() {
+                try {
+                    const data = await apiFetch('/admin/dashboard', { method: 'GET' });
+                    const vehicles = pickField(data, ['vehicles', 'vehicle_count', 'total_vehicles', 'variants']);
+                    const reports = pickField(data, ['reports', 'report_count', 'total_reports', 'mileage_reports']);
+                    const users = pickField(data, ['users', 'user_count', 'total_users', 'active_users']);
+                    const apiCalls = pickField(data, ['apiCalls', 'api_calls', 'api_calls_today', 'requests_today']);
+                    if ([vehicles, reports, users, apiCalls].every(v => v === undefined)) {
+                        throw new Error('Unrecognized response shape from /admin/dashboard');
+                    }
+                    return {
+                        success: true,
+                        data: {
+                            vehicles: vehicles || 0,
+                            reports: reports || 0,
+                            users: users || 0,
+                            apiCalls: apiCalls || 0
+                        }
+                    };
+                } catch (error) {
+                    console.warn('⚠️ /admin/dashboard API call failed, falling back to Supabase aggregation:', error.message);
+                    return { success: false, error: error.message };
+                }
+            }
+
             async function getDashboardStats() {
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
                     
+                    // Get counts from multiple tables
                     const [{ count: vehicles }, { count: reports }, { count: users }, { count: apiCalls }] = await Promise.all([
                         client.from('vehicle_variants').select('*', { count: 'exact', head: true }),
                         client.from('mileage_reports').select('*', { count: 'exact', head: true }),
@@ -1580,10 +1467,33 @@
             }
 
             // ─── Health Check ────────────────────────────────────────────
-            async function checkHealth() {
-                try {
-                    const startTime = performance.now();
+            // FIXES applied here:
+            //  1. Ping shown is now the FastAPI request's own round-trip time,
+            //     measured around just that fetch — previously it wrapped
+            //     BOTH the Supabase check and the FastAPI fetch sequentially,
+            //     so "ms" was really "combined latency of two calls", not a
+            //     meaningful "backend" ping.
+            //  2. Every check cycle (not just the very first one) now flips
+            //     the dot/label to the blue "checking" state before the
+            //     result lands, so the bar visibly refreshes every interval
+            //     instead of silently swapping green<->green with no motion.
+            //  3. healthCheckInFlight guards against overlapping calls if a
+            //     manual click-to-check-now happens right as the interval
+            //     timer fires.
+            //  4. AbortController timeout now actually distinguishes a
+            //     timeout from a real failure in the console for debugging.
+            async function checkHealth(manual = false) {
+                if (healthCheckInFlight) return;
+                healthCheckInFlight = true;
 
+                // Show the "checking" state immediately so the bar visibly
+                // updates on every cycle, not just on first load.
+                healthDot.className = 'health-dot checking';
+                healthLabel.className = 'health-label checking';
+                healthLabel.textContent = manual ? 'Checking now...' : 'Checking backend...';
+
+                try {
+                    // Check Supabase
                     let supabaseOk = false;
                     try {
                         const client = getSupabaseClient();
@@ -1598,11 +1508,14 @@
                         supabaseOk = false;
                     }
 
+                    // Check FastAPI — ping measured around this call only
                     let fastapiOk = false;
                     let fastapiVersion = '—';
+                    let fastapiPing = 0;
+                    const fastapiStart = performance.now();
                     try {
                         const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 3000);
+                        const timeoutId = setTimeout(() => controller.abort(), HEALTH_FETCH_TIMEOUT_MS);
                         const response = await fetch(HEALTH_CHECK_URL, {
                             method: 'GET',
                             headers: { 'Accept': 'application/json' },
@@ -1616,16 +1529,21 @@
                         }
                     } catch (e) {
                         fastapiOk = false;
+                        if (e.name === 'AbortError') {
+                            console.warn(`⚠️ Health check: FastAPI timed out after ${HEALTH_FETCH_TIMEOUT_MS}ms`);
+                        } else {
+                            console.warn('⚠️ Health check: FastAPI request failed:', e.message);
+                        }
                     }
+                    fastapiPing = Math.round(performance.now() - fastapiStart);
 
-                    const endTime = performance.now();
-                    const pingMs = Math.round(endTime - startTime);
-
-                    updateHealthUI(supabaseOk, fastapiOk, pingMs, fastapiVersion);
+                    updateHealthUI(supabaseOk, fastapiOk, fastapiPing, fastapiVersion);
 
                 } catch (error) {
                     console.warn('⚠️ Health check error:', error);
                     updateHealthUI(false, false, 0, '—');
+                } finally {
+                    healthCheckInFlight = false;
                 }
             }
 
@@ -1665,6 +1583,55 @@
                 connectionStatus.style.color = isOnline ? 'var(--success)' : 
                                               isDegraded ? 'var(--warning)' : 'var(--danger)';
             }
+
+            // ─── Live update lifecycle helpers ──────────────────────────
+            // Centralizes starting/stopping the health-check interval and
+            // clock so login, logout, and visibility-change handling can't
+            // drift out of sync with each other (previously each of those
+            // three places re-implemented the same clearInterval/setInterval
+            // pair slightly differently).
+            function startLiveUpdates() {
+                stopLiveUpdates();
+                checkHealth();
+                healthCheckInterval = setInterval(checkHealth, HEALTH_CHECK_INTERVAL_MS);
+                updateClock();
+                clockInterval = setInterval(updateClock, 1000);
+            }
+
+            function stopLiveUpdates() {
+                if (healthCheckInterval) {
+                    clearInterval(healthCheckInterval);
+                    healthCheckInterval = null;
+                }
+                if (clockInterval) {
+                    clearInterval(clockInterval);
+                    clockInterval = null;
+                }
+            }
+
+            // Pause polling when the tab isn't visible (saves requests /
+            // avoids a pile of missed-interval catch-up calls), and force
+            // an immediate re-check the moment the tab becomes visible
+            // again so the status shown is never stale after switching back.
+            document.addEventListener('visibilitychange', function() {
+                if (!isLoggedIn) return;
+                if (document.hidden) {
+                    if (healthCheckInterval) {
+                        clearInterval(healthCheckInterval);
+                        healthCheckInterval = null;
+                    }
+                } else {
+                    checkHealth();
+                    if (!healthCheckInterval) {
+                        healthCheckInterval = setInterval(checkHealth, HEALTH_CHECK_INTERVAL_MS);
+                    }
+                }
+            });
+
+            // Click-to-refresh on the health bar itself.
+            healthBar.addEventListener('click', function() {
+                checkHealth(true);
+            });
 
             // ─── Toast ──────────────────────────────────────────────────
             function showToast(message, type = 'success') {
@@ -1710,7 +1677,6 @@
                         document.getElementById('adminName').textContent = name;
                         document.getElementById('welcomeName').textContent = name;
                         document.getElementById('adminAvatar').textContent = name[0].toUpperCase();
-                        document.getElementById('adminRole').textContent = '🔑 Super Admin';
                         return true;
                     }
                     return false;
@@ -1754,13 +1720,7 @@
                     
                     showToast('✅ Login successful!', 'success');
                     
-                    await checkHealth();
-                    if (healthCheckInterval) clearInterval(healthCheckInterval);
-                    healthCheckInterval = setInterval(checkHealth, 30000);
-                    
-                    updateClock();
-                    if (clockInterval) clearInterval(clockInterval);
-                    clockInterval = setInterval(updateClock, 1000);
+                    startLiveUpdates();
                     
                     await loadDashboardData();
 
@@ -1781,33 +1741,7 @@
                 dashboardScreen.classList.add('hidden');
                 loginScreen.classList.remove('hidden');
                 document.getElementById('adminPassword').value = '';
-                if (healthCheckInterval) {
-                    clearInterval(healthCheckInterval);
-                    healthCheckInterval = null;
-                }
-                if (clockInterval) {
-                    clearInterval(clockInterval);
-                    clockInterval = null;
-                }
                 showToast('👋 Logged out', 'info');
-            });
-
-            // ─── Grant Admin ────────────────────────────────────────────
-            grantAdminBtn.addEventListener('click', async function() {
-                const email = grantEmail.value.trim();
-                if (!email) {
-                    showToast('Please enter an email address', 'error');
-                    return;
-                }
-                
-                grantAdminBtn.disabled = true;
-                grantAdminBtn.textContent = '⏳ Granting...';
-                
-                await grantAdminAccess(email);
-                
-                grantAdminBtn.disabled = false;
-                grantAdminBtn.textContent = '👑 Grant Admin';
-                grantEmail.value = '';
             });
 
             // ─── Load Dashboard Data ──────────────────────────────────
@@ -1817,8 +1751,7 @@
                     fetchFuelPrices(),
                     fetchServicePrices(),
                     fetchEngineSettings(),
-                    fetchLogs(),
-                    loadAdmins()
+                    fetchLogs()
                 ]);
                 showToast('✅ Dashboard loaded', 'success');
             }
@@ -1826,7 +1759,10 @@
             // ─── Fetch Stats ───────────────────────────────────────────
             async function fetchStats() {
                 try {
-                    const result = await getDashboardStats();
+                    let result = await getDashboardStatsFromApi();
+                    if (!result.success) {
+                        result = await getDashboardStats();
+                    }
                     if (result.success) {
                         const stats = result.data;
                         document.getElementById('statValuations').textContent = (stats.vehicles || 0).toLocaleString();
@@ -1842,10 +1778,16 @@
             // ─── Fetch Fuel Prices ─────────────────────────────────────
             async function fetchFuelPrices() {
                 try {
-                    const result = await getFuelPrices();
+                    // Chain: backend API -> Supabase -> hardcoded fallback.
+                    let result = await getFuelPricesFromApi();
+                    let source = 'API';
+                    if (!result.success) {
+                        result = await getFuelPrices();
+                        source = 'Supabase';
+                    }
                     if (result.success && result.data && Object.keys(result.data).length > 0) {
                         renderFuelPrices(result.data);
-                        document.getElementById('fuelStatus').textContent = '● Connected';
+                        document.getElementById('fuelStatus').textContent = `● Connected (${source})`;
                         document.getElementById('fuelStatus').className = 'badge badge-success';
                     } else {
                         renderFallbackFuelPrices();
@@ -2162,8 +2104,7 @@
                         fetchServicePrices(),
                         fetchEngineSettings(),
                         fetchLogs(),
-                        checkHealth(),
-                        loadAdmins()
+                        checkHealth(true)
                     ]);
                     await addAdminLog('🔄 All data synced successfully', 'admin');
                     showToast('✅ All data synced!', 'success');
@@ -2252,7 +2193,7 @@
                 }
                 if (e.ctrlKey && e.key === 'h' && isLoggedIn) {
                     e.preventDefault();
-                    checkHealth();
+                    checkHealth(true);
                     showToast('🔄 Health check triggered', 'info');
                 }
                 if (e.ctrlKey && e.key === 's' && isLoggedIn) {
@@ -2276,11 +2217,7 @@
                     loginScreen.classList.add('hidden');
                     dashboardScreen.classList.remove('hidden');
                     
-                    await checkHealth();
-                    healthCheckInterval = setInterval(checkHealth, 30000);
-                    
-                    updateClock();
-                    clockInterval = setInterval(updateClock, 1000);
+                    startLiveUpdates();
                     
                     await loadDashboardData();
                 } else {
@@ -2288,6 +2225,7 @@
                     dashboardScreen.classList.add('hidden');
                 }
 
+                // Listen for auth changes
                 if (supabaseClient) {
                     supabaseClient.auth.onAuthStateChange((event, session) => {
                         if (event === 'SIGNED_OUT') {
@@ -2295,14 +2233,7 @@
                             dashboardScreen.classList.add('hidden');
                             loginScreen.classList.remove('hidden');
                             localStorage.removeItem('admin_session');
-                            if (healthCheckInterval) {
-                                clearInterval(healthCheckInterval);
-                                healthCheckInterval = null;
-                            }
-                            if (clockInterval) {
-                                clearInterval(clockInterval);
-                                clockInterval = null;
-                            }
+                            stopLiveUpdates();
                             showToast('👋 Session ended', 'info');
                         }
                     });
