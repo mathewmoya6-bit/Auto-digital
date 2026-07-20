@@ -938,7 +938,7 @@
                 <div class="version">Version <span>2026.07</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div style="margin-top:4px;font-size:10px;color:var(--text-muted);">
-                    Calculation Engine v4.0
+                    Calculation Engine v4.1
                 </div>
             </div>
         </header>
@@ -1388,7 +1388,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span></div>
             <div class="meta">
                 <strong>Engine:</strong> Total Cost of Ownership · Fleet-grade<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.0
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.1
             </div>
         </footer>
     </div>
@@ -1396,15 +1396,14 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - COST OF OWNERSHIP CALCULATOR
-        // 10/10 Production-Ready Version
+        // ✅ Backend API (FastAPI /api/v1/ownership/calculate) — primary
+        // ✅ Supabase (auth + reference data)  ✅ Local fallback
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
 
             // ─── Configuration ──────────────────────────────────────────
-            // ✅ FIX: Use environment variables via window object
-            // Set these in your deployment environment
             const SUPABASE_URL = window.SUPABASE_URL || 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
@@ -1511,7 +1510,6 @@
                     const loadTime = perfData.loadEventEnd - perfData.navigationStart;
                     console.log(`⏱️ Page load time: ${loadTime}ms`);
                     
-                    // Send to analytics if available
                     if (window.gtag) {
                         window.gtag('event', 'performance', {
                             'event_category': 'page_load',
@@ -1525,17 +1523,31 @@
             function trackError(error, context = '') {
                 console.error(`❌ Error${context ? ' in ' + context : ''}:`, error);
                 
-                // Send to error tracking service if available
                 if (window.Sentry) {
                     window.Sentry.captureException(error, {
                         extra: { context }
                     });
                 }
                 
-                // Show user-friendly message
                 if (context !== 'background') {
                     showToast('An error occurred. Please try again.', 'error');
                 }
+            }
+
+            // ─── AUTH HEADERS (Supabase session → Bearer token) ─────────
+            async function getAuthHeaders() {
+                const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+                try {
+                    if (supabaseClient) {
+                        const { data: { session } } = await supabaseClient.auth.getSession();
+                        if (session && session.access_token) {
+                            headers['Authorization'] = `Bearer ${session.access_token}`;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Could not attach auth header:', e.message);
+                }
+                return headers;
             }
 
             // ─── CHECK BACKEND HEALTH (Silent) ────────────────────────
@@ -1564,7 +1576,12 @@
             function initSupabase() {
                 try {
                     const { createClient } = supabase;
-                    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                        auth: {
+                            persistSession: true,
+                            autoRefreshToken: true
+                        }
+                    });
                     console.log('✅ Supabase client initialized');
                     return true;
                 } catch (error) {
@@ -1900,14 +1917,14 @@
             }
 
             // ─── CALL BACKEND API FOR CALCULATION ──────────────────────
+            // FIXED: correct endpoint path (was pointing at running-cost)
+            // and now attaches Supabase Bearer token for authenticated calls.
             async function callBackendAPI(formData) {
                 try {
-                    const response = await fetch(`${API_BASE}/running-cost/calculate`, {
+                    const headers = await getAuthHeaders();
+                    const response = await fetch(`${API_BASE}/ownership/calculate`, {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        },
+                        headers,
                         body: JSON.stringify(formData),
                         signal: AbortSignal.timeout(15000)
                     });
@@ -1924,7 +1941,7 @@
                 }
             }
 
-            // ─── LOCAL CALCULATION ─────────────────────────────────────
+            // ─── LOCAL CALCULATION (fallback only) ──────────────────────
             function calculateLocally(formData) {
                 const {
                     initialValue = 5000000,
@@ -2036,7 +2053,7 @@
                 };
             }
 
-            // ─── CALCULATE OWNERSHIP COST ──────────────────────────────
+            // ─── CALCULATE OWNERSHIP COST (API-first, local fallback) ──
             async function calculateOwnershipCost() {
                 if (isCalculating) return;
                 
@@ -2103,7 +2120,6 @@
                     updateResults(result);
                     showToast('✅ Ownership cost calculated successfully!', 'success');
                     
-                    // Track calculation
                     if (window.gtag) {
                         window.gtag('event', 'calculate', {
                             'event_category': 'engagement',
@@ -2484,12 +2500,10 @@
 
             // ─── Keyboard Support ──────────────────────────────────────
             document.addEventListener('keydown', function(e) {
-                // Escape key closes toasts
                 if (e.key === 'Escape') {
                     const toast = document.querySelector('.toast');
                     if (toast) toast.remove();
                 }
-                // Ctrl+Enter triggers calculation
                 if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                     e.preventDefault();
                     calculateOwnershipCost();
@@ -2506,10 +2520,8 @@
                     day: 'numeric'
                 });
 
-                // Track performance
                 trackPerformance();
 
-                // Silent health check
                 await checkBackendHealth();
 
                 const loaded = await loadFromAPI();
@@ -2538,6 +2550,7 @@
 
                 console.log('✅ Auto-D Kenya Cost of Ownership initialized');
                 console.log(`📊 Makes loaded: ${Object.keys(vehicleData).length}`);
+                console.log(`🖥️ Backend API: ${isBackendAvailable ? 'Connected ✅' : 'Unavailable ⚠️ (using local calc)'}`);
             }
 
             // ─── Service Worker Registration (PWA) ─────────────────────
@@ -2553,7 +2566,8 @@
             window.AutoD = {
                 calculate: calculateOwnershipCost,
                 data: vehicleData,
-                prices: fuelPrices
+                prices: fuelPrices,
+                isBackendAvailable: () => isBackendAvailable
             };
 
         })();
