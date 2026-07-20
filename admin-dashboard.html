@@ -703,6 +703,111 @@
             font-size: 13px;
             font-family: monospace;
         }
+
+        /* ─── Admin Setup Section ───────────────────────────────────── */
+        .admin-setup {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 28px;
+        }
+        .admin-setup .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .admin-setup .card-header h3 {
+            font-family: var(--font-heading);
+            font-size: 17px;
+            color: var(--text-secondary);
+        }
+        .admin-setup .form-group-inline {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .admin-setup input {
+            padding: 10px 14px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 14px;
+            font-family: var(--font-body);
+            flex: 1;
+            min-width: 200px;
+        }
+        .admin-setup input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .admin-setup .grant-btn {
+            padding: 10px 24px;
+            background: var(--success);
+            color: var(--bg);
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            font-family: var(--font-body);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .admin-setup .grant-btn:hover {
+            opacity: 0.85;
+            transform: translateY(-2px);
+        }
+        .admin-setup .grant-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .admin-setup .admin-list {
+            margin-top: 16px;
+        }
+        .admin-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 6px;
+        }
+        .admin-item .admin-email {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .admin-item .admin-role {
+            font-size: 11px;
+            padding: 2px 12px;
+            border-radius: 12px;
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--primary);
+            font-weight: 600;
+        }
+        .admin-item .revoke-btn {
+            padding: 4px 12px;
+            background: transparent;
+            border: 1px solid var(--danger);
+            color: var(--danger);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            font-family: var(--font-body);
+            transition: all 0.2s;
+        }
+        .admin-item .revoke-btn:hover {
+            background: var(--danger);
+            color: var(--bg);
+        }
     </style>
 </head>
 <body>
@@ -778,6 +883,21 @@
                     <p>Here's what's happening with Auto-D Kenya today</p>
                 </div>
                 <div class="time" id="currentTime"></div>
+            </div>
+
+            <!-- Admin Setup Section -->
+            <div class="admin-setup" id="adminSetup">
+                <div class="card-header">
+                    <h3>👑 Admin Management</h3>
+                    <span class="badge badge-success">Super Admin</span>
+                </div>
+                <div class="form-group-inline">
+                    <input type="email" id="grantEmail" placeholder="Enter user email to grant admin access" />
+                    <button class="grant-btn" id="grantAdminBtn">👑 Grant Admin</button>
+                </div>
+                <div class="admin-list" id="adminList">
+                    <div style="color:var(--text-muted);font-size:13px;padding:8px 0;">Loading admins...</div>
+                </div>
             </div>
 
             <!-- Stats -->
@@ -935,7 +1055,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - ADMIN DASHBOARD
-        // Full Supabase + FastAPI Integration
+        // Full Supabase + FastAPI Integration with Admin Management
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -956,6 +1076,7 @@
             let activityLogs = [];
             let healthCheckInterval = null;
             let clockInterval = null;
+            let adminList = [];
 
             // ─── DOM Elements ──────────────────────────────────────────
             const loginScreen = document.getElementById('loginScreen');
@@ -967,6 +1088,9 @@
             const connectionStatus = document.getElementById('connectionStatus');
             const fuelGrid = document.getElementById('fuelGrid');
             const serviceList = document.getElementById('serviceList');
+            const grantEmail = document.getElementById('grantEmail');
+            const grantAdminBtn = document.getElementById('grantAdminBtn');
+            const adminListEl = document.getElementById('adminList');
 
             // Health status elements
             const healthDot = document.getElementById('healthDot');
@@ -1072,10 +1196,12 @@
                 }
             }
 
+            // ─── Admin Management Functions ─────────────────────────────
             async function isAdmin(userId) {
                 try {
                     const client = getSupabaseClient();
                     if (!client) return false;
+                    
                     // Check admin_users table
                     const { data, error } = await client
                         .from('admin_users')
@@ -1099,6 +1225,144 @@
                     return false;
                 }
             }
+
+            async function grantAdminAccess(email) {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) throw new Error('Supabase not initialized');
+
+                    // First, find the user by email
+                    const { data: userData, error: userError } = await client
+                        .from('auth.users')
+                        .select('id, email')
+                        .eq('email', email.toLowerCase().trim())
+                        .single();
+
+                    if (userError || !userData) {
+                        throw new Error('User not found. Please make sure the user has signed up first.');
+                    }
+
+                    const userId = userData.id;
+
+                    // Insert into admin_users
+                    const { error: adminError } = await client
+                        .from('admin_users')
+                        .upsert({
+                            user_id: userId,
+                            role: 'admin'
+                        }, { onConflict: 'user_id' });
+
+                    if (adminError) throw adminError;
+
+                    // Update profile
+                    const { error: profileError } = await client
+                        .from('profiles')
+                        .upsert({
+                            user_id: userId,
+                            is_admin: true
+                        }, { onConflict: 'user_id' });
+
+                    if (profileError) throw profileError;
+
+                    await addAdminLog(`👑 Granted admin access to ${email}`, currentUser?.email);
+                    await loadAdmins();
+                    showToast(`✅ Admin access granted to ${email}!`, 'success');
+                    return { success: true };
+
+                } catch (error) {
+                    console.error('❌ Grant admin error:', error);
+                    showToast(`❌ ${error.message}`, 'error');
+                    return { success: false, error: error.message };
+                }
+            }
+
+            async function revokeAdminAccess(userId, email) {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) throw new Error('Supabase not initialized');
+
+                    // Don't allow revoking your own admin access
+                    if (userId === currentUser?.id) {
+                        throw new Error('You cannot revoke your own admin access!');
+                    }
+
+                    // Delete from admin_users
+                    const { error: adminError } = await client
+                        .from('admin_users')
+                        .delete()
+                        .eq('user_id', userId);
+
+                    if (adminError) throw adminError;
+
+                    // Update profile
+                    const { error: profileError } = await client
+                        .from('profiles')
+                        .update({ is_admin: false })
+                        .eq('user_id', userId);
+
+                    if (profileError) throw profileError;
+
+                    await addAdminLog(`🔴 Revoked admin access from ${email}`, currentUser?.email);
+                    await loadAdmins();
+                    showToast(`✅ Admin access revoked from ${email}`, 'success');
+                    return { success: true };
+
+                } catch (error) {
+                    console.error('❌ Revoke admin error:', error);
+                    showToast(`❌ ${error.message}`, 'error');
+                    return { success: false, error: error.message };
+                }
+            }
+
+            async function loadAdmins() {
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) return;
+
+                    const { data, error } = await client
+                        .from('admin_users')
+                        .select('user_id, role, profiles(email, full_name)');
+
+                    if (error) throw error;
+
+                    adminList = data || [];
+                    renderAdminList();
+
+                } catch (error) {
+                    console.warn('⚠️ Load admins error:', error.message);
+                    adminListEl.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">❌ Error loading admins: ${error.message}</div>`;
+                }
+            }
+
+            function renderAdminList() {
+                if (adminList.length === 0) {
+                    adminListEl.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:8px 0;">No admin users found.</div>`;
+                    return;
+                }
+
+                adminListEl.innerHTML = adminList.map(admin => {
+                    const email = admin.profiles?.email || 'Unknown';
+                    const name = admin.profiles?.full_name || email.split('@')[0];
+                    const isCurrentUser = admin.user_id === currentUser?.id;
+                    return `
+                        <div class="admin-item">
+                            <div>
+                                <span class="admin-email">${email}</span>
+                                <span class="admin-role">${admin.role || 'admin'}</span>
+                                ${isCurrentUser ? ' <span style="color:var(--primary);font-size:11px;">(You)</span>' : ''}
+                            </div>
+                            ${!isCurrentUser ? `<button class="revoke-btn" onclick="window.revokeAdmin('${admin.user_id}', '${email}')">Revoke</button>` : ''}
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // Expose revoke function globally
+            window.revokeAdmin = function(userId, email) {
+                if (confirm(`Are you sure you want to revoke admin access from ${email}?`)) {
+                    revokeAdminAccess(userId, email);
+                }
+            };
 
             // ─── Database Functions ─────────────────────────────────────
             async function query(table, select = '*', filters = {}, order = null, limit = null) {
@@ -1158,7 +1422,6 @@
                         .order('created_at', { ascending: false });
                     if (error) throw error;
                     
-                    // Get latest per fuel type
                     const latest = {};
                     data.forEach(item => {
                         if (!latest[item.fuel_type] || new Date(item.created_at) > new Date(latest[item.fuel_type].created_at)) {
@@ -1237,7 +1500,6 @@
                         .eq('key', 'engine_settings')
                         .single();
                     if (error) {
-                        // Return defaults if not found
                         return { success: true, data: {
                             depreciation_rate: 0.15,
                             insurance_rate: 0.045,
@@ -1294,7 +1556,6 @@
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
                     
-                    // Get counts from multiple tables
                     const [{ count: vehicles }, { count: reports }, { count: users }, { count: apiCalls }] = await Promise.all([
                         client.from('vehicle_variants').select('*', { count: 'exact', head: true }),
                         client.from('mileage_reports').select('*', { count: 'exact', head: true }),
@@ -1323,7 +1584,6 @@
                 try {
                     const startTime = performance.now();
 
-                    // Check Supabase
                     let supabaseOk = false;
                     try {
                         const client = getSupabaseClient();
@@ -1338,10 +1598,8 @@
                         supabaseOk = false;
                     }
 
-                    // Check FastAPI
                     let fastapiOk = false;
                     let fastapiVersion = '—';
-                    let fastapiPing = 0;
                     try {
                         const controller = new AbortController();
                         const timeoutId = setTimeout(() => controller.abort(), 3000);
@@ -1363,7 +1621,6 @@
                     const endTime = performance.now();
                     const pingMs = Math.round(endTime - startTime);
 
-                    // Update UI
                     updateHealthUI(supabaseOk, fastapiOk, pingMs, fastapiVersion);
 
                 } catch (error) {
@@ -1453,6 +1710,7 @@
                         document.getElementById('adminName').textContent = name;
                         document.getElementById('welcomeName').textContent = name;
                         document.getElementById('adminAvatar').textContent = name[0].toUpperCase();
+                        document.getElementById('adminRole').textContent = '🔑 Super Admin';
                         return true;
                     }
                     return false;
@@ -1496,12 +1754,10 @@
                     
                     showToast('✅ Login successful!', 'success');
                     
-                    // Start health check
                     await checkHealth();
                     if (healthCheckInterval) clearInterval(healthCheckInterval);
                     healthCheckInterval = setInterval(checkHealth, 30000);
                     
-                    // Start clock
                     updateClock();
                     if (clockInterval) clearInterval(clockInterval);
                     clockInterval = setInterval(updateClock, 1000);
@@ -1536,6 +1792,24 @@
                 showToast('👋 Logged out', 'info');
             });
 
+            // ─── Grant Admin ────────────────────────────────────────────
+            grantAdminBtn.addEventListener('click', async function() {
+                const email = grantEmail.value.trim();
+                if (!email) {
+                    showToast('Please enter an email address', 'error');
+                    return;
+                }
+                
+                grantAdminBtn.disabled = true;
+                grantAdminBtn.textContent = '⏳ Granting...';
+                
+                await grantAdminAccess(email);
+                
+                grantAdminBtn.disabled = false;
+                grantAdminBtn.textContent = '👑 Grant Admin';
+                grantEmail.value = '';
+            });
+
             // ─── Load Dashboard Data ──────────────────────────────────
             async function loadDashboardData() {
                 await Promise.all([
@@ -1543,7 +1817,8 @@
                     fetchFuelPrices(),
                     fetchServicePrices(),
                     fetchEngineSettings(),
-                    fetchLogs()
+                    fetchLogs(),
+                    loadAdmins()
                 ]);
                 showToast('✅ Dashboard loaded', 'success');
             }
@@ -1887,7 +2162,8 @@
                         fetchServicePrices(),
                         fetchEngineSettings(),
                         fetchLogs(),
-                        checkHealth()
+                        checkHealth(),
+                        loadAdmins()
                     ]);
                     await addAdminLog('🔄 All data synced successfully', 'admin');
                     showToast('✅ All data synced!', 'success');
@@ -2000,11 +2276,9 @@
                     loginScreen.classList.add('hidden');
                     dashboardScreen.classList.remove('hidden');
                     
-                    // Start health monitoring
                     await checkHealth();
                     healthCheckInterval = setInterval(checkHealth, 30000);
                     
-                    // Start clock
                     updateClock();
                     clockInterval = setInterval(updateClock, 1000);
                     
@@ -2014,7 +2288,6 @@
                     dashboardScreen.classList.add('hidden');
                 }
 
-                // Listen for auth changes
                 if (supabaseClient) {
                     supabaseClient.auth.onAuthStateChange((event, session) => {
                         if (event === 'SIGNED_OUT') {
