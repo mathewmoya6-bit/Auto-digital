@@ -1007,8 +1007,6 @@
             <div class="header-right">
                 <div class="version">Version <span>2026.07</span> <span class="auto-v-badge">Auto-V</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
-                <!-- Removed: Fuel Price Display -->
-                <!-- Removed: Data Source Display -->
             </div>
         </header>
 
@@ -1346,7 +1344,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-v-badge">Auto-V</span></div>
             <div class="meta">
                 <strong>Engine:</strong> Mileage Rate · 5-Year Running Cost · Fleet-grade<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.0
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.1
             </div>
         </footer>
     </div>
@@ -1354,8 +1352,9 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
+        // ✅ Backend API (FastAPI /api/v1/mileage/calculate) — primary
         // ✅ Auto-V Recommended Rates  ✅ 5-Year Projection  
-        // ✅ Supabase Integration  ✅ Fallback Data
+        // ✅ Supabase Integration (auth + data)  ✅ Local Fallback
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1365,8 +1364,10 @@
             const SUPABASE_URL = window.SUPABASE_URL || 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-            // ─── AUTO-V KENYA MARKET RATES ──────────────────────────────
-            // Official recommended rates for Kenyan vehicle market
+            // Backend API base — hits FastAPI service which itself talks to Supabase server-side.
+            const API_BASE = window.API_BASE || 'https://auto-digital.onrender.com/api/v1';
+
+            // ─── AUTO-V KENYA MARKET RATES (used only for local fallback) ──
             const AUTO_V_RATES = {
                 depreciation: {
                     'Saloon': 0.15,
@@ -1479,6 +1480,7 @@
             let currentFuelFilter = 'all';
             let isUsingSupabase = false;
             let supabaseError = null;
+            let isBackendAvailable = false;
 
             // ─── DOM References ─────────────────────────────────────────
             const elements = {
@@ -1565,7 +1567,76 @@
                 return Math.max(0, currentYear - parseInt(year));
             }
 
-            // ─── SUPABASE DATA LOADING ──────────────────────────────────
+            // ─── AUTH HEADERS (Supabase session → Bearer token) ─────────
+            async function getAuthHeaders() {
+                const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+                try {
+                    if (supabaseClient) {
+                        const { data: { session } } = await supabaseClient.auth.getSession();
+                        if (session && session.access_token) {
+                            headers['Authorization'] = `Bearer ${session.access_token}`;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Could not attach auth header:', e.message);
+                }
+                return headers;
+            }
+
+            // ─── BACKEND HEALTH CHECK (silent) ──────────────────────────
+            async function checkBackendHealth() {
+                try {
+                    const response = await fetch('https://auto-digital.onrender.com/health', {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' },
+                        signal: AbortSignal.timeout(5000)
+                    });
+                    isBackendAvailable = response.ok;
+                    console.log(isBackendAvailable ? '✅ Backend reachable' : '⚠️ Backend not reachable');
+                } catch (error) {
+                    isBackendAvailable = false;
+                    console.warn('⚠️ Backend health check failed:', error.message);
+                }
+            }
+
+            // ─── CALL BACKEND: POST /api/v1/mileage/calculate ──────────
+            async function callMileageAPI(variant, inputs) {
+                if (!isBackendAvailable) return null;
+                try {
+                    const headers = await getAuthHeaders();
+                    const payload = {
+                        variant_id: variant.id,
+                        distance_km: inputs.distance,
+                        annual_km: inputs.annualKm,
+                        fuel_price: inputs.fuelPrice,
+                        driving_style: inputs.drivingStyle,
+                        transmission: inputs.transmission,
+                        trip_type: inputs.tripType,
+                        usage_type: inputs.usageType,
+                        year: parseInt(inputs.year),
+                        financed: inputs.financed
+                    };
+                    const response = await fetch(`${API_BASE}/mileage/calculate`, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(payload),
+                        signal: AbortSignal.timeout(15000)
+                    });
+
+                    if (!response.ok) {
+                        const errBody = await response.json().catch(() => ({}));
+                        throw new Error(errBody.message || errBody.detail || `HTTP ${response.status}`);
+                    }
+
+                    const json = await response.json();
+                    return json.data || json;
+                } catch (error) {
+                    console.warn('⚠️ Mileage API call failed, falling back to local calc:', error.message);
+                    return null;
+                }
+            }
+
+            // ─── SUPABASE DATA LOADING (dropdown / reference data) ──────
 
             function initSupabase() {
                 try {
@@ -1575,8 +1646,8 @@
                     const { createClient } = supabase;
                     supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
                         auth: {
-                            persistSession: false,
-                            autoRefreshToken: false
+                            persistSession: true,
+                            autoRefreshToken: true
                         }
                     });
                     console.log('✅ Supabase client initialized');
@@ -2103,7 +2174,7 @@
                 }
             }
 
-            // ─── Core Cost Engine with Auto-V Rates ──────────────────────
+            // ─── Local Cost Engine (fallback only, used when backend is unreachable) ──
 
             const TRANSMISSION_FUEL_FACTOR = {
                 manual: 1.00,
@@ -2497,7 +2568,7 @@
                 });
             }
 
-            // ─── Main Calculation Handler ──────────────────────────────
+            // ─── Main Calculation Handler (API-first, local fallback) ────
             async function calculateAndRender() {
                 const variant = currentVariant();
                 if (!variant) {
@@ -2530,10 +2601,18 @@
                 elements.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
 
                 try {
-                    const result = calculateRunningCost(variant, inputs);
+                    // Try backend business-logic endpoint first
+                    let result = await callMileageAPI(variant, inputs);
+                    let usedBackend = !!result;
+
+                    // Fall back to local calculation if backend unavailable/failed
+                    if (!result) {
+                        result = calculateRunningCost(variant, inputs);
+                    }
+
                     if (result) {
                         renderResults(result, variant);
-                        showToast('✅ Analysis complete with Auto-V rates!', 'success');
+                        showToast(usedBackend ? '✅ Analysis complete (server)!' : '✅ Analysis complete (offline)!', 'success');
                     } else {
                         showToast('Calculation failed', 'error');
                     }
@@ -2788,6 +2867,7 @@
                 data: { categories, allVariantsByCategory, routes },
                 prices: () => elements.fuelPriceInput.value,
                 isUsingSupabase: () => isUsingSupabase,
+                isBackendAvailable: () => isBackendAvailable,
                 autoVRates: AUTO_V_RATES,
                 reload: async () => {
                     await loadAllData();
@@ -2809,6 +2889,7 @@
                 elements.loadingOverlay.classList.add('active');
 
                 try {
+                    await checkBackendHealth();
                     await loadAllData();
 
                     populateCategories();
@@ -2834,6 +2915,7 @@
                     console.log('✅ Auto-D Kenya Engine initialized with Auto-V rates');
                     console.log(`📊 Categories: ${categories.length}, Variants: ${Object.keys(allVariantsByCategory).length}`);
                     console.log(`📡 Data source: ${isUsingSupabase ? 'Supabase ✅' : 'Fallback ⚠️'}`);
+                    console.log(`🖥️ Backend API: ${isBackendAvailable ? 'Connected ✅' : 'Unavailable ⚠️ (using local calc)'}`);
                     console.log('📋 Auto-V rates loaded:', AUTO_V_RATES.depreciation);
                     
                     if (supabaseError) {
