@@ -15,9 +15,7 @@
             --amber: #eab308;
             --amber-dark: #ca8a04;
             --green: #22c55e;
-            --green-dark: #16a34a;
             --blue: #3b82f6;
-            --blue-dark: #2563eb;
             --cyan: #06b6d4;
             --red: #ef4444;
             --bg: #0a0c15;
@@ -128,10 +126,6 @@
             background: rgba(239, 68, 68, 0.15);
             color: #ef4444;
         }
-        .header-right .auth-status.premium {
-            background: rgba(234, 179, 8, 0.15);
-            color: #eab308;
-        }
 
         .main-grid {
             display: grid;
@@ -206,7 +200,7 @@
         select:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
         select:focus, input:focus { outline: 2px solid #eab308; outline-offset: 1px; }
 
-        /* ─── LOCK SCREEN ──────────────────────────────────────────── */
+        /* ─── LOCK OVERLAY ──────────────────────────────────────────── */
         .lock-overlay {
             display: none;
             position: absolute;
@@ -259,18 +253,6 @@
             transform: translateY(-2px);
             box-shadow: 0 8px 30px rgba(234, 179, 8, 0.3);
         }
-        .lock-overlay .plan-badge {
-            display: inline-block;
-            background: rgba(234, 179, 8, 0.15);
-            border: 1px solid rgba(234, 179, 8, 0.2);
-            color: #eab308;
-            padding: 6px 20px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            font-family: 'JetBrains Mono', monospace;
-            margin-bottom: 16px;
-        }
 
         .auth-section {
             background: rgba(255,255,255,0.03);
@@ -313,22 +295,6 @@
             font-size: 11px;
             color: var(--text-secondary);
             padding: 4px 0;
-        }
-        .auth-section .subscription-status {
-            font-family: var(--font-mono);
-            font-size: 10px;
-            padding: 4px 12px;
-            border-radius: 12px;
-            display: inline-block;
-            margin-top: 4px;
-        }
-        .auth-section .subscription-status.active {
-            background: rgba(34, 197, 94, 0.15);
-            color: #22c55e;
-        }
-        .auth-section .subscription-status.inactive {
-            background: rgba(239, 68, 68, 0.15);
-            color: #ef4444;
         }
 
         .fuel-filter-group {
@@ -1075,9 +1041,6 @@
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus">🔓 Not Authenticated</span>
                 </div>
-                <div style="margin-top:2px;">
-                    <span class="subscription-status" id="subStatus" style="display:none;">—</span>
-                </div>
             </div>
         </header>
 
@@ -1088,17 +1051,16 @@
                 <!-- ─── LOCK OVERLAY ────────────────────────────────────── -->
                 <div class="lock-overlay show" id="lockOverlay">
                     <div class="lock-icon">🔒</div>
-                    <div class="plan-badge">🚗 Premium Calculator</div>
-                    <h3>Access Locked</h3>
-                    <p>Sign in and subscribe to access the full mileage &amp; running cost calculator with real-time Kenyan market data.</p>
-                    <button class="unlock-btn" id="unlockBtn">🔑 Sign In / Subscribe</button>
+                    <h3>Sign In Required</h3>
+                    <p>Please sign in to access the mileage &amp; running cost calculator with real-time Kenyan market data.</p>
+                    <button class="unlock-btn" id="unlockBtn">🔑 Sign In</button>
                 </div>
 
                 <!-- ─── AUTH SECTION ──────────────────────────────────── -->
                 <div class="panel-label"><span class="num">🔐</span> Authentication</div>
                 <div class="auth-section">
                     <div id="authMessage" class="user-email" style="color:var(--text-muted);font-size:10px;">
-                        Sign in to access your saved vehicles and get personalized rates
+                        Sign in to access the calculator
                     </div>
                     <div class="auth-buttons" id="authButtons">
                         <button class="primary" id="btnSignIn">🔑 Sign In</button>
@@ -1111,14 +1073,6 @@
                             <button class="primary" id="btnLogin" style="flex:1;padding:6px;border:none;border-radius:4px;background:var(--amber);color:#0a0c10;font-weight:600;cursor:pointer;">Login</button>
                             <button id="btnSignup" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;">Sign Up</button>
                             <button id="btnCancelAuth" style="padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;">Cancel</button>
-                        </div>
-                    </div>
-                    <div id="subscriptionInfo" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(234,179,8,0.05);border-radius:6px;border:1px solid rgba(234,179,8,0.15);">
-                        <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);">
-                            Plan: <strong id="planName" style="color:var(--amber);">—</strong>
-                        </div>
-                        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-top:2px;">
-                            Expires: <span id="planExpiry">—</span>
                         </div>
                     </div>
                 </div>
@@ -1465,7 +1419,7 @@
 
     <script>
         // ================================================================
-        // AUTO-D KENYA - COMPLETE FRONTEND WITH AUTH + PAYMENT GATE
+        // AUTO-D KENYA - COMPLETE FRONTEND WITH AUTH GATE
         // ================================================================
 
         (function() {
@@ -1475,29 +1429,13 @@
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                VIEW_NAME: 'vehicle_full_specs',
-                SUBSCRIPTION_PLANS: {
-                    'premium': {
-                        name: 'Premium',
-                        price: 1999,
-                        interval: 'monthly',
-                        features: ['Unlimited calculations', 'Full vehicle database', 'Export reports', 'Priority support']
-                    },
-                    'basic': {
-                        name: 'Basic',
-                        price: 499,
-                        interval: 'monthly',
-                        features: ['10 calculations/month', 'Limited vehicle database']
-                    }
-                }
+                VIEW_NAME: 'vehicle_full_specs'
             };
 
             // ─── STATE ──────────────────────────────────────────────
             let supabaseClient = null;
             let isAuthenticated = false;
             let currentUser = null;
-            let userSubscription = null;
-            let isPremium = false;
             let isFinanced = false;
             let currentVariantData = null;
             let routes = [];
@@ -1566,11 +1504,7 @@
                 valRate: document.getElementById('valRate'),
                 valTerm: document.getElementById('valTerm'),
                 lockOverlay: document.getElementById('lockOverlay'),
-                unlockBtn: document.getElementById('unlockBtn'),
-                subStatus: document.getElementById('subStatus'),
-                subscriptionInfo: document.getElementById('subscriptionInfo'),
-                planName: document.getElementById('planName'),
-                planExpiry: document.getElementById('planExpiry')
+                unlockBtn: document.getElementById('unlockBtn')
             };
 
             // ─── HELPERS ──────────────────────────────────────────────
@@ -1643,7 +1577,6 @@
                     if (error) throw error;
                     currentUser = data.session;
                     isAuthenticated = true;
-                    await checkSubscription();
                     updateAuthUI();
                     updateLockState();
                     showToast('✅ Signed in successfully!', 'success');
@@ -1674,8 +1607,6 @@
                     await supabaseClient.auth.signOut();
                     currentUser = null;
                     isAuthenticated = false;
-                    isPremium = false;
-                    userSubscription = null;
                     updateAuthUI();
                     updateLockState();
                     showToast('🔓 Signed out', 'info');
@@ -1693,12 +1624,9 @@
                     if (data.session) {
                         currentUser = data.session;
                         isAuthenticated = true;
-                        await checkSubscription();
                     } else {
                         currentUser = null;
                         isAuthenticated = false;
-                        isPremium = false;
-                        userSubscription = null;
                     }
                     updateAuthUI();
                     updateLockState();
@@ -1707,74 +1635,12 @@
                     console.warn('⚠️ Auth check failed:', error.message);
                     currentUser = null;
                     isAuthenticated = false;
-                    isPremium = false;
-                    userSubscription = null;
                     updateAuthUI();
                     updateLockState();
                     return false;
                 }
             }
 
-            // ─── SUBSCRIPTION ──────────────────────────────────────────
-            async function checkSubscription() {
-                try {
-                    if (!isAuthenticated || !currentUser) {
-                        isPremium = false;
-                        userSubscription = null;
-                        return;
-                    }
-
-                    const userId = currentUser.user?.id;
-                    if (!userId) {
-                        isPremium = false;
-                        return;
-                    }
-
-                    const { data, error } = await supabaseClient
-                        .from('subscriptions')
-                        .select('*')
-                        .eq('user_id', userId)
-                        .eq('status', 'active')
-                        .order('created_at', { ascending: false })
-                        .limit(1);
-
-                    if (error) {
-                        console.warn('⚠️ Subscription check error:', error.message);
-                        isPremium = false;
-                        userSubscription = null;
-                        return;
-                    }
-
-                    if (data && data.length > 0) {
-                        const sub = data[0];
-                        const expiryDate = new Date(sub.expires_at);
-                        const now = new Date();
-                        
-                        if (expiryDate > now) {
-                            isPremium = true;
-                            userSubscription = sub;
-                            console.log('✅ Premium subscription active');
-                        } else {
-                            isPremium = false;
-                            userSubscription = null;
-                            console.log('⚠️ Subscription expired');
-                        }
-                    } else {
-                        isPremium = false;
-                        userSubscription = null;
-                        console.log('ℹ️ No active subscription found');
-                    }
-                    
-                    updateSubscriptionUI();
-
-                } catch (error) {
-                    console.error('❌ Subscription check error:', error);
-                    isPremium = false;
-                    userSubscription = null;
-                }
-            }
-
-            // ─── UPDATE UI ─────────────────────────────────────────────
             function updateAuthUI() {
                 if (isAuthenticated && currentUser) {
                     const email = currentUser.user?.email || 'user';
@@ -1787,40 +1653,14 @@
                 } else {
                     el.authStatus.textContent = '🔓 Not Authenticated';
                     el.authStatus.className = 'auth-status unauthenticated';
-                    el.authMessage.textContent = 'Sign in to access your saved vehicles and get personalized rates';
+                    el.authMessage.textContent = 'Sign in to access the calculator';
                     el.btnSignIn.style.display = 'inline-block';
                     el.btnSignOut.style.display = 'none';
-                    el.subscriptionInfo.style.display = 'none';
-                }
-                updateSubscriptionUI();
-            }
-
-            function updateSubscriptionUI() {
-                if (isAuthenticated && isPremium && userSubscription) {
-                    el.subStatus.style.display = 'inline-block';
-                    el.subStatus.className = 'subscription-status active';
-                    el.subStatus.textContent = '⭐ Premium Active';
-                    el.authStatus.className = 'auth-status premium';
-                    
-                    el.subscriptionInfo.style.display = 'block';
-                    el.planName.textContent = userSubscription.plan_name || 'Premium';
-                    el.planExpiry.textContent = userSubscription.expires_at ? 
-                        new Date(userSubscription.expires_at).toLocaleDateString() : 'Never';
-                } else if (isAuthenticated && !isPremium) {
-                    el.subStatus.style.display = 'inline-block';
-                    el.subStatus.className = 'subscription-status inactive';
-                    el.subStatus.textContent = '🔓 Free Tier';
-                    el.subscriptionInfo.style.display = 'block';
-                    el.planName.textContent = 'Free';
-                    el.planExpiry.textContent = 'Upgrade to unlock full features';
-                } else {
-                    el.subStatus.style.display = 'none';
-                    el.subscriptionInfo.style.display = 'none';
                 }
             }
 
             function updateLockState() {
-                const shouldLock = !isAuthenticated || !isPremium;
+                const shouldLock = !isAuthenticated;
                 
                 if (shouldLock) {
                     el.lockOverlay.classList.add('show');
@@ -1856,14 +1696,14 @@
                     if (el.variantSelect.value) {
                         el.calculateBtn.disabled = false;
                     }
-                    showToast('🔓 Calculator unlocked! Welcome, premium user.', 'success');
+                    showToast('🔓 Calculator unlocked! Welcome back.', 'success');
                 }
             }
 
             // ─── API: QUERY THE VIEW ──────────────────────────────────
             async function queryView(select, filter, order) {
                 if (!isUnlocked) {
-                    showToast('⚠️ Please subscribe to access vehicle data', 'warning');
+                    showToast('⚠️ Please sign in to access vehicle data', 'warning');
                     return [];
                 }
                 let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
@@ -2580,7 +2420,7 @@
             // ─── MAIN CALCULATION ──────────────────────────────────────
             async function calculateAndRender(variant = null) {
                 if (!isUnlocked) {
-                    showToast('⚠️ Please subscribe to access the calculator', 'warning');
+                    showToast('⚠️ Please sign in to access the calculator', 'warning');
                     return;
                 }
 
@@ -2659,17 +2499,10 @@
 
             // ─── EVENT HANDLERS ─────────────────────────────────────────
             function initEventListeners() {
-                // Unlock button - redirect to subscription page
+                // Unlock button - trigger sign in
                 el.unlockBtn.addEventListener('click', function() {
-                    if (!isAuthenticated) {
-                        el.btnSignIn.click();
-                        el.btnSignIn.scrollIntoView({ behavior: 'smooth' });
-                    } else {
-                        // Open subscription modal or redirect to payment page
-                        showToast('🔑 Please visit the subscription page to upgrade to Premium', 'info');
-                        // You can redirect to your payment page here
-                        // window.location.href = '/subscription.html';
-                    }
+                    el.btnSignIn.click();
+                    el.btnSignIn.scrollIntoView({ behavior: 'smooth' });
                 });
 
                 // Auth
@@ -2848,7 +2681,7 @@
                 // Calculate Button
                 el.calculateBtn.addEventListener('click', () => {
                     if (!isUnlocked) {
-                        showToast('⚠️ Please subscribe to access the calculator', 'warning');
+                        showToast('⚠️ Please sign in to access the calculator', 'warning');
                         return;
                     }
                     if (currentVariantData) {
@@ -2904,9 +2737,9 @@
 
                 // Check auth state periodically
                 setInterval(async () => {
-                    const wasPremium = isPremium;
+                    const wasAuthenticated = isAuthenticated;
                     await checkAuth();
-                    if (wasPremium !== isPremium) {
+                    if (wasAuthenticated !== isAuthenticated) {
                         updateLockState();
                     }
                 }, 30000); // Check every 30 seconds
@@ -2927,7 +2760,7 @@
 
                     await checkAuth();
                     
-                    // Always load data, but lock UI if not premium
+                    // Always load data, but lock UI if not authenticated
                     await loadFuelPrice();
                     await loadRoutes();
                     renderRouteChips();
@@ -2948,7 +2781,7 @@
 
                     console.log('✅ Auto-D Kenya Engine initialized (API-driven, no hardcoding)');
                     console.log('📡 Using view: vehicle_full_specs');
-                    console.log(`🔐 Premium access: ${isPremium ? '✅ Yes' : '❌ No'}`);
+                    console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
