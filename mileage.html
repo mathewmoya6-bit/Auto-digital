@@ -6,8 +6,8 @@
     
     <!-- ─── SEO & META TAGS ────────────────────────────────────────── -->
     <title>Mileage & Running Cost Calculator — Auto-D Kenya</title>
-    <meta name="description" content="Calculate mileage rates and 5-year running costs for any vehicle in Kenya using Auto-V recommended rates. Free tool with depreciation, fuel, maintenance, insurance, and commercial rates." />
-    <meta name="keywords" content="mileage calculator, running cost, 5-year cost, vehicle cost, Kenya, Auto-D, Auto-V, fuel consumption" />
+    <meta name="description" content="Calculate mileage rates and 5-year running costs for any vehicle in Kenya using Auto-V recommended rates." />
+    <meta name="keywords" content="mileage calculator, running cost, 5-year cost, vehicle cost, Kenya" />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://auto-d.meipressgroup.com/mileage-calculator.html" />
     
@@ -16,30 +16,25 @@
     <meta property="og:description" content="Calculate mileage rates and 5-year running costs for any vehicle in Kenya using Auto-V recommended rates." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://auto-d.meipressgroup.com/mileage-calculator.html" />
-    <meta property="og:image" content="https://auto-d.meipressgroup.com/og-image.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
     
     <!-- ─── Twitter Cards ──────────────────────────────────────────── -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Mileage & Running Cost Calculator — Auto-D Kenya" />
-    <meta name="twitter:description" content="Calculate mileage rates and 5-year running costs for any vehicle in Kenya using Auto-V recommended rates." />
-    <meta name="twitter:image" content="https://auto-d.meipressgroup.com/twitter-image.png" />
+    <meta name="twitter:description" content="Calculate mileage rates and 5-year running costs for any vehicle in Kenya." />
     
     <!-- ─── Favicon ────────────────────────────────────────────────── -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E">
     
     <!-- ─── Fonts ───────────────────────────────────────────────────── -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 
-    <!-- ─── Load Supabase SDK ──────────────────────────────────────── -->
+    <!-- ─── Supabase SDK ───────────────────────────────────────────── -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
-        /* ─── CSS Custom Properties ─────────────────────────────────── */
+        /* ─── CSS Variables ────────────────────────────────────────── */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -85,28 +80,6 @@
             font-size: 14px;
         }
         .skip-link:focus { top: 0; }
-
-        .watermark {
-            display: none;
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) rotate(-30deg);
-            font-size: 80px;
-            font-weight: 900;
-            color: rgba(234, 179, 8, 0.06);
-            font-family: 'Space Grotesk', sans-serif;
-            letter-spacing: 8px;
-            pointer-events: none;
-            z-index: 9999;
-            white-space: nowrap;
-            user-select: none;
-        }
-
-        @media print {
-            .watermark { display: block !important; }
-            .watermark .watermark-text { color: rgba(0, 0, 0, 0.05) !important; }
-        }
 
         .report-header {
             background: linear-gradient(135deg, #111827, #0a0c15);
@@ -172,6 +145,20 @@
         }
         .header-right .version { color: #cbd5e1; font-weight: 600; font-size: 13px; }
         .header-right .version span { color: #eab308; }
+        .header-right .auth-status {
+            font-size: 10px;
+            padding: 2px 10px;
+            border-radius: 12px;
+            display: inline-block;
+        }
+        .header-right .auth-status.authenticated {
+            background: rgba(34, 197, 94, 0.15);
+            color: #22c55e;
+        }
+        .header-right .auth-status.unauthenticated {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+        }
 
         .main-grid {
             display: grid;
@@ -230,7 +217,7 @@
             letter-spacing: 0.04em;
             text-transform: uppercase;
         }
-        select, input[type="number"], input[type="text"] {
+        select, input[type="number"], input[type="text"], input[type="password"] {
             width: 100%;
             background: #f0ece4;
             color: #0a0c10;
@@ -245,13 +232,48 @@
         }
         select:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
         select:focus, input:focus { outline: 2px solid #eab308; outline-offset: 1px; }
-        select {
-            background-image: linear-gradient(45deg, transparent 50%, #0a0c10 50%),
-                linear-gradient(135deg, #0a0c10 50%, transparent 50%);
-            background-position: calc(100% - 16px) center, calc(100% - 11px) center;
-            background-size: 6px 6px, 6px 6px;
-            background-repeat: no-repeat;
+
+        .auth-section {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+        .auth-section .auth-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .auth-section .auth-buttons button {
+            flex: 1;
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 600;
             cursor: pointer;
+            transition: all 0.3s;
+        }
+        .auth-section .auth-buttons button:hover {
+            border-color: var(--amber);
+            color: var(--amber);
+        }
+        .auth-section .auth-buttons button.primary {
+            background: var(--amber);
+            color: #0a0c10;
+            border-color: var(--amber);
+        }
+        .auth-section .auth-buttons button.primary:hover {
+            background: var(--amber-dark);
+        }
+        .auth-section .user-email {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-secondary);
+            padding: 4px 0;
         }
 
         .fuel-filter-group {
@@ -269,7 +291,7 @@
             font-family: 'JetBrains Mono', monospace;
             font-size: 8px;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s;
         }
         .fuel-filter-btn:hover { border-color: #eab308; color: #eab308; }
         .fuel-filter-btn.active {
@@ -287,7 +309,6 @@
         }
         .fuel-filter-btn .fuel-dot.petrol { background: #eab308; }
         .fuel-filter-btn .fuel-dot.diesel { background: #22c55e; }
-        .fuel-filter-btn .fuel-dot.lpg { background: #3b82f6; }
         .fuel-filter-btn .fuel-dot.electric { background: #8b5cf6; }
         .fuel-filter-btn .fuel-dot.hybrid { background: linear-gradient(135deg, #eab308, #22c55e); }
 
@@ -349,7 +370,7 @@
             padding: 3px 8px;
             border-radius: 4px;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s;
             white-space: nowrap;
             background: rgba(255, 255, 255, 0.03);
         }
@@ -371,7 +392,7 @@
             padding: 6px 8px;
             border-radius: 6px;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s;
         }
         .toggle-btn.active {
             background: rgba(234, 179, 8, 0.12);
@@ -392,7 +413,7 @@
             font-size: 13px;
             font-weight: 700;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s;
             margin-top: 8px;
         }
         .calc-btn:hover:not(:disabled) {
@@ -432,7 +453,6 @@
             padding: 16px 20px;
             box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
         }
-
         .result-card .card-title {
             font-family: 'Space Grotesk', sans-serif;
             font-size: 13px;
@@ -733,7 +753,7 @@
             font-family: 'Inter', sans-serif;
             font-size: 10px;
             font-weight: 500;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s;
             display: inline-flex;
             align-items: center;
             gap: 6px;
@@ -874,6 +894,43 @@
             margin-left: 8px;
         }
 
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(10, 12, 21, 0.85);
+            z-index: 99999;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .loading-overlay.active { display: flex; }
+        .loading-overlay .spinner-large {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(234, 179, 8, 0.2);
+            border-top: 4px solid #eab308;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        .loading-overlay .loading-text {
+            color: #eab308;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+        }
+        .loading-overlay .loading-sub {
+            color: #64748b;
+            font-size: 12px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* ─── Responsive ────────────────────────────────────────────── */
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
             .report-header { padding: 20px 18px; flex-direction: column; }
@@ -926,56 +983,10 @@
             .results-panel { margin-top: 20px !important; }
             .vehicle-tag #vehicleLabel { color: #000 !important; }
             .fuel-pill { background: #eee !important; color: #b8860b !important; }
-            .header-right .status { display: none; }
-            .metrics-grid { display: block !important; }
-            .rci-display { margin-bottom: 10px; }
-            .disclaimer { display: none; }
-            .watermark { display: block !important; }
             .stat-card-sm { background: #f5f5f5 !important; border-color: #ddd !important; }
             .stat-card-sm .num { color: #000 !important; }
-            .stats-grid-5 { display: grid !important; }
             .auto-v-badge { display: none !important; }
-        }
-
-        .loading-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(10, 12, 21, 0.85);
-            z-index: 99999;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-            gap: 20px;
-        }
-        .loading-overlay.active { display: flex; }
-        .loading-overlay .spinner-large {
-            width: 50px;
-            height: 50px;
-            border: 4px solid rgba(234, 179, 8, 0.2);
-            border-top: 4px solid #eab308;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        .loading-overlay .loading-text {
-            color: #eab308;
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-        }
-        .loading-overlay .loading-sub {
-            color: #64748b;
-            font-size: 12px;
-            font-family: 'Inter', sans-serif;
-        }
-
-        /* ─── Hidden elements ────────────────────────────────────────── */
-        .hidden-status {
-            display: none !important;
+            .header-right .auth-status { display: none !important; }
         }
     </style>
 </head>
@@ -988,10 +999,6 @@
     </div>
 
     <a class="skip-link" href="#main-content">Skip to main content</a>
-
-    <div class="watermark">
-        <span class="watermark-text">AUTO-D KENYA</span>
-    </div>
 
     <div class="wrap" id="main-content" role="main">
 
@@ -1007,6 +1014,9 @@
             <div class="header-right">
                 <div class="version">Version <span>2026.07</span> <span class="auto-v-badge">Auto-V</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
+                <div>
+                    <span class="auth-status unauthenticated" id="authStatus">🔓 Not Authenticated</span>
+                </div>
             </div>
         </header>
 
@@ -1014,6 +1024,28 @@
 
             <section class="calculator-panel" aria-label="Vehicle cost calculator">
 
+                <!-- ─── AUTH SECTION ──────────────────────────────────── -->
+                <div class="panel-label"><span class="num">🔐</span> Authentication</div>
+                <div class="auth-section">
+                    <div id="authMessage" class="user-email" style="color:var(--text-muted);font-size:10px;">
+                        Sign in to access your saved vehicles and get personalized rates
+                    </div>
+                    <div class="auth-buttons" id="authButtons">
+                        <button class="primary" id="btnSignIn">🔑 Sign In</button>
+                        <button id="btnSignOut" style="display:none;">🚪 Sign Out</button>
+                    </div>
+                    <div id="authForms" style="display:none;margin-top:8px;">
+                        <input type="email" id="authEmail" placeholder="Email" style="margin-bottom:6px;" />
+                        <input type="password" id="authPassword" placeholder="Password" style="margin-bottom:6px;" />
+                        <div style="display:flex;gap:6px;">
+                            <button class="primary" id="btnLogin" style="flex:1;padding:6px;border:none;border-radius:4px;background:var(--amber);color:#0a0c10;font-weight:600;cursor:pointer;">Login</button>
+                            <button id="btnSignup" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;">Sign Up</button>
+                            <button id="btnCancelAuth" style="padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ─── VEHICLE SELECTION ────────────────────────────── -->
                 <div class="panel-label"><span class="num">01</span> Vehicle Details</div>
 
                 <div class="form-group">
@@ -1059,6 +1091,7 @@
                     </select>
                 </div>
 
+                <!-- ─── TRIP PARAMETERS ────────────────────────────────── -->
                 <div class="panel-label"><span class="num">02</span> Trip Parameters</div>
 
                 <div class="form-group">
@@ -1138,6 +1171,7 @@
                     </select>
                 </div>
 
+                <!-- ─── PURCHASE TYPE ──────────────────────────────────── -->
                 <div class="panel-label"><span class="num">03</span> Purchase Type</div>
 
                 <div class="form-group">
@@ -1176,6 +1210,7 @@
                 </div>
             </section>
 
+            <!-- ─── RESULTS PANEL ──────────────────────────────────────── -->
             <div class="results-panel" id="resultsPanel">
 
                 <div class="result-card">
@@ -1189,9 +1224,7 @@
                         <span class="transmission-pill" id="transmissionPill">—</span>
                         <span class="engine-cc-display" id="engineCCDisplay">—</span>
                     </div>
-                    <div class="vehicle-specs" id="vehicleSpecs">
-                        <!-- Dynamically populated -->
-                    </div>
+                    <div class="vehicle-specs" id="vehicleSpecs"></div>
                 </div>
 
                 <div class="result-card">
@@ -1209,9 +1242,7 @@
                             <span id="tripSub">—</span>
                         </div>
                     </div>
-                    <div class="cost-grid" id="tripCostGrid">
-                        <!-- Dynamically populated -->
-                    </div>
+                    <div class="cost-grid" id="tripCostGrid"></div>
                 </div>
 
                 <div class="result-card">
@@ -1219,9 +1250,7 @@
                         📊 Cost per km Breakdown
                         <span class="badge">Running Cost</span>
                     </div>
-                    <div class="perkm-grid" id="perkmGrid">
-                        <!-- Dynamically populated -->
-                    </div>
+                    <div class="perkm-grid" id="perkmGrid"></div>
                 </div>
 
                 <div class="result-card">
@@ -1229,9 +1258,7 @@
                         📅 5-Year Running Cost Projection
                         <span class="badge">Long-term Planning</span>
                     </div>
-                    <div class="stats-grid-5" id="fiveYearStats">
-                        <!-- Dynamically populated -->
-                    </div>
+                    <div class="stats-grid-5" id="fiveYearStats"></div>
                     <div class="table-wrap" style="margin-top:12px;">
                         <table id="yearlyTable">
                             <thead>
@@ -1246,9 +1273,7 @@
                                     <th>Value</th>
                                 </tr>
                             </thead>
-                            <tbody id="yearlyBody">
-                                <!-- Dynamically populated -->
-                            </tbody>
+                            <tbody id="yearlyBody"></tbody>
                         </table>
                     </div>
                 </div>
@@ -1258,9 +1283,7 @@
                         💼 Commercial Rates
                         <span class="badge">Usage-based</span>
                     </div>
-                    <div class="commercial-grid" id="commercialGrid">
-                        <!-- Dynamically populated -->
-                    </div>
+                    <div class="commercial-grid" id="commercialGrid"></div>
                 </div>
 
                 <div class="result-card">
@@ -1304,9 +1327,7 @@
                         🌍 Environmental Impact
                         <span class="badge">Green</span>
                     </div>
-                    <div class="env-grid" id="envGrid">
-                        <!-- Dynamically populated -->
-                    </div>
+                    <div class="env-grid" id="envGrid"></div>
                 </div>
 
                 <div class="result-card">
@@ -1352,72 +1373,62 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
+        // PURE SUPABASE DEPENDENCY + FASTAPI BACKEND
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
 
-            // ─── Configuration ──────────────────────────────────────────
-            const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
-            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
-
-            // ─── AUTO-V KENYA MARKET RATES ──────────────────────────────
-            const AUTO_V_RATES = {
-                depreciation: {
-                    'Passenger Car': 0.15,
-                    'SUV': 0.12,
-                    'Pickup': 0.13,
-                    'Van': 0.15,
-                    'Bus': 0.10,
-                    'Truck': 0.10,
-                    'Motorcycle': 0.18,
-                    'Tricycle': 0.15,
-                    'Electric Vehicle': 0.14,
-                    'Hybrid Vehicle': 0.14
-                },
-                comprehensive_insurance: {
-                    'Passenger Car': 0.040,
-                    'SUV': 0.045,
-                    'Pickup': 0.048,
-                    'Van': 0.050,
-                    'Bus': 0.060,
-                    'Truck': 0.060,
-                    'Motorcycle': 0.045,
-                    'Tricycle': 0.040,
-                    'Electric Vehicle': 0.045,
-                    'Hybrid Vehicle': 0.045
-                },
-                third_party_insurance: {
-                    'Passenger Car': 8000,
-                    'SUV': 10000,
-                    'Pickup': 10000,
-                    'Van': 12000,
-                    'Bus': 30000,
-                    'Truck': 30000,
-                    'Motorcycle': 3500,
-                    'Tricycle': 3000,
-                    'Electric Vehicle': 10000,
-                    'Hybrid Vehicle': 10000
-                },
-                getDepreciationRate: function(category) {
-                    return this.depreciation[category] || 0.15;
-                },
-                getComprehensiveRate: function(category) {
-                    return this.comprehensive_insurance[category] || 0.045;
-                },
-                getThirdPartyCost: function(category) {
-                    return this.third_party_insurance[category] || 10000;
+            // ─── CONFIGURATION ──────────────────────────────────────────
+            const CONFIG = {
+                SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
+                SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
+                API_BASE: 'https://auto-digital.onrender.com/api/v1',
+                API_TIMEOUT: 15000,
+                AUTO_V_RATES: {
+                    depreciation: {
+                        'Passenger Car': 0.15,
+                        'SUV': 0.12,
+                        'Pickup': 0.13,
+                        'Van': 0.15,
+                        'Bus': 0.10,
+                        'Truck': 0.10,
+                        'Motorcycle': 0.18,
+                        'Tricycle': 0.15,
+                        'Electric Vehicle': 0.14,
+                        'Hybrid Vehicle': 0.14
+                    },
+                    comprehensive_insurance: {
+                        'Passenger Car': 0.040,
+                        'SUV': 0.045,
+                        'Pickup': 0.048,
+                        'Van': 0.050,
+                        'Bus': 0.060,
+                        'Truck': 0.060,
+                        'Motorcycle': 0.045,
+                        'Tricycle': 0.040,
+                        'Electric Vehicle': 0.045,
+                        'Hybrid Vehicle': 0.045
+                    },
+                    third_party_insurance: {
+                        'Passenger Car': 8000,
+                        'SUV': 10000,
+                        'Pickup': 10000,
+                        'Van': 12000,
+                        'Bus': 30000,
+                        'Truck': 30000,
+                        'Motorcycle': 3500,
+                        'Tricycle': 3000,
+                        'Electric Vehicle': 10000,
+                        'Hybrid Vehicle': 10000
+                    }
                 }
             };
 
-            function calculateCurrentValue(originalPrice, depreciationRate, age) {
-                if (!originalPrice || originalPrice <= 0) return 0;
-                if (age <= 0) return originalPrice;
-                return originalPrice * Math.pow(1 - depreciationRate, age);
-            }
-
-            // ─── State ──────────────────────────────────────────────────
+            // ─── STATE ──────────────────────────────────────────────────
             let supabaseClient = null;
+            let currentUser = null;
+            let isAuthenticated = false;
             let isFinanced = false;
             let isLoading = false;
             let isInitialized = false;
@@ -1429,9 +1440,8 @@
             let allVariantsByCategory = {};
             let currentFuelFilter = 'all';
             let isUsingSupabase = false;
-            let supabaseError = null;
 
-            // ─── DOM References ─────────────────────────────────────────
+            // ─── DOM REFERENCES ─────────────────────────────────────────
             const elements = {
                 categorySelect: document.getElementById('categorySelect'),
                 variantSelect: document.getElementById('variantSelect'),
@@ -1474,10 +1484,21 @@
                 fiveYearStats: document.getElementById('fiveYearStats'),
                 yearlyBody: document.getElementById('yearlyBody'),
                 loadingOverlay: document.getElementById('loadingOverlay'),
-                loadingStatus: document.getElementById('loadingStatus')
+                loadingStatus: document.getElementById('loadingStatus'),
+                authStatus: document.getElementById('authStatus'),
+                authMessage: document.getElementById('authMessage'),
+                authButtons: document.getElementById('authButtons'),
+                authForms: document.getElementById('authForms'),
+                authEmail: document.getElementById('authEmail'),
+                authPassword: document.getElementById('authPassword'),
+                btnSignIn: document.getElementById('btnSignIn'),
+                btnSignOut: document.getElementById('btnSignOut'),
+                btnLogin: document.getElementById('btnLogin'),
+                btnSignup: document.getElementById('btnSignup'),
+                btnCancelAuth: document.getElementById('btnCancelAuth')
             };
 
-            // ─── Helpers ─────────────────────────────────────────────────
+            // ─── HELPERS ─────────────────────────────────────────────────
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
 
             function formatCurrency(val) {
@@ -1516,35 +1537,160 @@
                 return Math.max(0, currentYear - parseInt(year));
             }
 
-            // ─── SUPABASE DATA LOADING ──────────────────────────────────
+            function getAuthHeaders() {
+                const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+                if (currentUser && currentUser.access_token) {
+                    headers['Authorization'] = `Bearer ${currentUser.access_token}`;
+                }
+                return headers;
+            }
 
+            // ─── SUPABASE AUTH ──────────────────────────────────────────
             function initSupabase() {
                 try {
                     if (typeof supabase === 'undefined') {
                         throw new Error('Supabase SDK not loaded');
                     }
                     const { createClient } = supabase;
-                    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                    supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
                         auth: {
                             persistSession: true,
-                            autoRefreshToken: true
+                            autoRefreshToken: true,
+                            detectSessionInUrl: true
                         }
                     });
                     console.log('✅ Supabase client initialized');
                     return true;
                 } catch (error) {
                     console.warn('⚠️ Supabase init failed:', error.message);
-                    supabaseError = error.message;
                     return false;
                 }
             }
 
+            async function signIn(email, password) {
+                try {
+                    const { data, error } = await supabaseClient.auth.signInWithPassword({
+                        email: email,
+                        password: password
+                    });
+                    if (error) throw error;
+                    currentUser = data.session;
+                    isAuthenticated = true;
+                    updateAuthUI();
+                    showToast('✅ Signed in successfully!', 'success');
+                    return true;
+                } catch (error) {
+                    showToast('❌ Sign in failed: ' + error.message, 'error');
+                    return false;
+                }
+            }
+
+            async function signUp(email, password) {
+                try {
+                    const { data, error } = await supabaseClient.auth.signUp({
+                        email: email,
+                        password: password
+                    });
+                    if (error) throw error;
+                    if (data.user) {
+                        showToast('✅ Account created! Please check your email to confirm.', 'success');
+                        return true;
+                    }
+                    return false;
+                } catch (error) {
+                    showToast('❌ Sign up failed: ' + error.message, 'error');
+                    return false;
+                }
+            }
+
+            async function signOut() {
+                try {
+                    await supabaseClient.auth.signOut();
+                    currentUser = null;
+                    isAuthenticated = false;
+                    updateAuthUI();
+                    showToast('🔓 Signed out', 'info');
+                    return true;
+                } catch (error) {
+                    showToast('❌ Sign out failed: ' + error.message, 'error');
+                    return false;
+                }
+            }
+
+            async function checkAuth() {
+                try {
+                    const { data, error } = await supabaseClient.auth.getSession();
+                    if (error) throw error;
+                    if (data.session) {
+                        currentUser = data.session;
+                        isAuthenticated = true;
+                    } else {
+                        currentUser = null;
+                        isAuthenticated = false;
+                    }
+                    updateAuthUI();
+                    return isAuthenticated;
+                } catch (error) {
+                    console.warn('⚠️ Auth check failed:', error.message);
+                    currentUser = null;
+                    isAuthenticated = false;
+                    updateAuthUI();
+                    return false;
+                }
+            }
+
+            function updateAuthUI() {
+                if (isAuthenticated && currentUser) {
+                    const email = currentUser.user?.email || 'user';
+                    elements.authStatus.textContent = `🔒 ${email}`;
+                    elements.authStatus.className = 'auth-status authenticated';
+                    elements.authMessage.textContent = `✅ Signed in as ${email}`;
+                    elements.btnSignIn.style.display = 'none';
+                    elements.btnSignOut.style.display = 'inline-block';
+                    elements.authForms.style.display = 'none';
+                } else {
+                    elements.authStatus.textContent = '🔓 Not Authenticated';
+                    elements.authStatus.className = 'auth-status unauthenticated';
+                    elements.authMessage.textContent = 'Sign in to access your saved vehicles and get personalized rates';
+                    elements.btnSignIn.style.display = 'inline-block';
+                    elements.btnSignOut.style.display = 'none';
+                }
+            }
+
+            // ─── FASTAPI API CALLS ──────────────────────────────────────
+            async function callAPI(endpoint, method = 'GET', body = null) {
+                try {
+                    const headers = getAuthHeaders();
+                    const options = {
+                        method: method,
+                        headers: headers,
+                        signal: AbortSignal.timeout(CONFIG.API_TIMEOUT)
+                    };
+                    if (body) {
+                        options.body = JSON.stringify(body);
+                    }
+
+                    const response = await fetch(`${CONFIG.API_BASE}${endpoint}`, options);
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.detail || errorData.message || `HTTP ${response.status}`);
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.warn('⚠️ API call failed:', error.message);
+                    return null;
+                }
+            }
+
+            // ─── LOAD DATA FROM SUPABASE ───────────────────────────────
             async function loadFromSupabase() {
                 try {
-                    elements.loadingStatus.textContent = 'Fetching categories...';
+                    elements.loadingStatus.textContent = 'Fetching vehicle data...';
                     console.log('📡 Loading data from Supabase...');
 
-                    // 1. Load categories (vehicle_categories)
+                    // 1. Load categories
                     const { data: categoriesData, error: categoriesError } = await supabaseClient
                         .from('vehicle_categories')
                         .select('*')
@@ -1552,7 +1698,7 @@
                     if (categoriesError) throw categoriesError;
                     console.log(`✅ Loaded ${categoriesData?.length || 0} categories`);
 
-                    // 2. Load makes (vehicle_makes)
+                    // 2. Load makes
                     const { data: makesData, error: makesError } = await supabaseClient
                         .from('vehicle_makes')
                         .select('*')
@@ -1560,7 +1706,7 @@
                     if (makesError) throw makesError;
                     console.log(`✅ Loaded ${makesData?.length || 0} makes`);
 
-                    // 3. Load models (vehicle_models) with their relationships
+                    // 3. Load models with relationships
                     const { data: modelsData, error: modelsError } = await supabaseClient
                         .from('vehicle_models')
                         .select('*, make:make_id(*), category:category_id(*)')
@@ -1568,7 +1714,7 @@
                     if (modelsError) throw modelsError;
                     console.log(`✅ Loaded ${modelsData?.length || 0} models`);
 
-                    // 4. Load variants (vehicle_variants) with all relationships
+                    // 4. Load variants with all relationships
                     const { data: variantsData, error: variantsError } = await supabaseClient
                         .from('vehicle_variants')
                         .select(`
@@ -1584,7 +1730,7 @@
                     if (variantsError) throw variantsError;
                     console.log(`✅ Loaded ${variantsData?.length || 0} variants`);
 
-                    // 5. Load routes if available
+                    // 5. Load routes
                     let routesData = [];
                     try {
                         const { data: routes, error: routesError } = await supabaseClient
@@ -1647,9 +1793,9 @@
                         if (!category) return;
 
                         const vehicleType = category.name;
-                        const depRate = AUTO_V_RATES.getDepreciationRate(vehicleType);
-                        const insuranceRate = AUTO_V_RATES.getComprehensiveRate(vehicleType);
-                        const thirdPartyCost = AUTO_V_RATES.getThirdPartyCost(vehicleType);
+                        const depRate = CONFIG.AUTO_V_RATES.depreciation[vehicleType] || 0.15;
+                        const insuranceRate = CONFIG.AUTO_V_RATES.comprehensive_insurance[vehicleType] || 0.045;
+                        const thirdPartyCost = CONFIG.AUTO_V_RATES.third_party_insurance[vehicleType] || 10000;
                         
                         const fuelType = variant.fuel_type?.name || 'Petrol';
                         const marketValue = variant.market_value || 3500000;
@@ -1660,11 +1806,8 @@
                              fuelType === 'Electric' ? 25 : 12);
 
                         const age = getVehicleAge(variant.year || 2020);
-                        const currentValue = calculateCurrentValue(marketValue, depRate, age);
-                        const insuranceAnnual = Math.max(
-                            marketValue * insuranceRate,
-                            thirdPartyCost
-                        );
+                        const currentValue = marketValue * Math.pow(1 - depRate, age);
+                        const insuranceAnnual = Math.max(marketValue * insuranceRate, thirdPartyCost);
 
                         const engineCC = variant.engine_size?.size_cc || 0;
 
@@ -1716,213 +1859,12 @@
                     }
 
                     isUsingSupabase = true;
-                    supabaseError = null;
                     return true;
 
                 } catch (error) {
                     console.warn('⚠️ Supabase load failed:', error.message);
-                    supabaseError = error.message;
                     return false;
                 }
-            }
-
-            // ─── FALLBACK DATA ──────────────────────────────────────────
-
-            function getFallbackCategories() {
-                return [
-                    { id: 'cat-passenger', name: 'Passenger Car', category_type: 'Passenger Car' },
-                    { id: 'cat-suv', name: 'SUV', category_type: 'SUV' },
-                    { id: 'cat-pickup', name: 'Pickup', category_type: 'Pickup' },
-                    { id: 'cat-van', name: 'Van', category_type: 'Van' },
-                    { id: 'cat-motorcycle', name: 'Motorcycle', category_type: 'Motorcycle' },
-                    { id: 'cat-tricycle', name: 'Tricycle', category_type: 'Tricycle' }
-                ];
-            }
-
-            function getFallbackVariants() {
-                const depRateCar = AUTO_V_RATES.getDepreciationRate('Passenger Car');
-                const insRateCar = AUTO_V_RATES.getComprehensiveRate('Passenger Car');
-                const thirdPartyCar = AUTO_V_RATES.getThirdPartyCost('Passenger Car');
-                const depRateSUV = AUTO_V_RATES.getDepreciationRate('SUV');
-                const insRateSUV = AUTO_V_RATES.getComprehensiveRate('SUV');
-                const thirdPartySUV = AUTO_V_RATES.getThirdPartyCost('SUV');
-                const depRatePickup = AUTO_V_RATES.getDepreciationRate('Pickup');
-                const insRatePickup = AUTO_V_RATES.getComprehensiveRate('Pickup');
-                const thirdPartyPickup = AUTO_V_RATES.getThirdPartyCost('Pickup');
-
-                return {
-                    'cat-passenger': [
-                        { 
-                            id: 'car-1', 
-                            label: 'Toyota Corolla 1.8L Petrol', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 12.5,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 1800, 
-                            initial_cost: 3500000, 
-                            current_value: 3500000 * Math.pow(1 - depRateCar, 8),
-                            expected_resale: 1400000, 
-                            years_remaining: 8, 
-                            service_interval: 10000, 
-                            minor_service_cost: 15000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 45000, 
-                            oil_interval: 10000, 
-                            oil_cost: 6000,
-                            tyre_cost: 80000, 
-                            tyre_life: 50000, 
-                            insurance_annual: Math.max(3500000 * insRateCar, thirdPartyCar),
-                            tax_annual: 17500,
-                            make_name: 'Toyota', 
-                            model_name: 'Corolla', 
-                            drive_type: 'fwd',
-                            vehicle_type: 'Passenger Car',
-                            depreciation_rate: depRateCar,
-                            third_party_annual: thirdPartyCar,
-                            year: 2020,
-                            seats: 5,
-                            doors: 4
-                        },
-                        { 
-                            id: 'car-2', 
-                            label: 'Toyota Camry 2.5L Petrol', 
-                            fuel_type: 'Petrol', 
-                            fuel_consumption: 14.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2500, 
-                            initial_cost: 4500000, 
-                            current_value: 4500000 * Math.pow(1 - depRateCar, 8),
-                            expected_resale: 1800000, 
-                            years_remaining: 8, 
-                            service_interval: 15000, 
-                            minor_service_cost: 16000,
-                            major_service_interval: 60000, 
-                            major_service_cost: 50000, 
-                            oil_interval: 15000, 
-                            oil_cost: 7000,
-                            tyre_cost: 90000, 
-                            tyre_life: 50000, 
-                            insurance_annual: Math.max(4500000 * insRateCar, thirdPartyCar),
-                            tax_annual: 22500,
-                            make_name: 'Toyota', 
-                            model_name: 'Camry', 
-                            drive_type: 'fwd',
-                            vehicle_type: 'Passenger Car',
-                            depreciation_rate: depRateCar,
-                            third_party_annual: thirdPartyCar,
-                            year: 2020,
-                            seats: 5,
-                            doors: 4
-                        }
-                    ],
-                    'cat-suv': [
-                        { 
-                            id: 'suv-1', 
-                            label: 'Toyota RAV4 2.0L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 15.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2000, 
-                            initial_cost: 4800000, 
-                            current_value: 4800000 * Math.pow(1 - depRateSUV, 7),
-                            expected_resale: 1900000, 
-                            years_remaining: 7, 
-                            service_interval: 12000, 
-                            minor_service_cost: 18000,
-                            major_service_interval: 48000, 
-                            major_service_cost: 55000, 
-                            oil_interval: 12000, 
-                            oil_cost: 7000,
-                            tyre_cost: 90000, 
-                            tyre_life: 55000, 
-                            insurance_annual: Math.max(4800000 * insRateSUV, thirdPartySUV),
-                            tax_annual: 24000,
-                            make_name: 'Toyota', 
-                            model_name: 'RAV4', 
-                            drive_type: 'awd',
-                            vehicle_type: 'SUV',
-                            depreciation_rate: depRateSUV,
-                            third_party_annual: thirdPartySUV,
-                            year: 2020,
-                            seats: 5,
-                            doors: 5
-                        },
-                        { 
-                            id: 'suv-2', 
-                            label: 'Toyota Land Cruiser Prado 2.8L Diesel', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 11.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2800, 
-                            initial_cost: 8500000, 
-                            current_value: 8500000 * Math.pow(1 - depRateSUV, 10),
-                            expected_resale: 3500000, 
-                            years_remaining: 10, 
-                            service_interval: 10000, 
-                            minor_service_cost: 20000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 65000, 
-                            oil_interval: 10000, 
-                            oil_cost: 8000,
-                            tyre_cost: 120000, 
-                            tyre_life: 50000, 
-                            insurance_annual: Math.max(8500000 * insRateSUV, thirdPartySUV),
-                            tax_annual: 42500,
-                            make_name: 'Toyota', 
-                            model_name: 'Land Cruiser Prado', 
-                            drive_type: 'awd',
-                            vehicle_type: 'SUV',
-                            depreciation_rate: depRateSUV,
-                            third_party_annual: thirdPartySUV,
-                            year: 2018,
-                            seats: 7,
-                            doors: 5
-                        }
-                    ],
-                    'cat-pickup': [
-                        { 
-                            id: 'pickup-1', 
-                            label: 'Toyota Hilux 2.8L Diesel Double Cab', 
-                            fuel_type: 'Diesel', 
-                            fuel_consumption: 12.0,
-                            transmission: 'Automatic', 
-                            engine_size_cc: 2800, 
-                            initial_cost: 5200000, 
-                            current_value: 5200000 * Math.pow(1 - depRatePickup, 7),
-                            expected_resale: 2100000, 
-                            years_remaining: 7, 
-                            service_interval: 10000, 
-                            minor_service_cost: 15000,
-                            major_service_interval: 40000, 
-                            major_service_cost: 55000, 
-                            oil_interval: 10000, 
-                            oil_cost: 6000,
-                            tyre_cost: 85000, 
-                            tyre_life: 50000, 
-                            insurance_annual: Math.max(5200000 * insRatePickup, thirdPartyPickup),
-                            tax_annual: 26000,
-                            make_name: 'Toyota', 
-                            model_name: 'Hilux', 
-                            drive_type: '4wd',
-                            vehicle_type: 'Pickup',
-                            depreciation_rate: depRatePickup,
-                            third_party_annual: thirdPartyPickup,
-                            year: 2020,
-                            seats: 5,
-                            doors: 4
-                        }
-                    ]
-                };
-            }
-
-            function getFallbackRoutes() {
-                return [
-                    { from_city: 'Nairobi', to_city: 'Mombasa', km: 485 },
-                    { from_city: 'Nairobi', to_city: 'Kisumu', km: 355 },
-                    { from_city: 'Nairobi', to_city: 'Nakuru', km: 160 },
-                    { from_city: 'Nairobi', to_city: 'Eldoret', km: 315 },
-                    { from_city: 'Nairobi', to_city: 'Malindi', km: 500 }
-                ];
             }
 
             // ─── LOAD ALL DATA ──────────────────────────────────────────
@@ -1930,6 +1872,7 @@
                 try {
                     const supabaseOk = initSupabase();
                     if (supabaseOk) {
+                        await checkAuth();
                         elements.loadingStatus.textContent = 'Connecting to Supabase...';
                         const dataLoaded = await loadFromSupabase();
                         if (dataLoaded) {
@@ -1939,14 +1882,10 @@
                         }
                     }
                     
-                    console.warn('⚠️ Using fallback data');
-                    elements.loadingStatus.textContent = '⚠️ Using local fallback data';
-                    categories = getFallbackCategories();
-                    allVariantsByCategory = getFallbackVariants();
-                    routes = getFallbackRoutes();
-                    elements.fuelPriceInput.value = 203.47;
-                    isUsingSupabase = false;
-                    return true;
+                    console.warn('⚠️ Could not load from Supabase - no fallback data available');
+                    elements.loadingStatus.textContent = '⚠️ Supabase data unavailable';
+                    showToast('⚠️ Could not load vehicle data. Please check your connection.', 'error');
+                    return false;
                     
                 } catch (error) {
                     console.error('❌ Error loading data:', error);
@@ -1955,8 +1894,7 @@
                 }
             }
 
-            // ─── Local Cost Engine ──────────────────────────────────────
-
+            // ─── LOCAL CALCULATION ENGINE ──────────────────────────────
             const TRANSMISSION_FUEL_FACTOR = {
                 manual: 1.00,
                 automatic: 1.08,
@@ -1977,7 +1915,7 @@
                 const basePrice = variant.initial_cost || 3500000;
                 
                 const depRate = variant.depreciation_rate || 0.15;
-                const ageAdjustedCost = calculateCurrentValue(basePrice, depRate, vehicleAge);
+                const ageAdjustedCost = basePrice * Math.pow(1 - depRate, vehicleAge);
                 const basePriceForCalc = Math.max(ageAdjustedCost, basePrice * 0.15);
 
                 const transmissionKey = (transmission || variant.transmission || 'automatic').toLowerCase();
@@ -2100,8 +2038,10 @@
                 };
             }
 
-            // ─── Render Results ─────────────────────────────────────────
+            // ─── RENDER RESULTS ─────────────────────────────────────────
             function renderResults(result, variant) {
+                if (!result) return;
+
                 elements.vehicleLabel.textContent = variant.label || 'Unnamed variant';
                 elements.fuelPill.textContent = result.fuelTypeDisplay || '—';
                 elements.transmissionPill.textContent = result.transmissionDisplay || variant.transmission || '—';
@@ -2345,7 +2285,7 @@
                 });
             }
 
-            // ─── Main Calculation Handler ──────────────────────────────
+            // ─── MAIN CALCULATION ──────────────────────────────────────
             async function calculateAndRender() {
                 const variant = currentVariant();
                 if (!variant) {
@@ -2395,17 +2335,7 @@
                 elements.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
             }
 
-            // ─── Debounced Version ──────────────────────────────────────
-            function debouncedCalculate() {
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(() => {
-                    if (currentVariant() && num(elements.distanceInput.value) > 0) {
-                        calculateAndRender();
-                    }
-                }, 400);
-            }
-
-            // ─── UI Population ──────────────────────────────────────────
+            // ─── UI POPULATION ──────────────────────────────────────────
             function populateCategories() {
                 const showAll = currentFuelFilter === 'all';
                 const visible = showAll ? categories : categories.filter(c => {
@@ -2511,8 +2441,60 @@
                 update();
             }
 
-            // ─── Event Listeners ──────────────────────────────────────
+            // ─── DEBOUNCED CALCULATE ────────────────────────────────────
+            function debouncedCalculate() {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    if (currentVariant() && num(elements.distanceInput.value) > 0) {
+                        calculateAndRender();
+                    }
+                }, 400);
+            }
+
+            // ─── EVENT LISTENERS ──────────────────────────────────────
             function initEventListeners() {
+                // Auth
+                elements.btnSignIn.addEventListener('click', () => {
+                    elements.authForms.style.display = elements.authForms.style.display === 'none' ? 'block' : 'none';
+                });
+
+                elements.btnCancelAuth.addEventListener('click', () => {
+                    elements.authForms.style.display = 'none';
+                });
+
+                elements.btnLogin.addEventListener('click', async () => {
+                    const email = elements.authEmail.value.trim();
+                    const password = elements.authPassword.value;
+                    if (!email || !password) {
+                        showToast('Please enter email and password', 'warning');
+                        return;
+                    }
+                    await signIn(email, password);
+                    elements.authForms.style.display = 'none';
+                    elements.authEmail.value = '';
+                    elements.authPassword.value = '';
+                });
+
+                elements.btnSignup.addEventListener('click', async () => {
+                    const email = elements.authEmail.value.trim();
+                    const password = elements.authPassword.value;
+                    if (!email || !password) {
+                        showToast('Please enter email and password', 'warning');
+                        return;
+                    }
+                    if (password.length < 6) {
+                        showToast('Password must be at least 6 characters', 'warning');
+                        return;
+                    }
+                    await signUp(email, password);
+                    elements.authForms.style.display = 'none';
+                    elements.authEmail.value = '';
+                    elements.authPassword.value = '';
+                });
+
+                elements.btnSignOut.addEventListener('click', signOut);
+
+                // Fuel filter
                 elements.fuelFilterGroup.addEventListener('click', function(e) {
                     const btn = e.target.closest('.fuel-filter-btn');
                     if (!btn) return;
@@ -2529,6 +2511,7 @@
                     applyVariantFilter();
                 });
 
+                // Category change
                 elements.categorySelect.addEventListener('change', function() {
                     const catId = this.value;
                     if (!catId || isLoading) {
@@ -2548,8 +2531,6 @@
                                     debouncedCalculate();
                                 }
                             }, 100);
-                        } else {
-                            showToast('No variants available for this category', 'warning');
                         }
                     } catch (error) {
                         console.error('Error loading variants:', error);
@@ -2562,19 +2543,20 @@
                 });
 
                 elements.showAllClasses.addEventListener('change', applyVariantFilter);
-
                 elements.variantSelect.addEventListener('change', function() {
                     syncTransmissionFromVariant(currentVariant());
                 });
 
+                // Input changes
                 ['change', 'input'].forEach(evt => {
                     [elements.variantSelect, elements.distanceInput, elements.annualKmInput,
-                     elements.fuelPriceInput, elements.drivingStyle, elements.transmissionType, elements.tripType,
-                     elements.usageType, elements.yearSelect].forEach(el => {
+                     elements.fuelPriceInput, elements.drivingStyle, elements.transmissionType, 
+                     elements.tripType, elements.usageType, elements.yearSelect].forEach(el => {
                         el.addEventListener(evt, debouncedCalculate);
                     });
                 });
 
+                // Route chips
                 elements.routeChips.addEventListener('click', function(e) {
                     const chip = e.target.closest('.chip');
                     if (!chip) return;
@@ -2585,8 +2567,10 @@
                     }
                 });
 
+                // Calculate button
                 elements.calculateBtn.addEventListener('click', calculateAndRender);
 
+                // Purchase type
                 elements.btnCash.addEventListener('click', function() {
                     this.classList.add('active');
                     elements.btnFinanced.classList.remove('active');
@@ -2607,6 +2591,7 @@
                 bindSlider("rate", "valRate", v => v + "%");
                 bindSlider("term", "valTerm", v => v + (v == 1 ? " year" : " years"));
 
+                // Print & Share
                 document.getElementById('printBtn').addEventListener('click', function() { window.print(); });
 
                 document.getElementById('shareBtn').addEventListener('click', function() {
@@ -2622,13 +2607,14 @@
                 });
             }
 
-            // ─── Expose for debugging ──────────────────────────────────
+            // ─── EXPOSE FOR DEBUGGING ──────────────────────────────────
             window.AutoD = {
                 calculate: calculateAndRender,
                 data: { categories, allVariantsByCategory, routes },
                 prices: () => elements.fuelPriceInput.value,
                 isUsingSupabase: () => isUsingSupabase,
-                autoVRates: AUTO_V_RATES,
+                auth: { user: currentUser, isAuthenticated: isAuthenticated },
+                autoVRates: CONFIG.AUTO_V_RATES,
                 reload: async () => {
                     await loadAllData();
                     populateCategories();
@@ -2641,7 +2627,6 @@
             };
 
             // ─── INIT ──────────────────────────────────────────────────
-
             async function init() {
                 if (isInitialized) return;
                 isInitialized = true;
@@ -2649,7 +2634,11 @@
                 elements.loadingOverlay.classList.add('active');
 
                 try {
-                    await loadAllData();
+                    const loaded = await loadAllData();
+                    
+                    if (!loaded) {
+                        showToast('⚠️ Could not load vehicle data. Please refresh or try again later.', 'error');
+                    }
 
                     populateCategories();
                     renderRouteChips();
@@ -2673,11 +2662,8 @@
 
                     console.log('✅ Auto-D Kenya Engine initialized');
                     console.log(`📊 Categories: ${categories.length}, Variants: ${Object.keys(allVariantsByCategory).length}`);
-                    console.log(`📡 Data source: ${isUsingSupabase ? 'Supabase ✅' : 'Fallback ⚠️'}`);
-                    
-                    if (supabaseError) {
-                        console.warn(`⚠️ Supabase error: ${supabaseError}`);
-                    }
+                    console.log(`📡 Data source: ${isUsingSupabase ? 'Supabase ✅' : 'None ⚠️'}`);
+                    console.log(`🔐 Auth: ${isAuthenticated ? 'Authenticated' : 'Not authenticated'}`);
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
