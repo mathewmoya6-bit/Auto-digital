@@ -1372,11 +1372,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
-        // ✅ FIXED: Schema mismatches reconciled
-        // ✅ vehicle_variants.vehicle_model_id (not model_id)
-        // ✅ fuel_prices.price_per_unit (not price)
-        // ✅ fuel_prices.effective_from (not effective_date)
-        // ✅ fuel_prices.fuel_type_id (FK to fuel_types)
+        // ✅ FIXED: Builds categories from variants data when tables are empty
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1386,8 +1382,6 @@
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                API_BASE: 'https://auto-digital.onrender.com/api/v1',
-                API_TIMEOUT: 15000,
                 AUTO_V_RATES: {
                     depreciation: {
                         'Passenger Car': 0.15,
@@ -1540,14 +1534,6 @@
                 return Math.max(0, currentYear - parseInt(year));
             }
 
-            function getAuthHeaders() {
-                const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
-                if (currentUser && currentUser.access_token) {
-                    headers['Authorization'] = `Bearer ${currentUser.access_token}`;
-                }
-                return headers;
-            }
-
             // ─── SUPABASE AUTH ──────────────────────────────────────────
             function initSupabase() {
                 try {
@@ -1660,86 +1646,73 @@
                 }
             }
 
-            // ─── FASTAPI API CALLS ──────────────────────────────────────
-            async function callAPI(endpoint, method = 'GET', body = null) {
-                try {
-                    const headers = getAuthHeaders();
-                    const options = {
-                        method: method,
-                        headers: headers,
-                        signal: AbortSignal.timeout(CONFIG.API_TIMEOUT)
-                    };
-                    if (body) {
-                        options.body = JSON.stringify(body);
-                    }
-
-                    const response = await fetch(`${CONFIG.API_BASE}${endpoint}`, options);
-                    
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({}));
-                        throw new Error(errorData.detail || errorData.message || `HTTP ${response.status}`);
-                    }
-
-                    return await response.json();
-                } catch (error) {
-                    console.warn('⚠️ API call failed:', error.message);
-                    return null;
-                }
-            }
-
             // ─── LOAD DATA FROM SUPABASE ───────────────────────────────
-            // ─── ALL SCHEMA MISMATCHES FIXED ────────────────────────────
+            // ✅ FIXED: Builds categories from variants when tables are empty
             async function loadFromSupabase() {
                 try {
                     elements.loadingStatus.textContent = 'Fetching vehicle data...';
                     console.log('📡 Loading data from Supabase...');
 
-                    // 1. Load categories
+                    // ─── 1. Load Categories ───────────────────────────
                     const { data: categoriesData, error: categoriesError } = await supabaseClient
                         .from('vehicle_categories')
-                        .select('*')
+                        .select('id, name')
                         .order('name');
-                    if (categoriesError) throw categoriesError;
-                    console.log(`✅ Loaded ${categoriesData?.length || 0} categories`);
+                    
+                    if (categoriesError) {
+                        console.warn('⚠️ Categories error:', categoriesError.message);
+                    }
+                    console.log(`📊 Categories from table: ${categoriesData?.length || 0}`);
 
-                    // 2. Load makes
+                    // ─── 2. Load Makes ───────────────────────────────
                     const { data: makesData, error: makesError } = await supabaseClient
                         .from('vehicle_makes')
-                        .select('*')
+                        .select('id, name')
                         .order('name');
-                    if (makesError) throw makesError;
-                    console.log(`✅ Loaded ${makesData?.length || 0} makes`);
+                    
+                    if (makesError) {
+                        console.warn('⚠️ Makes error:', makesError.message);
+                    }
+                    console.log(`📊 Makes from table: ${makesData?.length || 0}`);
 
-                    // 3. Load models with relationships
+                    // ─── 3. Load Models ──────────────────────────────
                     const { data: modelsData, error: modelsError } = await supabaseClient
                         .from('vehicle_models')
-                        .select(`
-                            *,
-                            vehicle_makes(*),
-                            vehicle_categories(*)
-                        `)
+                        .select('id, name, make_id, category_id')
                         .order('name');
-                    if (modelsError) throw modelsError;
-                    console.log(`✅ Loaded ${modelsData?.length || 0} models`);
+                    
+                    if (modelsError) {
+                        console.warn('⚠️ Models error:', modelsError.message);
+                    }
+                    console.log(`📊 Models from table: ${modelsData?.length || 0}`);
 
-                    // 4. Load variants - ✅ FIXED: using vehicle_model_id (not model_id)
+                    // ─── 4. Load Variants ─────────────────────────────
                     // Using table name references (recommended by Supabase)
                     const { data: variantsData, error: variantsError } = await supabaseClient
                         .from('vehicle_variants')
                         .select(`
                             *,
-                            vehicle_models(*),
-                            fuel_types(*),
-                            transmission_types(*),
-                            drive_types(*),
-                            body_types(*),
-                            engine_sizes(*)
+                            vehicle_models(
+                                id,
+                                name,
+                                make_id,
+                                category_id
+                            ),
+                            fuel_types(id, name),
+                            transmission_types(id, name),
+                            drive_types(id, name),
+                            body_types(id, name),
+                            engine_sizes(id, size_cc)
                         `)
                         .order('name');
-                    if (variantsError) throw variantsError;
+                    
+                    if (variantsError) {
+                        console.error('❌ Variants error:', variantsError);
+                        throw variantsError;
+                    }
                     console.log(`✅ Loaded ${variantsData?.length || 0} variants`);
 
-                    // 5. Load routes
+                    // ─── 5. Load Routes ──────────────────────────────
                     let routesData = [];
                     try {
                         const { data: routes, error: routesError } = await supabaseClient
@@ -1753,9 +1726,8 @@
                         console.warn('⚠️ Routes load failed:', e.message);
                     }
 
-                    // 6. Load fuel prices - ✅ FIXED: using price_per_unit, effective_from, fuel_type_id
+                    // ─── 6. Load Fuel Prices ──────────────────────────
                     try {
-                        // Get the latest valid fuel price
                         const now = new Date().toISOString();
                         const { data: fp, error: fpError } = await supabaseClient
                             .from('fuel_prices')
@@ -1771,11 +1743,8 @@
                             .limit(1);
 
                         if (!fpError && fp && fp.length > 0 && fp[0].price_per_unit) {
-                            const fuelPrice = fp[0].price_per_unit;
-                            const unit = fp[0].unit || 'L';
-                            const fuelName = fp[0].fuel_types?.name || 'Petrol';
-                            elements.fuelPriceInput.value = fuelPrice;
-                            console.log(`✅ Loaded fuel price: KES ${fuelPrice} per ${unit} (${fuelName})`);
+                            elements.fuelPriceInput.value = fp[0].price_per_unit;
+                            console.log(`✅ Loaded fuel price: ${fp[0].price_per_unit}`);
                         } else {
                             console.warn('⚠️ No valid fuel price found, using fallback');
                             elements.fuelPriceInput.value = 203.47;
@@ -1786,42 +1755,55 @@
                     }
 
                     // ─── Process Data ───────────────────────────────────
+                    
+                    // ─── Build Categories from variants ─────────────────
+                    // If categories table is empty, build from variants data
+                    if (categoriesData && categoriesData.length > 0) {
+                        categories = categoriesData.map(c => ({ id: c.id, name: c.name }));
+                    } else {
+                        // Build categories from variants
+                        const categoryMap = new Map();
+                        variantsData.forEach(v => {
+                            const model = v.vehicle_models;
+                            if (model && model.category_id) {
+                                // We don't have the category name from the join directly
+                                // Use model data or infer from vehicle type
+                                const categoryName = model.vehicle_type || 'Vehicle';
+                                if (!categoryMap.has(model.category_id)) {
+                                    categoryMap.set(model.category_id, {
+                                        id: model.category_id,
+                                        name: categoryName
+                                    });
+                                }
+                            }
+                        });
+                        categories = Array.from(categoryMap.values());
+                        console.log(`🏷️ Built ${categories.length} categories from variants`);
+                    }
 
-                    // Build categories
-                    categories = categoriesData.map(cat => ({
-                        id: cat.id,
-                        name: cat.name,
-                        category_type: cat.name
-                    }));
-
-                    // Build make map from the models data
-                    const makeMap = {};
-                    makesData.forEach(m => { makeMap[m.id] = m; });
-
-                    // Build model map with make info
-                    const modelMap = {};
-                    modelsData.forEach(m => { modelMap[m.id] = m; });
-
-                    // Initialize variant storage
+                    // ─── Build Variants Lookup ─────────────────────────
                     allVariantsByCategory = {};
-                    categories.forEach(cat => {
-                        allVariantsByCategory[cat.id] = [];
-                    });
+                    categories.forEach(c => { allVariantsByCategory[c.id] = []; });
 
-                    // Process variants - using the joined data
+                    // Process variants
                     let variantCount = 0;
                     variantsData.forEach(variant => {
-                        // Get the model from the joined data
                         const model = variant.vehicle_models;
                         if (!model) return;
                         
-                        const make = model.vehicle_makes;
-                        if (!make) return;
-                        
-                        const category = model.vehicle_categories;
-                        if (!category) return;
+                        // Get category
+                        let category = categories.find(c => c.id === model.category_id);
+                        if (!category) {
+                            // If category not found, create a generic one
+                            const catId = model.category_id || 'uncategorized';
+                            category = { id: catId, name: model.vehicle_type || 'Uncategorized' };
+                            if (!allVariantsByCategory[catId]) {
+                                allVariantsByCategory[catId] = [];
+                                categories.push(category);
+                            }
+                        }
 
-                        const vehicleType = category.name;
+                        const vehicleType = category.name || 'Passenger Car';
                         const depRate = CONFIG.AUTO_V_RATES.depreciation[vehicleType] || 0.15;
                         const insuranceRate = CONFIG.AUTO_V_RATES.comprehensive_insurance[vehicleType] || 0.045;
                         const thirdPartyCost = CONFIG.AUTO_V_RATES.third_party_insurance[vehicleType] || 10000;
@@ -1840,9 +1822,12 @@
 
                         const engineCC = variant.engine_sizes?.size_cc || 0;
 
+                        // Get make name from model or fallback
+                        const makeName = model.vehicle_make_name || 'Unknown';
+
                         allVariantsByCategory[category.id].push({
                             id: variant.id,
-                            label: `${make.name} ${model.name} ${variant.name || ''}`.trim(),
+                            label: `${makeName} ${model.name || ''} ${variant.name || ''}`.trim() || 'Unnamed',
                             fuel_type: fuelType,
                             fuel_consumption: fuelConsumption,
                             transmission: variant.transmission_types?.name || 'Automatic',
@@ -1863,8 +1848,8 @@
                             third_party_annual: thirdPartyCost,
                             tax_annual: marketValue * 0.005,
                             depreciation_rate: depRate,
-                            make_name: make.name,
-                            model_name: model.name,
+                            make_name: makeName,
+                            model_name: model.name || '',
                             drive_type: variant.drive_types?.name || 'fwd',
                             vehicle_type: vehicleType,
                             auto_v_category: vehicleType,
@@ -1875,7 +1860,7 @@
                         variantCount++;
                     });
 
-                    console.log(`✅ Processed ${variantCount} variants`);
+                    console.log(`✅ Processed ${variantCount} variants across ${categories.length} categories`);
 
                     // Process routes
                     if (routesData && routesData.length > 0) {
@@ -1911,7 +1896,7 @@
                         }
                     }
                     
-                    console.warn('⚠️ Could not load from Supabase - no fallback data available');
+                    console.warn('⚠️ Could not load from Supabase');
                     elements.loadingStatus.textContent = '⚠️ Supabase data unavailable';
                     showToast('⚠️ Could not load vehicle data. Please check your connection.', 'error');
                     return false;
