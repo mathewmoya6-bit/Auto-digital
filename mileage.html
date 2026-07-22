@@ -1372,8 +1372,11 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
-        // PURE SUPABASE DEPENDENCY + FASTAPI BACKEND
-        // CORRECTED SUPABASE QUERIES
+        // FIXED: Schema mismatches reconciled
+        // - vehicle_variants.vehicle_model_id (not model_id)
+        // - fuel_prices.price_per_unit (not price)
+        // - fuel_prices.effective_from (not effective_date)
+        // - fuel_prices.fuel_type_id (FK to fuel_types)
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1685,7 +1688,7 @@
             }
 
             // ─── LOAD DATA FROM SUPABASE ───────────────────────────────
-            // ─── CORRECTED SUPABASE QUERIES ─────────────────────────────
+            // ─── ALL SCHEMA MISMATCHES FIXED ────────────────────────────
             async function loadFromSupabase() {
                 try {
                     elements.loadingStatus.textContent = 'Fetching vehicle data...';
@@ -1719,8 +1722,7 @@
                     if (modelsError) throw modelsError;
                     console.log(`✅ Loaded ${modelsData?.length || 0} models`);
 
-                    // 4. Load variants with all relationships - CORRECTED!
-                    // Using the table names directly (recommended approach)
+                    // 4. Load variants - FIXED: using vehicle_model_id (not model_id)
                     const { data: variantsData, error: variantsError } = await supabaseClient
                         .from('vehicle_variants')
                         .select(`
@@ -1750,19 +1752,36 @@
                         console.warn('⚠️ Routes load failed:', e.message);
                     }
 
-                    // 6. Load fuel prices
+                    // 6. Load fuel prices - FIXED: using price_per_unit, effective_from, fuel_type_id
                     try {
+                        // Get the latest valid fuel price
+                        const now = new Date().toISOString();
                         const { data: fp, error: fpError } = await supabaseClient
                             .from('fuel_prices')
-                            .select('price, fuel_type, effective_date')
-                            .order('effective_date', { ascending: false })
+                            .select(`
+                                price_per_unit,
+                                unit,
+                                effective_from,
+                                fuel_types(name)
+                            `)
+                            .lte('effective_from', now)
+                            .or(`effective_to.is.null,effective_to.gte.${now}`)
+                            .order('effective_from', { ascending: false })
                             .limit(1);
-                        if (!fpError && fp && fp.length > 0 && fp[0].price) {
-                            elements.fuelPriceInput.value = fp[0].price;
-                            console.log(`✅ Loaded fuel price: ${fp[0].price}`);
+
+                        if (!fpError && fp && fp.length > 0 && fp[0].price_per_unit) {
+                            const fuelPrice = fp[0].price_per_unit;
+                            const unit = fp[0].unit || 'L';
+                            const fuelName = fp[0].fuel_types?.name || 'Petrol';
+                            elements.fuelPriceInput.value = fuelPrice;
+                            console.log(`✅ Loaded fuel price: KES ${fuelPrice} per ${unit} (${fuelName})`);
+                        } else {
+                            console.warn('⚠️ No valid fuel price found, using fallback');
+                            elements.fuelPriceInput.value = 203.47;
                         }
                     } catch (e) {
                         console.warn('⚠️ Fuel prices load failed:', e.message);
+                        elements.fuelPriceInput.value = 203.47;
                     }
 
                     // ─── Process Data ───────────────────────────────────
