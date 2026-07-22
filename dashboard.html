@@ -1088,7 +1088,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD
+        // AUTO-D KENYA - DASHBOARD (FIXED: Instant Value navigation)
         // ═══════════════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1150,15 +1150,56 @@
                 }, 4000);
             }
 
-            function extractErrorMessage(status, data, fallback) {
-                if (data && typeof data === 'object') {
-                    if (typeof data.detail === 'string') return data.detail;
-                    if (Array.isArray(data.detail) && data.detail[0]?.msg) return data.detail[0].msg;
-                    if (data.message) return data.message;
-                    if (data.error) return data.error;
+            // ─── FIXED: navigateToService ──────────────────────────────────────────
+            window.navigateToService = function(serviceId) {
+                console.log('🔍 navigateToService called with:', serviceId);
+                
+                // Check if service exists in dashboard data
+                if (!dashboardData || !dashboardData.services) {
+                    showToast('Loading services, please wait...', 'warning');
+                    // Refresh and try again
+                    loadDashboard().then(() => {
+                        setTimeout(() => {
+                            window.navigateToService(serviceId);
+                        }, 500);
+                    });
+                    return;
                 }
-                return `${fallback} (${status})`;
-            }
+
+                const service = dashboardData.services.find(s => s.id === serviceId);
+                console.log('📦 Service found:', service);
+
+                if (!service) {
+                    showToast('Service not found', 'error');
+                    return;
+                }
+
+                // Check if service is purchased/unlocked
+                const isPurchased = service.purchased || service.status === 'purchased' || service.status === 'active';
+                console.log('🔐 Is purchased?', isPurchased);
+
+                if (isPurchased) {
+                    const route = SERVICE_ROUTES[serviceId];
+                    if (route) {
+                        console.log('🚀 Redirecting to:', route);
+                        // If service is already purchased, go directly
+                        window.location.href = route;
+                    } else {
+                        showToast('Service route not found', 'error');
+                    }
+                } else {
+                    // Service is locked - show payment modal
+                    console.log('💰 Service locked, showing payment modal');
+                    pendingServiceRedirect = serviceId;
+                    openPaymentModal(service);
+                }
+            };
+
+            // ─── FIXED: handleServiceAction ──────────────────────────────────────────
+            window.handleServiceAction = function(serviceId) {
+                // Same logic as navigateToService
+                window.navigateToService(serviceId);
+            };
 
             // ─── Connection Status ──────────────────────────────────────────────────
             function setConnectionStatus(status, message) {
@@ -1308,43 +1349,9 @@
                 });
             }
 
-            // ─── Navigate to Service ──────────────────────────────────────────────
-            window.navigateToService = function(serviceId) {
-                const service = (dashboardData?.services || []).find(s => s.id === serviceId);
-                if (!service) {
-                    showToast('Service not found', 'error');
-                    return;
-                }
-                if (service.purchased || service.status === 'purchased' || service.status === 'active') {
-                    const route = SERVICE_ROUTES[serviceId];
-                    if (route) {
-                        window.location.href = route;
-                    } else {
-                        showToast('Service route not found', 'error');
-                    }
-                } else {
-                    pendingServiceRedirect = serviceId;
-                    openPaymentModal(service);
-                }
-            };
-
-            window.handleServiceAction = function(serviceId) {
-                const service = (dashboardData?.services || []).find(s => s.id === serviceId);
-                if (!service) {
-                    showToast('Service not found', 'error');
-                    return;
-                }
-                if (service.purchased || service.status === 'purchased' || service.status === 'active') {
-                    const route = SERVICE_ROUTES[serviceId];
-                    if (route) {
-                        window.location.href = route;
-                    } else {
-                        showToast('Service route not found', 'error');
-                    }
-                } else {
-                    pendingServiceRedirect = serviceId;
-                    openPaymentModal(service);
-                }
+            // ─── Navigate to ──────────────────────────────────────────────────────
+            window.navigateTo = function(section) {
+                showToast(`📂 Navigating to ${section}...`, 'info');
             };
 
             // ─── Load Dashboard Data ──────────────────────────────────────────────
@@ -1748,11 +1755,6 @@
                     `;
                 }).join('');
             }
-
-            // ─── Actions ──────────────────────────────────────────────────────────
-            window.navigateTo = function(section) {
-                showToast(`📂 Navigating to ${section}...`, 'info');
-            };
 
             // ─── New Request Modal ──────────────────────────────────────────────────
             window.openNewRequestModal = function() {
@@ -2241,6 +2243,7 @@
                                     updateWorkflowStep(4);
                                     loadDashboard();
                                     
+                                    // FIXED: Redirect to the service after payment
                                     const redirectId = pendingServiceRedirect || selectedService.id;
                                     const route = SERVICE_ROUTES[redirectId];
                                     if (route && confirm('Payment successful! Would you like to open the service now?')) {
@@ -2351,9 +2354,10 @@
                         closePaymentModal();
                         loadDashboard();
                         
+                        // FIXED: Redirect to the service after manual confirmation
                         const redirectId = pendingServiceRedirect || serviceId;
                         const route = SERVICE_ROUTES[redirectId];
-                        if (route) {
+                        if (route && confirm('Service unlocked! Would you like to open it now?')) {
                             window.location.href = route;
                         }
                     }, 1500);
