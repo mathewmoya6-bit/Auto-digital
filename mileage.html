@@ -15,7 +15,9 @@
             --amber: #eab308;
             --amber-dark: #ca8a04;
             --green: #22c55e;
+            --green-dark: #16a34a;
             --blue: #3b82f6;
+            --blue-dark: #2563eb;
             --cyan: #06b6d4;
             --red: #ef4444;
             --bg: #0a0c15;
@@ -126,6 +128,10 @@
             background: rgba(239, 68, 68, 0.15);
             color: #ef4444;
         }
+        .header-right .auth-status.premium {
+            background: rgba(234, 179, 8, 0.15);
+            color: #eab308;
+        }
 
         .main-grid {
             display: grid;
@@ -200,6 +206,72 @@
         select:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
         select:focus, input:focus { outline: 2px solid #eab308; outline-offset: 1px; }
 
+        /* ─── LOCK SCREEN ──────────────────────────────────────────── */
+        .lock-overlay {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(10, 12, 21, 0.92);
+            border-radius: 12px;
+            z-index: 50;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 30px;
+            text-align: center;
+            backdrop-filter: blur(8px);
+        }
+        .lock-overlay.show { display: flex; }
+        .lock-overlay .lock-icon {
+            font-size: 56px;
+            margin-bottom: 16px;
+            color: #eab308;
+        }
+        .lock-overlay h3 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 22px;
+            color: #f8fafc;
+            margin-bottom: 8px;
+        }
+        .lock-overlay p {
+            color: #94a3b8;
+            font-size: 14px;
+            max-width: 360px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        .lock-overlay .unlock-btn {
+            background: linear-gradient(135deg, #eab308, #ca8a04);
+            color: #0a0c10;
+            border: none;
+            padding: 12px 40px;
+            border-radius: 8px;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .lock-overlay .unlock-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(234, 179, 8, 0.3);
+        }
+        .lock-overlay .plan-badge {
+            display: inline-block;
+            background: rgba(234, 179, 8, 0.15);
+            border: 1px solid rgba(234, 179, 8, 0.2);
+            color: #eab308;
+            padding: 6px 20px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            margin-bottom: 16px;
+        }
+
         .auth-section {
             background: rgba(255,255,255,0.03);
             border: 1px solid var(--border);
@@ -241,6 +313,22 @@
             font-size: 11px;
             color: var(--text-secondary);
             padding: 4px 0;
+        }
+        .auth-section .subscription-status {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            padding: 4px 12px;
+            border-radius: 12px;
+            display: inline-block;
+            margin-top: 4px;
+        }
+        .auth-section .subscription-status.active {
+            background: rgba(34, 197, 94, 0.15);
+            color: #22c55e;
+        }
+        .auth-section .subscription-status.inactive {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
         }
 
         .fuel-filter-group {
@@ -341,6 +429,43 @@
             vertical-align: middle;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        .quick-routes { margin-top: 4px; }
+        .quick-routes-title {
+            font-size: 8px;
+            color: #cbd5e1;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-family: 'JetBrains Mono', monospace;
+            margin-bottom: 4px;
+            opacity: 0.7;
+        }
+        .route-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            max-height: 60px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        .route-chips::-webkit-scrollbar { width: 3px; }
+        .route-chips::-webkit-scrollbar-track { background: transparent; }
+        .route-chips::-webkit-scrollbar-thumb { background: #eab308; border-radius: 10px; }
+        .chip {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 8px;
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            color: #cbd5e1;
+            padding: 3px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+            white-space: nowrap;
+            background: rgba(255, 255, 255, 0.03);
+        }
+        .chip:hover { border-color: #eab308; color: #eab308; background: rgba(234, 179, 8, 0.08); }
+        .chip .km-badge { font-size: 7px; opacity: 0.6; margin-left: 3px; }
 
         .results-panel {
             display: flex;
@@ -919,6 +1044,7 @@
             .auto-d-badge { display: none !important; }
             .header-right .auth-status { display: none !important; }
             .status-message { display: none !important; }
+            .lock-overlay { display: none !important; }
         }
     </style>
 </head>
@@ -949,12 +1075,24 @@
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus">🔓 Not Authenticated</span>
                 </div>
+                <div style="margin-top:2px;">
+                    <span class="subscription-status" id="subStatus" style="display:none;">—</span>
+                </div>
             </div>
         </header>
 
         <div class="main-grid">
 
-            <section class="calculator-panel" aria-label="Vehicle cost calculator">
+            <section class="calculator-panel" aria-label="Vehicle cost calculator" style="position:relative;">
+
+                <!-- ─── LOCK OVERLAY ────────────────────────────────────── -->
+                <div class="lock-overlay show" id="lockOverlay">
+                    <div class="lock-icon">🔒</div>
+                    <div class="plan-badge">🚗 Premium Calculator</div>
+                    <h3>Access Locked</h3>
+                    <p>Sign in and subscribe to access the full mileage &amp; running cost calculator with real-time Kenyan market data.</p>
+                    <button class="unlock-btn" id="unlockBtn">🔑 Sign In / Subscribe</button>
+                </div>
 
                 <!-- ─── AUTH SECTION ──────────────────────────────────── -->
                 <div class="panel-label"><span class="num">🔐</span> Authentication</div>
@@ -973,6 +1111,14 @@
                             <button class="primary" id="btnLogin" style="flex:1;padding:6px;border:none;border-radius:4px;background:var(--amber);color:#0a0c10;font-weight:600;cursor:pointer;">Login</button>
                             <button id="btnSignup" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;">Sign Up</button>
                             <button id="btnCancelAuth" style="padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;">Cancel</button>
+                        </div>
+                    </div>
+                    <div id="subscriptionInfo" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(234,179,8,0.05);border-radius:6px;border:1px solid rgba(234,179,8,0.15);">
+                        <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);">
+                            Plan: <strong id="planName" style="color:var(--amber);">—</strong>
+                        </div>
+                        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-top:2px;">
+                            Expires: <span id="planExpiry">—</span>
                         </div>
                     </div>
                 </div>
@@ -1319,9 +1465,7 @@
 
     <script>
         // ================================================================
-        // AUTO-D KENYA - COMPLETE FRONTEND
-        // ALL DATA FROM Supabase VIEW: vehicle_full_specs
-        // NO HARDCODING
+        // AUTO-D KENYA - COMPLETE FRONTEND WITH AUTH + PAYMENT GATE
         // ================================================================
 
         (function() {
@@ -1331,24 +1475,34 @@
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                VIEW_NAME: 'vehicle_full_specs'
+                VIEW_NAME: 'vehicle_full_specs',
+                SUBSCRIPTION_PLANS: {
+                    'premium': {
+                        name: 'Premium',
+                        price: 1999,
+                        interval: 'monthly',
+                        features: ['Unlimited calculations', 'Full vehicle database', 'Export reports', 'Priority support']
+                    },
+                    'basic': {
+                        name: 'Basic',
+                        price: 499,
+                        interval: 'monthly',
+                        features: ['10 calculations/month', 'Limited vehicle database']
+                    }
+                }
             };
 
             // ─── STATE ──────────────────────────────────────────────
             let supabaseClient = null;
             let isAuthenticated = false;
             let currentUser = null;
+            let userSubscription = null;
+            let isPremium = false;
             let isFinanced = false;
             let currentVariantData = null;
             let routes = [];
             let debounceTimer = null;
-
-            // Selection state
-            let selectedCategoryId = null;
-            let selectedMakeId = null;
-            let selectedModelId = null;
-            let selectedGenerationId = null;
-            let selectedVariantId = null;
+            let isUnlocked = false;
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1410,7 +1564,13 @@
                 term: document.getElementById('term'),
                 valDown: document.getElementById('valDown'),
                 valRate: document.getElementById('valRate'),
-                valTerm: document.getElementById('valTerm')
+                valTerm: document.getElementById('valTerm'),
+                lockOverlay: document.getElementById('lockOverlay'),
+                unlockBtn: document.getElementById('unlockBtn'),
+                subStatus: document.getElementById('subStatus'),
+                subscriptionInfo: document.getElementById('subscriptionInfo'),
+                planName: document.getElementById('planName'),
+                planExpiry: document.getElementById('planExpiry')
             };
 
             // ─── HELPERS ──────────────────────────────────────────────
@@ -1483,7 +1643,9 @@
                     if (error) throw error;
                     currentUser = data.session;
                     isAuthenticated = true;
+                    await checkSubscription();
                     updateAuthUI();
+                    updateLockState();
                     showToast('✅ Signed in successfully!', 'success');
                     return true;
                 } catch (error) {
@@ -1512,7 +1674,10 @@
                     await supabaseClient.auth.signOut();
                     currentUser = null;
                     isAuthenticated = false;
+                    isPremium = false;
+                    userSubscription = null;
                     updateAuthUI();
+                    updateLockState();
                     showToast('🔓 Signed out', 'info');
                     return true;
                 } catch (error) {
@@ -1528,21 +1693,88 @@
                     if (data.session) {
                         currentUser = data.session;
                         isAuthenticated = true;
+                        await checkSubscription();
                     } else {
                         currentUser = null;
                         isAuthenticated = false;
+                        isPremium = false;
+                        userSubscription = null;
                     }
                     updateAuthUI();
+                    updateLockState();
                     return isAuthenticated;
                 } catch (error) {
                     console.warn('⚠️ Auth check failed:', error.message);
                     currentUser = null;
                     isAuthenticated = false;
+                    isPremium = false;
+                    userSubscription = null;
                     updateAuthUI();
+                    updateLockState();
                     return false;
                 }
             }
 
+            // ─── SUBSCRIPTION ──────────────────────────────────────────
+            async function checkSubscription() {
+                try {
+                    if (!isAuthenticated || !currentUser) {
+                        isPremium = false;
+                        userSubscription = null;
+                        return;
+                    }
+
+                    const userId = currentUser.user?.id;
+                    if (!userId) {
+                        isPremium = false;
+                        return;
+                    }
+
+                    const { data, error } = await supabaseClient
+                        .from('subscriptions')
+                        .select('*')
+                        .eq('user_id', userId)
+                        .eq('status', 'active')
+                        .order('created_at', { ascending: false })
+                        .limit(1);
+
+                    if (error) {
+                        console.warn('⚠️ Subscription check error:', error.message);
+                        isPremium = false;
+                        userSubscription = null;
+                        return;
+                    }
+
+                    if (data && data.length > 0) {
+                        const sub = data[0];
+                        const expiryDate = new Date(sub.expires_at);
+                        const now = new Date();
+                        
+                        if (expiryDate > now) {
+                            isPremium = true;
+                            userSubscription = sub;
+                            console.log('✅ Premium subscription active');
+                        } else {
+                            isPremium = false;
+                            userSubscription = null;
+                            console.log('⚠️ Subscription expired');
+                        }
+                    } else {
+                        isPremium = false;
+                        userSubscription = null;
+                        console.log('ℹ️ No active subscription found');
+                    }
+                    
+                    updateSubscriptionUI();
+
+                } catch (error) {
+                    console.error('❌ Subscription check error:', error);
+                    isPremium = false;
+                    userSubscription = null;
+                }
+            }
+
+            // ─── UPDATE UI ─────────────────────────────────────────────
             function updateAuthUI() {
                 if (isAuthenticated && currentUser) {
                     const email = currentUser.user?.email || 'user';
@@ -1558,11 +1790,82 @@
                     el.authMessage.textContent = 'Sign in to access your saved vehicles and get personalized rates';
                     el.btnSignIn.style.display = 'inline-block';
                     el.btnSignOut.style.display = 'none';
+                    el.subscriptionInfo.style.display = 'none';
+                }
+                updateSubscriptionUI();
+            }
+
+            function updateSubscriptionUI() {
+                if (isAuthenticated && isPremium && userSubscription) {
+                    el.subStatus.style.display = 'inline-block';
+                    el.subStatus.className = 'subscription-status active';
+                    el.subStatus.textContent = '⭐ Premium Active';
+                    el.authStatus.className = 'auth-status premium';
+                    
+                    el.subscriptionInfo.style.display = 'block';
+                    el.planName.textContent = userSubscription.plan_name || 'Premium';
+                    el.planExpiry.textContent = userSubscription.expires_at ? 
+                        new Date(userSubscription.expires_at).toLocaleDateString() : 'Never';
+                } else if (isAuthenticated && !isPremium) {
+                    el.subStatus.style.display = 'inline-block';
+                    el.subStatus.className = 'subscription-status inactive';
+                    el.subStatus.textContent = '🔓 Free Tier';
+                    el.subscriptionInfo.style.display = 'block';
+                    el.planName.textContent = 'Free';
+                    el.planExpiry.textContent = 'Upgrade to unlock full features';
+                } else {
+                    el.subStatus.style.display = 'none';
+                    el.subscriptionInfo.style.display = 'none';
+                }
+            }
+
+            function updateLockState() {
+                const shouldLock = !isAuthenticated || !isPremium;
+                
+                if (shouldLock) {
+                    el.lockOverlay.classList.add('show');
+                    isUnlocked = false;
+                    // Disable all interactive elements
+                    document.querySelectorAll('.calculator-panel select, .calculator-panel input, .calc-btn').forEach(el => {
+                        el.disabled = true;
+                    });
+                    el.calculateBtn.disabled = true;
+                } else {
+                    el.lockOverlay.classList.remove('show');
+                    isUnlocked = true;
+                    // Enable interactive elements
+                    document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach(el => {
+                        if (el.id !== 'categorySelect' && el.id !== 'makeSelect' && el.id !== 'modelSelect' && 
+                            el.id !== 'generationSelect' && el.id !== 'variantSelect') {
+                            el.disabled = false;
+                        }
+                    });
+                    // Re-enable based on selection state
+                    if (el.categorySelect.value) {
+                        el.makeSelect.disabled = false;
+                    }
+                    if (el.makeSelect.value) {
+                        el.modelSelect.disabled = false;
+                    }
+                    if (el.modelSelect.value) {
+                        el.generationSelect.disabled = false;
+                    }
+                    if (el.generationSelect.value) {
+                        el.variantSelect.disabled = false;
+                    }
+                    if (el.variantSelect.value) {
+                        el.calculateBtn.disabled = false;
+                    }
+                    showToast('🔓 Calculator unlocked! Welcome, premium user.', 'success');
                 }
             }
 
             // ─── API: QUERY THE VIEW ──────────────────────────────────
             async function queryView(select, filter, order) {
+                if (!isUnlocked) {
+                    showToast('⚠️ Please subscribe to access vehicle data', 'warning');
+                    return [];
+                }
                 let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
                 if (filter) query = query.eq(filter.column, filter.value);
                 if (order) query = query.order(order.column, { ascending: order.ascending !== false });
@@ -1571,12 +1874,11 @@
                 return data;
             }
 
-            // ─── LOAD CATEGORIES ──────────────────────────────────────
+            // ─── LOAD DATA ─────────────────────────────────────────────
             async function loadCategories() {
                 try {
                     setStatus('info', 'Loading categories...');
                     const data = await queryView('category_id, category', null, { column: 'category', ascending: true });
-                    // Get unique categories
                     const unique = {};
                     data.forEach(item => {
                         if (item.category_id && !unique[item.category_id]) {
@@ -1591,7 +1893,6 @@
                 }
             }
 
-            // ─── LOAD MAKES BY CATEGORY ──────────────────────────────
             async function loadMakes(categoryId) {
                 try {
                     setStatus('info', 'Loading makes...');
@@ -1614,7 +1915,6 @@
                 }
             }
 
-            // ─── LOAD MODELS BY MAKE ──────────────────────────────────
             async function loadModels(makeId) {
                 try {
                     setStatus('info', 'Loading models...');
@@ -1637,7 +1937,6 @@
                 }
             }
 
-            // ─── LOAD GENERATIONS BY MODEL ────────────────────────────
             async function loadGenerations(modelId) {
                 try {
                     setStatus('info', 'Loading generations...');
@@ -1665,7 +1964,6 @@
                 }
             }
 
-            // ─── LOAD VARIANTS BY GENERATION ──────────────────────────
             async function loadVariants(generationId) {
                 try {
                     setStatus('info', 'Loading variants...');
@@ -1684,7 +1982,6 @@
                 }
             }
 
-            // ─── LOAD FULL VARIANT DETAIL ─────────────────────────────
             async function loadVariantDetails(variantId) {
                 try {
                     setStatus('info', 'Loading vehicle details...');
@@ -1698,7 +1995,6 @@
                 }
             }
 
-            // ─── LOAD ROUTES ───────────────────────────────────────────
             async function loadRoutes() {
                 try {
                     const { data, error } = await supabaseClient.from('routes').select('*').limit(12);
@@ -1716,7 +2012,6 @@
                 }
             }
 
-            // ─── LOAD FUEL PRICE ───────────────────────────────────────
             async function loadFuelPrice() {
                 try {
                     const now = new Date().toISOString();
@@ -1759,7 +2054,7 @@
                     select.appendChild(opt);
                 });
 
-                select.disabled = false;
+                select.disabled = !isUnlocked;
                 setStatus('success', `✅ Loaded ${categories.length} categories`);
             }
 
@@ -1775,7 +2070,7 @@
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
 
-                if (!categoryId) return;
+                if (!categoryId || !isUnlocked) return;
 
                 const makes = await loadMakes(categoryId);
 
@@ -1807,7 +2102,7 @@
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
 
-                if (!makeId) return;
+                if (!makeId || !isUnlocked) return;
 
                 const models = await loadModels(makeId);
 
@@ -1837,7 +2132,7 @@
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
 
-                if (!modelId) return;
+                if (!modelId || !isUnlocked) return;
 
                 const generations = await loadGenerations(modelId);
 
@@ -1864,7 +2159,7 @@
                 select.disabled = true;
                 el.calculateBtn.disabled = true;
 
-                if (!generationId) return;
+                if (!generationId || !isUnlocked) return;
 
                 const variants = await loadVariants(generationId);
 
@@ -1948,14 +2243,12 @@
                 if (d <= 0) return null;
 
                 const vehicleAge = getVehicleAge(year);
-                // Use a default value if market_value not available
                 const basePrice = variant.market_value || 3500000;
                 const depRate = 0.15;
 
                 const ageAdjustedCost = basePrice * Math.pow(1 - depRate, vehicleAge);
                 const basePriceForCalc = Math.max(ageAdjustedCost, basePrice * 0.15);
 
-                // Fuel consumption
                 const fuelConsumption = variant.fuel_consumption_combined || 12.5;
                 const drivingFactors = { eco: 0.85, normal: 1.0, aggressive: 1.15 };
                 const drivingFactor = drivingFactors[drivingStyle] || 1.0;
@@ -1967,7 +2260,6 @@
                 const fuelCostPerKm = fuelPricePerUnit / finalFuelConsumption;
                 const fuelCostTrip = fuelCostPerKm * d;
 
-                // Service costs (use defaults if not available)
                 const minorCost = 15000;
                 const minorInterval = 10000;
                 const majorCost = 45000;
@@ -1975,25 +2267,21 @@
                 const servicePerKm = (minorCost / minorInterval) + (majorCost / majorInterval);
                 const serviceTrip = servicePerKm * d;
 
-                // Tyre costs
                 const tyreCost = 80000;
                 const tyreLife = 50000;
                 const tyrePerKm = tyreCost / tyreLife;
                 const tyreTrip = tyrePerKm * d;
 
-                // Insurance
                 const insuranceAnnual = 80000;
                 const insurancePerKm = insuranceAnnual / annual;
                 const insuranceTrip = insurancePerKm * d;
 
-                // Depreciation
                 const depreciationPerKm = (basePriceForCalc * depRate) / annual;
                 const depreciationTrip = depreciationPerKm * d;
 
                 const tripTotal = fuelCostTrip + serviceTrip + tyreTrip + insuranceTrip + depreciationTrip;
                 const tripCostPerKm = tripTotal / d;
 
-                // Monthly and annual
                 const monthlyKm = annual / 12;
                 const monthlyFuel = fuelCostPerKm * monthlyKm;
                 const monthlyService = servicePerKm * monthlyKm;
@@ -2006,7 +2294,6 @@
                 const annualTyre = tyrePerKm * annual;
                 const annualDepreciation = basePriceForCalc * depRate;
 
-                // 5-year projection
                 const fiveYearData = [];
                 let remainingValue = basePriceForCalc;
                 let total5YearCost = 0;
@@ -2083,7 +2370,6 @@
                 el.tripTotal.textContent = formatCurrency(tripTotal);
                 el.tripSub.textContent = `at ${formatCurrency(tripCostPerKm)} KES/km over ${formatNumber(result.distance || 0)} km`;
 
-                // Trip cost grid
                 let tripHtml = '';
                 const components = {
                     'Fuel': result.fuelCostTrip || 0,
@@ -2108,7 +2394,6 @@
                 `;
                 el.tripCostGrid.innerHTML = tripHtml;
 
-                // Per km grid
                 let perkmHtml = '';
                 const perkmComponents = {
                     'Fuel': result.fuelCostPerKm || 0,
@@ -2133,7 +2418,6 @@
                 `;
                 el.perkmGrid.innerHTML = perkmHtml;
 
-                // 5-year stats
                 const fiveYearData = result.fiveYearData || [];
                 const total5Year = result.total5YearCost || 0;
                 const avgYearly = total5Year / 5;
@@ -2162,7 +2446,6 @@
                     </div>
                 `;
 
-                // Yearly table
                 const tbody = el.yearlyBody;
                 tbody.innerHTML = '';
                 fiveYearData.forEach((year) => {
@@ -2180,7 +2463,6 @@
                     tbody.appendChild(tr);
                 });
 
-                // Commercial rates
                 const perKm = tripCostPerKm;
                 const commercialRates = [
                     { label: 'Private', value: perKm * 1.0, sub: 'Base rate' },
@@ -2199,7 +2481,6 @@
                     </div>
                 `).join('');
 
-                // Monthly and annual
                 const monthlyItems = [
                     { label: 'Fuel', value: result.monthlyFuel || 0 },
                     { label: 'Service', value: result.monthlyService || 0 },
@@ -2228,7 +2509,6 @@
                     </div>
                 `).join('');
 
-                // RCI
                 const rci = tripCostPerKm;
                 let rciLabel, rciStars, rciClass;
                 if (rci <= 20) { rciLabel = 'Excellent'; rciStars = '★★★★★'; rciClass = 'excellent'; }
@@ -2242,7 +2522,6 @@
                 el.rciStars.textContent = rciStars;
                 el.rciLabel.textContent = rciLabel;
 
-                // Environmental
                 const fuelType = result.fuelTypeDisplay?.toLowerCase() || '';
                 const co2PerKm = fuelType === 'electric' ? 0 : fuelType === 'hybrid' ? 80 : fuelType === 'diesel' ? 160 : 140;
                 const co2Trip = co2PerKm * (result.distance || 0);
@@ -2265,7 +2544,6 @@
                     </div>
                 `;
 
-                // Recommendations
                 const recList = el.recList;
                 const recs = [];
 
@@ -2301,6 +2579,11 @@
 
             // ─── MAIN CALCULATION ──────────────────────────────────────
             async function calculateAndRender(variant = null) {
+                if (!isUnlocked) {
+                    showToast('⚠️ Please subscribe to access the calculator', 'warning');
+                    return;
+                }
+
                 if (!variant) {
                     variant = currentVariantData;
                 }
@@ -2346,7 +2629,7 @@
 
             // ─── LOAD VARIANT AND CALCULATE ────────────────────────────
             async function loadVariantAndCalculate(variantId) {
-                if (!variantId) return;
+                if (!variantId || !isUnlocked) return;
 
                 el.calculateBtn.disabled = true;
                 el.calculateBtn.innerHTML = '<span class="spinner"></span> Loading...';
@@ -2376,6 +2659,19 @@
 
             // ─── EVENT HANDLERS ─────────────────────────────────────────
             function initEventListeners() {
+                // Unlock button - redirect to subscription page
+                el.unlockBtn.addEventListener('click', function() {
+                    if (!isAuthenticated) {
+                        el.btnSignIn.click();
+                        el.btnSignIn.scrollIntoView({ behavior: 'smooth' });
+                    } else {
+                        // Open subscription modal or redirect to payment page
+                        showToast('🔑 Please visit the subscription page to upgrade to Premium', 'info');
+                        // You can redirect to your payment page here
+                        // window.location.href = '/subscription.html';
+                    }
+                });
+
                 // Auth
                 el.btnSignIn.addEventListener('click', () => {
                     el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
@@ -2415,6 +2711,7 @@
 
                 // Fuel Filter
                 el.fuelFilterGroup.addEventListener('click', function(e) {
+                    if (!isUnlocked) return;
                     const btn = e.target.closest('.fuel-filter-btn');
                     if (!btn) return;
                     document.querySelectorAll('.fuel-filter-btn').forEach(b => {
@@ -2423,16 +2720,16 @@
                     });
                     btn.classList.add('active');
                     btn.setAttribute('aria-pressed', 'true');
-                    // Re-populate current selection with filter
                     if (selectedCategoryId) {
                         populateMakes(selectedCategoryId);
                     }
                 });
 
                 // Category Change
+                let selectedCategoryId = null;
                 el.categorySelect.addEventListener('change', async function() {
                     selectedCategoryId = this.value;
-                    if (selectedCategoryId) {
+                    if (selectedCategoryId && isUnlocked) {
                         await populateMakes(selectedCategoryId);
                         el.modelSelect.value = '';
                         el.generationSelect.value = '';
@@ -2454,9 +2751,10 @@
 
                 // Make Change
                 el.makeSelect.addEventListener('change', async function() {
-                    selectedMakeId = this.value;
-                    if (selectedMakeId) {
-                        await populateModels(selectedMakeId);
+                    if (!isUnlocked) return;
+                    const makeId = this.value;
+                    if (makeId) {
+                        await populateModels(makeId);
                         el.generationSelect.value = '';
                         el.variantSelect.value = '';
                         currentVariantData = null;
@@ -2474,9 +2772,10 @@
 
                 // Model Change
                 el.modelSelect.addEventListener('change', async function() {
-                    selectedModelId = this.value;
-                    if (selectedModelId) {
-                        await populateGenerations(selectedModelId);
+                    if (!isUnlocked) return;
+                    const modelId = this.value;
+                    if (modelId) {
+                        await populateGenerations(modelId);
                         el.variantSelect.value = '';
                         currentVariantData = null;
                         el.calculateBtn.disabled = true;
@@ -2491,9 +2790,10 @@
 
                 // Generation Change
                 el.generationSelect.addEventListener('change', async function() {
-                    selectedGenerationId = this.value;
-                    if (selectedGenerationId) {
-                        await populateVariants(selectedGenerationId);
+                    if (!isUnlocked) return;
+                    const genId = this.value;
+                    if (genId) {
+                        await populateVariants(genId);
                         currentVariantData = null;
                         el.calculateBtn.disabled = true;
                     } else {
@@ -2505,6 +2805,7 @@
 
                 // Variant Change
                 el.variantSelect.addEventListener('change', function() {
+                    if (!isUnlocked) return;
                     const variantId = this.value;
                     if (variantId) {
                         loadVariantAndCalculate(variantId);
@@ -2521,7 +2822,7 @@
                      el.tripType, el.usageType,
                      el.yearSelect].forEach(elem => {
                         elem.addEventListener(evt, function() {
-                            if (el.variantSelect.value && currentVariantData) {
+                            if (el.variantSelect.value && currentVariantData && isUnlocked) {
                                 clearTimeout(debounceTimer);
                                 debounceTimer = setTimeout(() => calculateAndRender(currentVariantData), 400);
                             }
@@ -2531,6 +2832,7 @@
 
                 // Route Chips
                 el.routeChips.addEventListener('click', function(e) {
+                    if (!isUnlocked) return;
                     const chip = e.target.closest('.chip');
                     if (!chip) return;
                     const km = parseInt(chip.dataset.km, 10);
@@ -2545,6 +2847,10 @@
 
                 // Calculate Button
                 el.calculateBtn.addEventListener('click', () => {
+                    if (!isUnlocked) {
+                        showToast('⚠️ Please subscribe to access the calculator', 'warning');
+                        return;
+                    }
                     if (currentVariantData) {
                         calculateAndRender(currentVariantData);
                     } else {
@@ -2554,6 +2860,7 @@
 
                 // Purchase Type
                 el.btnCash.addEventListener('click', function() {
+                    if (!isUnlocked) return;
                     this.classList.add('active');
                     el.btnFinanced.classList.remove('active');
                     el.financedFields.classList.remove('show');
@@ -2561,6 +2868,7 @@
                     if (currentVariantData) setTimeout(() => calculateAndRender(currentVariantData), 400);
                 });
                 el.btnFinanced.addEventListener('click', function() {
+                    if (!isUnlocked) return;
                     this.classList.add('active');
                     el.btnCash.classList.remove('active');
                     el.financedFields.classList.add('show');
@@ -2593,6 +2901,15 @@
                         }).catch(() => showToast('Share not available', 'error'));
                     }
                 });
+
+                // Check auth state periodically
+                setInterval(async () => {
+                    const wasPremium = isPremium;
+                    await checkAuth();
+                    if (wasPremium !== isPremium) {
+                        updateLockState();
+                    }
+                }, 30000); // Check every 30 seconds
             }
 
             // ─── INIT ──────────────────────────────────────────────────
@@ -2609,6 +2926,8 @@
                     }
 
                     await checkAuth();
+                    
+                    // Always load data, but lock UI if not premium
                     await loadFuelPrice();
                     await loadRoutes();
                     renderRouteChips();
@@ -2624,8 +2943,12 @@
                         year: 'numeric', month: 'short', day: 'numeric'
                     });
 
+                    // Apply lock state after data is loaded
+                    updateLockState();
+
                     console.log('✅ Auto-D Kenya Engine initialized (API-driven, no hardcoding)');
                     console.log('📡 Using view: vehicle_full_specs');
+                    console.log(`🔐 Premium access: ${isPremium ? '✅ Yes' : '❌ No'}`);
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
