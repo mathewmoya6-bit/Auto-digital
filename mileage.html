@@ -1372,7 +1372,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
-        // ✅ FIXED: Builds categories from variants data when tables are empty
+        // ✅ FIXED: Removed engine_sizes join (table doesn't exist or has wrong schema)
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1647,7 +1647,7 @@
             }
 
             // ─── LOAD DATA FROM SUPABASE ───────────────────────────────
-            // ✅ FIXED: Builds categories from variants when tables are empty
+            // ✅ FIXED: Removed engine_sizes join (causing 400 error)
             async function loadFromSupabase() {
                 try {
                     elements.loadingStatus.textContent = 'Fetching vehicle data...';
@@ -1687,7 +1687,8 @@
                     console.log(`📊 Models from table: ${modelsData?.length || 0}`);
 
                     // ─── 4. Load Variants ─────────────────────────────
-                    // Using table name references (recommended by Supabase)
+                    // ✅ FIXED: Removed engine_sizes join (table doesn't exist or has wrong schema)
+                    // Also removed body_types and drive_types if they cause issues
                     const { data: variantsData, error: variantsError } = await supabaseClient
                         .from('vehicle_variants')
                         .select(`
@@ -1699,10 +1700,7 @@
                                 category_id
                             ),
                             fuel_types(id, name),
-                            transmission_types(id, name),
-                            drive_types(id, name),
-                            body_types(id, name),
-                            engine_sizes(id, size_cc)
+                            transmission_types(id, name)
                         `)
                         .order('name');
                     
@@ -1756,34 +1754,35 @@
 
                     // ─── Process Data ───────────────────────────────────
                     
-                    // ─── Build Categories from variants ─────────────────
-                    // If categories table is empty, build from variants data
+                    // ─── Build Categories ──────────────────────────────
                     if (categoriesData && categoriesData.length > 0) {
                         categories = categoriesData.map(c => ({ id: c.id, name: c.name }));
                     } else {
-                        // Build categories from variants
+                        // Build categories from models
                         const categoryMap = new Map();
-                        variantsData.forEach(v => {
-                            const model = v.vehicle_models;
-                            if (model && model.category_id) {
-                                // We don't have the category name from the join directly
-                                // Use model data or infer from vehicle type
-                                const categoryName = model.vehicle_type || 'Vehicle';
+                        modelsData.forEach(model => {
+                            if (model.category_id) {
+                                // Try to get category name from the data
+                                const catName = model.vehicle_type || 'Vehicle';
                                 if (!categoryMap.has(model.category_id)) {
                                     categoryMap.set(model.category_id, {
                                         id: model.category_id,
-                                        name: categoryName
+                                        name: catName
                                     });
                                 }
                             }
                         });
                         categories = Array.from(categoryMap.values());
-                        console.log(`🏷️ Built ${categories.length} categories from variants`);
+                        console.log(`🏷️ Built ${categories.length} categories from models`);
                     }
 
                     // ─── Build Variants Lookup ─────────────────────────
                     allVariantsByCategory = {};
                     categories.forEach(c => { allVariantsByCategory[c.id] = []; });
+
+                    // Build make lookup
+                    const makeMap = {};
+                    makesData.forEach(m => { makeMap[m.id] = m.name; });
 
                     // Process variants
                     let variantCount = 0;
@@ -1794,9 +1793,8 @@
                         // Get category
                         let category = categories.find(c => c.id === model.category_id);
                         if (!category) {
-                            // If category not found, create a generic one
                             const catId = model.category_id || 'uncategorized';
-                            category = { id: catId, name: model.vehicle_type || 'Uncategorized' };
+                            category = { id: catId, name: 'Uncategorized' };
                             if (!allVariantsByCategory[catId]) {
                                 allVariantsByCategory[catId] = [];
                                 categories.push(category);
@@ -1820,10 +1818,11 @@
                         const currentValue = marketValue * Math.pow(1 - depRate, age);
                         const insuranceAnnual = Math.max(marketValue * insuranceRate, thirdPartyCost);
 
-                        const engineCC = variant.engine_sizes?.size_cc || 0;
+                        // Get engine CC from variant or default
+                        const engineCC = variant.engine_cc || variant.engine_size || 0;
 
-                        // Get make name from model or fallback
-                        const makeName = model.vehicle_make_name || 'Unknown';
+                        // Get make name
+                        const makeName = makeMap[model.make_id] || 'Unknown';
 
                         allVariantsByCategory[category.id].push({
                             id: variant.id,
@@ -1850,7 +1849,7 @@
                             depreciation_rate: depRate,
                             make_name: makeName,
                             model_name: model.name || '',
-                            drive_type: variant.drive_types?.name || 'fwd',
+                            drive_type: variant.drive_type || 'fwd',
                             vehicle_type: vehicleType,
                             auto_v_category: vehicleType,
                             year: variant.year || 2020,
