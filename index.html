@@ -978,6 +978,7 @@
         let supabaseClient = null;
         let currentUser = null;
         let isSignupMode = false;
+        let isAuthenticated = false;
 
         // ─── DOM REFS ──────────────────────────────────────────────────
         const authModal = document.getElementById('authModal');
@@ -1022,6 +1023,7 @@
                 if (error) throw error;
                 if (session?.user) {
                     currentUser = session.user;
+                    isAuthenticated = true;
                     localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                     return currentUser;
                 }
@@ -1029,12 +1031,15 @@
                 if (stored) {
                     try {
                         currentUser = JSON.parse(stored);
+                        isAuthenticated = true;
                         return currentUser;
                     } catch (e) {}
                 }
+                isAuthenticated = false;
                 return null;
             } catch (error) {
                 console.warn('⚠️ Get current user error:', error.message);
+                isAuthenticated = false;
                 return null;
             }
         }
@@ -1052,10 +1057,15 @@
                 if (error) throw error;
 
                 currentUser = data.user;
+                isAuthenticated = true;
                 localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                 updateUI();
                 showToast('✅ Welcome back, ' + (currentUser.user_metadata?.full_name || currentUser.email) + '!', 'success');
 
+                // Close modal
+                closeAuth();
+
+                // Redirect to dashboard after a moment
                 setTimeout(() => {
                     window.location.href = '/dashboard.html';
                 }, 1000);
@@ -1063,7 +1073,7 @@
                 return data;
             } catch (error) {
                 console.error('❌ Sign in error:', error);
-                showToast(error.message || 'Failed to sign in', 'error');
+                showToast(error.message || 'Failed to sign in. Please check your credentials.', 'error');
                 throw error;
             }
         }
@@ -1088,9 +1098,13 @@
 
                 if (data.user) {
                     currentUser = data.user;
+                    isAuthenticated = true;
                     localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                     showToast('🎉 Account created! Welcome to Auto-D Kenya!', 'success');
                     updateUI();
+
+                    // Close modal
+                    closeAuth();
 
                     setTimeout(() => {
                         window.location.href = '/dashboard.html';
@@ -1102,7 +1116,7 @@
                 return data;
             } catch (error) {
                 console.error('❌ Sign up error:', error);
-                showToast(error.message || 'Failed to sign up', 'error');
+                showToast(error.message || 'Failed to sign up. Please try again.', 'error');
                 throw error;
             }
         }
@@ -1113,6 +1127,7 @@
                     await supabaseClient.auth.signOut();
                 }
                 currentUser = null;
+                isAuthenticated = false;
                 localStorage.removeItem('auto_d_user');
                 updateUI();
                 showToast('👋 Logged out successfully', 'success');
@@ -1125,7 +1140,7 @@
 
         // ─── UI UPDATES ──────────────────────────────────────────────
         function updateUI() {
-            if (currentUser) {
+            if (isAuthenticated && currentUser) {
                 const name = currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || 'User';
                 if (loginBtn) {
                     loginBtn.textContent = '👤 Dashboard';
@@ -1230,7 +1245,6 @@
                 }
             } catch (error) {
                 // Error already handled in the functions
-            } finally {
                 authBtn.disabled = false;
                 authBtn.textContent = isSignupMode ? 'Sign Up' : 'Sign In';
             }
@@ -1270,6 +1284,7 @@
 
                 if (session?.user) {
                     currentUser = session.user;
+                    isAuthenticated = true;
                     localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                     updateUI();
                     return true;
@@ -1279,14 +1294,19 @@
                 if (stored) {
                     try {
                         currentUser = JSON.parse(stored);
+                        isAuthenticated = true;
                         updateUI();
                         return true;
                     } catch (e) {}
                 }
 
+                isAuthenticated = false;
+                updateUI();
                 return false;
             } catch (error) {
                 console.warn('⚠️ Auth check error:', error.message);
+                isAuthenticated = false;
+                updateUI();
                 return false;
             }
         }
@@ -1372,6 +1392,7 @@
             window.__AUTOD = {
                 supabase: supabaseClient,
                 currentUser,
+                isAuthenticated: () => isAuthenticated,
                 signOut,
                 showToast,
                 openLogin,
