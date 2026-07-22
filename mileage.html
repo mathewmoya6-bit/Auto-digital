@@ -930,7 +930,6 @@
             font-family: 'Inter', sans-serif;
         }
 
-        /* ─── Responsive ────────────────────────────────────────────── */
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
             .report-header { padding: 20px 18px; flex-direction: column; }
@@ -1374,6 +1373,7 @@
         // ═══════════════════════════════════════════════════════════════
         // Auto-D Kenya - MILEAGE & RUNNING COST CALCULATOR
         // PURE SUPABASE DEPENDENCY + FASTAPI BACKEND
+        // CORRECTED SUPABASE QUERIES
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1685,6 +1685,7 @@
             }
 
             // ─── LOAD DATA FROM SUPABASE ───────────────────────────────
+            // ─── CORRECTED SUPABASE QUERIES ─────────────────────────────
             async function loadFromSupabase() {
                 try {
                     elements.loadingStatus.textContent = 'Fetching vehicle data...';
@@ -1709,22 +1710,27 @@
                     // 3. Load models with relationships
                     const { data: modelsData, error: modelsError } = await supabaseClient
                         .from('vehicle_models')
-                        .select('*, make:make_id(*), category:category_id(*)')
+                        .select(`
+                            *,
+                            vehicle_makes(*),
+                            vehicle_categories(*)
+                        `)
                         .order('name');
                     if (modelsError) throw modelsError;
                     console.log(`✅ Loaded ${modelsData?.length || 0} models`);
 
-                    // 4. Load variants with all relationships
+                    // 4. Load variants with all relationships - CORRECTED!
+                    // Using the table names directly (recommended approach)
                     const { data: variantsData, error: variantsError } = await supabaseClient
                         .from('vehicle_variants')
                         .select(`
                             *,
-                            fuel_type:fuel_type_id(*),
-                            transmission:transmission_type_id(*),
-                            engine_size:engine_size_id(*),
-                            body_type:body_type_id(*),
-                            drive_type:drive_type_id(*),
-                            model:model_id(*)
+                            vehicle_models(*),
+                            fuel_types(*),
+                            transmission_types(*),
+                            drive_types(*),
+                            body_types(*),
+                            engine_sizes(*)
                         `)
                         .order('name');
                     if (variantsError) throw variantsError;
@@ -1768,7 +1774,7 @@
                         category_type: cat.name
                     }));
 
-                    // Build make map
+                    // Build make map from the models data
                     const makeMap = {};
                     makesData.forEach(m => { makeMap[m.id] = m; });
 
@@ -1782,14 +1788,17 @@
                         allVariantsByCategory[cat.id] = [];
                     });
 
-                    // Process variants
+                    // Process variants - using the joined data
                     let variantCount = 0;
                     variantsData.forEach(variant => {
-                        const model = modelMap[variant.model_id];
+                        // Get the model from the joined data
+                        const model = variant.vehicle_models;
                         if (!model) return;
-                        const make = makeMap[model.make_id];
+                        
+                        const make = model.vehicle_makes;
                         if (!make) return;
-                        const category = categories.find(c => c.id === model.category_id);
+                        
+                        const category = model.vehicle_categories;
                         if (!category) return;
 
                         const vehicleType = category.name;
@@ -1797,7 +1806,7 @@
                         const insuranceRate = CONFIG.AUTO_V_RATES.comprehensive_insurance[vehicleType] || 0.045;
                         const thirdPartyCost = CONFIG.AUTO_V_RATES.third_party_insurance[vehicleType] || 10000;
                         
-                        const fuelType = variant.fuel_type?.name || 'Petrol';
+                        const fuelType = variant.fuel_types?.name || 'Petrol';
                         const marketValue = variant.market_value || 3500000;
                         
                         const fuelConsumption = variant.fuel_consumption || 
@@ -1809,14 +1818,14 @@
                         const currentValue = marketValue * Math.pow(1 - depRate, age);
                         const insuranceAnnual = Math.max(marketValue * insuranceRate, thirdPartyCost);
 
-                        const engineCC = variant.engine_size?.size_cc || 0;
+                        const engineCC = variant.engine_sizes?.size_cc || 0;
 
                         allVariantsByCategory[category.id].push({
                             id: variant.id,
                             label: `${make.name} ${model.name} ${variant.name || ''}`.trim(),
                             fuel_type: fuelType,
                             fuel_consumption: fuelConsumption,
-                            transmission: variant.transmission?.name || 'Automatic',
+                            transmission: variant.transmission_types?.name || 'Automatic',
                             engine_size_cc: engineCC,
                             initial_cost: marketValue,
                             current_value: currentValue,
@@ -1836,7 +1845,7 @@
                             depreciation_rate: depRate,
                             make_name: make.name,
                             model_name: model.name,
-                            drive_type: variant.drive_type || 'fwd',
+                            drive_type: variant.drive_types?.name || 'fwd',
                             vehicle_type: vehicleType,
                             auto_v_category: vehicleType,
                             year: variant.year || 2020,
