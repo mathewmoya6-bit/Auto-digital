@@ -2086,7 +2086,7 @@
                 }
             }
 
-            // ─── Process Payment - FIXED Phone Validation ───
+            // ─── Process Payment - COMPLETE FIX ───
             window.processPayment = async function() {
                 const phoneEl = document.getElementById('mpesaPhone');
                 const payBtn = document.getElementById('payNowBtn');
@@ -2110,27 +2110,25 @@
                     return;
                 }
 
-                // ─── FIX: Improved phone number normalization ───
-                // Remove all non-digit characters
+                // ─── Clean phone number ───
                 let phone = rawPhone.replace(/\D/g, '');
-                console.log('Cleaned phone (all numeric):', phone);
-                
+                console.log('Cleaned phone:', phone);
+
                 // Remove leading 254 if present
                 if (phone.startsWith('254')) {
                     phone = phone.slice(3);
                     console.log('After removing 254:', phone);
                 }
-                
-                // Remove leading 0 if present (handles 07... or 01...)
+
+                // Remove leading 0 if present
                 if (phone.startsWith('0')) {
                     phone = phone.slice(1);
                     console.log('After removing leading 0:', phone);
                 }
 
-                // ─── FIX: Use regex for robust validation ───
-                // Must be exactly 9 digits starting with 7 or 1 (Safaricom prefixes)
+                // ─── Validate: must be 9 digits starting with 7 or 1 ───
                 if (!/^[17]\d{8}$/.test(phone)) {
-                    const errorMsg = phone.length > 0 
+                    const errorMsg = phone.length > 0
                         ? `Invalid number: "${rawPhone}". Please enter 10 digits starting with 07 or 01 (e.g., 0700000000 or 0110000000)`
                         : 'Please enter your M-Pesa phone number (e.g., 0700000000 or 0110000000)';
                     showToast(errorMsg, 'error');
@@ -2176,13 +2174,16 @@
                     overlay.classList.add('open');
                 }
 
-                // ─── FIX: Only send service_id and phone - NO AMOUNT ───
+                // ─── FIX: Only send fields that backend expects ───
                 const requestBody = {
                     phone: formattedPhone,
-                    service_id: selectedService.id,
-                    description: `Auto-D: ${selectedService.name}`
+                    service_id: selectedService.id,  // e.g., "mileage", "valuation", "ownership", "full_report"
+                    description: `Auto-D: ${selectedService.name}`,
+                    user_id: currentUser.id
                 };
-                console.log('Payment request body:', requestBody);
+                
+                console.log('📤 Sending request:', requestBody);
+                console.log('📤 To endpoint:', `${API_BASE}/mpesa/stkpush`);
 
                 try {
                     const response = await fetch(`${API_BASE}/mpesa/stkpush`, {
@@ -2196,19 +2197,26 @@
                     });
 
                     const data = await response.json();
+                    console.log('📥 Response status:', response.status);
+                    console.log('📥 Response data:', data);
 
                     if (!response.ok) {
-                        if (response.status === 401) {
-                            showToast('⚠️ Your session has expired. Please log in again.', 'error');
-                            setTimeout(() => {
-                                window.location.href = 'https://auto-d.meipressgroup.com/';
-                            }, 1500);
-                            return;
+                        // ─── Show detailed error from backend ───
+                        const errorMsg = data.detail || data.error || data.message || 'Payment initiation failed';
+                        showToast('❌ ' + errorMsg, 'error');
+                        if (overlay) {
+                            document.getElementById('paymentStatusText').textContent = '❌ Payment Failed';
+                            document.getElementById('paymentStatusDetail').textContent = errorMsg;
+                            if (spinner) spinner.style.display = 'none';
                         }
-                        throw new Error(data.message || data.error || 'Payment initiation failed');
+                        setTimeout(() => {
+                            if (overlay) overlay.classList.remove('open');
+                            closePaymentModal();
+                        }, 3000);
+                        return;
                     }
 
-                    const checkoutId = data.checkout_request_id || data.checkoutRequestID || data.checkout_request_id;
+                    const checkoutId = data.checkout_request_id || data.checkoutRequestID;
                     checkoutRequestId = checkoutId;
 
                     if (supabaseClient && currentUser) {
@@ -2717,7 +2725,7 @@
                         const start = this.selectionStart;
                         const end = this.selectionEnd;
                         
-                        // ─── FIX: Remove ALL non-numeric characters ───
+                        // ─── Remove ALL non-numeric characters ───
                         let cleaned = this.value.replace(/\D/g, '');
                         
                         // Remove leading 254 if typed
@@ -2735,7 +2743,7 @@
                             cleaned = cleaned.substring(0, 9);
                         }
                         
-                        // ─── FIX: Show with leading 0 for display ───
+                        // ─── Show with leading 0 for display ───
                         const displayValue = cleaned.length > 0 ? '0' + cleaned : '';
                         
                         // Only update if changed
