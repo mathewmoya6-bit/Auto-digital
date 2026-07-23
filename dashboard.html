@@ -786,6 +786,17 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+        
+        /* ─── Success Animation ─── */
+        .success-check {
+            font-size: 64px;
+            animation: popIn 0.5s ease;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0); opacity: 0; }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -1003,7 +1014,7 @@
 
     <!-- ─── PAYMENT OVERLAY ─── -->
     <div class="payment-overlay" id="paymentOverlay">
-        <div class="spinner"></div>
+        <div class="spinner" id="paymentSpinner"></div>
         <div class="status-text" id="paymentStatusText">Processing payment...</div>
         <div class="status-detail" id="paymentStatusDetail">Please check your phone for the M-Pesa STK push</div>
     </div>
@@ -1088,7 +1099,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (FIXED: Only uses documented API endpoints)
+        // AUTO-D KENYA - DASHBOARD (FIXED: Handles 404 on status gracefully)
         // ═══════════════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1121,6 +1132,8 @@
             let isProcessingPayment = false;
             let checkoutRequestId = null;
             let pendingServiceRedirect = null;
+            let pollTimer = null;
+            let confirmAttempted = false;
 
             // ─── DOM Refs ──────────────────────────────────────────────────────────
             const vehicleGrid = document.getElementById('vehicleGrid');
@@ -1405,7 +1418,7 @@
                     dashboardData = {
                         stats: {
                             vehicles: vehicles ? vehicles.length : 0,
-                            requests: 0, // No request tracking without /requests endpoints
+                            requests: 0,
                             reports: 0,
                             active_services: Object.keys(unlockedServices).length || 0,
                             amount_spent: payments ? payments.reduce((sum, p) => sum + (p.amount || 0), 0) : 0,
@@ -1782,13 +1795,22 @@
                 selectedService = null;
                 pendingServiceRedirect = null;
                 isProcessingPayment = false;
+                confirmAttempted = false;
+                if (pollTimer) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
                 const payBtn = document.getElementById('payNowBtn');
                 if (payBtn) {
                     payBtn.disabled = false;
                     payBtn.textContent = '💳 Pay Now';
                 }
                 const overlay = document.getElementById('paymentOverlay');
-                if (overlay) overlay.classList.remove('open');
+                if (overlay) {
+                    overlay.classList.remove('open');
+                    const spinner = document.getElementById('paymentSpinner');
+                    if (spinner) spinner.style.display = 'block';
+                }
             };
 
             // ─── Helper: Unlock service using the confirm endpoint ──────────────
@@ -1843,7 +1865,7 @@
 
                     if (!response.ok) return false;
                     const data = await response.json();
-                    return data.has_access === true || data.status === 'active';
+                    return data.has_access === true || data.status === 'active' || data.purchased === true;
                 } catch (err) {
                     console.warn('Service access check failed:', err);
                     return false;
@@ -1883,13 +1905,16 @@
                 if (!token) return;
 
                 isProcessingPayment = true;
+                confirmAttempted = false;
                 if (payBtn) {
                     payBtn.disabled = true;
                     payBtn.textContent = '⏳ Processing...';
                 }
 
                 const overlay = document.getElementById('paymentOverlay');
+                const spinner = document.getElementById('paymentSpinner');
                 if (overlay) {
+                    if (spinner) spinner.style.display = 'block';
                     document.getElementById('paymentStatusText').textContent = 'Initiating M-Pesa payment...';
                     document.getElementById('paymentStatusDetail').textContent = 'Please wait...';
                     overlay.classList.add('open');
@@ -1931,7 +1956,13 @@
                     // Poll for payment status
                     let attempts = 0;
                     const maxAttempts = 30;
-                    const pollInterval = setInterval(async () => {
+                    
+                    if (pollTimer) {
+                        clearInterval(pollTimer);
+                        pollTimer = null;
+                    }
+                    
+                    pollTimer = setInterval(async () => {
                         attempts++;
                         try {
                             const pollToken = await getAuthToken();
@@ -1944,8 +1975,29 @@
                                 headers: pollHeaders 
                             });
 
+                            // 404 means the transaction hasn't been processed yet - this is normal
+                            if (statusResponse.status === 404) {
+                                console.log(`⏳ Status check #${attempts}: Transaction still processing...`);
+                                if (attempts > 15) {
+                                    // After 15 attempts (45 seconds), show manual confirmation option
+                                    if (overlay && !confirmAttempted) {
+                                        document.getElementById('paymentStatusText').textContent = '⏳ Still waiting...';
+                                        document.getElementById('paymentStatusDetail').innerHTML = `
+                                            If you've already completed the payment on your phone, click below.<br>
+                                            <button class="btn-primary" onclick="window.manualUnlock('${checkoutId}', '${selectedService.id}')" style="margin-top:10px;">
+                                                ✅ I've Completed Payment
+                                            </button>
+                                            <br><small style="display:block;margin-top:6px;">Don't worry if you haven't - we're still waiting for confirmation.</small>
+                                        `;
+                                        confirmAttempted = true;
+                                    }
+                                }
+                                return;
+                            }
+
                             if (statusResponse.status === 401) {
-                                clearInterval(pollInterval);
+                                clearInterval(pollTimer);
+                                pollTimer = null;
                                 if (overlay) {
                                     document.getElementById('paymentStatusText').textContent = '⚠️ Session Expired';
                                     document.getElementById('paymentStatusDetail').textContent = 'Please log in again.';
@@ -1953,31 +2005,17 @@
                                 return;
                             }
 
-                            if (statusResponse.status === 404) {
-                                // Still processing
-                                if (attempts > 20) {
-                                    if (overlay) {
-                                        document.getElementById('paymentStatusText').textContent = '⏳ Waiting for confirmation...';
-                                        document.getElementById('paymentStatusDetail').innerHTML = `
-                                            If you completed payment, click below to confirm.<br>
-                                            <button onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
-                                                ✅ I've Completed Payment
-                                            </button>
-                                        `;
-                                    }
-                                }
-                                return;
-                            }
-
                             if (!statusResponse.ok) {
                                 const errData = await statusResponse.json().catch(() => ({}));
-                                throw new Error(errData.message || 'Status check failed');
+                                console.warn('Status check error:', errData);
+                                return;
                             }
 
                             const statusData = await statusResponse.json();
                             
                             if (statusData.status === 'success' || statusData.status === 'completed' || statusData.status === 'paid') {
-                                clearInterval(pollInterval);
+                                clearInterval(pollTimer);
+                                pollTimer = null;
                                 
                                 const serviceId = pendingServiceRedirect || selectedService.id;
 
@@ -1992,14 +2030,17 @@
                                 if (unlocked) {
                                     showToast(`✅ ${selectedService.name} unlocked!`, 'success');
                                     if (overlay) {
-                                        document.getElementById('paymentStatusDetail').textContent = 'Opening service...';
+                                        document.getElementById('paymentStatusText').textContent = '✅ Service Unlocked!';
+                                        document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
+                                        if (spinner) spinner.style.display = 'none';
+                                        document.getElementById('paymentStatusText').innerHTML = '✅ Service Unlocked! 🎉';
                                     }
                                     setTimeout(() => {
                                         if (overlay) overlay.classList.remove('open');
                                         closePaymentModal();
                                         updateWorkflowStep(4);
                                         redirectToService(serviceId);
-                                    }, 1200);
+                                    }, 1000);
                                 } else {
                                     // Try checking access directly
                                     const hasAccess = await checkServiceAccess(serviceId);
@@ -2009,31 +2050,40 @@
                                             if (svc) svc.purchased = true;
                                         }
                                         showToast(`✅ ${selectedService.name} unlocked!`, 'success');
+                                        if (overlay) {
+                                            document.getElementById('paymentStatusText').textContent = '✅ Service Unlocked!';
+                                            document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
+                                            if (spinner) spinner.style.display = 'none';
+                                            document.getElementById('paymentStatusText').innerHTML = '✅ Service Unlocked! 🎉';
+                                        }
                                         setTimeout(() => {
                                             if (overlay) overlay.classList.remove('open');
                                             closePaymentModal();
                                             updateWorkflowStep(4);
                                             redirectToService(serviceId);
-                                        }, 1200);
+                                        }, 1000);
                                     } else {
                                         if (overlay) {
                                             document.getElementById('paymentStatusText').textContent = '⚠️ Payment Received';
                                             document.getElementById('paymentStatusDetail').innerHTML = `
                                                 Service unlock pending. Click below to retry.<br>
-                                                <button onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
+                                                <button class="btn-primary" onclick="window.manualUnlock('${checkoutId}', '${selectedService.id}')" style="margin-top:10px;">
                                                     🔄 Retry Unlock
                                                 </button>
                                             `;
+                                            if (spinner) spinner.style.display = 'none';
                                         }
                                         showToast('Payment received, but unlock is pending. Please retry.', 'warning');
                                     }
                                 }
                                 return;
                             } else if (statusData.status === 'failed' || statusData.status === 'error') {
-                                clearInterval(pollInterval);
+                                clearInterval(pollTimer);
+                                pollTimer = null;
                                 if (overlay) {
                                     document.getElementById('paymentStatusText').textContent = '❌ Payment Failed';
                                     document.getElementById('paymentStatusDetail').textContent = statusData.description || statusData.message || 'Please try again.';
+                                    if (spinner) spinner.style.display = 'none';
                                 }
                                 showToast('❌ Payment failed. Please try again.', 'error');
                                 setTimeout(() => {
@@ -2044,29 +2094,33 @@
                             }
 
                             if (attempts >= maxAttempts) {
-                                clearInterval(pollInterval);
+                                clearInterval(pollTimer);
+                                pollTimer = null;
                                 if (overlay) {
-                                    document.getElementById('paymentStatusText').textContent = '⏰ Payment Timeout';
+                                    document.getElementById('paymentStatusText').textContent = '⏰ Timeout';
                                     document.getElementById('paymentStatusDetail').innerHTML = `
                                         Check your M-Pesa messages.<br>
-                                        <button onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
+                                        <button class="btn-primary" onclick="window.manualUnlock('${checkoutId}', '${selectedService.id}')" style="margin-top:10px;">
                                             ✅ I've Completed Payment
                                         </button>
                                     `;
+                                    if (spinner) spinner.style.display = 'none';
                                 }
                                 showToast('⏰ Payment timeout. Check your M-Pesa.', 'warning');
                             }
                         } catch (pollError) {
                             console.warn('Polling error:', pollError);
                             if (attempts >= maxAttempts) {
-                                clearInterval(pollInterval);
+                                clearInterval(pollTimer);
+                                pollTimer = null;
                                 if (overlay) {
                                     document.getElementById('paymentStatusDetail').innerHTML = `
                                         Check your M-Pesa messages.<br>
-                                        <button onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
+                                        <button class="btn-primary" onclick="window.manualUnlock('${checkoutId}', '${selectedService.id}')" style="margin-top:10px;">
                                             ✅ I've Completed Payment
                                         </button>
                                     `;
+                                    if (spinner) spinner.style.display = 'none';
                                 }
                             }
                         }
@@ -2077,6 +2131,7 @@
                     if (overlay) {
                         document.getElementById('paymentStatusText').textContent = '❌ Payment Error';
                         document.getElementById('paymentStatusDetail').textContent = error.message || 'Please try again.';
+                        if (spinner) spinner.style.display = 'none';
                     }
                     showToast('❌ Payment error: ' + error.message, 'error');
                     setTimeout(() => {
@@ -2092,18 +2147,14 @@
                 }
             };
 
-            // ─── Manual Payment Confirmation ──────────────────────────────────────
-            window.confirmManualPayment = async function(checkoutId, serviceId) {
+            // ─── Manual Unlock (Exposed globally for button clicks) ──────────────
+            window.manualUnlock = async function(checkoutId, serviceId) {
                 const overlay = document.getElementById('paymentOverlay');
+                const spinner = document.getElementById('paymentSpinner');
+                
                 try {
-                    const service = dashboardData?.services?.find(s => s.id === serviceId);
-                    if (!service) {
-                        showToast('Service not found', 'error');
-                        return;
-                    }
-
                     if (overlay) {
-                        overlay.classList.add('open');
+                        if (spinner) spinner.style.display = 'block';
                         document.getElementById('paymentStatusText').textContent = 'Confirming payment...';
                         document.getElementById('paymentStatusDetail').textContent = 'Please wait...';
                     }
@@ -2112,8 +2163,10 @@
 
                     if (unlocked) {
                         if (overlay) {
-                            document.getElementById('paymentStatusText').textContent = '✅ Payment Confirmed!';
-                            document.getElementById('paymentStatusDetail').textContent = 'Service unlocked! Opening it now...';
+                            document.getElementById('paymentStatusText').textContent = '✅ Service Unlocked!';
+                            document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
+                            if (spinner) spinner.style.display = 'none';
+                            document.getElementById('paymentStatusText').innerHTML = '✅ Service Unlocked! 🎉';
                         }
                         showToast('✅ Payment confirmed! Service unlocked!', 'success');
                         updateWorkflowStep(4);
@@ -2122,7 +2175,7 @@
                             if (overlay) overlay.classList.remove('open');
                             closePaymentModal();
                             redirectToService(pendingServiceRedirect || serviceId);
-                        }, 1200);
+                        }, 1000);
                     } else {
                         // Check if service is now accessible
                         const hasAccess = await checkServiceAccess(serviceId);
@@ -2131,20 +2184,34 @@
                                 const svc = dashboardData.services.find(s => s.id === serviceId);
                                 if (svc) svc.purchased = true;
                             }
+                            if (overlay) {
+                                document.getElementById('paymentStatusText').textContent = '✅ Service Unlocked!';
+                                document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
+                                if (spinner) spinner.style.display = 'none';
+                                document.getElementById('paymentStatusText').innerHTML = '✅ Service Unlocked! 🎉';
+                            }
                             showToast('✅ Service unlocked!', 'success');
                             setTimeout(() => {
                                 if (overlay) overlay.classList.remove('open');
                                 closePaymentModal();
                                 redirectToService(pendingServiceRedirect || serviceId);
-                            }, 1200);
+                            }, 1000);
                         } else {
-                            if (overlay) overlay.classList.remove('open');
-                            showToast("We couldn't confirm your payment. If you were charged, please contact support.", 'error');
+                            if (overlay) {
+                                document.getElementById('paymentStatusText').textContent = '⚠️ Unable to Unlock';
+                                document.getElementById('paymentStatusDetail').textContent = 'Please contact support if you were charged.';
+                                if (spinner) spinner.style.display = 'none';
+                            }
+                            showToast('⚠️ Could not unlock service. Please contact support.', 'error');
                         }
                     }
                 } catch (error) {
-                    console.error('Manual confirmation error:', error);
-                    if (overlay) overlay.classList.remove('open');
+                    console.error('Manual unlock error:', error);
+                    if (overlay) {
+                        document.getElementById('paymentStatusText').textContent = '❌ Error';
+                        document.getElementById('paymentStatusDetail').textContent = error.message || 'Please try again.';
+                        if (spinner) spinner.style.display = 'none';
+                    }
                     showToast('❌ Failed to unlock service: ' + error.message, 'error');
                 }
             };
