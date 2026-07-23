@@ -1123,15 +1123,15 @@
                     <input 
                         type="tel" 
                         id="mpesaPhone" 
-                        placeholder="e.g., 0700000000 or 0110000000" 
+                        placeholder="0700000000 or 0110000000" 
                         autocomplete="off"
-                        maxlength="12"
+                        maxlength="10"
                         inputmode="numeric"
                         pattern="[0-9]*"
                     />
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
-                    Enter your Safaricom number (e.g., 0700000000 or 0110000000)
+                    Enter 0700000000 or 0110000000 (10 digits)
                 </div>
             </div>
             <button class="btn btn-primary btn-block" onclick="processPayment()" id="payNowBtn">
@@ -1983,7 +1983,7 @@
                 // ─── Clear phone input ───
                 if (phoneEl) {
                     phoneEl.value = '';
-                    phoneEl.placeholder = 'e.g., 0700000000 or 0110000000';
+                    phoneEl.placeholder = '0700000000 or 0110000000';
                     phoneEl.setAttribute('value', '');
                     phoneEl.defaultValue = '';
                 }
@@ -2086,18 +2086,18 @@
                 }
             }
 
-            // ─── Process Payment - COMPLETE FIX ───
+            // ─── Process Payment - SIMPLE PHONE FORMAT ───
             window.processPayment = async function() {
                 const phoneEl = document.getElementById('mpesaPhone');
                 const payBtn = document.getElementById('payNowBtn');
                 const phoneWrapper = document.getElementById('phoneInputWrapper');
 
-                // ─── Get raw value and clean ───
+                // ─── Get raw value ───
                 let rawPhone = phoneEl ? phoneEl.value.trim() : '';
                 console.log('Raw phone input:', rawPhone);
 
-                // Check for empty or placeholder
-                if (!rawPhone || rawPhone === '' || rawPhone === 'e.g., 0700000000 or 0110000000' || rawPhone === '0700000000' || rawPhone === '0110000000') {
+                // ─── Check empty ───
+                if (!rawPhone || rawPhone === '' || rawPhone === '0700000000 or 0110000000' || rawPhone === '0700000000' || rawPhone === '0110000000') {
                     showToast('Please enter your M-Pesa phone number (e.g., 0700000000 or 0110000000)', 'error');
                     if (phoneWrapper) phoneWrapper.classList.add('error');
                     if (phoneEl) {
@@ -2110,25 +2110,26 @@
                     return;
                 }
 
-                // ─── Clean phone number ───
+                // ─── Remove non-digits ───
                 let phone = rawPhone.replace(/\D/g, '');
                 console.log('Cleaned phone:', phone);
 
-                // Remove leading 254 if present
+                // ─── Remove leading 254 if present ───
                 if (phone.startsWith('254')) {
                     phone = phone.slice(3);
                     console.log('After removing 254:', phone);
                 }
 
-                // Remove leading 0 if present
+                // ─── Remove leading 0 if present ───
                 if (phone.startsWith('0')) {
                     phone = phone.slice(1);
                     console.log('After removing leading 0:', phone);
                 }
 
-                // ─── Validate: must be 9 digits starting with 7 or 1 ───
+                // ─── Validate: exactly 9 digits, starts with 7 or 1 ───
+                // This matches your backend validator exactly
                 if (!/^[17]\d{8}$/.test(phone)) {
-                    const errorMsg = phone.length > 0
+                    const errorMsg = phone.length > 0 
                         ? `Invalid number: "${rawPhone}". Please enter 10 digits starting with 07 or 01 (e.g., 0700000000 or 0110000000)`
                         : 'Please enter your M-Pesa phone number (e.g., 0700000000 or 0110000000)';
                     showToast(errorMsg, 'error');
@@ -2143,9 +2144,11 @@
                     return;
                 }
 
-                // ─── Format as 254XXXXXXXXX for API ───
-                const formattedPhone = '254' + phone;
-                console.log('Formatted phone for API:', formattedPhone);
+                // ─── Format for API - backend will add 254 ───
+                // The backend validator expects 9 digits starting with 7 or 1
+                // It will add 254 automatically
+                const formattedPhone = phone;  // Just 9 digits, no 254 prefix
+                console.log('Phone for API (9 digits):', formattedPhone);
 
                 if (!selectedService) {
                     showToast('No service selected', 'error');
@@ -2174,10 +2177,10 @@
                     overlay.classList.add('open');
                 }
 
-                // ─── FIX: Only send fields that backend expects ───
+                // ─── Request body - matches backend exactly ───
                 const requestBody = {
-                    phone: formattedPhone,
-                    service_id: selectedService.id,  // e.g., "mileage", "valuation", "ownership", "full_report"
+                    phone: formattedPhone,  // 9 digits, no 254 prefix
+                    service_id: selectedService.id,
                     description: `Auto-D: ${selectedService.name}`,
                     user_id: currentUser.id
                 };
@@ -2201,7 +2204,6 @@
                     console.log('📥 Response data:', data);
 
                     if (!response.ok) {
-                        // ─── Show detailed error from backend ───
                         const errorMsg = data.detail || data.error || data.message || 'Payment initiation failed';
                         showToast('❌ ' + errorMsg, 'error');
                         if (overlay) {
@@ -2229,7 +2231,7 @@
                                     service_id: selectedService.id,
                                     service_name: selectedService.name,
                                     amount: selectedService.price || 0,
-                                    phone: formattedPhone,
+                                    phone: '254' + formattedPhone,
                                     status: 'pending',
                                     created_at: new Date().toISOString()
                                 });
@@ -2703,75 +2705,38 @@
             });
 
             // ============================================================
-            // PHONE INPUT VALIDATION (Real-time - 07 or 01 format)
+            // PHONE INPUT VALIDATION - SIMPLE 10 DIGIT FORMAT
             // ============================================================
 
             document.addEventListener('DOMContentLoaded', function() {
                 const phoneInput = document.getElementById('mpesaPhone');
                 if (phoneInput) {
-                    // ─── Ensure it starts empty ───
                     phoneInput.value = '';
                     phoneInput.defaultValue = '';
-                    phoneInput.placeholder = 'e.g., 0700000000 or 0110000000';
+                    phoneInput.placeholder = '0700000000 or 0110000000';
                     
                     phoneInput.addEventListener('input', function() {
-                        // If the value is the placeholder hint, clear it
-                        if (this.value === 'e.g., 0700000000 or 0110000000' || this.value === '0700000000' || this.value === '0110000000') {
-                            this.value = '';
-                            return;
-                        }
-                        
-                        // Store cursor position
-                        const start = this.selectionStart;
-                        const end = this.selectionEnd;
-                        
-                        // ─── Remove ALL non-numeric characters ───
+                        // Only allow digits
                         let cleaned = this.value.replace(/\D/g, '');
                         
-                        // Remove leading 254 if typed
-                        if (cleaned.startsWith('254')) {
-                            cleaned = cleaned.slice(3);
+                        // Limit to 10 digits
+                        if (cleaned.length > 10) {
+                            cleaned = cleaned.substring(0, 10);
                         }
                         
-                        // Remove leading 0 if present (handles 07... or 01...)
-                        if (cleaned.startsWith('0')) {
-                            cleaned = cleaned.slice(1);
+                        if (this.value !== cleaned) {
+                            this.value = cleaned;
                         }
                         
-                        // Limit to 9 digits (the number after 0)
-                        if (cleaned.length > 9) {
-                            cleaned = cleaned.substring(0, 9);
-                        }
-                        
-                        // ─── Show with leading 0 for display ───
-                        const displayValue = cleaned.length > 0 ? '0' + cleaned : '';
-                        
-                        // Only update if changed
-                        if (this.value !== displayValue) {
-                            this.value = displayValue;
-                            this.setSelectionRange(start, end);
-                        }
-                        
-                        // Remove error state if valid
+                        // Remove error state if valid format
                         const wrapper = document.getElementById('phoneInputWrapper');
-                        if (wrapper && cleaned.length === 9 && /^[17]/.test(cleaned)) {
+                        if (wrapper && cleaned.length === 10 && /^[01]/.test(cleaned)) {
                             wrapper.classList.remove('error');
                         }
                     });
                     
-                    // ─── Clear placeholder text on focus ───
                     phoneInput.addEventListener('focus', function() {
-                        if (this.value === 'e.g., 0700000000 or 0110000000') {
-                            this.value = '';
-                        }
                         this.select();
-                    });
-                    
-                    // ─── Show placeholder if empty ───
-                    phoneInput.addEventListener('blur', function() {
-                        if (this.value === '') {
-                            this.placeholder = 'e.g., 0700000000 or 0110000000';
-                        }
                     });
                 }
             });
@@ -2783,7 +2748,7 @@
             (async function() {
                 console.log('🚗 Auto-D Kenya Dashboard');
                 console.log('📋 API Base:', API_BASE);
-                console.log('📋 Phone format: 07XXXXXXXX or 01XXXXXXXX (10 digits starting with 0)');
+                console.log('📋 Phone format: 0700000000 or 0110000000 (10 digits)');
 
                 initSupabase();
 
