@@ -84,6 +84,9 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ M-Pesa configuration incomplete - payment endpoints may not work")
     
+    # ─── FIX: Log CORS origins from settings ──────────────────────
+    logger.info(f"🔒 CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
+    
     logger.info("=" * 60)
     logger.info("✅ Application is ready to serve requests")
     logger.info("=" * 60)
@@ -113,33 +116,22 @@ app = FastAPI(
 
 
 # ─── CORS Configuration ────────────────────────────────────────────
+# ─── FIX: Load CORS from settings instead of hardcoding ──────────
+cors_origins = settings.BACKEND_CORS_ORIGINS
 
-cors_origins = [
-    "https://auto-d.meipressgroup.com",
-    "https://auto-d.meipressgroup.com",
-    "https://auto-digital.onrender.com",
-    "https://auto-d.onrender.com",
-    "https://auto-d-kenya-backend.onrender.com",
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://localhost:5000",
-    "http://localhost:8000",
-    "http://127.0.0.1:5500",
-]
-
-logger.info(f"CORS Origins: {cors_origins}")
+logger.info(f"🔒 Configuring CORS with origins: {cors_origins}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=True,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
-    max_age=3600,
+    max_age=settings.CORS_MAX_AGE,
 )
 
-logger.info("✅ CORS configured")
+logger.info("✅ CORS configured successfully")
 
 
 # ─── Exception Handlers ────────────────────────────────────────────
