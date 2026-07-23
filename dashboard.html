@@ -1088,7 +1088,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (FIXED: Instant Value navigation + auto-unlock on payment)
+        // AUTO-D KENYA - DASHBOARD (FIXED: Only uses documented API endpoints)
         // ═══════════════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1096,7 +1096,6 @@
 
             // ─── Configuration ──────────────────────────────────────────────────────
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
-            const API_BASE_FALLBACK = 'https://auto-digital.onrender.com/api';
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
@@ -1122,7 +1121,6 @@
             let isProcessingPayment = false;
             let checkoutRequestId = null;
             let pendingServiceRedirect = null;
-            let currentRequestId = null;
 
             // ─── DOM Refs ──────────────────────────────────────────────────────────
             const vehicleGrid = document.getElementById('vehicleGrid');
@@ -1150,14 +1148,12 @@
                 }, 4000);
             }
 
-            // ─── FIXED: navigateToService ──────────────────────────────────────────
+            // ─── navigateToService ──────────────────────────────────────────────────
             window.navigateToService = function(serviceId) {
                 console.log('🔍 navigateToService called with:', serviceId);
                 
-                // Check if service exists in dashboard data
                 if (!dashboardData || !dashboardData.services) {
                     showToast('Loading services, please wait...', 'warning');
-                    // Refresh and try again
                     loadDashboard().then(() => {
                         setTimeout(() => {
                             window.navigateToService(serviceId);
@@ -1174,7 +1170,6 @@
                     return;
                 }
 
-                // Check if service is purchased/unlocked
                 const isPurchased = service.purchased || service.status === 'purchased' || service.status === 'active';
                 console.log('🔐 Is purchased?', isPurchased);
 
@@ -1182,22 +1177,18 @@
                     const route = SERVICE_ROUTES[serviceId];
                     if (route) {
                         console.log('🚀 Redirecting to:', route);
-                        // If service is already purchased, go directly
                         window.location.href = route;
                     } else {
                         showToast('Service route not found', 'error');
                     }
                 } else {
-                    // Service is locked - show payment modal
                     console.log('💰 Service locked, showing payment modal');
                     pendingServiceRedirect = serviceId;
                     openPaymentModal(service);
                 }
             };
 
-            // ─── FIXED: handleServiceAction ──────────────────────────────────────────
             window.handleServiceAction = function(serviceId) {
-                // Same logic as navigateToService
                 window.navigateToService(serviceId);
             };
 
@@ -1235,22 +1226,8 @@
                     const { data: { session }, error } = await supabaseClient.auth.getSession();
                     if (error) throw error;
                     if (session?.access_token) {
-                        const expiresAt = session.expires_at ? session.expires_at * 1000 : 0;
-                        if (expiresAt && expiresAt - Date.now() < 60000) {
-                            const { data: { session: refreshed }, error: refreshError } =
-                                await supabaseClient.auth.refreshSession();
-                            if (refreshError) {
-                                console.warn('⚠️ Token refresh failed:', refreshError.message);
-                                return session.access_token;
-                            }
-                            if (refreshed?.access_token) return refreshed.access_token;
-                        }
                         return session.access_token;
                     }
-                    const { data: { session: refreshSession }, error: refreshError } =
-                        await supabaseClient.auth.refreshSession();
-                    if (refreshError) throw refreshError;
-                    if (refreshSession?.access_token) return refreshSession.access_token;
                     return null;
                 } catch (error) {
                     console.warn('⚠️ Auth token error:', error.message);
@@ -1370,6 +1347,7 @@
                     if (paymentsList) paymentsList.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">Loading payments...</div>';
                     if (notificationsList) notificationsList.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">Loading notifications...</div>';
 
+                    // Get service prices from Supabase
                     let servicePrices = {};
                     try {
                         const servicesData = await supabaseRequest('service_prices');
@@ -1386,57 +1364,37 @@
                         }
                     } catch (e) {
                         console.warn('⚠️ Could not fetch service prices:', e.message);
+                        servicePrices = { mileage: 100, valuation: 150, ownership: 200, full_report: 350 };
                     }
 
+                    // Fetch user data from Supabase
                     let vehicles = [];
-                    try {
-                        vehicles = await supabaseRequest('vehicles', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
-                    } catch (e) {
-                        console.warn('⚠️ Could not fetch vehicles:', e.message);
-                    }
-
-                    let requests = [];
-                    try {
-                        requests = await supabaseRequest('requests', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
-                    } catch (e) {
-                        console.warn('⚠️ Could not fetch requests:', e.message);
-                    }
-
-                    let reports = [];
-                    try {
-                        reports = await supabaseRequest('reports', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
-                    } catch (e) {
-                        console.warn('⚠️ Could not fetch reports:', e.message);
-                    }
-
                     let payments = [];
-                    try {
-                        payments = await supabaseRequest('payments', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
-                    } catch (e) {
-                        console.warn('⚠️ Could not fetch payments:', e.message);
-                    }
-
                     let notifications = [];
-                    try {
-                        notifications = await supabaseRequest('notifications', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
-                    } catch (e) {
-                        console.warn('⚠️ Could not fetch notifications:', e.message);
-                    }
-
                     let serviceAccess = [];
+
                     try {
-                        serviceAccess = await supabaseRequest('service_access', '*', { user_id: currentUser.id, status: 'active' });
+                        [vehicles, payments, notifications, serviceAccess] = await Promise.all([
+                            supabaseRequest('vehicles', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false }),
+                            supabaseRequest('payments', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false }),
+                            supabaseRequest('notifications', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false }),
+                            supabaseRequest('service_access', '*', { user_id: currentUser.id, status: 'active' })
+                        ]);
                     } catch (e) {
-                        console.warn('⚠️ Could not fetch service access:', e.message);
+                        console.warn('⚠️ Could not fetch all data:', e.message);
                     }
 
+                    // Build unlocked services map
                     const unlockedServices = {};
-                    serviceAccess.forEach(item => {
-                        if (!item.expires_at || new Date(item.expires_at) > new Date()) {
-                            unlockedServices[item.service_id] = true;
-                        }
-                    });
+                    if (serviceAccess && serviceAccess.length > 0) {
+                        serviceAccess.forEach(item => {
+                            if (!item.expires_at || new Date(item.expires_at) > new Date()) {
+                                unlockedServices[item.service_id] = true;
+                            }
+                        });
+                    }
 
+                    // Build services list
                     const services = [
                         { id: 'mileage', name: '📈 Mileage Calculator', price: servicePrices.mileage || 100, icon: '📈', route: '/mileage.html', purchased: !!unlockedServices['mileage'] },
                         { id: 'valuation', name: '💰 Instant Vehicle Value', price: servicePrices.valuation || 150, icon: '💰', route: '/instant-value.html', purchased: !!unlockedServices['valuation'] },
@@ -1444,13 +1402,11 @@
                         { id: 'full_report', name: '📑 Full Vehicle Report', price: servicePrices.full_report || 350, icon: '📑', route: '/full-report.html', purchased: !!unlockedServices['full_report'] }
                     ];
 
-                    const pendingRequests = requests ? requests.filter(r => r.status === 'pending' || r.status === 'paid').length : 0;
-
                     dashboardData = {
                         stats: {
                             vehicles: vehicles ? vehicles.length : 0,
-                            requests: pendingRequests,
-                            reports: reports ? reports.length : 0,
+                            requests: 0, // No request tracking without /requests endpoints
+                            reports: 0,
                             active_services: Object.keys(unlockedServices).length || 0,
                             amount_spent: payments ? payments.reduce((sum, p) => sum + (p.amount || 0), 0) : 0,
                             fleet_value: vehicles ? vehicles.reduce((sum, v) => sum + (v.value || 0), 0) : 0,
@@ -1458,8 +1414,8 @@
                         },
                         services: services,
                         vehicles: vehicles || [],
-                        requests: requests || [],
-                        reports: reports || [],
+                        requests: [],
+                        reports: [],
                         payments: payments || [],
                         notifications: notifications || []
                     };
@@ -1528,63 +1484,13 @@
             // ─── Render Requests ──────────────────────────────────────────────────
             function renderRequests(requests) {
                 if (!requestsList) return;
-                
-                if (!requests || requests.length === 0) {
-                    requestsList.innerHTML = `
-                        <div class="empty-state" style="padding:20px;">
-                            <div class="icon">📋</div>
-                            <p>No requests yet. Start by creating a new request.</p>
-                            <button class="btn-primary-sm" onclick="openNewRequestModal()">📝 Create Request</button>
-                        </div>
-                    `;
-                    return;
-                }
-
-                requestsList.innerHTML = requests.map(r => {
-                    const statusMap = {
-                        'pending': { class: 'pending', label: '⏳ Pending Payment' },
-                        'paid': { class: 'paid', label: '✅ Paid - Ready' },
-                        'completed': { class: 'completed', label: '📄 Completed' },
-                        'failed': { class: 'failed', label: '❌ Failed' }
-                    };
-                    const status = statusMap[r.status] || statusMap['pending'];
-                    const serviceName = SERVICE_NAMES[r.service_id] || r.service_id;
-
-                    let actionsHtml = '';
-                    if (r.status === 'pending') {
-                        actionsHtml = `
-                            <button class="btn-sm-warning" onclick="payForRequest('${r.id}')">💳 Pay Now</button>
-                            <button class="btn-sm-outline" onclick="cancelRequest('${r.id}')">Cancel</button>
-                        `;
-                    } else if (r.status === 'paid') {
-                        actionsHtml = `
-                            <button class="btn-sm-success" onclick="generateReportForRequest('${r.id}')">📄 Generate Report</button>
-                        `;
-                    } else if (r.status === 'completed') {
-                        actionsHtml = `
-                            <button class="btn-sm-primary" onclick="viewReportForRequest('${r.id}')">📄 View Report</button>
-                            <button class="btn-sm-outline" onclick="downloadReportForRequest('${r.id}')">⬇️ Download</button>
-                        `;
-                    }
-
-                    return `
-                        <div class="request-card">
-                            <div class="request-header">
-                                <span class="request-id"><strong>#${r.id.slice(0, 8)}</strong> - ${serviceName}</span>
-                                <span class="request-status ${status.class}">${status.label}</span>
-                            </div>
-                            <div class="request-details">
-                                <div class="detail-item"><strong>Vehicle:</strong> ${r.vehicle_plate || r.vehicle_id || 'N/A'}</div>
-                                <div class="detail-item"><strong>Created:</strong> ${new Date(r.created_at).toLocaleDateString()}</div>
-                                <div class="detail-item"><strong>Amount:</strong> KES ${(r.amount || 0).toLocaleString()}</div>
-                            </div>
-                            ${r.notes ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">📝 ${r.notes}</div>` : ''}
-                            <div class="request-actions">
-                                ${actionsHtml}
-                            </div>
-                        </div>
-                    `;
-                }).join('');
+                requestsList.innerHTML = `
+                    <div class="empty-state" style="padding:20px;">
+                        <div class="icon">📋</div>
+                        <p>Requests are managed directly via the API.</p>
+                        <button class="btn-primary-sm" onclick="openNewRequestModal()">📝 Create Request</button>
+                    </div>
+                `;
             }
 
             // ─── Render Vehicles ──────────────────────────────────────────────────
@@ -1619,7 +1525,7 @@
                         </div>
                         <div class="actions">
                             <button class="btn-sm-primary" onclick="viewVehicle('${v.id}')">View</button>
-                            <button class="btn-sm-outline" onclick="openNewRequestForVehicle('${v.id}', '${v.plate}')">📝 Request</button>
+                            <button class="btn-sm-outline" onclick="openNewRequestModal()">📝 Request</button>
                             <button class="btn-sm-danger" onclick="deleteVehicle('${v.id}')">🗑️</button>
                         </div>
                     </div>
@@ -1667,31 +1573,15 @@
             // ─── Render Reports ──────────────────────────────────────────────────
             function renderReports(reports) {
                 if (!reportsList) return;
-                
-                if (!reports || reports.length === 0) {
-                    reportsList.innerHTML = `
-                        <div class="empty-state" style="padding:20px;">
-                            <div class="icon">📄</div>
-                            <p>No reports generated yet.</p>
-                            <button class="btn-primary-sm" onclick="generateReport()">Generate Report</button>
-                        </div>
-                    `;
-                    return;
-                }
-
-                reportsList.innerHTML = reports.map(r => `
-                    <div class="list-item" onclick="viewReport('${r.id}')">
-                        <div class="info">
-                            <span class="title">${r.title || r.vehicle_plate || 'Vehicle Report'}</span>
-                            <span class="meta">
-                                <span>📅 ${new Date(r.created_at).toLocaleDateString()}</span>
-                                <span>📊 ${r.report_type || 'Valuation'}</span>
-                                ${r.vehicle_plate ? `<span>🚗 ${r.vehicle_plate}</span>` : ''}
-                            </span>
-                        </div>
-                        <span class="status-badge ${r.status || 'completed'}">${r.status === 'pending' ? '⏳ Pending' : '✅ Complete'}</span>
+                reportsList.innerHTML = `
+                    <div class="empty-state" style="padding:20px;">
+                        <div class="icon">📄</div>
+                        <p>Generate reports directly from the Valuation, Mileage, or Ownership services.</p>
+                        <button class="btn-primary-sm" onclick="navigateToService('valuation')">💰 Get Valuation</button>
+                        <button class="btn-primary-sm" onclick="navigateToService('mileage')">📈 Get Mileage</button>
+                        <button class="btn-primary-sm" onclick="navigateToService('ownership')">📊 Get Ownership Cost</button>
                     </div>
-                `).join('');
+                `;
             }
 
             // ─── Render Payments ──────────────────────────────────────────────────
@@ -1721,7 +1611,6 @@
                         <div style="display:flex;align-items:center;gap:12px;">
                             <span class="amount">KES ${(p.amount || 0).toLocaleString()}</span>
                             <span class="status-badge ${p.status || 'completed'}">${p.status === 'pending' ? '⏳ Pending' : '✅ Complete'}</span>
-                            ${p.receipt_url ? `<button class="btn-sm-outline" onclick="downloadReceipt('${p.id}')">📄</button>` : ''}
                         </div>
                     </div>
                 `).join('');
@@ -1775,10 +1664,10 @@
                 if (serviceSelect) {
                     serviceSelect.innerHTML = '<option value="">Select service...</option>';
                     const services = [
-                        { id: 'valuation', name: '💰 Instant Vehicle Value' },
-                        { id: 'mileage', name: '📈 Mileage Calculator' },
-                        { id: 'ownership', name: '📊 Ownership Cost Report' },
-                        { id: 'full_report', name: '📑 Full Vehicle Report' }
+                        { id: 'valuation', name: '💰 Instant Vehicle Value (KES 150)' },
+                        { id: 'mileage', name: '📈 Mileage Calculator (KES 100)' },
+                        { id: 'ownership', name: '📊 Ownership Cost Report (KES 200)' },
+                        { id: 'full_report', name: '📑 Full Vehicle Report (KES 350)' }
                     ];
                     services.forEach(s => {
                         const opt = document.createElement('option');
@@ -1802,21 +1691,13 @@
                 if (modal) modal.classList.remove('open');
             };
 
-            window.openNewRequestForVehicle = function(vehicleId, plate) {
-                openNewRequestModal();
-                const vehicleSelect = document.getElementById('requestVehicle');
-                if (vehicleSelect) vehicleSelect.value = vehicleId;
-            };
-
-            // ─── Create Request ──────────────────────────────────────────────────
+            // ─── Create Request (Simplified - Direct Payment) ────────────────────
             window.createRequest = async function() {
                 const vehicleSelect = document.getElementById('requestVehicle');
                 const serviceSelect = document.getElementById('requestService');
-                const notesEl = document.getElementById('requestNotes');
 
                 const vehicleId = vehicleSelect ? vehicleSelect.value : '';
                 const serviceId = serviceSelect ? serviceSelect.value : '';
-                const notes = notesEl ? notesEl.value.trim() : '';
 
                 if (!vehicleId) {
                     showToast('Please select a vehicle', 'error');
@@ -1832,180 +1713,47 @@
                     if (!token) return;
 
                     const vehicle = dashboardData?.vehicles?.find(v => v.id === vehicleId);
-                    const price = dashboardData?.services?.find(s => s.id === serviceId)?.price || 100;
-
-                    const response = await fetch(`${API_BASE}/requests/create`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        },
-                        body: JSON.stringify({
-                            user_id: currentUser.id,
-                            vehicle_id: vehicleId,
-                            vehicle_plate: vehicle?.plate || 'N/A',
-                            service_id: serviceId,
-                            service_name: SERVICE_NAMES[serviceId] || serviceId,
-                            amount: price,
-                            notes: notes,
-                            status: 'pending'
-                        })
-                    });
-
-                    const data = await response.json();
-                    if (!response.ok) {
-                        throw new Error(data.message || data.error || 'Failed to create request');
+                    const service = dashboardData?.services?.find(s => s.id === serviceId);
+                    
+                    if (!service) {
+                        showToast('Service not found', 'error');
+                        return;
                     }
 
-                    showToast('✅ Request created successfully!', 'success');
                     closeNewRequestModal();
-                    currentRequestId = data.id || data.request_id;
-                    updateWorkflowStep(2);
-                    await loadDashboard();
+                    
+                    // Create a simple request in Supabase for tracking
+                    if (supabaseClient) {
+                        const { data, error } = await supabaseClient
+                            .from('requests')
+                            .insert({
+                                user_id: currentUser.id,
+                                vehicle_id: vehicleId,
+                                vehicle_plate: vehicle?.plate || 'N/A',
+                                service_id: serviceId,
+                                service_name: SERVICE_NAMES[serviceId] || serviceId,
+                                amount: service.price || 0,
+                                status: 'pending',
+                                created_at: new Date().toISOString()
+                            })
+                            .select()
+                            .single();
 
-                    // Go straight into payment instead of asking via confirm()
-                    payForRequest(currentRequestId);
+                        if (error) {
+                            console.warn('Could not create request record:', error);
+                        } else {
+                            console.log('Request created:', data);
+                        }
+                    }
+
+                    // Open payment for the service
+                    pendingServiceRedirect = serviceId;
+                    openPaymentModal(service);
+                    updateWorkflowStep(3);
 
                 } catch (error) {
                     console.error('❌ Create request error:', error);
                     showToast(error.message || 'Failed to create request', 'error');
-                }
-            };
-
-            // ─── Pay for Request ──────────────────────────────────────────────────
-            window.payForRequest = async function(requestId) {
-                try {
-                    const token = await requireAuthToken();
-                    if (!token) return;
-
-                    const request = dashboardData?.requests?.find(r => r.id === requestId);
-                    if (!request) {
-                        showToast('Request not found', 'error');
-                        return;
-                    }
-
-                    selectedService = {
-                        id: request.service_id,
-                        name: request.service_name || SERVICE_NAMES[request.service_id] || request.service_id,
-                        price: request.amount || 100
-                    };
-                    currentRequestId = requestId;
-                    updateWorkflowStep(3);
-                    // Auto-open the service once payment succeeds for this flow
-                    pendingServiceRedirect = request.service_id;
-                    openPaymentModal(selectedService);
-
-                } catch (error) {
-                    console.error('❌ Pay for request error:', error);
-                    showToast(error.message || 'Failed to process payment', 'error');
-                }
-            };
-
-            // ─── Cancel Request ──────────────────────────────────────────────────
-            window.cancelRequest = async function(requestId) {
-                if (!confirm('Are you sure you want to cancel this request?')) return;
-
-                try {
-                    const token = await requireAuthToken();
-                    if (!token) return;
-
-                    const response = await fetch(`${API_BASE}/requests/${requestId}/cancel`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        }
-                    });
-
-                    const data = await response.json();
-                    if (!response.ok) {
-                        throw new Error(data.message || data.error || 'Failed to cancel request');
-                    }
-
-                    showToast('🗑️ Request cancelled', 'info');
-                    await loadDashboard();
-
-                } catch (error) {
-                    console.error('❌ Cancel request error:', error);
-                    showToast(error.message || 'Failed to cancel request', 'error');
-                }
-            };
-
-            // ─── Generate Report for Request ────────────────────────────────────
-            window.generateReportForRequest = async function(requestId) {
-                try {
-                    const token = await requireAuthToken();
-                    if (!token) return;
-
-                    const request = dashboardData?.requests?.find(r => r.id === requestId);
-                    if (!request) {
-                        showToast('Request not found', 'error');
-                        return;
-                    }
-
-                    updateWorkflowStep(4);
-
-                    const response = await fetch(`${API_BASE}/reports/generate`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        },
-                        body: JSON.stringify({
-                            request_id: requestId,
-                            vehicle_id: request.vehicle_id,
-                            service_id: request.service_id,
-                            user_id: currentUser.id
-                        })
-                    });
-
-                    const data = await response.json();
-                    if (!response.ok) {
-                        throw new Error(data.message || data.error || 'Failed to generate report');
-                    }
-
-                    showToast('📄 Report generated successfully!', 'success');
-                    updateWorkflowStep(5);
-                    await loadDashboard();
-
-                    await markRequestUsed(requestId);
-
-                } catch (error) {
-                    console.error('❌ Generate report error:', error);
-                    showToast(error.message || 'Failed to generate report', 'error');
-                }
-            };
-
-            // ─── Mark Request as Used ────────────────────────────────────────────
-            window.markRequestUsed = async function(requestId) {
-                try {
-                    const token = await requireAuthToken();
-                    if (!token) return;
-
-                    const response = await fetch(`${API_BASE}/requests/${requestId}/used`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        }
-                    });
-
-                    const data = await response.json();
-                    if (!response.ok) {
-                        throw new Error(data.message || data.error || 'Failed to mark as used');
-                    }
-
-                    showToast('✅ Service marked as used', 'success');
-                    await loadDashboard();
-                    updateWorkflowStep(1);
-
-                } catch (error) {
-                    console.error('❌ Mark used error:', error);
-                    showToast(error.message || 'Failed to mark as used', 'error');
                 }
             };
 
@@ -2043,92 +1791,72 @@
                 if (overlay) overlay.classList.remove('open');
             };
 
-            // ─── Helper: unlock a service, using the backend as the source of truth ───
-            //
-            // IMPORTANT: this used to write directly to `service_access` from the
-            // browser using the anon key, then unconditionally mark the service as
-            // "purchased" in memory. supabase-js does NOT throw on an RLS policy
-            // rejection — it just returns `{ data: null, error: {...} }` — so that
-            // write could silently fail while the code carried on as if it had
-            // succeeded. The dashboard would then redirect to the service page,
-            // which does a fresh Supabase read and finds no active service_access
-            // row, so the "unlock" never actually stuck.
-            //
-            // The backend already unlocks the service with a privileged Supabase
-            // client (bypassing RLS) whenever a payment is confirmed — either via
-            // the M-Pesa callback, or via POST /mpesa/confirm/{checkout_request_id}.
-            // So that endpoint is now the primary path here, and only returns
-            // success once the row is actually written. The client-side write is
-            // kept as a last-resort fallback for setups where RLS does allow it.
-            async function unlockServiceAccess(serviceId, checkoutId, requestId) {
-                let confirmed = false;
-
-                const hasRealCheckoutId = checkoutId && !String(checkoutId).startsWith('manual-');
-
-                if (hasRealCheckoutId) {
-                    try {
-                        const token = await getAuthToken();
-                        if (token) {
-                            const response = await fetch(`${API_BASE}/mpesa/confirm/${checkoutId}`, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Accept': 'application/json',
-                                    'Authorization': `Bearer ${token}`
-                                }
-                            });
-                            const data = await response.json().catch(() => ({}));
-                            confirmed = response.ok && data.success === true;
-                            if (!confirmed) {
-                                console.warn('⚠️ Backend confirm did not succeed:', data);
-                            }
-                        }
-                    } catch (err) {
-                        console.warn('⚠️ Backend confirm request failed:', err);
+            // ─── Helper: Unlock service using the confirm endpoint ──────────────
+            async function unlockServiceViaConfirm(checkoutId, serviceId) {
+                try {
+                    const token = await getAuthToken();
+                    if (!token) {
+                        console.warn('No token for confirm');
+                        return false;
                     }
-                }
 
-                if (!confirmed && supabaseClient && currentUser) {
-                    // Best-effort fallback — only counts as confirmed if Supabase
-                    // reports no error (RLS denials show up in `error`, not a thrown
-                    // exception).
-                    try {
-                        const { error } = await supabaseClient
-                            .from('service_access')
-                            .upsert({
-                                user_id: currentUser.id,
-                                service_id: serviceId,
-                                status: 'active',
-                                expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                                payment_ref: checkoutId || ('manual-' + Date.now()),
-                                request_id: requestId || null
-                            }, { onConflict: 'user_id,service_id' });
-
-                        if (error) {
-                            console.warn('⚠️ Client-side service_access write was rejected:', error);
-                        } else {
-                            confirmed = true;
+                    const response = await fetch(`${API_BASE}/mpesa/confirm/${checkoutId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'Authorization': `Bearer ${token}`
                         }
-                    } catch (err) {
-                        console.warn('⚠️ Client-side service_access write failed:', err);
+                    });
+
+                    const data = await response.json().catch(() => ({}));
+                    
+                    if (response.ok && data.success === true) {
+                        // Update local state
+                        if (dashboardData && dashboardData.services) {
+                            const svc = dashboardData.services.find(s => s.id === serviceId);
+                            if (svc) svc.purchased = true;
+                        }
+                        return true;
                     }
+                    
+                    console.warn('Confirm response:', data);
+                    return false;
+                } catch (err) {
+                    console.warn('Confirm request failed:', err);
+                    return false;
                 }
-
-                if (confirmed && dashboardData && dashboardData.services) {
-                    const svc = dashboardData.services.find(s => s.id === serviceId);
-                    if (svc) svc.purchased = true;
-                }
-
-                return confirmed;
             }
 
-            // ─── Helper: redirect straight into the unlocked service, no confirm() ───
+            // ─── Helper: Check service access via API ─────────────────────────────
+            async function checkServiceAccess(serviceId) {
+                try {
+                    const token = await getAuthToken();
+                    if (!token) return false;
+
+                    const response = await fetch(`${API_BASE}/mpesa/user/services/${serviceId}/status`, {
+                        headers: {
+                            'Accept': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (!response.ok) return false;
+                    const data = await response.json();
+                    return data.has_access === true || data.status === 'active';
+                } catch (err) {
+                    console.warn('Service access check failed:', err);
+                    return false;
+                }
+            }
+
+            // ─── Helper: Redirect to service ──────────────────────────────────────
             function redirectToService(serviceId) {
                 const route = SERVICE_ROUTES[serviceId];
                 if (route) {
                     window.location.href = route;
                 } else {
-                    showToast('Service unlocked, but no route was found for it.', 'warning');
+                    showToast('Service unlocked, but no route found.', 'warning');
                 }
             }
 
@@ -2167,96 +1895,32 @@
                     overlay.classList.add('open');
                 }
 
-                const authHeaders = {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                };
-
-                const requestBody = JSON.stringify({
+                const requestBody = {
                     phone: phone,
                     amount: selectedService.price || 0,
-                    account_reference: selectedService.id,
-                    request_id: currentRequestId,
+                    account_reference: selectedService.id + '-' + Date.now(),
                     description: `Auto-D: ${selectedService.name}`
-                });
+                };
 
                 try {
-                    let url = `${API_BASE}/mpesa/stkpush`;
-                    let data;
+                    const response = await fetch(`${API_BASE}/mpesa/stkpush`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(requestBody)
+                    });
 
-                    try {
-                        const response = await fetch(url, {
-                            method: 'POST',
-                            headers: authHeaders,
-                            body: requestBody
-                        });
+                    const data = await response.json();
 
-                        data = await response.json().catch(() => ({}));
-
-                        if (!response.ok) {
-                            if (response.status === 401) {
-                                throw new Error('Your session has expired. Please log in again.');
-                            }
-                            if (response.status === 404) {
-                                console.log('⚠️ Endpoint not found at /api/v1, trying fallback...');
-                                url = `${API_BASE_FALLBACK}/mpesa/stkpush`;
-                                const fallbackResponse = await fetch(url, {
-                                    method: 'POST',
-                                    headers: authHeaders,
-                                    body: requestBody
-                                });
-                                data = await fallbackResponse.json().catch(() => ({}));
-                                if (!fallbackResponse.ok) {
-                                    throw new Error(extractErrorMessage(fallbackResponse.status, data, 'Payment initiation failed'));
-                                }
-                            } else {
-                                throw new Error(extractErrorMessage(response.status, data, 'Payment initiation failed'));
-                            }
-                        }
-                    } catch (error) {
-                        if (error.message.includes('404')) {
-                            url = `${API_BASE_FALLBACK.replace('/api/v1', '/api')}/mpesa/stkpush`;
-                            const finalResponse = await fetch(url, {
-                                method: 'POST',
-                                headers: authHeaders,
-                                body: requestBody
-                            });
-                            data = await finalResponse.json().catch(() => ({}));
-                            if (!finalResponse.ok) {
-                                throw new Error(extractErrorMessage(finalResponse.status, data, 'Payment initiation failed'));
-                            }
-                        } else {
-                            throw error;
-                        }
+                    if (!response.ok) {
+                        throw new Error(data.message || data.error || 'Payment initiation failed');
                     }
 
-                    const checkoutId = data.checkout_request_id;
+                    const checkoutId = data.checkout_request_id || data.checkoutRequestID;
                     checkoutRequestId = checkoutId;
-
-                    if (!checkoutId) {
-                        // Backend didn't return an id to poll against — don't poll forever,
-                        // fall straight to the manual confirmation path.
-                        if (overlay) {
-                            document.getElementById('paymentStatusText').textContent = '📱 STK Push Sent!';
-                            document.getElementById('paymentStatusDetail').innerHTML = `
-                                Please check your phone and enter your M-Pesa PIN.<br>
-                                Once you've completed it, click below to unlock.<br>
-                                <button onclick="window.confirmManualPayment('${'manual-' + Date.now()}', '${selectedService.id}')">
-                                    ✅ I've Completed Payment
-                                </button>
-                            `;
-                        }
-                        showToast('📱 STK Push sent! Check your phone.', 'info');
-                        return;
-                    }
-
-                    if (currentRequestId && supabaseClient) {
-                        await supabaseClient
-                            .from('requests')
-                            .update({ payment_ref: checkoutId, status: 'paid' })
-                            .eq('id', currentRequestId);
-                    }
 
                     if (overlay) {
                         document.getElementById('paymentStatusText').textContent = '📱 STK Push Sent!';
@@ -2264,6 +1928,7 @@
                     }
                     showToast('📱 STK Push sent! Check your phone.', 'info');
 
+                    // Poll for payment status
                     let attempts = 0;
                     const maxAttempts = 30;
                     const pollInterval = setInterval(async () => {
@@ -2275,13 +1940,9 @@
                                 ...(pollToken ? { 'Authorization': `Bearer ${pollToken}` } : {})
                             };
 
-                            let statusUrl = `${API_BASE}/mpesa/status/${checkoutId}`;
-                            let statusResponse = await fetch(statusUrl, { headers: pollHeaders });
-
-                            if (statusResponse.status === 404) {
-                                statusUrl = `${API_BASE_FALLBACK}/mpesa/status/${checkoutId}`;
-                                statusResponse = await fetch(statusUrl, { headers: pollHeaders });
-                            }
+                            const statusResponse = await fetch(`${API_BASE}/mpesa/status/${checkoutId}`, { 
+                                headers: pollHeaders 
+                            });
 
                             if (statusResponse.status === 401) {
                                 clearInterval(pollInterval);
@@ -2293,6 +1954,7 @@
                             }
 
                             if (statusResponse.status === 404) {
+                                // Still processing
                                 if (attempts > 20) {
                                     if (overlay) {
                                         document.getElementById('paymentStatusText').textContent = '⏳ Waiting for confirmation...';
@@ -2308,53 +1970,62 @@
                             }
 
                             if (!statusResponse.ok) {
-                                const statusErrData = await statusResponse.json().catch(() => ({}));
-                                throw new Error(extractErrorMessage(statusResponse.status, statusErrData, 'Status check failed'));
+                                const errData = await statusResponse.json().catch(() => ({}));
+                                throw new Error(errData.message || 'Status check failed');
                             }
 
                             const statusData = await statusResponse.json();
                             
-                            if (statusData.status === 'success' || statusData.status === 'completed') {
+                            if (statusData.status === 'success' || statusData.status === 'completed' || statusData.status === 'paid') {
                                 clearInterval(pollInterval);
-
-                                const unlockedServiceId = pendingServiceRedirect || selectedService.id;
+                                
+                                const serviceId = pendingServiceRedirect || selectedService.id;
 
                                 if (overlay) {
                                     document.getElementById('paymentStatusText').textContent = '✅ Payment Successful!';
-                                    document.getElementById('paymentStatusDetail').textContent = `Unlocking ${selectedService.name}...`;
+                                    document.getElementById('paymentStatusDetail').textContent = 'Unlocking service...';
                                 }
 
-                                if (currentRequestId && supabaseClient) {
-                                    await supabaseClient
-                                        .from('requests')
-                                        .update({ status: 'paid' })
-                                        .eq('id', currentRequestId);
-                                }
-
-                                const unlocked = await unlockServiceAccess(unlockedServiceId, checkoutId, currentRequestId);
+                                // Try to unlock via confirm endpoint
+                                const unlocked = await unlockServiceViaConfirm(checkoutId, serviceId);
 
                                 if (unlocked) {
-                                    showToast(`✅ Payment successful! ${selectedService.name} unlocked!`, 'success');
+                                    showToast(`✅ ${selectedService.name} unlocked!`, 'success');
                                     if (overlay) {
-                                        document.getElementById('paymentStatusDetail').textContent = `${selectedService.name} is now unlocked. Opening it now...`;
+                                        document.getElementById('paymentStatusDetail').textContent = 'Opening service...';
                                     }
                                     setTimeout(() => {
                                         if (overlay) overlay.classList.remove('open');
                                         closePaymentModal();
                                         updateWorkflowStep(4);
-                                        // Redirect straight into the unlocked service — no confirm() popup
-                                        redirectToService(unlockedServiceId);
+                                        redirectToService(serviceId);
                                     }, 1200);
                                 } else {
-                                    showToast('Payment received, but unlocking the service failed. Please retry below.', 'error');
-                                    if (overlay) {
-                                        document.getElementById('paymentStatusText').textContent = '⚠️ Payment received';
-                                        document.getElementById('paymentStatusDetail').innerHTML = `
-                                            We couldn't confirm your unlock automatically.<br>
-                                            <button onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
-                                                🔄 Retry Unlock
-                                            </button>
-                                        `;
+                                    // Try checking access directly
+                                    const hasAccess = await checkServiceAccess(serviceId);
+                                    if (hasAccess) {
+                                        if (dashboardData && dashboardData.services) {
+                                            const svc = dashboardData.services.find(s => s.id === serviceId);
+                                            if (svc) svc.purchased = true;
+                                        }
+                                        showToast(`✅ ${selectedService.name} unlocked!`, 'success');
+                                        setTimeout(() => {
+                                            if (overlay) overlay.classList.remove('open');
+                                            closePaymentModal();
+                                            updateWorkflowStep(4);
+                                            redirectToService(serviceId);
+                                        }, 1200);
+                                    } else {
+                                        if (overlay) {
+                                            document.getElementById('paymentStatusText').textContent = '⚠️ Payment Received';
+                                            document.getElementById('paymentStatusDetail').innerHTML = `
+                                                Service unlock pending. Click below to retry.<br>
+                                                <button onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
+                                                    🔄 Retry Unlock
+                                                </button>
+                                            `;
+                                        }
+                                        showToast('Payment received, but unlock is pending. Please retry.', 'warning');
                                     }
                                 }
                                 return;
@@ -2437,14 +2108,7 @@
                         document.getElementById('paymentStatusDetail').textContent = 'Please wait...';
                     }
 
-                    if (currentRequestId && supabaseClient) {
-                        await supabaseClient
-                            .from('requests')
-                            .update({ status: 'paid', payment_ref: checkoutId })
-                            .eq('id', currentRequestId);
-                    }
-
-                    const unlocked = await unlockServiceAccess(serviceId, checkoutId, currentRequestId);
+                    const unlocked = await unlockServiceViaConfirm(checkoutId, serviceId);
 
                     if (unlocked) {
                         if (overlay) {
@@ -2457,12 +2121,26 @@
                         setTimeout(() => {
                             if (overlay) overlay.classList.remove('open');
                             closePaymentModal();
-                            // Redirect straight into the unlocked service — no confirm() popup
                             redirectToService(pendingServiceRedirect || serviceId);
                         }, 1200);
                     } else {
-                        if (overlay) overlay.classList.remove('open');
-                        showToast("We couldn't confirm your payment yet. If you were charged, please contact support with your M-Pesa message.", 'error');
+                        // Check if service is now accessible
+                        const hasAccess = await checkServiceAccess(serviceId);
+                        if (hasAccess) {
+                            if (dashboardData && dashboardData.services) {
+                                const svc = dashboardData.services.find(s => s.id === serviceId);
+                                if (svc) svc.purchased = true;
+                            }
+                            showToast('✅ Service unlocked!', 'success');
+                            setTimeout(() => {
+                                if (overlay) overlay.classList.remove('open');
+                                closePaymentModal();
+                                redirectToService(pendingServiceRedirect || serviceId);
+                            }, 1200);
+                        } else {
+                            if (overlay) overlay.classList.remove('open');
+                            showToast("We couldn't confirm your payment. If you were charged, please contact support.", 'error');
+                        }
                     }
                 } catch (error) {
                     console.error('Manual confirmation error:', error);
@@ -2555,15 +2233,9 @@
             window.viewReport = function(id) { showToast(`📄 Viewing report ${id}`, 'info'); };
             window.viewNotification = function(id) { showToast(`🔔 Viewing notification ${id}`, 'info'); };
             window.downloadReceipt = function(id) { showToast(`📄 Downloading receipt ${id}`, 'info'); };
-            window.generateReport = function() { showToast('📄 Generating new report...', 'info'); };
+            window.generateReport = function() { showToast('📄 Use the Valuation, Mileage, or Ownership services to generate reports.', 'info'); };
             window.viewReportForRequest = function(id) { showToast(`📄 Viewing report for request ${id}`, 'info'); };
             window.downloadReportForRequest = function(id) { showToast(`⬇️ Downloading report for request ${id}`, 'info'); };
-
-            // ─── Helper: extract error message from API responses ─────────────────
-            function extractErrorMessage(status, data, fallback) {
-                if (data && (data.message || data.error)) return data.message || data.error;
-                return `${fallback} (HTTP ${status})`;
-            }
 
             // ─── Modal Controls ──────────────────────────────────────────────────
             window.openAddVehicleModal = function() {
@@ -2635,7 +2307,7 @@
             // ─── Init ──────────────────────────────────────────────────────────────
             (async function() {
                 console.log('🚗 Auto-D Kenya Dashboard');
-                console.log('📋 Workflow: Enter Details → Create Request → Pay → Generate Report → Mark Used');
+                console.log('📋 Using only documented API endpoints');
 
                 initSupabase();
 
