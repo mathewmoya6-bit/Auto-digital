@@ -1124,7 +1124,7 @@
                     <input 
                         type="tel" 
                         id="mpesaPhone" 
-                        placeholder="e.g., 0700000000" 
+                        placeholder="e.g., 0700000000 or 0110000000" 
                         autocomplete="off"
                         maxlength="12"
                         inputmode="numeric"
@@ -1132,7 +1132,7 @@
                     />
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
-                    Enter your Safaricom number registered with M-Pesa (e.g., 0700000000)
+                    Enter your Safaricom number (e.g., 0700000000 or 0110000000)
                 </div>
             </div>
             <button class="btn btn-primary btn-block" onclick="processPayment()" id="payNowBtn">
@@ -1149,14 +1149,13 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (FIXED: Correct API_BASE)
+        // AUTO-D KENYA - DASHBOARD (FIXED: Account Reference + Phone Validation)
         // ════════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
 
             // ─── Configuration ──────────────────────────────────────────
-            // ─── FIX: Use the WORKING Render API_BASE ──────────────────
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
             
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
@@ -1966,7 +1965,7 @@
             };
 
             // ============================================================
-            // PAYMENT - COMPLETE FIXED VERSION (07XXXXXXXXX format)
+            // PAYMENT - COMPLETE FIXED VERSION
             // ============================================================
 
             // ─── Open Payment Modal ───
@@ -1985,7 +1984,7 @@
                 // ─── Clear phone input ───
                 if (phoneEl) {
                     phoneEl.value = '';
-                    phoneEl.placeholder = 'e.g., 0700000000';
+                    phoneEl.placeholder = 'e.g., 0700000000 or 0110000000';
                     phoneEl.setAttribute('value', '');
                     phoneEl.defaultValue = '';
                 }
@@ -2099,8 +2098,8 @@
                 console.log('Raw phone input:', rawPhone);
 
                 // Check for empty or placeholder
-                if (!rawPhone || rawPhone === '' || rawPhone === 'e.g., 0700000000' || rawPhone === '0700000000') {
-                    showToast('Please enter your M-Pesa phone number (e.g., 0700000000)', 'error');
+                if (!rawPhone || rawPhone === '' || rawPhone === 'e.g., 0700000000 or 0110000000' || rawPhone === '0700000000' || rawPhone === '0110000000') {
+                    showToast('Please enter your M-Pesa phone number (e.g., 0700000000 or 0110000000)', 'error');
                     if (phoneWrapper) phoneWrapper.classList.add('error');
                     if (phoneEl) {
                         phoneEl.focus();
@@ -2122,19 +2121,20 @@
                     console.log('After removing 254:', phone);
                 }
                 
-                // ─── NEW: Handle 07 format ───
+                // ─── Handle 07 or 01 format ───
                 // If phone starts with 0, remove it (e.g., 0700000000 -> 700000000)
                 if (phone.startsWith('0')) {
                     phone = phone.substring(1);
                     console.log('After removing leading 0:', phone);
                 }
 
-                // ─── FIX: Validate: must be 9 digits starting with 7 ───
+                // ─── FIX: Validate: must be 9 digits starting with 7 OR 1 ───
                 // This handles both "07XXXXXXXX" (10 digits) and "7XXXXXXXX" (9 digits)
-                if (!phone || phone.length !== 9 || !phone.startsWith('7')) {
+                // AND newer "01XXXXXXXX" numbers
+                if (!phone || phone.length !== 9 || !(phone.startsWith('7') || phone.startsWith('1'))) {
                     const errorMsg = phone.length > 0 
-                        ? `Invalid number: "${rawPhone}". Please enter 10 digits starting with 07 (e.g., 0700000000)`
-                        : 'Please enter your M-Pesa phone number (e.g., 0700000000)';
+                        ? `Invalid number: "${rawPhone}". Please enter 10 digits starting with 07 or 01 (e.g., 0700000000 or 0110000000)`
+                        : 'Please enter your M-Pesa phone number (e.g., 0700000000 or 0110000000)';
                     showToast(errorMsg, 'error');
                     if (phoneWrapper) phoneWrapper.classList.add('error');
                     if (phoneEl) {
@@ -2178,15 +2178,15 @@
                     overlay.classList.add('open');
                 }
 
+                // ─── FIX: Don't append Date.now() to account_reference ───
                 const requestBody = {
                     phone: formattedPhone,
                     amount: selectedService.price || 0,
-                    account_reference: selectedService.id + '-' + Date.now(),
+                    account_reference: selectedService.id,  // ← FIXED: Just the service ID
                     description: `Auto-D: ${selectedService.name}`
                 };
 
                 try {
-                    // ─── ─── Use the correct API_BASE ───
                     const response = await fetch(`${API_BASE}/mpesa/stkpush`, {
                         method: 'POST',
                         headers: {
@@ -2220,7 +2220,7 @@
                                 .insert({
                                     user_id: currentUser.id,
                                     checkout_request_id: checkoutId,
-                                    service_id: selectedService.id,
+                                    service_id: selectedService.id,  // ← Stored as "valuation", "mileage", etc.
                                     service_name: selectedService.name,
                                     amount: selectedService.price,
                                     phone: formattedPhone,
@@ -2275,7 +2275,6 @@
                         try {
                             const pollToken = await getAuthToken();
                             
-                            // ─── ─── Status endpoint no auth needed ───
                             const headers = {
                                 'Accept': 'application/json'
                             };
@@ -2287,7 +2286,6 @@
                                 headers: headers
                             });
 
-                            // ─── ─── Handle 401/403 as "still processing" ───
                             if (statusResponse.status === 401 || statusResponse.status === 403) {
                                 console.log(`⚠️ Status check #${pollingAttempts}: Authentication issue, trying again...`);
                                 if (pollingAttempts > 10 && !confirmAttempted) {
@@ -2698,7 +2696,7 @@
             });
 
             // ============================================================
-            // PHONE INPUT VALIDATION (Real-time - 07 format)
+            // PHONE INPUT VALIDATION (Real-time - 07 or 01 format)
             // ============================================================
 
             document.addEventListener('DOMContentLoaded', function() {
@@ -2707,11 +2705,11 @@
                     // ─── Ensure it starts empty ───
                     phoneInput.value = '';
                     phoneInput.defaultValue = '';
-                    phoneInput.placeholder = 'e.g., 0700000000';
+                    phoneInput.placeholder = 'e.g., 0700000000 or 0110000000';
                     
                     phoneInput.addEventListener('input', function() {
                         // If the value is the placeholder hint, clear it
-                        if (this.value === 'e.g., 0700000000' || this.value === '0700000000') {
+                        if (this.value === 'e.g., 0700000000 or 0110000000' || this.value === '0700000000' || this.value === '0110000000') {
                             this.value = '';
                             return;
                         }
@@ -2728,7 +2726,7 @@
                             cleaned = cleaned.substring(3);
                         }
                         
-                        // Remove leading 0 if present (handles 07...)
+                        // Remove leading 0 if present (handles 07... or 01...)
                         if (cleaned.startsWith('0')) {
                             cleaned = cleaned.substring(1);
                         }
@@ -2748,14 +2746,14 @@
                         
                         // Remove error state if valid
                         const wrapper = document.getElementById('phoneInputWrapper');
-                        if (wrapper && cleaned.length === 9 && cleaned.startsWith('7')) {
+                        if (wrapper && cleaned.length === 9 && (cleaned.startsWith('7') || cleaned.startsWith('1'))) {
                             wrapper.classList.remove('error');
                         }
                     });
                     
                     // ─── Clear placeholder text on focus ───
                     phoneInput.addEventListener('focus', function() {
-                        if (this.value === 'e.g., 0700000000') {
+                        if (this.value === 'e.g., 0700000000 or 0110000000') {
                             this.value = '';
                         }
                         this.select();
@@ -2764,7 +2762,7 @@
                     // ─── Show placeholder if empty ───
                     phoneInput.addEventListener('blur', function() {
                         if (this.value === '') {
-                            this.placeholder = 'e.g., 0700000000';
+                            this.placeholder = 'e.g., 0700000000 or 0110000000';
                         }
                     });
                 }
@@ -2777,7 +2775,7 @@
             (async function() {
                 console.log('🚗 Auto-D Kenya Dashboard');
                 console.log('📋 API Base:', API_BASE);
-                console.log('📋 Phone format: 07XXXXXXXX (10 digits starting with 0)');
+                console.log('📋 Phone format: 07XXXXXXXX or 01XXXXXXXX (10 digits starting with 0)');
 
                 initSupabase();
 
