@@ -1088,7 +1088,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (FIXED: Instant Value navigation)
+        // AUTO-D KENYA - DASHBOARD (FIXED: Instant Value navigation + auto-unlock on payment)
         // ═══════════════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1864,9 +1864,8 @@
                     updateWorkflowStep(2);
                     await loadDashboard();
 
-                    if (confirm('Request created! Would you like to pay for it now?')) {
-                        payForRequest(currentRequestId);
-                    }
+                    // Go straight into payment instead of asking via confirm()
+                    payForRequest(currentRequestId);
 
                 } catch (error) {
                     console.error('❌ Create request error:', error);
@@ -1893,6 +1892,8 @@
                     };
                     currentRequestId = requestId;
                     updateWorkflowStep(3);
+                    // Auto-open the service once payment succeeds for this flow
+                    pendingServiceRedirect = request.service_id;
                     openPaymentModal(selectedService);
 
                 } catch (error) {
@@ -2042,6 +2043,56 @@
                 if (overlay) overlay.classList.remove('open');
             };
 
+            // ─── Helper: unlock a service in Supabase (upsert so re-purchases don't duplicate) ───
+            async function unlockServiceAccess(serviceId, checkoutId, requestId) {
+                if (!supabaseClient || !currentUser) return;
+                try {
+                    await supabaseClient
+                        .from('service_access')
+                        .upsert({
+                            user_id: currentUser.id,
+                            service_id: serviceId,
+                            status: 'active',
+                            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                            payment_ref: checkoutId || ('manual-' + Date.now()),
+                            request_id: requestId || null
+                        }, { onConflict: 'user_id,service_id' });
+                } catch (err) {
+                    console.warn('Could not save service access, retrying with insert:', err);
+                    try {
+                        await supabaseClient
+                            .from('service_access')
+                            .insert({
+                                user_id: currentUser.id,
+                                service_id: serviceId,
+                                status: 'active',
+                                expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                                payment_ref: checkoutId || ('manual-' + Date.now()),
+                                request_id: requestId || null
+                            });
+                    } catch (err2) {
+                        console.error('Failed to record service access:', err2);
+                    }
+                }
+
+                // Update in-memory dashboard state immediately so UI reflects unlock
+                // without waiting for a full reload.
+                if (dashboardData && dashboardData.services) {
+                    const svc = dashboardData.services.find(s => s.id === serviceId);
+                    if (svc) svc.purchased = true;
+                }
+            }
+
+            // ─── Helper: redirect straight into the unlocked service, no confirm() ───
+            function redirectToService(serviceId) {
+                const route = SERVICE_ROUTES[serviceId];
+                if (route) {
+                    window.location.href = route;
+                } else {
+                    showToast('Service unlocked, but no route was found for it.', 'warning');
+                }
+            }
+
             // ─── Process Payment ──────────────────────────────────────────────────
             window.processPayment = async function() {
                 const phoneEl = document.getElementById('mpesaPhone');
@@ -2144,6 +2195,23 @@
                     const checkoutId = data.checkout_request_id;
                     checkoutRequestId = checkoutId;
 
+                    if (!checkoutId) {
+                        // Backend didn't return an id to poll against — don't poll forever,
+                        // fall straight to the manual confirmation path.
+                        if (overlay) {
+                            document.getElementById('paymentStatusText').textContent = '📱 STK Push Sent!';
+                            document.getElementById('paymentStatusDetail').innerHTML = `
+                                Please check your phone and enter your M-Pesa PIN.<br>
+                                Once you've completed it, click below to unlock.<br>
+                                <button onclick="window.confirmManualPayment('${'manual-' + Date.now()}', '${selectedService.id}')">
+                                    ✅ I've Completed Payment
+                                </button>
+                            `;
+                        }
+                        showToast('📱 STK Push sent! Check your phone.', 'info');
+                        return;
+                    }
+
                     if (currentRequestId && supabaseClient) {
                         await supabaseClient
                             .from('requests')
@@ -2209,9 +2277,12 @@
                             
                             if (statusData.status === 'success' || statusData.status === 'completed') {
                                 clearInterval(pollInterval);
+
+                                const unlockedServiceId = pendingServiceRedirect || selectedService.id;
+
                                 if (overlay) {
                                     document.getElementById('paymentStatusText').textContent = '✅ Payment Successful!';
-                                    document.getElementById('paymentStatusDetail').textContent = `${selectedService.name} is now unlocked.`;
+                                    document.getElementById('paymentStatusDetail').textContent = `${selectedService.name} is now unlocked. Opening it now...`;
                                 }
                                 showToast(`✅ Payment successful! ${selectedService.name} unlocked!`, 'success');
                                 
@@ -2222,34 +2293,15 @@
                                         .eq('id', currentRequestId);
                                 }
 
-                                try {
-                                    await supabaseClient
-                                        .from('service_access')
-                                        .insert({
-                                            user_id: currentUser.id,
-                                            service_id: selectedService.id,
-                                            status: 'active',
-                                            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                                            payment_ref: checkoutId,
-                                            request_id: currentRequestId
-                                        });
-                                } catch (insertErr) {
-                                    console.warn('Could not save service access:', insertErr);
-                                }
-                                
+                                await unlockServiceAccess(unlockedServiceId, checkoutId, currentRequestId);
+
                                 setTimeout(() => {
                                     if (overlay) overlay.classList.remove('open');
                                     closePaymentModal();
                                     updateWorkflowStep(4);
-                                    loadDashboard();
-                                    
-                                    // FIXED: Redirect to the service after payment
-                                    const redirectId = pendingServiceRedirect || selectedService.id;
-                                    const route = SERVICE_ROUTES[redirectId];
-                                    if (route && confirm('Payment successful! Would you like to open the service now?')) {
-                                        window.location.href = route;
-                                    }
-                                }, 1500);
+                                    // Redirect straight into the unlocked service — no confirm() popup
+                                    redirectToService(unlockedServiceId);
+                                }, 1200);
                                 return;
                             } else if (statusData.status === 'failed' || statusData.status === 'error') {
                                 clearInterval(pollInterval);
@@ -2330,21 +2382,12 @@
                             .eq('id', currentRequestId);
                     }
 
-                    await supabaseClient
-                        .from('service_access')
-                        .insert({
-                            user_id: currentUser.id,
-                            service_id: serviceId,
-                            status: 'active',
-                            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                            payment_ref: checkoutId || 'manual-' + Date.now(),
-                            request_id: currentRequestId
-                        });
+                    await unlockServiceAccess(serviceId, checkoutId, currentRequestId);
                     
                     const overlay = document.getElementById('paymentOverlay');
                     if (overlay) {
                         document.getElementById('paymentStatusText').textContent = '✅ Payment Confirmed!';
-                        document.getElementById('paymentStatusDetail').textContent = 'Service unlocked successfully!';
+                        document.getElementById('paymentStatusDetail').textContent = 'Service unlocked! Opening it now...';
                     }
                     showToast('✅ Payment confirmed! Service unlocked!', 'success');
                     updateWorkflowStep(4);
@@ -2352,15 +2395,9 @@
                     setTimeout(() => {
                         if (overlay) overlay.classList.remove('open');
                         closePaymentModal();
-                        loadDashboard();
-                        
-                        // FIXED: Redirect to the service after manual confirmation
-                        const redirectId = pendingServiceRedirect || serviceId;
-                        const route = SERVICE_ROUTES[redirectId];
-                        if (route && confirm('Service unlocked! Would you like to open it now?')) {
-                            window.location.href = route;
-                        }
-                    }, 1500);
+                        // Redirect straight into the unlocked service — no confirm() popup
+                        redirectToService(pendingServiceRedirect || serviceId);
+                    }, 1200);
                 } catch (error) {
                     console.error('Manual confirmation error:', error);
                     showToast('❌ Failed to unlock service: ' + error.message, 'error');
@@ -2454,6 +2491,12 @@
             window.generateReport = function() { showToast('📄 Generating new report...', 'info'); };
             window.viewReportForRequest = function(id) { showToast(`📄 Viewing report for request ${id}`, 'info'); };
             window.downloadReportForRequest = function(id) { showToast(`⬇️ Downloading report for request ${id}`, 'info'); };
+
+            // ─── Helper: extract error message from API responses ─────────────────
+            function extractErrorMessage(status, data, fallback) {
+                if (data && (data.message || data.error)) return data.message || data.error;
+                return `${fallback} (HTTP ${status})`;
+            }
 
             // ─── Modal Controls ──────────────────────────────────────────────────
             window.openAddVehicleModal = function() {
@@ -2560,4 +2603,4 @@
     </script>
 
 </body>
-</html> 
+</html>
