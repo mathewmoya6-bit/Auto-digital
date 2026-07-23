@@ -1149,14 +1149,13 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (PRODUCTION READY)
+        // AUTO-D KENYA - DASHBOARD (FIXED PHONE VALIDATION)
         // ════════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
 
             // ─── Configuration ──────────────────────────────────────────
-            // ─── PRODUCTION: Use the correct API_BASE ──────────────────
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
             
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
@@ -2088,7 +2087,7 @@
                 }
             }
 
-            // ─── Process Payment ──────────────────────────────────────────
+            // ─── ─── FIX: Process Payment with better phone handling ───
             window.processPayment = async function() {
                 const phoneEl = document.getElementById('mpesaPhone');
                 const payBtn = document.getElementById('payNowBtn');
@@ -2112,18 +2111,18 @@
                     return;
                 }
 
-                // Remove ALL non-numeric characters
+                // ─── FIX: Remove ALL non-numeric characters (including spaces, +, -) ───
                 let phone = rawPhone.replace(/[^0-9]/g, '');
-                console.log('Cleaned phone:', phone);
+                console.log('Cleaned phone (all numeric):', phone);
                 
+                // ─── FIX: Handle +254 0720216985 format ───
                 // Remove leading 254 if present
                 if (phone.startsWith('254')) {
                     phone = phone.substring(3);
                     console.log('After removing 254:', phone);
                 }
                 
-                // ─── Handle 07 or 01 format ───
-                // If phone starts with 0, remove it (e.g., 0700000000 -> 700000000)
+                // Remove leading 0 if present (handles 07... or 01...)
                 if (phone.startsWith('0')) {
                     phone = phone.substring(1);
                     console.log('After removing leading 0:', phone);
@@ -2719,7 +2718,7 @@
                         const start = this.selectionStart;
                         const end = this.selectionEnd;
                         
-                        // Remove any non-numeric characters
+                        // ─── FIX: Remove ALL non-numeric characters ───
                         let cleaned = this.value.replace(/[^0-9]/g, '');
                         
                         // Remove leading 254 if typed
@@ -2737,10 +2736,11 @@
                             cleaned = cleaned.substring(0, 9);
                         }
                         
+                        // ─── FIX: Show with leading 0 for display ───
+                        const displayValue = cleaned.length > 0 ? '0' + cleaned : '';
+                        
                         // Only update if changed
-                        if (this.value !== cleaned && this.value !== '0' + cleaned) {
-                            // Show with leading 0 for display
-                            const displayValue = cleaned.length > 0 ? '0' + cleaned : '';
+                        if (this.value !== displayValue) {
                             this.value = displayValue;
                             this.setSelectionRange(start, end);
                         }
