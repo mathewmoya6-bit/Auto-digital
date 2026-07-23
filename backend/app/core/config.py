@@ -4,9 +4,9 @@ Configuration - Application settings
 
 import os
 import json
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -55,7 +55,8 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@auto-d.ke"
     
     # ─── CORS Configuration ──────────────────────────────────────────
-    BACKEND_CORS_ORIGINS: List[str] = Field(
+    # ─── FIX: Use Union to handle both list and string ──────────────
+    BACKEND_CORS_ORIGINS: Union[List[str], str] = Field(
         default=[
             "https://auto-digital.onrender.com",
             "https://auto-d.meipressgroup.com",
@@ -321,14 +322,28 @@ class Settings(BaseSettings):
         case_sensitive = True
         extra = "ignore"
     
-    def parse_cors_origins(self) -> List[str]:
+    # ─── FIX: Add field validator for CORS origins ──────────────────
+    @field_validator('BACKEND_CORS_ORIGINS', mode='before')
+    @classmethod
+    def parse_cors_origins(cls, v):
         """Parse CORS origins from environment variable"""
-        if isinstance(self.BACKEND_CORS_ORIGINS, str):
+        if isinstance(v, str):
             try:
-                return json.loads(self.BACKEND_CORS_ORIGINS)
+                # Try to parse as JSON
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+                return [parsed] if parsed else []
             except json.JSONDecodeError:
-                return [origin.strip() for origin in self.BACKEND_CORS_ORIGINS.split(",")]
-        return self.BACKEND_CORS_ORIGINS
+                # Parse as comma-separated string
+                return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
+    
+    def get_cors_origins(self) -> List[str]:
+        """Get parsed CORS origins as a list"""
+        if isinstance(self.BACKEND_CORS_ORIGINS, list):
+            return self.BACKEND_CORS_ORIGINS
+        return self.parse_cors_origins(self.BACKEND_CORS_ORIGINS)
     
     def get_api_url(self) -> str:
         """Get the full API base URL"""
@@ -380,14 +395,20 @@ class Settings(BaseSettings):
 # Create settings instance
 settings = Settings()
 
-# Parse CORS origins if needed
+# ─── FIX: Ensure CORS origins is a list ────────────────────────────
 if isinstance(settings.BACKEND_CORS_ORIGINS, str):
     try:
         settings.BACKEND_CORS_ORIGINS = json.loads(settings.BACKEND_CORS_ORIGINS)
+        if isinstance(settings.BACKEND_CORS_ORIGINS, str):
+            settings.BACKEND_CORS_ORIGINS = [settings.BACKEND_CORS_ORIGINS]
     except json.JSONDecodeError:
-        settings.BACKEND_CORS_ORIGINS = [origin.strip() for origin in settings.BACKEND_CORS_ORIGINS.split(",")]
+        settings.BACKEND_CORS_ORIGINS = [
+            origin.strip() 
+            for origin in settings.BACKEND_CORS_ORIGINS.split(",") 
+            if origin.strip()
+        ]
 
-# Log configuration on startup (only in debug mode)
+# ─── Log configuration on startup (only in debug mode) ──────────────
 if settings.DEBUG:
     print(f"🔗 API Base URL: {settings.API_BASE_URL}")
     print(f"🌐 Frontend URL: {settings.FRONTEND_URL}")
