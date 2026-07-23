@@ -1148,7 +1148,7 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (FIXED: No amount sent to backend)
+        // AUTO-D KENYA - DASHBOARD (COMPLETE FIXED VERSION)
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1964,7 +1964,7 @@
             };
 
             // ============================================================
-            // PAYMENT - FIXED: No amount sent to backend
+            // PAYMENT - COMPLETE FIXED VERSION
             // ============================================================
 
             // ─── Open Payment Modal ───
@@ -2086,7 +2086,7 @@
                 }
             }
 
-            // ─── Process Payment - FIXED: Only sends service_id and phone ───
+            // ─── Process Payment - FIXED Phone Validation ───
             window.processPayment = async function() {
                 const phoneEl = document.getElementById('mpesaPhone');
                 const payBtn = document.getElementById('payNowBtn');
@@ -2110,27 +2110,26 @@
                     return;
                 }
 
-                // ─── FIX: Remove ALL non-numeric characters (including spaces, +, -) ───
-                let phone = rawPhone.replace(/[^0-9]/g, '');
+                // ─── FIX: Improved phone number normalization ───
+                // Remove all non-digit characters
+                let phone = rawPhone.replace(/\D/g, '');
                 console.log('Cleaned phone (all numeric):', phone);
                 
-                // ─── FIX: Handle +254 0720216985 format ───
                 // Remove leading 254 if present
                 if (phone.startsWith('254')) {
-                    phone = phone.substring(3);
+                    phone = phone.slice(3);
                     console.log('After removing 254:', phone);
                 }
                 
                 // Remove leading 0 if present (handles 07... or 01...)
                 if (phone.startsWith('0')) {
-                    phone = phone.substring(1);
+                    phone = phone.slice(1);
                     console.log('After removing leading 0:', phone);
                 }
 
-                // ─── FIX: Validate: must be 9 digits starting with 7 OR 1 ───
-                // This handles both "07XXXXXXXX" (10 digits) and "7XXXXXXXX" (9 digits)
-                // AND newer "01XXXXXXXX" numbers
-                if (!phone || phone.length !== 9 || !(phone.startsWith('7') || phone.startsWith('1'))) {
+                // ─── FIX: Use regex for robust validation ───
+                // Must be exactly 9 digits starting with 7 or 1 (Safaricom prefixes)
+                if (!/^[17]\d{8}$/.test(phone)) {
                     const errorMsg = phone.length > 0 
                         ? `Invalid number: "${rawPhone}". Please enter 10 digits starting with 07 or 01 (e.g., 0700000000 or 0110000000)`
                         : 'Please enter your M-Pesa phone number (e.g., 0700000000 or 0110000000)';
@@ -2652,6 +2651,7 @@
             window.generateReport = function() { showToast('📄 Use the Valuation, Mileage, or Ownership services to generate reports.', 'info'); };
             window.viewReportForRequest = function(id) { showToast(`📄 Viewing report for request ${id}`, 'info'); };
             window.downloadReportForRequest = function(id) { showToast(`⬇️ Downloading report for request ${id}`, 'info'); };
+            window.generateReportForRequest = function(id) { showToast(`📄 Generating report for request ${id}`, 'info'); };
 
             // ============================================================
             // SIDEBAR & LOGOUT
@@ -2718,16 +2718,16 @@
                         const end = this.selectionEnd;
                         
                         // ─── FIX: Remove ALL non-numeric characters ───
-                        let cleaned = this.value.replace(/[^0-9]/g, '');
+                        let cleaned = this.value.replace(/\D/g, '');
                         
                         // Remove leading 254 if typed
                         if (cleaned.startsWith('254')) {
-                            cleaned = cleaned.substring(3);
+                            cleaned = cleaned.slice(3);
                         }
                         
                         // Remove leading 0 if present (handles 07... or 01...)
                         if (cleaned.startsWith('0')) {
-                            cleaned = cleaned.substring(1);
+                            cleaned = cleaned.slice(1);
                         }
                         
                         // Limit to 9 digits (the number after 0)
@@ -2746,7 +2746,7 @@
                         
                         // Remove error state if valid
                         const wrapper = document.getElementById('phoneInputWrapper');
-                        if (wrapper && cleaned.length === 9 && (cleaned.startsWith('7') || cleaned.startsWith('1'))) {
+                        if (wrapper && cleaned.length === 9 && /^[17]/.test(cleaned)) {
                             wrapper.classList.remove('error');
                         }
                     });
@@ -2812,6 +2812,5 @@
 
         })();
     </script>
-
 </body>
 </html>
