@@ -1124,9 +1124,8 @@
                     <input 
                         type="tel" 
                         id="mpesaPhone" 
-                        placeholder="712345678" 
+                        placeholder="e.g., 712345678" 
                         autocomplete="off"
-                        value=""
                         maxlength="10"
                         inputmode="numeric"
                         pattern="[0-9]*"
@@ -1981,11 +1980,12 @@
                 if (amountEl) amountEl.textContent = 'KES ' + (service.price || 0).toLocaleString();
                 if (totalEl) totalEl.textContent = 'KES ' + (service.price || 0).toLocaleString();
                 
-                // ─── CRITICAL FIX: Clear phone input ───
+                // ─── CRITICAL FIX: Clear phone input completely ───
                 if (phoneEl) {
                     phoneEl.value = '';
-                    phoneEl.placeholder = '712345678';
+                    phoneEl.placeholder = 'e.g., 712345678';
                     phoneEl.setAttribute('value', '');
+                    phoneEl.defaultValue = '';
                 }
                 if (phoneWrapper) phoneWrapper.classList.remove('error');
                 
@@ -1995,7 +1995,10 @@
                 updateWorkflowStep(3);
                 
                 setTimeout(() => {
-                    if (phoneEl) phoneEl.focus();
+                    if (phoneEl) {
+                        phoneEl.focus();
+                        phoneEl.select();
+                    }
                 }, 300);
             };
 
@@ -2089,10 +2092,24 @@
                 const payBtn = document.getElementById('payNowBtn');
                 const phoneWrapper = document.getElementById('phoneInputWrapper');
 
-                // ─── FIX: Get raw value and clean thoroughly ───
+                // ─── FIX: Get raw value and clean ───
                 let rawPhone = phoneEl ? phoneEl.value.trim() : '';
                 console.log('Raw phone input:', rawPhone);
-                
+
+                // If the value is empty or just the placeholder hint, show error
+                if (!rawPhone || rawPhone === '' || rawPhone === 'e.g., 712345678') {
+                    showToast('Please enter your M-Pesa phone number (e.g., 712345678)', 'error');
+                    if (phoneWrapper) phoneWrapper.classList.add('error');
+                    if (phoneEl) {
+                        phoneEl.focus();
+                        phoneEl.value = '';
+                    }
+                    setTimeout(() => {
+                        if (phoneWrapper) phoneWrapper.classList.remove('error');
+                    }, 3000);
+                    return;
+                }
+
                 // Remove ALL non-numeric characters
                 let phone = rawPhone.replace(/[^0-9]/g, '');
                 console.log('Cleaned phone:', phone);
@@ -2657,10 +2674,17 @@
             document.addEventListener('DOMContentLoaded', function() {
                 const phoneInput = document.getElementById('mpesaPhone');
                 if (phoneInput) {
-                    // ─── FIX: Clear any default value ───
+                    // ─── FIX: Ensure it starts empty ───
                     phoneInput.value = '';
+                    phoneInput.defaultValue = '';
                     
                     phoneInput.addEventListener('input', function() {
+                        // If the value is the placeholder hint, clear it
+                        if (this.value === 'e.g., 712345678' || this.value === '712345678') {
+                            this.value = '';
+                            return;
+                        }
+                        
                         // Store cursor position
                         const start = this.selectionStart;
                         const end = this.selectionEnd;
@@ -2685,7 +2709,6 @@
                         // Only update if changed
                         if (this.value !== cleaned) {
                             this.value = cleaned;
-                            // Restore cursor position
                             this.setSelectionRange(start, end);
                         }
                         
@@ -2696,12 +2719,19 @@
                         }
                     });
                     
-                    // ─── FIX: Clear on focus ───
+                    // ─── FIX: Clear placeholder text on focus ───
                     phoneInput.addEventListener('focus', function() {
-                        if (this.value === '703738707' || this.value === '') {
+                        if (this.value === 'e.g., 712345678' || this.value === '712345678') {
                             this.value = '';
                         }
                         this.select();
+                    });
+                    
+                    // ─── FIX: Show placeholder if empty ───
+                    phoneInput.addEventListener('blur', function() {
+                        if (this.value === '') {
+                            this.placeholder = 'e.g., 712345678';
+                        }
                     });
                 }
             });
