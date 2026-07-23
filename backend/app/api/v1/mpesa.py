@@ -87,7 +87,7 @@ async def initiate_stk_push(
         user_id = current_user.get('id') if current_user else None
         
         # Initiate STK Push
-        result = mpesa_service.initiate_stk_push(
+        result = await mpesa_service.initiate_stk_push(
             phone=phone,
             amount=amount,
             account_reference=account_reference,
