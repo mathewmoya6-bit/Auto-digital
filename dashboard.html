@@ -2043,44 +2043,83 @@
                 if (overlay) overlay.classList.remove('open');
             };
 
-            // ─── Helper: unlock a service in Supabase (upsert so re-purchases don't duplicate) ───
+            // ─── Helper: unlock a service, using the backend as the source of truth ───
+            //
+            // IMPORTANT: this used to write directly to `service_access` from the
+            // browser using the anon key, then unconditionally mark the service as
+            // "purchased" in memory. supabase-js does NOT throw on an RLS policy
+            // rejection — it just returns `{ data: null, error: {...} }` — so that
+            // write could silently fail while the code carried on as if it had
+            // succeeded. The dashboard would then redirect to the service page,
+            // which does a fresh Supabase read and finds no active service_access
+            // row, so the "unlock" never actually stuck.
+            //
+            // The backend already unlocks the service with a privileged Supabase
+            // client (bypassing RLS) whenever a payment is confirmed — either via
+            // the M-Pesa callback, or via POST /mpesa/confirm/{checkout_request_id}.
+            // So that endpoint is now the primary path here, and only returns
+            // success once the row is actually written. The client-side write is
+            // kept as a last-resort fallback for setups where RLS does allow it.
             async function unlockServiceAccess(serviceId, checkoutId, requestId) {
-                if (!supabaseClient || !currentUser) return;
-                try {
-                    await supabaseClient
-                        .from('service_access')
-                        .upsert({
-                            user_id: currentUser.id,
-                            service_id: serviceId,
-                            status: 'active',
-                            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                            payment_ref: checkoutId || ('manual-' + Date.now()),
-                            request_id: requestId || null
-                        }, { onConflict: 'user_id,service_id' });
-                } catch (err) {
-                    console.warn('Could not save service access, retrying with insert:', err);
+                let confirmed = false;
+
+                const hasRealCheckoutId = checkoutId && !String(checkoutId).startsWith('manual-');
+
+                if (hasRealCheckoutId) {
                     try {
-                        await supabaseClient
+                        const token = await getAuthToken();
+                        if (token) {
+                            const response = await fetch(`${API_BASE}/mpesa/confirm/${checkoutId}`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json',
+                                    'Authorization': `Bearer ${token}`
+                                }
+                            });
+                            const data = await response.json().catch(() => ({}));
+                            confirmed = response.ok && data.success === true;
+                            if (!confirmed) {
+                                console.warn('⚠️ Backend confirm did not succeed:', data);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn('⚠️ Backend confirm request failed:', err);
+                    }
+                }
+
+                if (!confirmed && supabaseClient && currentUser) {
+                    // Best-effort fallback — only counts as confirmed if Supabase
+                    // reports no error (RLS denials show up in `error`, not a thrown
+                    // exception).
+                    try {
+                        const { error } = await supabaseClient
                             .from('service_access')
-                            .insert({
+                            .upsert({
                                 user_id: currentUser.id,
                                 service_id: serviceId,
                                 status: 'active',
                                 expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
                                 payment_ref: checkoutId || ('manual-' + Date.now()),
                                 request_id: requestId || null
-                            });
-                    } catch (err2) {
-                        console.error('Failed to record service access:', err2);
+                            }, { onConflict: 'user_id,service_id' });
+
+                        if (error) {
+                            console.warn('⚠️ Client-side service_access write was rejected:', error);
+                        } else {
+                            confirmed = true;
+                        }
+                    } catch (err) {
+                        console.warn('⚠️ Client-side service_access write failed:', err);
                     }
                 }
 
-                // Update in-memory dashboard state immediately so UI reflects unlock
-                // without waiting for a full reload.
-                if (dashboardData && dashboardData.services) {
+                if (confirmed && dashboardData && dashboardData.services) {
                     const svc = dashboardData.services.find(s => s.id === serviceId);
                     if (svc) svc.purchased = true;
                 }
+
+                return confirmed;
             }
 
             // ─── Helper: redirect straight into the unlocked service, no confirm() ───
@@ -2282,10 +2321,9 @@
 
                                 if (overlay) {
                                     document.getElementById('paymentStatusText').textContent = '✅ Payment Successful!';
-                                    document.getElementById('paymentStatusDetail').textContent = `${selectedService.name} is now unlocked. Opening it now...`;
+                                    document.getElementById('paymentStatusDetail').textContent = `Unlocking ${selectedService.name}...`;
                                 }
-                                showToast(`✅ Payment successful! ${selectedService.name} unlocked!`, 'success');
-                                
+
                                 if (currentRequestId && supabaseClient) {
                                     await supabaseClient
                                         .from('requests')
@@ -2293,15 +2331,32 @@
                                         .eq('id', currentRequestId);
                                 }
 
-                                await unlockServiceAccess(unlockedServiceId, checkoutId, currentRequestId);
+                                const unlocked = await unlockServiceAccess(unlockedServiceId, checkoutId, currentRequestId);
 
-                                setTimeout(() => {
-                                    if (overlay) overlay.classList.remove('open');
-                                    closePaymentModal();
-                                    updateWorkflowStep(4);
-                                    // Redirect straight into the unlocked service — no confirm() popup
-                                    redirectToService(unlockedServiceId);
-                                }, 1200);
+                                if (unlocked) {
+                                    showToast(`✅ Payment successful! ${selectedService.name} unlocked!`, 'success');
+                                    if (overlay) {
+                                        document.getElementById('paymentStatusDetail').textContent = `${selectedService.name} is now unlocked. Opening it now...`;
+                                    }
+                                    setTimeout(() => {
+                                        if (overlay) overlay.classList.remove('open');
+                                        closePaymentModal();
+                                        updateWorkflowStep(4);
+                                        // Redirect straight into the unlocked service — no confirm() popup
+                                        redirectToService(unlockedServiceId);
+                                    }, 1200);
+                                } else {
+                                    showToast('Payment received, but unlocking the service failed. Please retry below.', 'error');
+                                    if (overlay) {
+                                        document.getElementById('paymentStatusText').textContent = '⚠️ Payment received';
+                                        document.getElementById('paymentStatusDetail').innerHTML = `
+                                            We couldn't confirm your unlock automatically.<br>
+                                            <button onclick="window.confirmManualPayment('${checkoutId}', '${selectedService.id}')">
+                                                🔄 Retry Unlock
+                                            </button>
+                                        `;
+                                    }
+                                }
                                 return;
                             } else if (statusData.status === 'failed' || statusData.status === 'error') {
                                 clearInterval(pollInterval);
@@ -2368,11 +2423,18 @@
 
             // ─── Manual Payment Confirmation ──────────────────────────────────────
             window.confirmManualPayment = async function(checkoutId, serviceId) {
+                const overlay = document.getElementById('paymentOverlay');
                 try {
                     const service = dashboardData?.services?.find(s => s.id === serviceId);
                     if (!service) {
                         showToast('Service not found', 'error');
                         return;
+                    }
+
+                    if (overlay) {
+                        overlay.classList.add('open');
+                        document.getElementById('paymentStatusText').textContent = 'Confirming payment...';
+                        document.getElementById('paymentStatusDetail').textContent = 'Please wait...';
                     }
 
                     if (currentRequestId && supabaseClient) {
@@ -2382,24 +2444,29 @@
                             .eq('id', currentRequestId);
                     }
 
-                    await unlockServiceAccess(serviceId, checkoutId, currentRequestId);
-                    
-                    const overlay = document.getElementById('paymentOverlay');
-                    if (overlay) {
-                        document.getElementById('paymentStatusText').textContent = '✅ Payment Confirmed!';
-                        document.getElementById('paymentStatusDetail').textContent = 'Service unlocked! Opening it now...';
-                    }
-                    showToast('✅ Payment confirmed! Service unlocked!', 'success');
-                    updateWorkflowStep(4);
-                    
-                    setTimeout(() => {
+                    const unlocked = await unlockServiceAccess(serviceId, checkoutId, currentRequestId);
+
+                    if (unlocked) {
+                        if (overlay) {
+                            document.getElementById('paymentStatusText').textContent = '✅ Payment Confirmed!';
+                            document.getElementById('paymentStatusDetail').textContent = 'Service unlocked! Opening it now...';
+                        }
+                        showToast('✅ Payment confirmed! Service unlocked!', 'success');
+                        updateWorkflowStep(4);
+
+                        setTimeout(() => {
+                            if (overlay) overlay.classList.remove('open');
+                            closePaymentModal();
+                            // Redirect straight into the unlocked service — no confirm() popup
+                            redirectToService(pendingServiceRedirect || serviceId);
+                        }, 1200);
+                    } else {
                         if (overlay) overlay.classList.remove('open');
-                        closePaymentModal();
-                        // Redirect straight into the unlocked service — no confirm() popup
-                        redirectToService(pendingServiceRedirect || serviceId);
-                    }, 1200);
+                        showToast("We couldn't confirm your payment yet. If you were charged, please contact support with your M-Pesa message.", 'error');
+                    }
                 } catch (error) {
                     console.error('Manual confirmation error:', error);
+                    if (overlay) overlay.classList.remove('open');
                     showToast('❌ Failed to unlock service: ' + error.message, 'error');
                 }
             };
