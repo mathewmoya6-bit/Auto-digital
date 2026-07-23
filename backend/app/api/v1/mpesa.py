@@ -50,6 +50,24 @@ async def get_shortcode():
     }
 
 
+# ─── FIX 6: Debug test endpoint ──────────────────────────────────────
+
+@router.get("/mpesa/test")
+async def mpesa_test():
+    """
+    Debug endpoint to verify the M-Pesa router is working.
+    Public endpoint - no authentication required.
+    """
+    return {
+        "success": True,
+        "message": "M-Pesa router is working correctly",
+        "timestamp": datetime.now().isoformat(),
+        "shortcode": mpesa_service.shortcode,
+        "environment": mpesa_service.environment,
+        "is_configured": mpesa_service.is_configured() if hasattr(mpesa_service, 'is_configured') else False
+    }
+
+
 # ─── STK Push Payment ────────────────────────────────────────────────
 
 @router.post("/mpesa/stkpush")
@@ -146,29 +164,58 @@ async def mpesa_callback(request: Request):
         )
 
 
-# ─── Payment Status ──────────────────────────────────────────────────
+# ─── FIX 1 & 4: Payment Status - No Auth, Returns JSON ─────────────
 
 @router.get("/mpesa/status/{checkout_request_id}")
-async def get_payment_status(
-    checkout_request_id: str,
-    current_user: dict = Depends(get_current_user)
-):
+async def get_payment_status(checkout_request_id: str):
     """
     Check the status of a payment.
+    PUBLIC endpoint - no authentication required for frontend polling.
+    Always returns JSONResponse.
     """
     try:
+        logger.info(f"🔍 Status check requested for: {checkout_request_id}")
+        
         result = mpesa_service.get_payment_status(checkout_request_id)
         
+        logger.info(f"📊 Status result: {result}")
+        
         if result.get('success'):
-            return result
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "status": result.get('status', 'pending'),
+                    "checkout_request_id": result.get('checkout_request_id'),
+                    "amount": result.get('amount'),
+                    "service_id": result.get('service_id'),
+                    "service_name": result.get('service_name'),
+                    "created_at": result.get('created_at'),
+                    "updated_at": result.get('updated_at')
+                }
+            )
         else:
-            raise HTTPException(status_code=404, detail=result.get('error', 'Payment not found'))
+            # ─── FIX 4: Return JSONResponse even for 404 ───
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "success": False,
+                    "checkout_request_id": checkout_request_id,
+                    "status": "not_found",
+                    "error": result.get('error', 'Payment not found')
+                }
+            )
             
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"❌ Status check error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "checkout_request_id": checkout_request_id,
+                "error": str(e)
+            }
+        )
 
 
 # ─── Manual Payment Confirmation ─────────────────────────────────────
@@ -204,11 +251,10 @@ async def confirm_payment_manually(
 # ─── Services ─────────────────────────────────────────────────────────
 
 @router.get("/mpesa/services")
-async def get_services(
-    current_user: dict = Depends(get_current_user)
-):
+async def get_services():
     """
     Get list of all available services with prices.
+    Public endpoint - no authentication required.
     """
     try:
         services = mpesa_service.get_all_services()
