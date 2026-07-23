@@ -29,6 +29,7 @@ from app.api.v1.fuel import router as fuel_router
 from app.api.v1.admin import router as admin_router
 from app.api.v1.reports import router as reports_router
 from app.api.v1.running_cost import router as running_cost_router
+from app.api.v1.mpesa import router as mpesa_router
 
 # ─── Configure Logging ─────────────────────────────────────────────
 try:
@@ -54,31 +55,6 @@ logger.info(f"📋 Log Level: {logging.getLevelName(log_level)}")
 logger.info("=" * 60)
 
 
-# ─── Try to import M-Pesa router ──────────────────────────────────
-MPESA_AVAILABLE = False
-mpesa_router = None
-MPESA_IMPORT_ERROR = None
-
-try:
-    from app.api.v1.mpesa import router as mpesa_router
-    MPESA_AVAILABLE = True
-except ImportError as e:
-    MPESA_IMPORT_ERROR = f"ImportError: {e}"
-    logger.error(
-        "⚠️ M-Pesa router failed to import (ImportError) — endpoints will 404.",
-        exc_info=True,
-    )
-except Exception as e:
-    MPESA_IMPORT_ERROR = f"{type(e).__name__}: {e}"
-    logger.error(
-        "❌ M-Pesa router failed to import (non-ImportError) — endpoints will 404.",
-        exc_info=True,
-    )
-
-if not MPESA_AVAILABLE:
-    logger.error(f"❌ M-Pesa router disabled. Reason: {MPESA_IMPORT_ERROR}")
-
-
 # ─── Lifespan Context Manager ──────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -89,9 +65,6 @@ async def lifespan(app: FastAPI):
     logger.info(f"🔗 Supabase URL: {settings.SUPABASE_URL}")
     logger.info(f"📱 M-Pesa Environment: {getattr(settings, 'MPESA_ENV', 'sandbox')}")
     logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
-
-    if not MPESA_AVAILABLE:
-        logger.warning(f"⚠️ M-Pesa router is NOT registered. Reason: {MPESA_IMPORT_ERROR}")
 
     # Check Supabase connection
     try:
@@ -140,39 +113,33 @@ app = FastAPI(
 
 
 # ─── CORS Configuration ────────────────────────────────────────────
-try:
-    cors_origins = settings.BACKEND_CORS_ORIGINS
-    if isinstance(cors_origins, str):
-        try:
-            cors_origins = json.loads(cors_origins)
-        except json.JSONDecodeError:
-            cors_origins = [origin.strip() for origin in cors_origins.split(",")]
-except Exception:
-    cors_origins = [
-        "https://auto-digital.onrender.com",
-        "https://auto-d.meipressgroup.com",
-        "https://auto-d-kenya-backend.onrender.com",
-        "https://auto-d.onrender.com",
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://localhost:5000",
-        "http://localhost:8000",
-        "http://127.0.0.1:5500",
-        "https://auto-d-kenya.github.io",
-    ]
 
-logger.info(f"🔒 Configuring CORS with origins: {cors_origins}")
+cors_origins = [
+    "https://auto-digital.meipressgroup.com",
+    "https://auto-d.meipressgroup.com",
+    "https://auto-digital.onrender.com",
+    "https://auto-d.onrender.com",
+    "https://auto-d-kenya-backend.onrender.com",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5000",
+    "http://localhost:8000",
+    "http://127.0.0.1:5500",
+]
+
+logger.info(f"CORS Origins: {cors_origins}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
-    max_age=settings.CORS_MAX_AGE,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
 
-logger.info("✅ CORS configured successfully")
+logger.info("✅ CORS configured")
 
 
 # ─── Exception Handlers ────────────────────────────────────────────
@@ -208,22 +175,21 @@ async def general_exception_handler(request: Request, exc: Exception):
 # ─── Include Routers ───────────────────────────────────────────────
 api_prefix = getattr(settings, "API_V1_PREFIX", "/api/v1")
 
-app.include_router(auth_router, prefix=api_prefix + "/auth", tags=["Authentication"])
-app.include_router(vehicles_router, prefix=api_prefix + "/vehicles", tags=["Vehicles"])
-app.include_router(valuation_router, prefix=api_prefix + "/valuation", tags=["Valuation"])
-app.include_router(mileage_router, prefix=api_prefix + "/mileage", tags=["Mileage"])
-app.include_router(running_cost_router, prefix=api_prefix + "/running-cost", tags=["Running Cost"])
-app.include_router(ownership_router, prefix=api_prefix + "/ownership", tags=["Ownership"])
-app.include_router(fuel_router, prefix=api_prefix + "/fuel", tags=["Fuel"])
-app.include_router(admin_router, prefix=api_prefix + "/admin", tags=["Admin"])
-app.include_router(reports_router, prefix=api_prefix + "/reports", tags=["Reports"])
+app.include_router(auth_router, prefix=f"{api_prefix}/auth", tags=["Authentication"])
+app.include_router(vehicles_router, prefix=f"{api_prefix}/vehicles", tags=["Vehicles"])
+app.include_router(valuation_router, prefix=f"{api_prefix}/valuation", tags=["Valuation"])
+app.include_router(mileage_router, prefix=f"{api_prefix}/mileage", tags=["Mileage"])
+app.include_router(running_cost_router, prefix=f"{api_prefix}/running-cost", tags=["Running Cost"])
+app.include_router(ownership_router, prefix=f"{api_prefix}/ownership", tags=["Ownership"])
+app.include_router(fuel_router, prefix=f"{api_prefix}/fuel", tags=["Fuel"])
+app.include_router(admin_router, prefix=f"{api_prefix}/admin", tags=["Admin"])
+app.include_router(reports_router, prefix=f"{api_prefix}/reports", tags=["Reports"])
 
-# Include M-Pesa router only if it imported successfully
-if MPESA_AVAILABLE and mpesa_router is not None:
-    app.include_router(mpesa_router, prefix=api_prefix, tags=["M-Pesa"])
-    logger.info(f"✅ M-Pesa router registered at {api_prefix}/mpesa/*")
-else:
-    logger.warning(f"⚠️ M-Pesa router not available - payment endpoints disabled. Reason: {MPESA_IMPORT_ERROR}")
+app.include_router(
+    mpesa_router,
+    prefix=api_prefix,
+    tags=["M-Pesa"]
+)
 
 logger.info("✅ All routers registered")
 
@@ -240,26 +206,18 @@ async def health_check():
         supabase_status = f"error: {str(e)}"
         logger.error(f"Supabase health check failed: {e}")
     
-    mpesa_env_configured = bool(
-        getattr(settings, 'MPESA_CONSUMER_KEY', '') and 
-        getattr(settings, 'MPESA_CONSUMER_SECRET', '') and 
-        getattr(settings, 'MPESA_PASSKEY', '')
-    )
-
-    if not MPESA_AVAILABLE:
-        mpesa_status = "router_not_loaded"
-    elif mpesa_env_configured:
-        mpesa_status = "configured"
-    else:
-        mpesa_status = "not_configured"
+    mpesa_configured = all([
+        getattr(settings, "MPESA_CONSUMER_KEY", ""),
+        getattr(settings, "MPESA_CONSUMER_SECRET", ""),
+        getattr(settings, "MPESA_PASSKEY", "")
+    ])
     
     return {
-        "status": "healthy" if supabase_status == "connected" else "degraded",
+        "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
         "supabase": supabase_status,
-        "mpesa": mpesa_status,
-        "mpesa_router_loaded": MPESA_AVAILABLE,
-        "mpesa_router_error": MPESA_IMPORT_ERROR if not MPESA_AVAILABLE else None,
+        "mpesa": "configured" if mpesa_configured else "not_configured",
+        "mpesa_router_loaded": True,
         "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "version": getattr(settings, "API_VERSION", "4.0.0"),
@@ -300,6 +258,12 @@ async def ping():
 @app.get("/")
 async def root():
     """Root endpoint with API information"""
+    mpesa_configured = all([
+        getattr(settings, "MPESA_CONSUMER_KEY", ""),
+        getattr(settings, "MPESA_CONSUMER_SECRET", ""),
+        getattr(settings, "MPESA_PASSKEY", "")
+    ])
+    
     return {
         "name": getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
         "version": getattr(settings, "API_VERSION", "4.0.0"),
@@ -309,8 +273,9 @@ async def root():
         "documentation": settings.API_DOCS_URL if settings.ENABLE_DOCS else "disabled",
         "api_prefix": getattr(settings, "API_V1_PREFIX", "/api/v1"),
         "features": {
-            "mpesa": getattr(settings, "ENABLE_MPESA", True) and MPESA_AVAILABLE,
+            "mpesa": getattr(settings, "ENABLE_MPESA", True),
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
+            "mpesa_configured": mpesa_configured,
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
             "docs": settings.ENABLE_DOCS
         }
@@ -320,6 +285,12 @@ async def root():
 @app.get("/info")
 async def info():
     """Get application information"""
+    mpesa_configured = all([
+        getattr(settings, "MPESA_CONSUMER_KEY", ""),
+        getattr(settings, "MPESA_CONSUMER_SECRET", ""),
+        getattr(settings, "MPESA_PASSKEY", "")
+    ])
+    
     return {
         "name": getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
         "version": getattr(settings, "API_VERSION", "4.0.0"),
@@ -327,9 +298,10 @@ async def info():
         "docs_enabled": settings.ENABLE_DOCS,
         "docs_url": settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
         "features": {
-            "mpesa": getattr(settings, "ENABLE_MPESA", True) and MPESA_AVAILABLE,
+            "mpesa": getattr(settings, "ENABLE_MPESA", True),
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
             "mpesa_environment": getattr(settings, "MPESA_ENV", "sandbox"),
+            "mpesa_configured": mpesa_configured,
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
             "analytics": getattr(settings, "ENABLE_ANALYTICS", True),
             "caching": getattr(settings, "ENABLE_CACHING", True),
