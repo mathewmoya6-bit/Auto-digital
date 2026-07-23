@@ -1148,7 +1148,7 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (FIXED: Phone input cleaned)
+        // AUTO-D KENYA - DASHBOARD (FIXED: No amount sent to backend)
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1964,7 +1964,7 @@
             };
 
             // ============================================================
-            // PAYMENT - COMPLETE FIXED VERSION
+            // PAYMENT - FIXED: No amount sent to backend
             // ============================================================
 
             // ─── Open Payment Modal ───
@@ -2086,7 +2086,7 @@
                 }
             }
 
-            // ─── Process Payment ──────────────────────────────────────────
+            // ─── Process Payment - FIXED: Only sends service_id and phone ───
             window.processPayment = async function() {
                 const phoneEl = document.getElementById('mpesaPhone');
                 const payBtn = document.getElementById('payNowBtn');
@@ -2177,13 +2177,13 @@
                     overlay.classList.add('open');
                 }
 
-                // ─── FIX: Don't append Date.now() to account_reference ───
+                // ─── FIX: Only send service_id and phone - NO AMOUNT ───
                 const requestBody = {
                     phone: formattedPhone,
-                    amount: selectedService.price || 0,
-                    account_reference: selectedService.id,  // ← FIXED: Just the service ID
+                    service_id: selectedService.id,
                     description: `Auto-D: ${selectedService.name}`
                 };
+                console.log('Payment request body:', requestBody);
 
                 try {
                     const response = await fetch(`${API_BASE}/mpesa/stkpush`, {
@@ -2209,7 +2209,7 @@
                         throw new Error(data.message || data.error || 'Payment initiation failed');
                     }
 
-                    const checkoutId = data.checkout_request_id || data.checkoutRequestID;
+                    const checkoutId = data.checkout_request_id || data.checkoutRequestID || data.checkout_request_id;
                     checkoutRequestId = checkoutId;
 
                     if (supabaseClient && currentUser) {
@@ -2221,7 +2221,7 @@
                                     checkout_request_id: checkoutId,
                                     service_id: selectedService.id,
                                     service_name: selectedService.name,
-                                    amount: selectedService.price,
+                                    amount: selectedService.price || 0,
                                     phone: formattedPhone,
                                     status: 'pending',
                                     created_at: new Date().toISOString()
