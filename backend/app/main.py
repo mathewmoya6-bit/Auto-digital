@@ -115,7 +115,7 @@ app = FastAPI(
 # ─── CORS Configuration ────────────────────────────────────────────
 
 cors_origins = [
-    "https://auto-digital.meipressgroup.com",
+    "https://auto-d.meipressgroup.com",
     "https://auto-d.meipressgroup.com",
     "https://auto-digital.onrender.com",
     "https://auto-d.onrender.com",
