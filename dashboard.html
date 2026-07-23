@@ -1124,15 +1124,15 @@
                     <input 
                         type="tel" 
                         id="mpesaPhone" 
-                        placeholder="e.g., 712345678" 
+                        placeholder="e.g., 0700000000" 
                         autocomplete="off"
-                        maxlength="10"
+                        maxlength="12"
                         inputmode="numeric"
                         pattern="[0-9]*"
                     />
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
-                    Enter your Safaricom number registered with M-Pesa (e.g., 712345678)
+                    Enter your Safaricom number registered with M-Pesa (e.g., 0700000000)
                 </div>
             </div>
             <button class="btn btn-primary btn-block" onclick="processPayment()" id="payNowBtn">
@@ -1149,7 +1149,7 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (COMPLETE FIXED VERSION)
+        // AUTO-D KENYA - DASHBOARD (FIXED: Phone format 07XXXXXXXXX)
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1964,10 +1964,10 @@
             };
 
             // ============================================================
-            // PAYMENT - COMPLETE FIXED VERSION
+            // PAYMENT - COMPLETE FIXED VERSION (07XXXXXXXXX format)
             // ============================================================
 
-            // ─── FIX: Clear phone input when modal opens ───
+            // ─── Open Payment Modal ───
             window.openPaymentModal = function(service) {
                 selectedService = service;
                 const nameEl = document.getElementById('paymentServiceName');
@@ -1980,10 +1980,10 @@
                 if (amountEl) amountEl.textContent = 'KES ' + (service.price || 0).toLocaleString();
                 if (totalEl) totalEl.textContent = 'KES ' + (service.price || 0).toLocaleString();
                 
-                // ─── CRITICAL FIX: Clear phone input completely ───
+                // ─── Clear phone input ───
                 if (phoneEl) {
                     phoneEl.value = '';
-                    phoneEl.placeholder = 'e.g., 712345678';
+                    phoneEl.placeholder = 'e.g., 0700000000';
                     phoneEl.setAttribute('value', '');
                     phoneEl.defaultValue = '';
                 }
@@ -2092,13 +2092,13 @@
                 const payBtn = document.getElementById('payNowBtn');
                 const phoneWrapper = document.getElementById('phoneInputWrapper');
 
-                // ─── FIX: Get raw value and clean ───
+                // ─── Get raw value and clean ───
                 let rawPhone = phoneEl ? phoneEl.value.trim() : '';
                 console.log('Raw phone input:', rawPhone);
 
-                // If the value is empty or just the placeholder hint, show error
-                if (!rawPhone || rawPhone === '' || rawPhone === 'e.g., 712345678') {
-                    showToast('Please enter your M-Pesa phone number (e.g., 712345678)', 'error');
+                // Check for empty or placeholder
+                if (!rawPhone || rawPhone === '' || rawPhone === 'e.g., 0700000000' || rawPhone === '0700000000') {
+                    showToast('Please enter your M-Pesa phone number (e.g., 0700000000)', 'error');
                     if (phoneWrapper) phoneWrapper.classList.add('error');
                     if (phoneEl) {
                         phoneEl.focus();
@@ -2119,17 +2119,20 @@
                     phone = phone.substring(3);
                     console.log('After removing 254:', phone);
                 }
-                // Remove leading 0 if present
+                
+                // ─── NEW: Handle 07 format ───
+                // If phone starts with 0, remove it (e.g., 0700000000 -> 700000000)
                 if (phone.startsWith('0')) {
                     phone = phone.substring(1);
-                    console.log('After removing 0:', phone);
+                    console.log('After removing leading 0:', phone);
                 }
 
-                // ─── FIX: Validate strictly ───
-                if (!phone || phone.length !== 10 || !phone.startsWith('7')) {
+                // ─── FIX: Validate: must be 9 digits starting with 7 ───
+                // This handles both "07XXXXXXXX" (10 digits) and "7XXXXXXXX" (9 digits)
+                if (!phone || phone.length !== 9 || !phone.startsWith('7')) {
                     const errorMsg = phone.length > 0 
-                        ? `Invalid number: "${rawPhone}". Please enter 10 digits starting with 7 (e.g., 712345678)`
-                        : 'Please enter your M-Pesa phone number (e.g., 712345678)';
+                        ? `Invalid number: "${rawPhone}". Please enter 10 digits starting with 07 (e.g., 0700000000)`
+                        : 'Please enter your M-Pesa phone number (e.g., 0700000000)';
                     showToast(errorMsg, 'error');
                     if (phoneWrapper) phoneWrapper.classList.add('error');
                     if (phoneEl) {
@@ -2142,6 +2145,7 @@
                     return;
                 }
 
+                // ─── Format as 254XXXXXXXXX for API ───
                 const formattedPhone = '254' + phone;
                 console.log('Formatted phone for API:', formattedPhone);
 
@@ -2180,7 +2184,6 @@
                 };
 
                 try {
-                    // ─── FIX: Send JWT token ───
                     const response = await fetch(`${API_BASE}/mpesa/stkpush`, {
                         method: 'POST',
                         headers: {
@@ -2232,7 +2235,7 @@
                     }
                     showToast('📱 STK Push sent! Check your phone.', 'info');
 
-                    // ─── FIX: Poll with timeout ───
+                    // ─── Poll with timeout ───
                     if (pollTimer) {
                         clearInterval(pollTimer);
                         pollTimer = null;
@@ -2668,19 +2671,20 @@
             });
 
             // ============================================================
-            // PHONE INPUT VALIDATION (Real-time)
+            // PHONE INPUT VALIDATION (Real-time - 07 format)
             // ============================================================
 
             document.addEventListener('DOMContentLoaded', function() {
                 const phoneInput = document.getElementById('mpesaPhone');
                 if (phoneInput) {
-                    // ─── FIX: Ensure it starts empty ───
+                    // ─── Ensure it starts empty ───
                     phoneInput.value = '';
                     phoneInput.defaultValue = '';
+                    phoneInput.placeholder = 'e.g., 0700000000';
                     
                     phoneInput.addEventListener('input', function() {
                         // If the value is the placeholder hint, clear it
-                        if (this.value === 'e.g., 712345678' || this.value === '712345678') {
+                        if (this.value === 'e.g., 0700000000' || this.value === '0700000000') {
                             this.value = '';
                             return;
                         }
@@ -2696,41 +2700,44 @@
                         if (cleaned.startsWith('254')) {
                             cleaned = cleaned.substring(3);
                         }
-                        // Remove leading 0 if typed
+                        
+                        // Remove leading 0 if present (handles 07...)
                         if (cleaned.startsWith('0')) {
                             cleaned = cleaned.substring(1);
                         }
                         
-                        // Limit to 10 digits
-                        if (cleaned.length > 10) {
-                            cleaned = cleaned.substring(0, 10);
+                        // Limit to 9 digits (the number after 0)
+                        if (cleaned.length > 9) {
+                            cleaned = cleaned.substring(0, 9);
                         }
                         
                         // Only update if changed
-                        if (this.value !== cleaned) {
-                            this.value = cleaned;
+                        if (this.value !== cleaned && this.value !== '0' + cleaned) {
+                            // Show with leading 0 for display
+                            const displayValue = cleaned.length > 0 ? '0' + cleaned : '';
+                            this.value = displayValue;
                             this.setSelectionRange(start, end);
                         }
                         
                         // Remove error state if valid
                         const wrapper = document.getElementById('phoneInputWrapper');
-                        if (wrapper && cleaned.length === 10 && cleaned.startsWith('7')) {
+                        if (wrapper && cleaned.length === 9 && cleaned.startsWith('7')) {
                             wrapper.classList.remove('error');
                         }
                     });
                     
-                    // ─── FIX: Clear placeholder text on focus ───
+                    // ─── Clear placeholder text on focus ───
                     phoneInput.addEventListener('focus', function() {
-                        if (this.value === 'e.g., 712345678' || this.value === '712345678') {
+                        if (this.value === 'e.g., 0700000000') {
                             this.value = '';
                         }
                         this.select();
                     });
                     
-                    // ─── FIX: Show placeholder if empty ───
+                    // ─── Show placeholder if empty ───
                     phoneInput.addEventListener('blur', function() {
                         if (this.value === '') {
-                            this.placeholder = 'e.g., 712345678';
+                            this.placeholder = 'e.g., 0700000000';
                         }
                     });
                 }
@@ -2742,7 +2749,7 @@
 
             (async function() {
                 console.log('🚗 Auto-D Kenya Dashboard');
-                console.log('📋 Payment flow: Complete with phone validation fix');
+                console.log('📋 Phone format: 07XXXXXXXX (10 digits starting with 0)');
 
                 initSupabase();
 
