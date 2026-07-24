@@ -252,7 +252,7 @@
         .btn-block { width: 100%; justify-content: center; }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        /* ─── FIX: Proper small button classes ─── */
+        /* ─── Small button classes ─── */
         .btn-sm-primary {
             background: var(--primary);
             color: #0f172a;
@@ -1183,7 +1183,7 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (COMPLETE FIXED VERSION)
+        // AUTO-D KENYA - DASHBOARD (ALIGNED WITH BACKEND)
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1270,10 +1270,16 @@
 
             function redirectToService(serviceId) {
                 const route = SERVICE_ROUTES[serviceId];
+                console.log(`🚀 Redirecting to service: ${serviceId} -> ${route}`);
                 if (route) {
-                    window.location.href = route;
+                    setTimeout(() => {
+                        window.location.href = route;
+                    }, 500);
                 } else {
                     showToast('Service unlocked, but no route found.', 'warning');
+                    setTimeout(() => {
+                        window.location.href = '/dashboard.html';
+                    }, 1000);
                 }
             }
 
@@ -1999,7 +2005,7 @@
             };
 
             // ============================================================
-            // PAYMENT - COMPLETE FIXED VERSION
+            // PAYMENT - COMPLETE ALIGNED WITH BACKEND
             // ============================================================
 
             // ─── Open Payment Modal ───
@@ -2015,7 +2021,6 @@
                 if (amountEl) amountEl.textContent = 'KES ' + (service.price || 0).toLocaleString();
                 if (totalEl) totalEl.textContent = 'KES ' + (service.price || 0).toLocaleString();
                 
-                // ─── Clear phone input ───
                 if (phoneEl) {
                     phoneEl.value = '';
                     phoneEl.placeholder = '0700000000 or 0110000000';
@@ -2064,13 +2069,23 @@
                 if (phoneWrapper) phoneWrapper.classList.remove('error');
             };
 
-            // ─── Unlock Service ──────────────────────────────────────────
-            async function unlockServiceViaConfirm(checkoutId, serviceId) {
+            // ─── Confirm Payment and Unlock Service ───
+            window.confirmAndUnlock = async function(checkoutId, serviceId) {
+                const overlay = document.getElementById('paymentOverlay');
+                const spinner = document.getElementById('paymentSpinner');
+                
                 try {
+                    if (overlay) {
+                        if (spinner) spinner.style.display = 'block';
+                        document.getElementById('paymentStatusText').textContent = 'Confirming payment...';
+                        document.getElementById('paymentStatusDetail').textContent = 'Please wait...';
+                    }
+
                     const token = await getAuthToken();
                     if (!token) {
-                        console.warn('No token for confirm');
-                        return false;
+                        showToast('⚠️ Authentication error. Please log in again.', 'error');
+                        if (overlay) overlay.classList.remove('open');
+                        return;
                     }
 
                     const response = await fetch(`${API_BASE}/mpesa/confirm/${checkoutId}`, {
@@ -2082,28 +2097,102 @@
                         }
                     });
 
-                    const data = await response.json().catch(() => ({}));
-                    
+                    const data = await response.json();
+                    console.log('📥 Confirm response:', data);
+
                     if (response.ok && data.success === true) {
+                        // ─── Success! Mark service as purchased ───
                         if (dashboardData && dashboardData.services) {
                             const svc = dashboardData.services.find(s => s.id === serviceId);
-                            if (svc) svc.purchased = true;
+                            if (svc) {
+                                svc.purchased = true;
+                                svc.status = 'active';
+                            }
                         }
-                        return true;
-                    }
-                    
-                    console.warn('Confirm response:', data);
-                    return false;
-                } catch (err) {
-                    console.warn('Confirm request failed:', err);
-                    return false;
-                }
-            }
 
-            async function checkServiceAccess(serviceId) {
+                        if (overlay) {
+                            document.getElementById('paymentStatusText').textContent = '✅ Service Unlocked!';
+                            document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
+                            if (spinner) spinner.style.display = 'none';
+                            document.getElementById('paymentStatusText').innerHTML = '✅ Service Unlocked! 🎉';
+                        }
+                        
+                        showToast(`✅ ${selectedService.name} unlocked!`, 'success');
+                        updateWorkflowStep(4);
+
+                        setTimeout(() => {
+                            if (overlay) overlay.classList.remove('open');
+                            closePaymentModal();
+                            redirectToService(serviceId);
+                        }, 1500);
+
+                    } else {
+                        // ─── Check if service is already unlocked ───
+                        const hasAccess = await checkServiceAccess(serviceId);
+                        if (hasAccess) {
+                            if (dashboardData && dashboardData.services) {
+                                const svc = dashboardData.services.find(s => s.id === serviceId);
+                                if (svc) {
+                                    svc.purchased = true;
+                                    svc.status = 'active';
+                                }
+                            }
+                            if (overlay) {
+                                document.getElementById('paymentStatusText').textContent = '✅ Service Already Unlocked!';
+                                document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
+                                if (spinner) spinner.style.display = 'none';
+                                document.getElementById('paymentStatusText').innerHTML = '✅ Service Unlocked! 🎉';
+                            }
+                            showToast('✅ Service already unlocked!', 'success');
+                            setTimeout(() => {
+                                if (overlay) overlay.classList.remove('open');
+                                closePaymentModal();
+                                redirectToService(serviceId);
+                            }, 1500);
+                        } else {
+                            if (overlay) {
+                                document.getElementById('paymentStatusText').textContent = '⚠️ Payment Received';
+                                document.getElementById('paymentStatusDetail').innerHTML = `
+                                    <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
+                                        <p style="font-size:14px;color:var(--text-secondary);">
+                                            Payment was received but service unlock is pending.
+                                        </p>
+                                        <button onclick="window.confirmAndUnlock('${checkoutId}', '${serviceId}')" 
+                                                style="padding:14px 28px;background:var(--primary);color:#0f172a;border:none;border-radius:10px;font-weight:700;font-size:16px;cursor:pointer;width:100%;">
+                                            🔄 Retry Unlock
+                                        </button>
+                                        <button onclick="window.checkServiceAndRedirect('${serviceId}')" 
+                                                style="padding:10px 20px;background:var(--success);color:#000;border:none;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;width:100%;">
+                                            🚀 Check and Open Service
+                                        </button>
+                                    </div>
+                                `;
+                                if (spinner) spinner.style.display = 'none';
+                            }
+                            showToast('Payment received, but unlock is pending. Please retry.', 'warning');
+                        }
+                    }
+                } catch (error) {
+                    console.error('Confirm error:', error);
+                    if (overlay) {
+                        document.getElementById('paymentStatusText').textContent = '❌ Error';
+                        document.getElementById('paymentStatusDetail').textContent = error.message || 'Please try again.';
+                        if (spinner) spinner.style.display = 'none';
+                    }
+                    showToast('❌ Failed to confirm payment: ' + error.message, 'error');
+                }
+            };
+
+            // ─── Check Service and Redirect ───
+            window.checkServiceAndRedirect = async function(serviceId) {
                 try {
+                    showToast('🔄 Checking service access...', 'info');
+                    
                     const token = await getAuthToken();
-                    if (!token) return false;
+                    if (!token) {
+                        showToast('⚠️ Authentication error.', 'error');
+                        return;
+                    }
 
                     const response = await fetch(`${API_BASE}/mpesa/user/services/${serviceId}/status`, {
                         headers: {
@@ -2112,26 +2201,45 @@
                         }
                     });
 
-                    if (!response.ok) return false;
                     const data = await response.json();
-                    return data.has_access === true || data.status === 'active' || data.purchased === true;
-                } catch (err) {
-                    console.warn('Service access check failed:', err);
-                    return false;
-                }
-            }
+                    console.log('📥 Service status:', data);
 
-            // ─── Process Payment - SIMPLE PHONE FORMAT ───
+                    if (data.unlocked === true || data.has_access === true) {
+                        if (dashboardData && dashboardData.services) {
+                            const svc = dashboardData.services.find(s => s.id === serviceId);
+                            if (svc) {
+                                svc.purchased = true;
+                                svc.status = 'active';
+                            }
+                        }
+                        showToast('✅ Service is unlocked!', 'success');
+                        updateWorkflowStep(4);
+                        
+                        const overlay = document.getElementById('paymentOverlay');
+                        if (overlay) overlay.classList.remove('open');
+                        closePaymentModal();
+                        
+                        setTimeout(() => {
+                            redirectToService(serviceId);
+                        }, 1000);
+                    } else {
+                        showToast('⚠️ Service is not yet unlocked. Please try again.', 'warning');
+                    }
+                } catch (error) {
+                    console.error('Check service error:', error);
+                    showToast('❌ Error checking service: ' + error.message, 'error');
+                }
+            };
+
+            // ─── Process Payment ───
             window.processPayment = async function() {
                 const phoneEl = document.getElementById('mpesaPhone');
                 const payBtn = document.getElementById('payNowBtn');
                 const phoneWrapper = document.getElementById('phoneInputWrapper');
 
-                // ─── Get raw value ───
                 let rawPhone = phoneEl ? phoneEl.value.trim() : '';
                 console.log('Raw phone input:', rawPhone);
 
-                // ─── Check empty ───
                 if (!rawPhone || rawPhone === '' || rawPhone === '0700000000 or 0110000000' || rawPhone === '0700000000' || rawPhone === '0110000000') {
                     showToast('Please enter your M-Pesa phone number (e.g., 0700000000 or 0110000000)', 'error');
                     if (phoneWrapper) phoneWrapper.classList.add('error');
@@ -2145,24 +2253,20 @@
                     return;
                 }
 
-                // ─── Remove non-digits ───
                 let phone = rawPhone.replace(/\D/g, '');
                 console.log('Cleaned phone:', phone);
 
-                // ─── Remove leading 254 if present ───
                 if (phone.startsWith('254')) {
                     phone = phone.slice(3);
                     console.log('After removing 254:', phone);
                 }
 
-                // ─── Remove leading 0 if present ───
                 if (phone.startsWith('0')) {
                     phone = phone.slice(1);
                     console.log('After removing leading 0:', phone);
                 }
 
                 // ─── Validate: exactly 9 digits, starts with 7 or 11 ───
-                // This matches your backend validator exactly
                 if (!/^(7\d{8}|11\d{7})$/.test(phone)) {
                     const errorMsg = phone.length > 0 
                         ? `Invalid number: "${rawPhone}". Please enter a Safaricom number starting with 07 or 011 (e.g., 0712345678 or 0110000000)`
@@ -2179,10 +2283,7 @@
                     return;
                 }
 
-                // ─── Format for API - backend will add 254 ───
-                // The backend validator expects 9 digits starting with 7 or 11
-                // It will add 254 automatically
-                const formattedPhone = phone;  // Just 9 digits, no 254 prefix
+                const formattedPhone = phone;
                 console.log('Phone for API (9 digits):', formattedPhone);
 
                 if (!selectedService) {
@@ -2212,7 +2313,6 @@
                     overlay.classList.add('open');
                 }
 
-                // ─── Request body - matches backend exactly ───
                 function buildDescription(serviceName) {
                     const prefix = 'Auto-D: ';
                     const maxLen = 36;
@@ -2221,7 +2321,7 @@
                 }
 
                 const requestBody = {
-                    phone: formattedPhone,  // 9 digits, no 254 prefix
+                    phone: formattedPhone,
                     service_id: selectedService.id,
                     description: buildDescription(selectedService.name),
                     user_id: currentUser.id
@@ -2308,12 +2408,15 @@
                                 document.getElementById('paymentStatusDetail').innerHTML = `
                                     <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
                                         <p style="font-size:14px;color:var(--text-secondary);">
-                                            Check your M-Pesa messages.
+                                            If you've already paid, click the button below.
                                         </p>
-                                        <button onclick="window.manualUnlock('${checkoutId}', '${selectedService.id}')" 
+                                        <button onclick="window.confirmAndUnlock('${checkoutId}', '${selectedService.id}')" 
                                                 style="padding:14px 28px;background:var(--primary);color:#0f172a;border:none;border-radius:10px;font-weight:700;font-size:16px;cursor:pointer;width:100%;">
                                             ✅ I've Completed Payment
                                         </button>
+                                        <small style="font-size:11px;color:var(--text-muted);">
+                                            If you haven't paid, please check your phone and enter your PIN.
+                                        </small>
                                     </div>
                                 `;
                                 if (spinner) spinner.style.display = 'none';
@@ -2350,7 +2453,7 @@
                                                 <p style="font-size:13px;color:var(--text-muted);">
                                                     If you've already entered your M-Pesa PIN, click below.
                                                 </p>
-                                                <button onclick="window.manualUnlock('${checkoutId}', '${selectedService.id}')" 
+                                                <button onclick="window.confirmAndUnlock('${checkoutId}', '${selectedService.id}')" 
                                                         style="padding:14px 28px;background:var(--success);color:#000;border:none;border-radius:10px;font-weight:700;font-size:16px;cursor:pointer;width:100%;">
                                                     ✅ I've Completed Payment
                                                 </button>
@@ -2380,7 +2483,7 @@
                                                 <p style="font-size:13px;color:var(--text-muted);">
                                                     If you've already entered your M-Pesa PIN, click below.
                                                 </p>
-                                                <button onclick="window.manualUnlock('${checkoutId}', '${selectedService.id}')" 
+                                                <button onclick="window.confirmAndUnlock('${checkoutId}', '${selectedService.id}')" 
                                                         style="padding:14px 28px;background:var(--success);color:#000;border:none;border-radius:10px;font-weight:700;font-size:16px;cursor:pointer;width:100%;">
                                                     ✅ I've Completed Payment
                                                 </button>
@@ -2414,57 +2517,7 @@
                                     document.getElementById('paymentStatusDetail').textContent = 'Unlocking service...';
                                 }
 
-                                const unlocked = await unlockServiceViaConfirm(checkoutId, serviceId);
-
-                                if (unlocked) {
-                                    showToast(`✅ ${selectedService.name} unlocked!`, 'success');
-                                    if (overlay) {
-                                        document.getElementById('paymentStatusText').textContent = '✅ Service Unlocked!';
-                                        document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
-                                        if (spinner) spinner.style.display = 'none';
-                                        document.getElementById('paymentStatusText').innerHTML = '✅ Service Unlocked! 🎉';
-                                    }
-                                    setTimeout(() => {
-                                        if (overlay) overlay.classList.remove('open');
-                                        closePaymentModal();
-                                        updateWorkflowStep(4);
-                                        redirectToService(serviceId);
-                                    }, 1000);
-                                } else {
-                                    const hasAccess = await checkServiceAccess(serviceId);
-                                    if (hasAccess) {
-                                        if (dashboardData && dashboardData.services) {
-                                            const svc = dashboardData.services.find(s => s.id === serviceId);
-                                            if (svc) svc.purchased = true;
-                                        }
-                                        showToast(`✅ ${selectedService.name} unlocked!`, 'success');
-                                        if (overlay) {
-                                            document.getElementById('paymentStatusText').textContent = '✅ Service Unlocked!';
-                                            document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
-                                            if (spinner) spinner.style.display = 'none';
-                                            document.getElementById('paymentStatusText').innerHTML = '✅ Service Unlocked! 🎉';
-                                        }
-                                        setTimeout(() => {
-                                            if (overlay) overlay.classList.remove('open');
-                                            closePaymentModal();
-                                            updateWorkflowStep(4);
-                                            redirectToService(serviceId);
-                                        }, 1000);
-                                    } else {
-                                        if (overlay) {
-                                            document.getElementById('paymentStatusText').textContent = '⚠️ Payment Received';
-                                            document.getElementById('paymentStatusDetail').innerHTML = `
-                                                Service unlock pending. Click below to retry.<br>
-                                                <button onclick="window.manualUnlock('${checkoutId}', '${selectedService.id}')" 
-                                                        style="padding:10px 20px;background:var(--primary);color:#0f172a;border:none;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;margin-top:10px;">
-                                                    🔄 Retry Unlock
-                                                </button>
-                                            `;
-                                            if (spinner) spinner.style.display = 'none';
-                                        }
-                                        showToast('Payment received, but unlock is pending. Please retry.', 'warning');
-                                    }
-                                }
+                                await window.confirmAndUnlock(checkoutId, serviceId);
                                 return;
                             } else if (statusData.status === 'failed' || statusData.status === 'error') {
                                 clearInterval(pollTimer);
@@ -2512,73 +2565,36 @@
                 }
             };
 
-            // ─── Manual Unlock ────────────────────────────────────────────
+            // ─── Legacy Manual Unlock (kept for compatibility) ───
             window.manualUnlock = async function(checkoutId, serviceId) {
-                const overlay = document.getElementById('paymentOverlay');
-                const spinner = document.getElementById('paymentSpinner');
-                
-                try {
-                    if (overlay) {
-                        if (spinner) spinner.style.display = 'block';
-                        document.getElementById('paymentStatusText').textContent = 'Confirming payment...';
-                        document.getElementById('paymentStatusDetail').textContent = 'Please wait...';
-                    }
-
-                    const unlocked = await unlockServiceViaConfirm(checkoutId, serviceId);
-
-                    if (unlocked) {
-                        if (overlay) {
-                            document.getElementById('paymentStatusText').textContent = '✅ Service Unlocked!';
-                            document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
-                            if (spinner) spinner.style.display = 'none';
-                            document.getElementById('paymentStatusText').innerHTML = '✅ Service Unlocked! 🎉';
-                        }
-                        showToast('✅ Payment confirmed! Service unlocked!', 'success');
-                        updateWorkflowStep(4);
-
-                        setTimeout(() => {
-                            if (overlay) overlay.classList.remove('open');
-                            closePaymentModal();
-                            redirectToService(pendingServiceRedirect || serviceId);
-                        }, 1000);
-                    } else {
-                        const hasAccess = await checkServiceAccess(serviceId);
-                        if (hasAccess) {
-                            if (dashboardData && dashboardData.services) {
-                                const svc = dashboardData.services.find(s => s.id === serviceId);
-                                if (svc) svc.purchased = true;
-                            }
-                            if (overlay) {
-                                document.getElementById('paymentStatusText').textContent = '✅ Service Unlocked!';
-                                document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
-                                if (spinner) spinner.style.display = 'none';
-                                document.getElementById('paymentStatusText').innerHTML = '✅ Service Unlocked! 🎉';
-                            }
-                            showToast('✅ Service unlocked!', 'success');
-                            setTimeout(() => {
-                                if (overlay) overlay.classList.remove('open');
-                                closePaymentModal();
-                                redirectToService(pendingServiceRedirect || serviceId);
-                            }, 1000);
-                        } else {
-                            if (overlay) {
-                                document.getElementById('paymentStatusText').textContent = '⚠️ Unable to Unlock';
-                                document.getElementById('paymentStatusDetail').textContent = 'Please contact support if you were charged.';
-                                if (spinner) spinner.style.display = 'none';
-                            }
-                            showToast('⚠️ Could not unlock service. Please contact support.', 'error');
-                        }
-                    }
-                } catch (error) {
-                    console.error('Manual unlock error:', error);
-                    if (overlay) {
-                        document.getElementById('paymentStatusText').textContent = '❌ Error';
-                        document.getElementById('paymentStatusDetail').textContent = error.message || 'Please try again.';
-                        if (spinner) spinner.style.display = 'none';
-                    }
-                    showToast('❌ Failed to unlock service: ' + error.message, 'error');
-                }
+                await window.confirmAndUnlock(checkoutId, serviceId);
             };
+
+            async function unlockServiceViaConfirm(checkoutId, serviceId) {
+                // This is now handled by confirmAndUnlock
+                return await window.confirmAndUnlock(checkoutId, serviceId);
+            }
+
+            async function checkServiceAccess(serviceId) {
+                try {
+                    const token = await getAuthToken();
+                    if (!token) return false;
+
+                    const response = await fetch(`${API_BASE}/mpesa/user/services/${serviceId}/status`, {
+                        headers: {
+                            'Accept': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (!response.ok) return false;
+                    const data = await response.json();
+                    return data.unlocked === true || data.has_access === true || data.status === 'active' || data.purchased === true;
+                } catch (err) {
+                    console.warn('Service access check failed:', err);
+                    return false;
+                }
+            }
 
             // ============================================================
             // VEHICLES
@@ -2758,19 +2774,13 @@
                     phoneInput.placeholder = '0700000000 or 0110000000';
                     
                     phoneInput.addEventListener('input', function() {
-                        // Only allow digits
                         let cleaned = this.value.replace(/\D/g, '');
-                        
-                        // Limit to 10 digits
                         if (cleaned.length > 10) {
                             cleaned = cleaned.substring(0, 10);
                         }
-                        
                         if (this.value !== cleaned) {
                             this.value = cleaned;
                         }
-                        
-                        // Remove error state if valid format
                         const wrapper = document.getElementById('phoneInputWrapper');
                         if (wrapper && cleaned.length === 10 && /^[01]/.test(cleaned)) {
                             wrapper.classList.remove('error');
