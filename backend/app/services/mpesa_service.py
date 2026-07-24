@@ -1,6 +1,7 @@
 """
 Auto-D Kenya
 M-Pesa Business Logic - Enterprise Grade v5 (Production Ready)
+FIXED: Works with service_prices table
 """
 
 import base64
@@ -39,7 +40,7 @@ class PaymentStatus(str, Enum):
     REFUNDED = "refunded"
     CANCELLED = "cancelled"
     PARTIAL_REFUND = "partial_refund"
-    PROCESSING = "processing"  # ─── FIX: Added processing state ───
+    PROCESSING = "processing"
 
 
 class ServiceAccessStatus(str, Enum):
@@ -101,58 +102,6 @@ class STKPushResponse(BaseModel):
     error: Optional[str] = None
 
 
-class PricingRule(BaseModel):
-    """Pricing rule model."""
-    id: Optional[int] = None
-    rule_type: PricingRuleType
-    discount_type: DiscountType
-    discount_value: Decimal
-    min_amount: Optional[Decimal] = None
-    max_amount: Optional[Decimal] = None
-    applies_to_services: Optional[List[str]] = None
-    is_active: bool = True
-    effective_from: Optional[datetime] = None
-    effective_to: Optional[datetime] = None
-
-
-class ServiceCreate(BaseModel):
-    """Create service model."""
-    code: str = Field(..., max_length=50)
-    name: str = Field(..., max_length=100)
-    base_price: Decimal = Field(..., gt=0)
-    vat_rate: Decimal = Field(default=Decimal("0.16"), ge=0, le=1)
-    discount_type: Optional[DiscountType] = None
-    discount_value: Decimal = Field(default=Decimal("0"), ge=0)
-    service_fee: Decimal = Field(default=Decimal("0"), ge=0)
-    currency: str = Field(default="KES", max_length=3)
-    description: Optional[str] = None
-    category_id: Optional[int] = None
-    icon: Optional[str] = None
-    display_order: int = Field(default=0)
-    is_active: bool = Field(default=True)
-    effective_from: Optional[datetime] = None
-    effective_to: Optional[datetime] = None
-
-
-class ServiceUpdate(BaseModel):
-    """Update service model."""
-    name: Optional[str] = Field(None, max_length=100)
-    base_price: Optional[Decimal] = Field(None, gt=0)
-    vat_rate: Optional[Decimal] = Field(None, ge=0, le=1)
-    discount_type: Optional[DiscountType] = None
-    discount_value: Optional[Decimal] = Field(None, ge=0)
-    service_fee: Optional[Decimal] = Field(None, ge=0)
-    currency: Optional[str] = Field(None, max_length=3)
-    description: Optional[str] = None
-    category_id: Optional[int] = None
-    icon: Optional[str] = None
-    display_order: Optional[int] = None
-    is_active: Optional[bool] = None
-    effective_from: Optional[datetime] = None
-    effective_to: Optional[datetime] = None
-    reason: Optional[str] = Field(None, description="Reason for change")
-
-
 class PricingResult(BaseModel):
     """Pricing calculation result."""
     base_price: Decimal
@@ -166,82 +115,11 @@ class PricingResult(BaseModel):
 
 
 # ============================================================
-# DATABASE SCHEMA (Reference)
-# ============================================================
-"""
-CREATE TABLE payments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
-    service_id VARCHAR(50) NOT NULL,
-    service_name VARCHAR(100) NOT NULL,
-    amount DECIMAL(12,2) NOT NULL,
-    phone VARCHAR(20) NOT NULL,
-    checkout_request_id VARCHAR(50) UNIQUE NOT NULL,
-    status VARCHAR(20) DEFAULT 'pending',
-    result_code VARCHAR(10),
-    result_desc TEXT,
-    mpesa_receipt VARCHAR(50),
-    paid_amount DECIMAL(12,2),
-    paid_phone VARCHAR(20),
-    transaction_date TIMESTAMP,
-    callback_payload JSONB,
-    pricing_version INTEGER DEFAULT 1,
-    pricing_snapshot JSONB,
-    processing_token UUID,
-    processing_started_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE UNIQUE INDEX idx_payments_checkout_id ON payments(checkout_request_id);
-
-CREATE TABLE service_access (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
-    service_id VARCHAR(50) NOT NULL,
-    status VARCHAR(20) DEFAULT 'active',
-    expires_at TIMESTAMP,
-    payment_ref VARCHAR(50),
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE service_price_history (
-    id SERIAL PRIMARY KEY,
-    service_id INTEGER REFERENCES services(id),
-    old_price DECIMAL(12,2),
-    new_price DECIMAL(12,2),
-    changed_by VARCHAR(100),
-    reason TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE payment_audit_log (
-    id SERIAL PRIMARY KEY,
-    payment_id UUID,
-    action VARCHAR(50),
-    old_status VARCHAR(20),
-    new_status VARCHAR(20),
-    payload JSONB,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE failed_events (
-    id SERIAL PRIMARY KEY,
-    event_type VARCHAR(50),
-    payload JSONB,
-    error TEXT,
-    retry_count INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-"""
-
-
-# ============================================================
-# REPOSITORIES
+# REPOSITORIES - FIXED for service_prices table
 # ============================================================
 
 class ServiceRepository:
-    """Service database operations."""
+    """Service database operations - FIXED to use service_prices table."""
     
     def __init__(self):
         self._cache = None
@@ -249,47 +127,122 @@ class ServiceRepository:
         self._cache_duration = timedelta(minutes=5)
     
     async def get_by_code(self, code: str, include_inactive: bool = False) -> Optional[Dict]:
-        """Get service by code."""
+        """
+        Get service by code from service_prices table.
+        Maps service_prices fields to expected service fields.
+        """
         try:
-            query = supabase.table("services").select("*").eq("code", code)
-            if not include_inactive:
-                query = query.eq("is_active", True)
+            # ─── FIX: Use service_prices table ───
+            response = await self._run_sync(
+                supabase.table("service_prices")
+                .select("*")
+                .eq("service_type", code)
+                .limit(1)
+                .execute()
+            )
             
-            response = await self._run_sync(query.limit(1).execute())
-            return response.data[0] if response.data else None
+            if not response.data:
+                logger.warning(f"Service not found: {code}")
+                return None
+            
+            row = response.data[0]
+            
+            # ─── FIX: Map service_prices fields to expected service fields ───
+            return {
+                "id": row.get("id"),
+                "code": row.get("service_type"),
+                "name": row.get("service_type", code).replace("_", " ").title(),
+                "base_price": Decimal(str(row.get("price", 0))),
+                "price": Decimal(str(row.get("price", 0))),  # For compatibility
+                "vat_rate": Decimal("0.16"),  # Default VAT rate
+                "discount_value": Decimal("0"),
+                "discount_type": None,
+                "service_fee": Decimal("0"),
+                "currency": row.get("currency", "KES"),
+                "description": row.get("description", ""),
+                "is_active": True,
+                "active": True,
+                "version": 1,
+                "display_order": 0,
+                "sort_order": 0,
+            }
             
         except Exception as e:
             logger.exception(f"Get service error: {code}")
             return None
     
     async def get_all(self, include_inactive: bool = False) -> List[Dict]:
-        """Get all services."""
+        """
+        Get all services from service_prices table.
+        """
         try:
-            query = supabase.table("services").select("*")
-            if not include_inactive:
-                query = query.eq("is_active", True)
+            # ─── FIX: Use service_prices table ───
+            response = await self._run_sync(
+                supabase.table("service_prices")
+                .select("*")
+                .order("id")
+                .execute()
+            )
             
-            response = await self._run_sync(query.order("display_order").execute())
-            return response.data or []
+            if not response.data:
+                return []
+            
+            # ─── FIX: Map each row to expected service format ───
+            services = []
+            for row in response.data:
+                services.append({
+                    "id": row.get("id"),
+                    "code": row.get("service_type"),
+                    "name": row.get("service_type", "").replace("_", " ").title(),
+                    "base_price": Decimal(str(row.get("price", 0))),
+                    "price": Decimal(str(row.get("price", 0))),
+                    "vat_rate": Decimal("0.16"),
+                    "discount_value": Decimal("0"),
+                    "discount_type": None,
+                    "service_fee": Decimal("0"),
+                    "currency": row.get("currency", "KES"),
+                    "description": row.get("description", ""),
+                    "is_active": True,
+                    "active": True,
+                    "version": 1,
+                    "display_order": 0,
+                    "sort_order": 0,
+                })
+            
+            return services
             
         except Exception as e:
             logger.exception("Get all services error")
             return []
     
     async def create(self, data: Dict) -> Optional[Dict]:
-        """Create a new service."""
+        """
+        Create a new service in service_prices table.
+        """
         try:
-            data['created_at'] = datetime.now(UTC).isoformat()
-            data['updated_at'] = datetime.now(UTC).isoformat()
-            data['version'] = 1
+            # ─── FIX: Map service fields to service_prices fields ───
+            service_data = {
+                "service_type": data.get("code"),
+                "price": float(data.get("base_price", 0)),
+                "currency": data.get("currency", "KES"),
+                "description": data.get("description", ""),
+                "created_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
             
             response = await self._run_sync(
-                supabase.table("services").insert(data).execute()
+                supabase.table("service_prices").insert(service_data).execute()
             )
             
             if response.data:
                 self._clear_cache()
-                return response.data[0]
+                row = response.data[0]
+                return {
+                    "id": row.get("id"),
+                    "code": row.get("service_type"),
+                    "base_price": Decimal(str(row.get("price", 0))),
+                    "currency": row.get("currency", "KES"),
+                }
             return None
             
         except Exception as e:
@@ -297,46 +250,51 @@ class ServiceRepository:
             return None
     
     async def update(self, code: str, data: Dict) -> Optional[Dict]:
-        """Update a service with optimistic locking."""
+        """Update a service in service_prices table."""
         try:
-            current = await self.get_by_code(code, include_inactive=True)
-            if not current:
-                return None
+            # ─── FIX: Map service fields to service_prices fields ───
+            update_data = {}
+            if "base_price" in data:
+                update_data["price"] = float(data["base_price"])
+            if "currency" in data:
+                update_data["currency"] = data["currency"]
+            if "description" in data:
+                update_data["description"] = data["description"]
             
-            data['version'] = current.get('version', 0) + 1
-            data['updated_at'] = datetime.now(UTC).isoformat()
+            if not update_data:
+                return await self.get_by_code(code, include_inactive=True)
+            
+            update_data["updated_at"] = datetime.now(UTC).isoformat()
             
             response = await self._run_sync(
-                supabase.table("services")
-                .update(data)
-                .eq("code", code)
-                .eq("version", current.get('version', 0))
+                supabase.table("service_prices")
+                .update(update_data)
+                .eq("service_type", code)
                 .execute()
             )
             
-            if not response.data:
-                logger.warning(f"Optimistic lock failed for service {code}")
-                return None
-            
-            self._clear_cache()
-            return response.data[0]
+            if response.data:
+                self._clear_cache()
+                row = response.data[0]
+                return {
+                    "id": row.get("id"),
+                    "code": row.get("service_type"),
+                    "base_price": Decimal(str(row.get("price", 0))),
+                    "currency": row.get("currency", "KES"),
+                }
+            return None
             
         except Exception as e:
             logger.exception(f"Update service error: {code}")
             return None
     
     async def soft_delete(self, code: str, deleted_by: str) -> bool:
-        """Soft delete a service."""
+        """Soft delete - just remove from service_prices."""
         try:
             response = await self._run_sync(
-                supabase.table("services")
-                .update({
-                    "is_active": False,
-                    "deleted_at": datetime.now(UTC).isoformat(),
-                    "deleted_by": deleted_by,
-                    "updated_at": datetime.now(UTC).isoformat()
-                })
-                .eq("code", code)
+                supabase.table("service_prices")
+                .delete()
+                .eq("service_type", code)
                 .execute()
             )
             
@@ -350,28 +308,9 @@ class ServiceRepository:
             return False
     
     async def restore(self, code: str) -> bool:
-        """Restore a soft-deleted service."""
-        try:
-            response = await self._run_sync(
-                supabase.table("services")
-                .update({
-                    "is_active": True,
-                    "deleted_at": None,
-                    "deleted_by": None,
-                    "updated_at": datetime.now(UTC).isoformat()
-                })
-                .eq("code", code)
-                .execute()
-            )
-            
-            if response.data:
-                self._clear_cache()
-                return True
-            return False
-            
-        except Exception as e:
-            logger.exception(f"Restore service error: {code}")
-            return False
+        """Restore - not applicable for service_prices, would need to re-insert."""
+        logger.warning(f"Restore not supported for service_prices table: {code}")
+        return False
     
     def _clear_cache(self):
         """Clear the cache."""
@@ -390,7 +329,6 @@ class PaymentRepository:
     async def create(self, data: Dict) -> Optional[Dict]:
         """Create a payment record."""
         try:
-            # ─── FIX: Use UUID for internal ID ───
             data['id'] = str(uuid.uuid4())
             data['created_at'] = datetime.now(UTC).isoformat()
             data['updated_at'] = datetime.now(UTC).isoformat()
@@ -419,8 +357,6 @@ class PaymentRepository:
         except Exception as e:
             logger.exception(f"Get payment error: {checkout_id}")
             return None
-    
-    # ─── FIX: Removed merchant_request_id lookups ───
     
     async def update_with_optimistic_lock(
         self,
@@ -635,11 +571,24 @@ class PricingEngine:
                 logger.error(f"Service not found: {service_id}")
                 return None
             
-            base_price = Decimal(str(service.get("base_price", 0)))
-            vat_rate = Decimal(str(service.get("vat_rate", 0.16)))
-            discount_value = Decimal(str(service.get("discount_value", 0)))
+            # ─── Use mapped fields from service_repo ───
+            base_price = service.get("base_price", Decimal("0"))
+            if isinstance(base_price, (int, float)):
+                base_price = Decimal(str(base_price))
+            
+            vat_rate = service.get("vat_rate", Decimal("0.16"))
+            if isinstance(vat_rate, (int, float)):
+                vat_rate = Decimal(str(vat_rate))
+            
+            discount_value = service.get("discount_value", Decimal("0"))
+            if isinstance(discount_value, (int, float)):
+                discount_value = Decimal(str(discount_value))
+            
             discount_type = service.get("discount_type")
-            service_fee = Decimal(str(service.get("service_fee", 0)))
+            service_fee = service.get("service_fee", Decimal("0"))
+            if isinstance(service_fee, (int, float)):
+                service_fee = Decimal(str(service_fee))
+            
             currency = service.get("currency", "KES")
             version = service.get("version", 1)
             
@@ -960,7 +909,6 @@ class MpesaCallbackService:
             
             logger.info(f"Checkout: {checkout_id}, Result: {result_code}")
             
-            # ─── FIX: Get payment with optimistic lock ───
             payment = await self.payment_repo.get_by_checkout_id(checkout_id)
             if not payment:
                 logger.error(f"Payment not found: {checkout_id}")
@@ -971,7 +919,6 @@ class MpesaCallbackService:
                 logger.info(f"Already completed: {checkout_id}")
                 return True
             
-            # ─── FIX: Extract only needed metadata ───
             metadata = stk.get("CallbackMetadata", {}).get("Item", [])
             metadata_dict = {item.get("Name"): item.get("Value") for item in metadata}
             
@@ -988,7 +935,6 @@ class MpesaCallbackService:
                 except ValueError:
                     logger.warning(f"Could not parse date: {transaction_date_raw}")
             
-            # ─── FIX: Store only essential callback data ───
             callback_payload = {
                 "result_code": result_code,
                 "result_desc": result_desc,
@@ -996,7 +942,7 @@ class MpesaCallbackService:
                 "amount": paid_amount,
                 "phone": paid_phone,
                 "transaction_date": transaction_date_raw,
-                "raw": callback_data  # Keep for audit
+                "raw": callback_data
             }
             
             if result_code == 0:
@@ -1040,7 +986,6 @@ class MpesaCallbackService:
             user_id = payment.get("user_id")
             service_id = payment.get("service_id")
             
-            # ─── FIX: Verify amount with Decimal ───
             if paid_amount:
                 paid_dec = Decimal(str(paid_amount))
                 expected_dec = Decimal(str(payment.get("amount", 0)))
@@ -1048,7 +993,6 @@ class MpesaCallbackService:
                     logger.error(f"Amount mismatch: expected {expected_dec}, got {paid_dec}")
                     return False
             
-            # ─── FIX: Build update data (only existing columns) ───
             update_data = {
                 "status": PaymentStatus.COMPLETED.value,
                 "updated_at": datetime.now(UTC).isoformat(),
@@ -1065,7 +1009,6 @@ class MpesaCallbackService:
             if transaction_date:
                 update_data["transaction_date"] = transaction_date.isoformat()
             
-            # ─── FIX: Optimistic locking - only update if still pending ───
             updated = await self.payment_repo.update_with_optimistic_lock(
                 checkout_id=checkout_id,
                 data=update_data,
@@ -1073,11 +1016,9 @@ class MpesaCallbackService:
             )
             
             if not updated:
-                # Another callback already processed this
                 logger.info(f"Payment already processed: {checkout_id}")
                 return True
             
-            # ─── FIX: Unlock service (best effort) ───
             unlock_success = False
             if user_id and service_id:
                 try:
@@ -1103,7 +1044,6 @@ class MpesaCallbackService:
                         )
                     else:
                         logger.error(f"Failed to unlock service {service_id}")
-                        # ─── FIX: Create failed event for retry ───
                         await self.payment_repo.create_failed_event(
                             event_type="service_unlock_failed",
                             payload={
@@ -1125,7 +1065,6 @@ class MpesaCallbackService:
                         error=str(e)
                     )
             
-            # ─── FIX: Audit log (best effort) ───
             try:
                 await self._create_audit_log(
                     payment_id=payment.get("id"),
@@ -1137,7 +1076,6 @@ class MpesaCallbackService:
             except Exception as e:
                 logger.warning(f"Audit log failed: {e}")
             
-            # ─── FIX: Notification (best effort) ───
             if user_id and service_id:
                 try:
                     await self._create_notification(user_id, service_id)
