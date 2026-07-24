@@ -2161,12 +2161,12 @@
                     console.log('After removing leading 0:', phone);
                 }
 
-                // ─── Validate: exactly 9 digits, starts with 7 or 1 ───
+                // ─── Validate: exactly 9 digits, starts with 7 or 11 ───
                 // This matches your backend validator exactly
-                if (!/^[17]\d{8}$/.test(phone)) {
+                if (!/^(7\d{8}|11\d{7})$/.test(phone)) {
                     const errorMsg = phone.length > 0 
-                        ? `Invalid number: "${rawPhone}". Please enter 10 digits starting with 07 or 01 (e.g., 0700000000 or 0110000000)`
-                        : 'Please enter your M-Pesa phone number (e.g., 0700000000 or 0110000000)';
+                        ? `Invalid number: "${rawPhone}". Please enter a Safaricom number starting with 07 or 011 (e.g., 0712345678 or 0110000000)`
+                        : 'Please enter your M-Pesa phone number (e.g., 0712345678 or 0110000000)';
                     showToast(errorMsg, 'error');
                     if (phoneWrapper) phoneWrapper.classList.add('error');
                     if (phoneEl) {
@@ -2180,7 +2180,7 @@
                 }
 
                 // ─── Format for API - backend will add 254 ───
-                // The backend validator expects 9 digits starting with 7 or 1
+                // The backend validator expects 9 digits starting with 7 or 11
                 // It will add 254 automatically
                 const formattedPhone = phone;  // Just 9 digits, no 254 prefix
                 console.log('Phone for API (9 digits):', formattedPhone);
@@ -2213,10 +2213,17 @@
                 }
 
                 // ─── Request body - matches backend exactly ───
+                function buildDescription(serviceName) {
+                    const prefix = 'Auto-D: ';
+                    const maxLen = 36;
+                    const full = prefix + (serviceName || '');
+                    return full.length > maxLen ? full.slice(0, maxLen) : full;
+                }
+
                 const requestBody = {
                     phone: formattedPhone,  // 9 digits, no 254 prefix
                     service_id: selectedService.id,
-                    description: `Auto-D: ${selectedService.name}`,
+                    description: buildDescription(selectedService.name),
                     user_id: currentUser.id
                 };
                 
