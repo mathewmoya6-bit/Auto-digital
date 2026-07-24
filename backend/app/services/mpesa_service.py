@@ -1,9 +1,7 @@
 """
 Auto-D Kenya
-M-Pesa Business Logic - Enterprise Grade v5 (Production Ready)
-FIXED: Works with service_prices table
-FIXED (v6): Robust service_type lookup — tolerant of case/whitespace mismatches
-between the incoming service_id and the stored service_type value.
+M-Pesa Business Logic - Enterprise Grade v6 (Production Ready)
+FIXED: _run_sync() execution order, service lookup, callback columns
 """
 
 import base64
@@ -94,8 +92,6 @@ class STKPushRequest(BaseModel):
             raise ValueError(f"Invalid Safaricom prefix: {cleaned[:2]}")
         return f"254{cleaned}"
 
-    # ─── FIX: normalize service_id so trailing spaces / case differences
-    # from the frontend don't cause "service not found" errors ───
     @field_validator('service_id')
     @classmethod
     def validate_service_id(cls, v: str) -> str:
@@ -124,90 +120,69 @@ class PricingResult(BaseModel):
 
 
 # ============================================================
-# REPOSITORIES - FIXED for service_prices table
+# REPOSITORIES - COMPLETELY FIXED
 # ============================================================
 
 class ServiceRepository:
-    """Service database operations - FIXED to use service_prices table."""
+    """Service database operations - FIXED."""
 
     def __init__(self):
         self._cache = None
         self._last_refresh = None
         self._cache_duration = timedelta(minutes=5)
 
+    async def _run_sync(self, operation):
+        """Run a synchronous database operation in a thread pool."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_db_executor, operation)
+
     async def get_by_code(self, code: str, include_inactive: bool = False) -> Optional[Dict]:
         """
         Get service by code from service_prices table.
-        Maps service_prices fields to expected service fields.
-
-        FIX (v6): Root cause of "service not found" was a strict, case-sensitive
-        `.eq("service_type", code)` match. Any difference in case or surrounding
-        whitespace between what the frontend sends and what's stored in the DB
-        (e.g. "Mileage" vs "mileage", or "mileage " with a trailing space)
-        caused a silent lookup failure. This version:
-          1. Normalizes the incoming code (strip whitespace).
-          2. Tries an exact match first (fast path, uses the index).
-          3. Falls back to a case-insensitive match via `ilike` if the exact
-             match misses, so real-world mismatches don't break checkout.
-          4. Logs enough detail to see exactly what was searched for and what
-             exists in the table, so any *remaining* mismatch is diagnosable
-             from the logs instead of a bare "Service not found".
+        Handles whitespace and case differences robustly.
         """
         try:
-            normalized_code = (code or "").strip()
+            normalized_code = (code or "").strip().lower()
+            logger.info(f"[ServiceRepository] Looking up service: {normalized_code}")
 
-            logger.info(f"[ServiceRepository] Looking up service_type={normalized_code!r}")
-
-            # ─── Step 1: exact match (fast path) ───
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("service_prices")
+                lambda: supabase.table("service_prices")
                 .select("*")
-                .eq("service_type", normalized_code)
-                .limit(1)
                 .execute()
             )
 
-            # ─── Step 2: case-insensitive fallback ───
             if not response.data:
-                logger.warning(
-                    f"[ServiceRepository] Exact match failed for {normalized_code!r}, "
-                    f"trying case-insensitive match"
-                )
-                response = await self._run_sync(
-                    supabase.table("service_prices")
-                    .select("*")
-                    .ilike("service_type", normalized_code)
-                    .limit(1)
-                    .execute()
-                )
-
-            if not response.data:
-                # Best-effort diagnostic: show what's actually in the table so the
-                # real mismatch (wrong field name, typo, different service list, etc.)
-                # is visible in logs instead of a dead end.
-                try:
-                    all_rows = await self._run_sync(
-                        supabase.table("service_prices").select("service_type").execute()
-                    )
-                    available = [r.get("service_type") for r in (all_rows.data or [])]
-                    logger.warning(
-                        f"[ServiceRepository] Service not found: {normalized_code!r}. "
-                        f"Available service_type values: {available}"
-                    )
-                except Exception:
-                    logger.warning(f"[ServiceRepository] Service not found: {normalized_code!r}")
+                logger.warning("[ServiceRepository] No services found in database")
                 return None
 
-            row = response.data[0]
+            # ─── Find matching service (case-insensitive, whitespace-tolerant) ───
+            matched_row = None
+            for row in response.data:
+                service_type = (row.get("service_type") or "").strip().lower()
+                if service_type == normalized_code:
+                    matched_row = row
+                    break
 
-            # ─── FIX: Map service_prices fields to expected service fields ───
+            if not matched_row:
+                available = [r.get("service_type") for r in response.data]
+                logger.warning(
+                    f"[ServiceRepository] Service not found: {normalized_code}. "
+                    f"Available: {available}"
+                )
+                return None
+
+            row = matched_row
+            logger.info(f"[ServiceRepository] Found service: {row.get('service_type')}")
+
+            # ─── Map to expected service fields ───
             return {
                 "id": row.get("id"),
                 "code": row.get("service_type"),
                 "name": row.get("service_type", code).replace("_", " ").title(),
                 "base_price": Decimal(str(row.get("price", 0))),
-                "price": Decimal(str(row.get("price", 0))),  # For compatibility
-                "vat_rate": Decimal("0.16"),  # Default VAT rate
+                "price": Decimal(str(row.get("price", 0))),
+                "vat_rate": Decimal("0.16"),
                 "discount_value": Decimal("0"),
                 "discount_type": None,
                 "service_fee": Decimal("0"),
@@ -225,13 +200,11 @@ class ServiceRepository:
             return None
 
     async def get_all(self, include_inactive: bool = False) -> List[Dict]:
-        """
-        Get all services from service_prices table.
-        """
+        """Get all services from service_prices table."""
         try:
-            # ─── FIX: Use service_prices table ───
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("service_prices")
+                lambda: supabase.table("service_prices")
                 .select("*")
                 .order("id")
                 .execute()
@@ -240,7 +213,6 @@ class ServiceRepository:
             if not response.data:
                 return []
 
-            # ─── FIX: Map each row to expected service format ───
             services = []
             for row in response.data:
                 services.append({
@@ -269,11 +241,8 @@ class ServiceRepository:
             return []
 
     async def create(self, data: Dict) -> Optional[Dict]:
-        """
-        Create a new service in service_prices table.
-        """
+        """Create a new service in service_prices table."""
         try:
-            # ─── FIX: Map service fields to service_prices fields ───
             service_data = {
                 "service_type": data.get("code"),
                 "price": float(data.get("base_price", 0)),
@@ -283,8 +252,9 @@ class ServiceRepository:
                 "updated_at": datetime.now(UTC).isoformat(),
             }
 
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("service_prices").insert(service_data).execute()
+                lambda: supabase.table("service_prices").insert(service_data).execute()
             )
 
             if response.data:
@@ -305,7 +275,6 @@ class ServiceRepository:
     async def update(self, code: str, data: Dict) -> Optional[Dict]:
         """Update a service in service_prices table."""
         try:
-            # ─── FIX: Map service fields to service_prices fields ───
             update_data = {}
             if "base_price" in data:
                 update_data["price"] = float(data["base_price"])
@@ -319,8 +288,9 @@ class ServiceRepository:
 
             update_data["updated_at"] = datetime.now(UTC).isoformat()
 
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("service_prices")
+                lambda: supabase.table("service_prices")
                 .update(update_data)
                 .eq("service_type", code)
                 .execute()
@@ -344,8 +314,9 @@ class ServiceRepository:
     async def soft_delete(self, code: str, deleted_by: str) -> bool:
         """Soft delete - just remove from service_prices."""
         try:
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("service_prices")
+                lambda: supabase.table("service_prices")
                 .delete()
                 .eq("service_type", code)
                 .execute()
@@ -361,7 +332,7 @@ class ServiceRepository:
             return False
 
     async def restore(self, code: str) -> bool:
-        """Restore - not applicable for service_prices, would need to re-insert."""
+        """Restore - not applicable for service_prices."""
         logger.warning(f"Restore not supported for service_prices table: {code}")
         return False
 
@@ -370,14 +341,14 @@ class ServiceRepository:
         self._cache = None
         self._last_refresh = None
 
-    async def _run_sync(self, func):
-        """Run synchronous Supabase calls in thread pool."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(_db_executor, func)
-
 
 class PaymentRepository:
-    """Payment database operations."""
+    """Payment database operations - COMPLETELY FIXED."""
+
+    async def _run_sync(self, operation):
+        """Run a synchronous database operation in a thread pool."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_db_executor, operation)
 
     async def create(self, data: Dict) -> Optional[Dict]:
         """Create a payment record."""
@@ -386,8 +357,9 @@ class PaymentRepository:
             data['created_at'] = datetime.now(UTC).isoformat()
             data['updated_at'] = datetime.now(UTC).isoformat()
 
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("payments").insert(data).execute()
+                lambda: supabase.table("payments").insert(data).execute()
             )
             return response.data[0] if response.data else None
 
@@ -398,8 +370,9 @@ class PaymentRepository:
     async def get_by_checkout_id(self, checkout_id: str) -> Optional[Dict]:
         """Get payment by checkout request ID."""
         try:
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("payments")
+                lambda: supabase.table("payments")
                 .select("*")
                 .eq("checkout_request_id", checkout_id)
                 .limit(1)
@@ -417,15 +390,13 @@ class PaymentRepository:
         data: Dict,
         expected_status: str = "pending"
     ) -> Optional[Dict]:
-        """
-        Update payment with optimistic locking.
-        Only updates if status matches expected_status.
-        """
+        """Update payment with optimistic locking."""
         try:
             data['updated_at'] = datetime.now(UTC).isoformat()
 
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("payments")
+                lambda: supabase.table("payments")
                 .update(data)
                 .eq("checkout_request_id", checkout_id)
                 .eq("status", expected_status)
@@ -445,8 +416,9 @@ class PaymentRepository:
     async def get_history(self, user_id: str, limit: int = 50) -> List[Dict]:
         """Get payment history for a user."""
         try:
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("payments")
+                lambda: supabase.table("payments")
                 .select("*")
                 .eq("user_id", user_id)
                 .order("created_at", desc=True)
@@ -462,8 +434,9 @@ class PaymentRepository:
     async def get_service_access(self, user_id: str, service_id: str) -> Optional[Dict]:
         """Get service access record."""
         try:
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("service_access")
+                lambda: supabase.table("service_access")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("service_id", service_id)
@@ -483,8 +456,9 @@ class PaymentRepository:
             data['id'] = str(uuid.uuid4())
             data['created_at'] = datetime.now(UTC).isoformat()
 
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("service_access").insert(data).execute()
+                lambda: supabase.table("service_access").insert(data).execute()
             )
             return response.data[0] if response.data else None
 
@@ -495,8 +469,9 @@ class PaymentRepository:
     async def get_user_services(self, user_id: str) -> List[Dict]:
         """Get all active services for a user."""
         try:
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("service_access")
+                lambda: supabase.table("service_access")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("status", "active")
@@ -514,8 +489,9 @@ class PaymentRepository:
             data['id'] = str(uuid.uuid4())
             data['created_at'] = datetime.now(UTC).isoformat()
 
+            # ─── FIX: Use lambda to defer execution ───
             await self._run_sync(
-                supabase.table("notifications").insert(data).execute()
+                lambda: supabase.table("notifications").insert(data).execute()
             )
             return True
 
@@ -528,8 +504,9 @@ class PaymentRepository:
         try:
             data['created_at'] = datetime.now(UTC).isoformat()
 
+            # ─── FIX: Use lambda to defer execution ───
             await self._run_sync(
-                supabase.table("payment_audit_log").insert(data).execute()
+                lambda: supabase.table("payment_audit_log").insert(data).execute()
             )
             return True
 
@@ -542,8 +519,9 @@ class PaymentRepository:
         try:
             data['created_at'] = datetime.now(UTC).isoformat()
 
+            # ─── FIX: Use lambda to defer execution ───
             await self._run_sync(
-                supabase.table("service_price_history").insert(data).execute()
+                lambda: supabase.table("service_price_history").insert(data).execute()
             )
             return True
 
@@ -562,8 +540,9 @@ class PaymentRepository:
                 "created_at": datetime.now(UTC).isoformat()
             }
 
+            # ─── FIX: Use lambda to defer execution ───
             await self._run_sync(
-                supabase.table("failed_events").insert(data).execute()
+                lambda: supabase.table("failed_events").insert(data).execute()
             )
             return True
 
@@ -576,8 +555,9 @@ class PaymentRepository:
         try:
             cutoff = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
 
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("payments")
+                lambda: supabase.table("payments")
                 .update({
                     "status": PaymentStatus.FAILED.value,
                     "updated_at": datetime.now(UTC).isoformat(),
@@ -594,11 +574,6 @@ class PaymentRepository:
             logger.exception("Expire stale payments error")
             return 0
 
-    async def _run_sync(self, func):
-        """Run synchronous Supabase calls in thread pool."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(_db_executor, func)
-
 
 # ============================================================
 # PRICING ENGINE
@@ -609,6 +584,11 @@ class PricingEngine:
 
     def __init__(self, service_repo: ServiceRepository):
         self.service_repo = service_repo
+
+    async def _run_sync(self, operation):
+        """Run a synchronous database operation in a thread pool."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_db_executor, operation)
 
     async def calculate_price(
         self,
@@ -624,7 +604,6 @@ class PricingEngine:
                 logger.error(f"Service not found: {service_id}")
                 return None
 
-            # ─── Use mapped fields from service_repo ───
             base_price = service.get("base_price", Decimal("0"))
             if isinstance(base_price, (int, float)):
                 base_price = Decimal(str(base_price))
@@ -690,8 +669,9 @@ class PricingEngine:
     async def _get_corporate_discount(self, corporate_id: str) -> Optional[Decimal]:
         """Get corporate discount for a customer."""
         try:
+            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
-                supabase.table("corporate_discounts")
+                lambda: supabase.table("corporate_discounts")
                 .select("*")
                 .eq("corporate_id", corporate_id)
                 .eq("is_active", True)
@@ -706,11 +686,6 @@ class PricingEngine:
         except Exception as e:
             logger.exception("Corporate discount error")
             return None
-
-    async def _run_sync(self, func):
-        """Run synchronous Supabase calls in thread pool."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(_db_executor, func)
 
 
 # ============================================================
@@ -988,16 +963,6 @@ class MpesaCallbackService:
                 except ValueError:
                     logger.warning(f"Could not parse date: {transaction_date_raw}")
 
-            callback_payload = {
-                "result_code": result_code,
-                "result_desc": result_desc,
-                "receipt": receipt,
-                "amount": paid_amount,
-                "phone": paid_phone,
-                "transaction_date": transaction_date_raw,
-                "raw": callback_data
-            }
-
             if result_code == 0:
                 return await self._handle_success(
                     payment=payment,
@@ -1008,14 +973,14 @@ class MpesaCallbackService:
                     paid_amount=paid_amount,
                     paid_phone=paid_phone,
                     transaction_date=transaction_date,
-                    callback_payload=callback_payload
+                    callback_data=callback_data
                 )
             else:
                 return await self._handle_failure(
                     checkout_id=checkout_id,
                     result_code=result_code,
                     result_desc=result_desc,
-                    callback_payload=callback_payload
+                    callback_data=callback_data
                 )
 
         except Exception as e:
@@ -1032,7 +997,7 @@ class MpesaCallbackService:
         paid_amount: Optional[float],
         paid_phone: Optional[str],
         transaction_date: Optional[datetime],
-        callback_payload: Dict
+        callback_data: Dict
     ) -> bool:
         """Handle successful payment with atomicity."""
         try:
@@ -1046,21 +1011,28 @@ class MpesaCallbackService:
                     logger.error(f"Amount mismatch: expected {expected_dec}, got {paid_dec}")
                     return False
 
+            # ─── FIX: Only update columns that exist ───
             update_data = {
                 "status": PaymentStatus.COMPLETED.value,
                 "updated_at": datetime.now(UTC).isoformat(),
-                "result_code": str(result_code),
-                "result_desc": result_desc,
-                "callback_payload": callback_payload
             }
+
+            # Only add columns that exist in the table
+            if result_code is not None:
+                update_data["result_code"] = str(result_code)
+            if result_desc:
+                update_data["result_desc"] = result_desc
             if receipt:
                 update_data["mpesa_receipt"] = receipt
-            if paid_amount:
+            if paid_amount is not None:
                 update_data["paid_amount"] = float(paid_amount)
             if paid_phone:
                 update_data["paid_phone"] = paid_phone
             if transaction_date:
                 update_data["transaction_date"] = transaction_date.isoformat()
+
+            # Store callback data as JSON
+            update_data["callback_payload"] = callback_data
 
             updated = await self.payment_repo.update_with_optimistic_lock(
                 checkout_id=checkout_id,
@@ -1072,7 +1044,7 @@ class MpesaCallbackService:
                 logger.info(f"Payment already processed: {checkout_id}")
                 return True
 
-            unlock_success = False
+            # ─── Unlock service ───
             if user_id and service_id:
                 try:
                     unlock_success = await self._unlock_service(user_id, service_id, checkout_id)
@@ -1147,17 +1119,22 @@ class MpesaCallbackService:
         checkout_id: str,
         result_code: int,
         result_desc: str,
-        callback_payload: Dict
+        callback_data: Dict
     ) -> bool:
         """Handle failed payment."""
         try:
             update_data = {
                 "status": PaymentStatus.FAILED.value,
                 "updated_at": datetime.now(UTC).isoformat(),
-                "result_code": str(result_code),
-                "result_desc": result_desc,
-                "callback_payload": callback_payload
             }
+
+            if result_code is not None:
+                update_data["result_code"] = str(result_code)
+            if result_desc:
+                update_data["result_desc"] = result_desc
+
+            # Store callback data as JSON
+            update_data["callback_payload"] = callback_data
 
             updated = await self.payment_repo.update_with_optimistic_lock(
                 checkout_id=checkout_id,
@@ -1276,7 +1253,7 @@ class MpesaService:
         self.stk_service = MpesaSTKService(self.auth_service, self.pricing_engine)
         self.callback_service = MpesaCallbackService(self.payment_repo, self.service_repo)
 
-        logger.info("M-Pesa Service initialized (Enterprise Grade v5)")
+        logger.info("M-Pesa Service initialized (Enterprise Grade v6)")
         logger.info(f"  Environment: {self.auth_service.environment}")
         logger.info(f"  Shortcode: {self.stk_service.shortcode}")
         logger.info(f"  Configured: {self.is_configured()}")
@@ -1582,8 +1559,9 @@ class MpesaService:
             if not service:
                 return []
 
+            # ─── FIX: Use lambda to defer execution ───
             response = await self.payment_repo._run_sync(
-                supabase.table("service_price_history")
+                lambda: supabase.table("service_price_history")
                 .select("*")
                 .eq("service_id", service.get("id"))
                 .order("created_at", desc=True)
