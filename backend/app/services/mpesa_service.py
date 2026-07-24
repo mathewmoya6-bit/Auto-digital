@@ -1,7 +1,7 @@
 """
 Auto-D Kenya
 M-Pesa Business Logic - Enterprise Grade v6 (Production Ready)
-FIXED: _run_sync() execution order, service lookup, callback columns
+FIXED: _run_sync() execution order, service lookup, callback columns, service unlocking
 """
 
 import base64
@@ -907,7 +907,7 @@ class EventBus:
 
 
 # ============================================================
-# CALLBACK SERVICE
+# CALLBACK SERVICE - IMPROVED
 # ============================================================
 
 class MpesaCallbackService:
@@ -923,6 +923,9 @@ class MpesaCallbackService:
         try:
             logger.info("=" * 60)
             logger.info("Processing callback")
+            
+            # ─── Log the entire callback data for debugging ───
+            logger.info(f"📥 Full callback data: {json.dumps(callback_data, indent=2)}")
 
             body = callback_data.get("Body", {})
             stk = body.get("stkCallback", {})
@@ -932,38 +935,71 @@ class MpesaCallbackService:
             result_desc = stk.get("ResultDesc", "")
 
             if not checkout_id:
-                logger.error("No CheckoutRequestID")
+                logger.error("❌ No CheckoutRequestID in callback")
+                logger.error(f"   Callback data: {callback_data}")
                 return False
 
-            logger.info(f"Checkout: {checkout_id}, Result: {result_code}")
+            logger.info(f"📋 Checkout: {checkout_id}, Result: {result_code}")
 
+            # ─── Log the payment lookup with detailed info ───
+            logger.info(f"🔍 Looking up payment with checkout_id: {checkout_id}")
+            
             payment = await self.payment_repo.get_by_checkout_id(checkout_id)
-            if not payment:
-                logger.error(f"Payment not found: {checkout_id}")
+            
+            if payment:
+                logger.info(f"✅ Payment found: {json.dumps(payment, default=str, indent=2)}")
+                logger.info(f"   Payment status: {payment.get('status')}")
+                logger.info(f"   Payment amount: {payment.get('amount')}")
+                logger.info(f"   User ID: {payment.get('user_id')}")
+                logger.info(f"   Service ID: {payment.get('service_id')}")
+            else:
+                logger.error(f"❌ Payment NOT found for checkout_id: {checkout_id}")
+                try:
+                    all_payments = await self.payment_repo._run_sync(
+                        lambda: supabase.table("payments")
+                        .select("checkout_request_id", "status", "created_at")
+                        .limit(10)
+                        .execute()
+                    )
+                    logger.info(f"📊 Recent payments in DB: {all_payments.data}")
+                except Exception as e:
+                    logger.warning(f"Could not fetch recent payments: {e}")
                 return False
 
             # ─── Idempotency ───
             if payment.get("status") == PaymentStatus.COMPLETED.value:
-                logger.info(f"Already completed: {checkout_id}")
+                logger.info(f"✅ Payment already completed: {checkout_id}")
                 return True
 
+            # ─── Extract metadata ───
             metadata = stk.get("CallbackMetadata", {}).get("Item", [])
             metadata_dict = {item.get("Name"): item.get("Value") for item in metadata}
+            
+            logger.info(f"📊 Metadata: {metadata_dict}")
 
             receipt = metadata_dict.get("MpesaReceiptNumber")
             paid_amount = metadata_dict.get("Amount")
             paid_phone = metadata_dict.get("PhoneNumber")
             transaction_date_raw = metadata_dict.get("TransactionDate")
 
+            logger.info(f"   Receipt: {receipt}")
+            logger.info(f"   Amount: {paid_amount}")
+            logger.info(f"   Phone: {paid_phone}")
+            logger.info(f"   Date: {transaction_date_raw}")
+
             transaction_date = None
             if transaction_date_raw:
                 try:
                     transaction_date = datetime.strptime(transaction_date_raw, "%Y%m%d%H%M%S")
                     transaction_date = transaction_date.replace(tzinfo=UTC)
-                except ValueError:
-                    logger.warning(f"Could not parse date: {transaction_date_raw}")
+                    logger.info(f"✅ Parsed transaction date: {transaction_date}")
+                except ValueError as e:
+                    logger.warning(f"⚠️ Could not parse date: {transaction_date_raw} - {e}")
 
+            logger.info(f"🔄 Processing result_code: {result_code}")
+            
             if result_code == 0:
+                logger.info("✅ Payment successful, handling success...")
                 return await self._handle_success(
                     payment=payment,
                     checkout_id=checkout_id,
@@ -976,6 +1012,7 @@ class MpesaCallbackService:
                     callback_data=callback_data
                 )
             else:
+                logger.warning(f"⚠️ Payment failed with code: {result_code}")
                 return await self._handle_failure(
                     checkout_id=checkout_id,
                     result_code=result_code,
@@ -984,7 +1021,8 @@ class MpesaCallbackService:
                 )
 
         except Exception as e:
-            logger.exception("Callback processing error")
+            logger.exception(f"❌ Callback processing error: {e}")
+            logger.error(f"   Callback data: {callback_data}")
             return False
 
     async def _handle_success(
@@ -1003,6 +1041,8 @@ class MpesaCallbackService:
         try:
             user_id = payment.get("user_id")
             service_id = payment.get("service_id")
+
+            logger.info(f"🔄 Handling success for user: {user_id}, service: {service_id}")
 
             if paid_amount:
                 paid_dec = Decimal(str(paid_amount))
@@ -1034,6 +1074,8 @@ class MpesaCallbackService:
             # Store callback data as JSON
             update_data["callback_payload"] = callback_data
 
+            logger.info(f"📝 Updating payment with: {update_data}")
+
             updated = await self.payment_repo.update_with_optimistic_lock(
                 checkout_id=checkout_id,
                 data=update_data,
@@ -1044,11 +1086,15 @@ class MpesaCallbackService:
                 logger.info(f"Payment already processed: {checkout_id}")
                 return True
 
+            logger.info(f"✅ Payment updated successfully")
+
             # ─── Unlock service ───
             if user_id and service_id:
+                logger.info(f"🔓 Attempting to unlock service: {service_id} for user: {user_id}")
                 try:
                     unlock_success = await self._unlock_service(user_id, service_id, checkout_id)
                     if unlock_success:
+                        logger.info(f"✅ Service unlocked successfully: {service_id}")
                         await EventBus.publish(
                             EventType.PAYMENT_COMPLETED,
                             {
@@ -1068,7 +1114,7 @@ class MpesaCallbackService:
                             }
                         )
                     else:
-                        logger.error(f"Failed to unlock service {service_id}")
+                        logger.error(f"❌ Failed to unlock service {service_id}")
                         await self.payment_repo.create_failed_event(
                             event_type="service_unlock_failed",
                             payload={
@@ -1079,7 +1125,7 @@ class MpesaCallbackService:
                             error="Service unlock failed after successful payment"
                         )
                 except Exception as e:
-                    logger.exception(f"Unlock service error: {service_id}")
+                    logger.exception(f"❌ Unlock service error: {service_id}")
                     await self.payment_repo.create_failed_event(
                         event_type="service_unlock_error",
                         payload={
@@ -1089,7 +1135,10 @@ class MpesaCallbackService:
                         },
                         error=str(e)
                     )
+            else:
+                logger.warning(f"⚠️ No user_id or service_id found in payment")
 
+            # ─── Audit log ───
             try:
                 await self._create_audit_log(
                     payment_id=payment.get("id"),
@@ -1101,13 +1150,14 @@ class MpesaCallbackService:
             except Exception as e:
                 logger.warning(f"Audit log failed: {e}")
 
+            # ─── Notification ───
             if user_id and service_id:
                 try:
                     await self._create_notification(user_id, service_id)
                 except Exception as e:
                     logger.warning(f"Notification failed: {e}")
 
-            logger.info(f"Payment completed: {checkout_id}")
+            logger.info(f"✅ Payment completed: {checkout_id}")
             return True
 
         except Exception as e:
@@ -1123,6 +1173,8 @@ class MpesaCallbackService:
     ) -> bool:
         """Handle failed payment."""
         try:
+            logger.info(f"🔄 Handling failure: {result_code} - {result_desc}")
+
             update_data = {
                 "status": PaymentStatus.FAILED.value,
                 "updated_at": datetime.now(UTC).isoformat(),
@@ -1169,31 +1221,37 @@ class MpesaCallbackService:
     async def _unlock_service(self, user_id: str, service_id: str, payment_ref: str) -> bool:
         """Unlock service for user."""
         try:
+            logger.info(f"🔓 Unlocking service: {service_id} for user: {user_id}")
+            
+            # ─── Check if already unlocked ───
             existing = await self.payment_repo.get_service_access(user_id, service_id)
             if existing:
-                logger.info(f"Service already unlocked: {service_id}")
+                logger.info(f"✅ Service already unlocked: {service_id}")
                 return True
-
+            
             expires_at = datetime.now(UTC) + timedelta(days=self.service_access_days)
-
+            
             data = {
                 "user_id": user_id,
                 "service_id": service_id,
                 "status": ServiceAccessStatus.ACTIVE.value,
                 "expires_at": expires_at.isoformat(),
-                "payment_ref": payment_ref
+                "payment_ref": payment_ref,
+                "created_at": datetime.now(UTC).isoformat()
             }
-
+            
+            logger.info(f"📝 Creating service access record: {data}")
+            
             result = await self.payment_repo.create_service_access(data)
             if result:
-                logger.info(f"Service unlocked: {service_id} for {user_id}")
+                logger.info(f"✅ Service unlocked: {service_id} for {user_id}")
                 return True
             else:
-                logger.error(f"Failed to unlock service: {service_id}")
+                logger.error(f"❌ Failed to unlock service: {service_id}")
                 return False
-
+                
         except Exception as e:
-            logger.exception(f"Unlock error: {service_id}")
+            logger.exception(f"❌ Unlock error: {service_id}")
             return False
 
     async def _create_notification(self, user_id: str, service_id: str) -> bool:
@@ -1370,15 +1428,20 @@ class MpesaService:
     async def confirm_payment_manually(self, checkout_request_id: str, user_id: str) -> Dict:
         """Manually confirm a payment."""
         try:
+            logger.info(f"🔄 Manual confirm: {checkout_request_id} for user: {user_id}")
+            
             payment = await self.payment_repo.get_by_checkout_id(checkout_request_id)
 
             if not payment:
+                logger.error(f"❌ Payment not found: {checkout_request_id}")
                 return {"success": False, "error": "Payment not found"}
 
             if payment.get("user_id") != user_id:
+                logger.error(f"❌ Payment does not belong to user: {user_id}")
                 return {"success": False, "error": "Payment does not belong to this user"}
 
             if payment.get("status") == PaymentStatus.COMPLETED.value:
+                logger.info(f"✅ Payment already completed: {checkout_request_id}")
                 service_id = payment.get("service_id")
                 if service_id:
                     await self.callback_service._unlock_service(user_id, service_id, checkout_request_id)
@@ -1386,8 +1449,11 @@ class MpesaService:
 
             service_id = payment.get("service_id")
             if not service_id:
+                logger.error(f"❌ Service ID not found in payment")
                 return {"success": False, "error": "Service ID not found"}
 
+            logger.info(f"📝 Updating payment status to COMPLETED")
+            
             update_data = {
                 "status": PaymentStatus.COMPLETED.value,
                 "updated_at": datetime.now(UTC).isoformat(),
@@ -1402,13 +1468,17 @@ class MpesaService:
             )
 
             if not updated:
+                logger.error(f"❌ Payment was already processed")
                 return {"success": False, "error": "Payment was already processed"}
 
+            logger.info(f"✅ Payment updated, unlocking service...")
+            
             unlock_success = await self.callback_service._unlock_service(
                 user_id, service_id, checkout_request_id
             )
 
             if unlock_success:
+                logger.info(f"✅ Service unlocked: {service_id}")
                 await self.callback_service._create_notification(user_id, service_id)
                 await self.callback_service._create_audit_log(
                     payment_id=payment.get("id"),
@@ -1418,8 +1488,13 @@ class MpesaService:
                     payload=update_data
                 )
 
-                return {"success": True, "message": "Payment confirmed and service unlocked"}
+                return {
+                    "success": True, 
+                    "message": "Payment confirmed and service unlocked",
+                    "service_id": service_id
+                }
             else:
+                logger.error(f"❌ Failed to unlock service: {service_id}")
                 return {"success": False, "error": "Failed to unlock service"}
 
         except Exception as e:
