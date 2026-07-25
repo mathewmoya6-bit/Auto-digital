@@ -65,6 +65,13 @@ class STKPushRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=36, description="Transaction description")
     user_id: Optional[str] = Field(None, description="User ID for the payment")
     corporate_id: Optional[str] = Field(None, description="Corporate customer ID for discounts")
+    request_id: Optional[str] = Field(
+        None,
+        description="Optional id of the row in the 'requests' table this payment fulfills. "
+                     "When provided, the backend will mark that request 'paid' once the "
+                     "M-Pesa callback (or manual confirm) succeeds — this is the ONLY "
+                     "code path allowed to write that status; the frontend must never do it."
+    )
 
     @field_validator('phone')
     @classmethod
@@ -85,6 +92,17 @@ class STKPushRequest(BaseModel):
     @classmethod
     def validate_service_id(cls, v: str) -> str:
         return v.strip().lower()
+
+    @field_validator('description')
+    @classmethod
+    def validate_description(cls, v: Optional[str]) -> Optional[str]:
+        # FIX: Safaricom hard-rejects TransactionDesc > 36 chars; truncate here too,
+        # not just at the point of building the Safaricom payload, so the value we
+        # persist to the payments table always matches what Safaricom actually saw.
+        if v is None:
+            return v
+        v = v.strip()
+        return v[:36] if len(v) > 36 else v
 
 
 # ============================================================
@@ -519,6 +537,57 @@ class PaymentRepository:
             logger.exception("Expire stale payments error")
             return 0
 
+    async def get_by_id_for_user(self, request_id: str, user_id: str) -> Optional[Dict]:
+        """FIX: fetch a requests row scoped to the owning user, used to validate
+        that a request_id passed into /mpesa/stkpush actually belongs to the
+        caller before we trust it (defense in depth against IDOR)."""
+        try:
+            response = await self._run_sync(
+                lambda: supabase.table("requests")
+                .select("*")
+                .eq("id", request_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            return response.data[0] if response.data else None
+        except Exception as e:
+            logger.exception(f"Get request by id error: {request_id}")
+            return None
+
+    async def update_request_status(self, request_id: str, status: str) -> bool:
+        """
+        FIX: Server-side (service-role client, bypasses RLS) update of the
+        'requests' table status. This is intentionally the ONLY place in the
+        whole system allowed to move a request to 'paid'/'completed' — the
+        dashboard frontend must never write that field itself, since a
+        client with only the anon key could otherwise forge a 'paid' status
+        even if RLS on other columns is correctly locked down.
+        """
+        try:
+            if not request_id:
+                return False
+
+            response = await self._run_sync(
+                lambda: supabase.table("requests")
+                .update({
+                    "status": status,
+                    "updated_at": datetime.now(UTC).isoformat()
+                })
+                .eq("id", request_id)
+                .execute()
+            )
+            ok = bool(response.data)
+            if ok:
+                logger.info(f"✅ Request {request_id} marked '{status}'")
+            else:
+                logger.warning(f"⚠️ Could not update request {request_id} to '{status}' (not found?)")
+            return ok
+
+        except Exception as e:
+            logger.exception(f"Update request status error: {request_id}")
+            return False
+
 
 # ============================================================
 # AUTH SERVICE
@@ -794,6 +863,7 @@ class MpesaCallbackService:
         try:
             user_id = payment.get("user_id")
             service_id = payment.get("service_id")
+            request_id = payment.get("request_id")
 
             # ─── Verify amount ───
             if paid_amount:
@@ -843,6 +913,16 @@ class MpesaCallbackService:
                         logger.error(f"Failed to unlock service {service_id}")
                 except Exception as e:
                     logger.exception(f"Unlock service error: {service_id}")
+
+            # ─── FIX: Flip the originating request row to 'paid' server-side ───
+            # This is what the dashboard's "My Requests" list depends on. It was
+            # previously never written anywhere, so a completed M-Pesa payment
+            # unlocked the service but the request card stayed stuck on "Pending".
+            if request_id:
+                try:
+                    await self.payment_repo.update_request_status(request_id, "paid")
+                except Exception as e:
+                    logger.warning(f"Could not update request {request_id} status: {e}")
 
             # ─── Audit log ───
             try:
@@ -1063,7 +1143,8 @@ class MpesaService:
         service_id: str,
         description: Optional[str] = None,
         user_id: Optional[str] = None,
-        corporate_id: Optional[str] = None
+        corporate_id: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> Dict:
         """
         Initiate STK Push - BACKEND CREATES PAYMENT RECORD.
@@ -1076,7 +1157,8 @@ class MpesaService:
                 service_id=service_id,
                 description=description,
                 user_id=user_id,
-                corporate_id=corporate_id
+                corporate_id=corporate_id,
+                request_id=request_id,
             )
         except ValueError as e:
             logger.error(f"Validation error: {e}")
@@ -1103,6 +1185,23 @@ class MpesaService:
                 }
 
             logger.info(f"Service: {service.get('name')}, Price: {amount} KES")
+
+            # ─── 3b. If a request_id was supplied, verify it actually belongs
+            # to this user before we trust it. This stops one user from
+            # attaching their payment to (and flipping the status of) another
+            # user's request row. ───
+            validated_request_id = None
+            if request.request_id and request.user_id:
+                owned_request = await self.payment_repo.get_by_id_for_user(
+                    request.request_id, request.user_id
+                )
+                if owned_request:
+                    validated_request_id = request.request_id
+                else:
+                    logger.warning(
+                        f"request_id {request.request_id} does not belong to "
+                        f"user {request.user_id}; ignoring it for this payment"
+                    )
 
             # ─── 4. Send STK Push ───
             stk_result = await self.stk_service.initiate_stk_push(
@@ -1138,6 +1237,14 @@ class MpesaService:
                 "status": PaymentStatus.PENDING.value,
                 "pricing_version": service.get("version", 1),
             }
+
+            # FIX: thread the originating 'requests' row through to the payment
+            # record so the callback/manual-confirm path can flip that row's
+            # status to 'paid' server-side once M-Pesa actually confirms payment.
+            # Requires a nullable `request_id` column on the `payments` table
+            # (ALTER TABLE payments ADD COLUMN IF NOT EXISTS request_id uuid;).
+            if validated_request_id:
+                payment_data["request_id"] = validated_request_id
 
             logger.info(f"📝 Creating payment record: {json.dumps(payment_data, default=str)}")
 
@@ -1227,10 +1334,15 @@ class MpesaService:
             if payment.get("user_id") != user_id:
                 return {"success": False, "error": "Payment does not belong to this user"}
 
+            request_id = payment.get("request_id")
+
             if payment.get("status") == PaymentStatus.COMPLETED.value:
                 service_id = payment.get("service_id")
                 if service_id:
                     await self.callback_service._unlock_service(user_id, service_id, checkout_request_id)
+                # FIX: keep the request row in sync even on the "already completed" path
+                if request_id:
+                    await self.payment_repo.update_request_status(request_id, "paid")
                 return {"success": True, "message": "Already confirmed", "already_completed": True}
 
             service_id = payment.get("service_id")
@@ -1259,6 +1371,9 @@ class MpesaService:
 
             if unlock_success:
                 await self.callback_service._create_notification(user_id, service_id)
+                # FIX: same request-status sync as the callback path
+                if request_id:
+                    await self.payment_repo.update_request_status(request_id, "paid")
                 return {
                     "success": True,
                     "message": "Payment confirmed and service unlocked",
