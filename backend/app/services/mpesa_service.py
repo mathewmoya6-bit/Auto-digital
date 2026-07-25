@@ -1,10 +1,9 @@
 """
 Auto-D Kenya
 M-Pesa Business Logic - Enterprise Grade v7 (Production Ready)
+FIXED: Uses 'services' table exclusively (no service_prices references)
 FIXED: Backend creates payment records, frontend only reads
 FIXED: Returns success: False when payment fails to save
-FIXED: Uses new 'services' table instead of deprecated 'service_prices'
-FIXED: Removes automatic VAT addition (prices are final as configured in admin)
 """
 
 import base64
@@ -98,29 +97,7 @@ class STKPushRequest(BaseModel):
     @field_validator('service_id')
     @classmethod
     def validate_service_id(cls, v: str) -> str:
-        return v.strip()
-
-
-class STKPushResponse(BaseModel):
-    """STK Push response model."""
-    success: bool
-    checkout_request_id: Optional[str] = None
-    merchant_request_id: Optional[str] = None
-    customer_message: Optional[str] = None
-    response_description: Optional[str] = None
-    error: Optional[str] = None
-
-
-class PricingResult(BaseModel):
-    """Pricing calculation result."""
-    base_price: Decimal
-    vat: Decimal
-    discount: Decimal
-    service_fee: Decimal
-    total: Decimal
-    currency: str
-    pricing_version: int
-    breakdown: Dict[str, Any]
+        return v.strip().lower()
 
 
 # ============================================================
@@ -128,10 +105,10 @@ class PricingResult(BaseModel):
 # ============================================================
 
 class ServiceRepository:
-    """Service database operations using the new 'services' table."""
+    """Service database operations using the 'services' table exclusively."""
 
     def __init__(self):
-        self._cache = None
+        self._cache = {}
         self._last_refresh = None
         self._cache_duration = timedelta(minutes=5)
 
@@ -143,13 +120,13 @@ class ServiceRepository:
     async def get_by_code(self, code: str, include_inactive: bool = False) -> Optional[Dict]:
         """Get service by code from services table."""
         try:
-            normalized_code = (code or "").strip().lower()
-            logger.info(f"[ServiceRepository] Looking up service: {normalized_code}")
+            code = (code or "").strip().lower()
+            logger.info(f"[ServiceRepository] Looking up service: {code}")
 
             query = (
                 supabase.table("services")
                 .select("*")
-                .eq("code", normalized_code)
+                .eq("code", code)
             )
 
             if not include_inactive:
@@ -160,78 +137,72 @@ class ServiceRepository:
             )
 
             if not response.data:
-                logger.warning(f"[ServiceRepository] Service not found: {normalized_code}")
+                logger.error(f"Service not found: {code}")
                 return None
 
             row = response.data[0]
             logger.info(f"[ServiceRepository] Found service: {row.get('code')} - Price: {row.get('price')}")
 
             return {
-                "id": row.get("id"),
-                "code": row.get("code"),
-                "name": row.get("name"),
-                "price": Decimal(str(row.get("price", 0))),
-                "base_price": Decimal(str(row.get("price", 0))),
+                "id": row["id"],
+                "code": row["code"],
+                "name": row["name"],
+                "description": row.get("description"),
+                "price": Decimal(str(row["price"])),
+                "base_price": Decimal(str(row.get("base_price", row["price"]))),
                 "currency": row.get("currency", "KES"),
-                "description": row.get("description", ""),
+                "vat_rate": Decimal(str(row.get("vat_rate", 0))),
+                "discount_type": row.get("discount_type"),
+                "discount_value": Decimal(str(row.get("discount_value", 0))),
                 "service_fee": Decimal(str(row.get("service_fee", 0))),
-                "vat_rate": Decimal("0"),  # Prices are final as configured
-                "discount_value": Decimal("0"),
-                "discount_type": None,
                 "active": row.get("active", True),
-                "is_active": row.get("active", True),
-                "version": row.get("version", 1),
+                "is_active": row.get("is_active", True),
+                "sort_order": row.get("sort_order", 0),
                 "display_order": row.get("display_order", 0),
-                "sort_order": row.get("display_order", 0),
+                "version": row.get("version", 1),
             }
 
         except Exception as e:
-            logger.exception(f"Get service error: {code}")
+            logger.exception(f"Service lookup failed: {code}")
             return None
 
     async def get_all(self, include_inactive: bool = False) -> List[Dict]:
         """Get all services from services table."""
         try:
             query = supabase.table("services").select("*")
-            
+
             if not include_inactive:
                 query = query.eq("active", True)
-            
+
             response = await self._run_sync(
-                lambda: query.order("display_order").execute()
+                lambda: query.order("sort_order").execute()
             )
 
-            if not response.data:
-                logger.warning("No services found in services table")
-                return []
-
-            services = []
-            for row in response.data:
-                services.append({
-                    "id": row.get("id"),
-                    "code": row.get("code"),
-                    "name": row.get("name"),
-                    "price": Decimal(str(row.get("price", 0))),
-                    "base_price": Decimal(str(row.get("price", 0))),
-                    "currency": row.get("currency", "KES"),
-                    "description": row.get("description", ""),
-                    "service_fee": Decimal(str(row.get("service_fee", 0))),
-                    "vat_rate": Decimal("0"),  # Prices are final as configured
-                    "discount_value": Decimal("0"),
-                    "discount_type": None,
-                    "active": row.get("active", True),
-                    "is_active": row.get("active", True),
-                    "version": row.get("version", 1),
-                    "display_order": row.get("display_order", 0),
-                    "sort_order": row.get("display_order", 0),
-                })
-
+            services = response.data or []
             logger.info(f"[ServiceRepository] Loaded {len(services)} services")
+            
+            # Log services for verification
+            for svc in services:
+                logger.info(f"  - {svc.get('code')}: {svc.get('price')} KES")
+            
             return services
 
         except Exception as e:
             logger.exception("Get all services error")
             return []
+
+    async def get_service_with_price(self, code: str) -> Optional[Dict]:
+        """Get service with price validation."""
+        service = await self.get_by_code(code)
+
+        if not service:
+            return None
+
+        if Decimal(str(service["price"])) <= 0:
+            logger.error(f"Invalid price for {code}: {service['price']}")
+            return None
+
+        return service
 
     async def create(self, data: Dict) -> Optional[Dict]:
         """Create a new service (admin only)."""
@@ -1023,6 +994,39 @@ class MpesaCallbackService:
 
 
 # ============================================================
+# VERIFY SERVICES TABLE ON STARTUP
+# ============================================================
+
+def verify_services_table():
+    """Verify services table has correct data."""
+    try:
+        response = supabase.table("services").select("id, code, price").execute()
+        services = response.data or []
+        
+        logger.info("=" * 70)
+        logger.info("SERVICES TABLE VERIFICATION")
+        logger.info(f"Found {len(services)} services:")
+        
+        for svc in services:
+            logger.info(f"  {svc.get('id')}: {svc.get('code')} = {svc.get('price')} KES")
+        
+        # Verify expected services exist
+        expected = ["mileage", "valuation", "ownership"]
+        found = [svc.get('code') for svc in services]
+        
+        missing = [e for e in expected if e not in found]
+        if missing:
+            logger.warning(f"⚠️ Missing expected services: {missing}")
+        else:
+            logger.info("✅ All expected services found!")
+        
+        logger.info("=" * 70)
+        
+    except Exception as e:
+        logger.error(f"Failed to verify services table: {e}")
+
+
+# ============================================================
 # MAIN MPESA SERVICE
 # ============================================================
 
@@ -1040,6 +1044,9 @@ class MpesaService:
         logger.info(f"  Environment: {self.auth_service.environment}")
         logger.info(f"  Shortcode: {self.stk_service.shortcode}")
         logger.info(f"  Configured: {self.is_configured()}")
+        
+        # ─── Verify services table ───
+        verify_services_table()
 
     def is_configured(self) -> bool:
         """Check configuration."""
@@ -1081,24 +1088,23 @@ class MpesaService:
             return {"success": False, "error": str(e)}
 
         try:
-            # ─── 2. Get service and price ───
-            service = await self.get_service(request.service_id)
+            # ─── 2. Get service with price ───
+            service = await self.service_repo.get_service_with_price(request.service_id)
             if not service:
-                logger.error(f"Service not found: {request.service_id}")
+                logger.error(f"Service not found or no price: {request.service_id}")
                 return {
                     "success": False,
-                    "error": f"Service '{request.service_id}' not found or inactive"
+                    "error": f"Service '{request.service_id}' not found or not configured with a price"
                 }
 
-            # ─── 3. Get final price (no automatic VAT addition) ───
-            # The price in the services table is the final amount the customer pays
-            amount = float(service.get("price", 0))
+            # ─── 3. Get final price (directly from services table) ───
+            amount = float(service["price"])
             
             if amount <= 0:
                 logger.error(f"Invalid price for service {request.service_id}: {amount}")
                 return {
                     "success": False,
-                    "error": f"Invalid price for service '{request.service_id}'"
+                    "error": f"Service '{request.service_id}' has invalid price: {amount}"
                 }
 
             logger.info(f"Service: {service.get('name')}, Price: {amount} KES")
