@@ -1,9 +1,9 @@
 """
 Auto-D Kenya
 M-Pesa Business Logic - Enterprise Grade v7 (Production Ready)
-FIXED: Uses 'services' table exclusively (no service_prices references)
-FIXED: Backend creates payment records, frontend only reads
-FIXED: Returns success: False when payment fails to save
+FIXED: Uses existing 'payments' and 'service_access' tables
+FIXED: Uses 'services' table for service data
+FIXED: Proper column mappings for all tables
 """
 
 import base64
@@ -52,19 +52,6 @@ class ServiceAccessStatus(str, Enum):
     SUSPENDED = "suspended"
 
 
-class DiscountType(str, Enum):
-    PERCENTAGE = "percentage"
-    FIXED = "fixed"
-
-
-class PricingRuleType(str, Enum):
-    CORPORATE = "corporate"
-    PREMIUM = "premium"
-    WEEKEND = "weekend"
-    BULK = "bulk"
-    PROMOTIONAL = "promotional"
-
-
 # ============================================================
 # PYDANTIC MODELS
 # ============================================================
@@ -105,7 +92,7 @@ class STKPushRequest(BaseModel):
 # ============================================================
 
 class ServiceRepository:
-    """Service database operations using the 'services' table exclusively."""
+    """Service database operations using the 'services' table."""
 
     def __init__(self):
         self._cache = {}
@@ -120,15 +107,11 @@ class ServiceRepository:
     async def get_by_code(self, code: str, include_inactive: bool = False) -> Optional[Dict]:
         """Get service by code from services table."""
         try:
-            code = (code or "").strip().lower()
-            logger.info(f"[ServiceRepository] Looking up service: {code}")
+            code = code.strip().lower()
+            logger.info(f"Looking for service: {code}")
 
-            query = (
-                supabase.table("services")
-                .select("*")
-                .eq("code", code)
-            )
-
+            query = supabase.table("services").select("*").eq("code", code)
+            
             if not include_inactive:
                 query = query.eq("active", True)
 
@@ -137,33 +120,32 @@ class ServiceRepository:
             )
 
             if not response.data:
-                logger.error(f"Service not found: {code}")
+                logger.error(f"Service {code} NOT FOUND")
                 return None
 
             row = response.data[0]
-            logger.info(f"[ServiceRepository] Found service: {row.get('code')} - Price: {row.get('price')}")
+            logger.info(f"Found service: {row.get('code')} | active={row.get('active')} | price={row.get('price')}")
 
             return {
-                "id": row["id"],
-                "code": row["code"],
-                "name": row["name"],
-                "description": row.get("description"),
-                "price": Decimal(str(row["price"])),
-                "base_price": Decimal(str(row.get("base_price", row["price"]))),
+                "id": row.get("id"),
+                "code": row.get("code"),
+                "name": row.get("name"),
+                "price": Decimal(str(row.get("price", 0))),
+                "base_price": Decimal(str(row.get("price", 0))),
                 "currency": row.get("currency", "KES"),
-                "vat_rate": Decimal(str(row.get("vat_rate", 0))),
-                "discount_type": row.get("discount_type"),
-                "discount_value": Decimal(str(row.get("discount_value", 0))),
+                "description": row.get("description", ""),
                 "service_fee": Decimal(str(row.get("service_fee", 0))),
+                "vat_rate": Decimal("0"),
+                "discount_value": Decimal("0"),
+                "discount_type": None,
                 "active": row.get("active", True),
-                "is_active": row.get("is_active", True),
-                "sort_order": row.get("sort_order", 0),
-                "display_order": row.get("display_order", 0),
+                "is_active": row.get("active", True),
                 "version": row.get("version", 1),
+                "display_order": row.get("display_order", 0),
             }
 
         except Exception as e:
-            logger.exception(f"Service lookup failed: {code}")
+            logger.exception(f"Get service error: {code}")
             return None
 
     async def get_all(self, include_inactive: bool = False) -> List[Dict]:
@@ -175,16 +157,30 @@ class ServiceRepository:
                 query = query.eq("active", True)
 
             response = await self._run_sync(
-                lambda: query.order("sort_order").execute()
+                lambda: query.order("display_order").execute()
             )
 
-            services = response.data or []
+            services = []
+            for row in (response.data or []):
+                services.append({
+                    "id": row.get("id"),
+                    "code": row.get("code"),
+                    "name": row.get("name"),
+                    "price": Decimal(str(row.get("price", 0))),
+                    "base_price": Decimal(str(row.get("price", 0))),
+                    "currency": row.get("currency", "KES"),
+                    "description": row.get("description", ""),
+                    "service_fee": Decimal(str(row.get("service_fee", 0))),
+                    "vat_rate": Decimal("0"),
+                    "discount_value": Decimal("0"),
+                    "discount_type": None,
+                    "active": row.get("active", True),
+                    "is_active": row.get("active", True),
+                    "version": row.get("version", 1),
+                    "display_order": row.get("display_order", 0),
+                })
+
             logger.info(f"[ServiceRepository] Loaded {len(services)} services")
-            
-            # Log services for verification
-            for svc in services:
-                logger.info(f"  - {svc.get('code')}: {svc.get('price')} KES")
-            
             return services
 
         except Exception as e:
@@ -279,11 +275,11 @@ class ServiceRepository:
 
 
 # ============================================================
-# PAYMENT REPOSITORY
+# PAYMENT REPOSITORY - Uses 'payments' table
 # ============================================================
 
 class PaymentRepository:
-    """Payment database operations."""
+    """Payment database operations using the 'payments' table."""
 
     async def _run_sync(self, operation):
         """Run a synchronous database operation in a thread pool."""
@@ -295,7 +291,6 @@ class PaymentRepository:
         try:
             logger.info(f"📝 Creating payment: {json.dumps(data, default=str)}")
             
-            # ─── Ensure required fields ───
             if 'id' not in data or not data['id']:
                 data['id'] = str(uuid.uuid4())
             
@@ -1000,7 +995,7 @@ class MpesaCallbackService:
 def verify_services_table():
     """Verify services table has correct data."""
     try:
-        response = supabase.table("services").select("id, code, price").execute()
+        response = supabase.table("services").select("id, code, price, active").execute()
         services = response.data or []
         
         logger.info("=" * 70)
@@ -1008,7 +1003,7 @@ def verify_services_table():
         logger.info(f"Found {len(services)} services:")
         
         for svc in services:
-            logger.info(f"  {svc.get('id')}: {svc.get('code')} = {svc.get('price')} KES")
+            logger.info(f"  {svc.get('id')}: {svc.get('code')} = {svc.get('price')} KES (active: {svc.get('active')})")
         
         # Verify expected services exist
         expected = ["mileage", "valuation", "ownership"]
@@ -1148,7 +1143,6 @@ class MpesaService:
 
             saved = await self.payment_repo.create(payment_data)
             if not saved:
-                # ─── FIX: Return error instead of success ───
                 logger.error(
                     f"❌ Payment record NOT saved for checkout: {checkout_id}. "
                     "Aborting — frontend will be told this failed, even though "
