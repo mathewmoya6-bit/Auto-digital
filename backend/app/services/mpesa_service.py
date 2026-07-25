@@ -1,8 +1,7 @@
 """
 Auto-D Kenya
 M-Pesa Business Logic - Enterprise Grade v6 (Production Ready)
-FIXED: _run_sync() execution order, service lookup, callback columns, service unlocking
-FIXED: Payment record creation now properly saves to database
+FIXED: Payment record creation now properly saves to database with detailed logging
 """
 
 import base64
@@ -324,7 +323,7 @@ class ServiceRepository:
 
 
 class PaymentRepository:
-    """Payment database operations - COMPLETELY FIXED."""
+    """Payment database operations - COMPLETELY FIXED WITH DETAILED LOGGING."""
 
     async def _run_sync(self, operation):
         """Run a synchronous database operation in a thread pool."""
@@ -332,35 +331,46 @@ class PaymentRepository:
         return await loop.run_in_executor(_db_executor, operation)
 
     async def create(self, data: Dict) -> Optional[Dict]:
-        """Create a payment record."""
+        """Create a payment record with detailed logging."""
         try:
-            logger.info(f"📝 PaymentRepository.create called with data: {json.dumps(data, default=str)}")
+            logger.info("=" * 60)
+            logger.info("🔴 PAYMENT REPOSITORY CREATE STARTED")
+            logger.info(f"📝 Data received: {json.dumps(data, default=str)}")
             
-            # ─── FIX: Ensure UUID is valid ───
+            # ─── Ensure UUID is valid ───
             if 'id' not in data or not data['id']:
                 data['id'] = str(uuid.uuid4())
+                logger.info(f"🆕 Generated UUID: {data['id']}")
             
             data['created_at'] = datetime.now(UTC).isoformat()
             data['updated_at'] = datetime.now(UTC).isoformat()
 
-            logger.info(f"📊 Inserting into payments: {json.dumps(data, default=str)}")
+            logger.info(f"📊 Final data for insert: {json.dumps(data, default=str)}")
 
+            # ─── Try the insert ───
+            logger.info("🔄 Executing Supabase insert...")
             response = await self._run_sync(
                 lambda: supabase.table("payments").insert(data).execute()
             )
             
-            logger.info(f"📥 Insert response: {response.data}")
+            logger.info(f"📥 Supabase response: {response}")
+            logger.info(f"📥 Response data: {response.data}")
             
             if response.data:
-                logger.info(f"✅ Payment created with ID: {response.data[0].get('id')}")
+                logger.info(f"✅✅✅ PAYMENT CREATED SUCCESSFULLY!")
+                logger.info(f"   Payment ID: {response.data[0].get('id')}")
+                logger.info("=" * 60)
                 return response.data[0]
             else:
-                logger.error("❌ No data returned from insert - this usually means a database error")
+                logger.error("❌❌❌ NO DATA RETURNED FROM INSERT")
+                logger.error("   This usually means the table doesn't exist or RLS is blocking")
+                logger.info("=" * 60)
                 return None
 
         except Exception as e:
-            logger.exception(f"❌ Create payment error: {e}")
+            logger.exception(f"❌❌❌ CRITICAL: Create payment error: {e}")
             logger.error(f"   Data was: {json.dumps(data, default=str)}")
+            logger.info("=" * 60)
             return None
 
     async def get_by_checkout_id(self, checkout_id: str) -> Optional[Dict]:
@@ -1011,586 +1021,4 @@ class MpesaCallbackService:
 
             if result_code is not None:
                 update_data["result_code"] = str(result_code)
-            if result_desc:
-                update_data["result_desc"] = result_desc
-            if receipt:
-                update_data["mpesa_receipt"] = receipt
-            if paid_amount is not None:
-                update_data["paid_amount"] = float(paid_amount)
-            if paid_phone:
-                update_data["paid_phone"] = paid_phone
-            if transaction_date:
-                update_data["transaction_date"] = transaction_date.isoformat()
-
-            update_data["callback_payload"] = callback_data
-
-            updated = await self.payment_repo.update_with_optimistic_lock(
-                checkout_id=checkout_id,
-                data=update_data,
-                expected_status=PaymentStatus.PENDING.value
-            )
-
-            if not updated:
-                logger.info(f"Payment already processed: {checkout_id}")
-                return True
-
-            if user_id and service_id:
-                try:
-                    unlock_success = await self._unlock_service(user_id, service_id, checkout_id)
-                    if unlock_success:
-                        await EventBus.publish(
-                            EventType.PAYMENT_COMPLETED,
-                            {
-                                "checkout_id": checkout_id,
-                                "user_id": user_id,
-                                "service_id": service_id,
-                                "amount": payment.get("amount"),
-                                "receipt": receipt
-                            }
-                        )
-                        await EventBus.publish(
-                            EventType.SERVICE_UNLOCKED,
-                            {
-                                "user_id": user_id,
-                                "service_id": service_id,
-                                "payment_ref": checkout_id
-                            }
-                        )
-                    else:
-                        logger.error(f"Failed to unlock service {service_id}")
-                        await self.payment_repo.create_failed_event(
-                            event_type="service_unlock_failed",
-                            payload={
-                                "user_id": user_id,
-                                "service_id": service_id,
-                                "payment_ref": checkout_id
-                            },
-                            error="Service unlock failed after successful payment"
-                        )
-                except Exception as e:
-                    logger.exception(f"Unlock service error: {service_id}")
-                    await self.payment_repo.create_failed_event(
-                        event_type="service_unlock_error",
-                        payload={
-                            "user_id": user_id,
-                            "service_id": service_id,
-                            "payment_ref": checkout_id
-                        },
-                        error=str(e)
-                    )
-
-            try:
-                await self._create_audit_log(
-                    payment_id=payment.get("id"),
-                    action="payment_completed",
-                    old_status=payment.get("status"),
-                    new_status=PaymentStatus.COMPLETED.value,
-                    payload=update_data
-                )
-            except Exception as e:
-                logger.warning(f"Audit log failed: {e}")
-
-            if user_id and service_id:
-                try:
-                    await self._create_notification(user_id, service_id)
-                except Exception as e:
-                    logger.warning(f"Notification failed: {e}")
-
-            logger.info(f"Payment completed: {checkout_id}")
-            return True
-
-        except Exception as e:
-            logger.exception("Success handler error")
-            return False
-
-    async def _handle_failure(
-        self,
-        checkout_id: str,
-        result_code: int,
-        result_desc: str,
-        callback_data: Dict
-    ) -> bool:
-        """Handle failed payment."""
-        try:
-            update_data = {
-                "status": PaymentStatus.FAILED.value,
-                "updated_at": datetime.now(UTC).isoformat(),
-            }
-
-            if result_code is not None:
-                update_data["result_code"] = str(result_code)
-            if result_desc:
-                update_data["result_desc"] = result_desc
-
-            update_data["callback_payload"] = callback_data
-
-            updated = await self.payment_repo.update_with_optimistic_lock(
-                checkout_id=checkout_id,
-                data=update_data,
-                expected_status=PaymentStatus.PENDING.value
-            )
-
-            if updated:
-                try:
-                    await self._create_audit_log(
-                        payment_id=updated.get("id"),
-                        action="payment_failed",
-                        old_status=None,
-                        new_status=PaymentStatus.FAILED.value,
-                        payload=update_data
-                    )
-                except Exception as e:
-                    logger.warning(f"Audit log failed: {e}")
-
-            await EventBus.publish(
-                EventType.PAYMENT_FAILED,
-                {"checkout_id": checkout_id, "reason": result_desc}
-            )
-
-            logger.warning(f"Payment failed: {result_code} - {result_desc}")
-            return True
-
-        except Exception as e:
-            logger.exception("Failure handler error")
-            return False
-
-    async def _unlock_service(self, user_id: str, service_id: str, payment_ref: str) -> bool:
-        """Unlock service for user."""
-        try:
-            existing = await self.payment_repo.get_service_access(user_id, service_id)
-            if existing:
-                logger.info(f"Service already unlocked: {service_id}")
-                return True
-
-            expires_at = datetime.now(UTC) + timedelta(days=self.service_access_days)
-
-            data = {
-                "user_id": user_id,
-                "service_id": service_id,
-                "status": ServiceAccessStatus.ACTIVE.value,
-                "expires_at": expires_at.isoformat(),
-                "payment_ref": payment_ref
-            }
-
-            result = await self.payment_repo.create_service_access(data)
-            if result:
-                logger.info(f"Service unlocked: {service_id} for {user_id}")
-                return True
-            else:
-                logger.error(f"Failed to unlock service: {service_id}")
-                return False
-
-        except Exception as e:
-            logger.exception(f"Unlock error: {service_id}")
-            return False
-
-    async def _create_notification(self, user_id: str, service_id: str) -> bool:
-        """Create notification (best effort)."""
-        try:
-            service = await self.service_repo.get_by_code(service_id)
-            service_name = service.get('name', service_id) if service else service_id
-
-            data = {
-                "user_id": user_id,
-                "message": f"🎉 {service_name} has been unlocked!",
-                "type": "service",
-                "read": False
-            }
-            return await self.payment_repo.create_notification(data)
-
-        except Exception as e:
-            logger.warning(f"Notification failed: {e}")
-            return False
-
-    async def _create_audit_log(
-        self,
-        payment_id: Optional[str],
-        action: str,
-        old_status: Optional[str],
-        new_status: Optional[str],
-        payload: Dict
-    ) -> bool:
-        """Create audit log (best effort)."""
-        try:
-            data = {
-                "payment_id": payment_id,
-                "action": action,
-                "old_status": old_status,
-                "new_status": new_status,
-                "payload": payload
-            }
-            return await self.payment_repo.create_audit_log(data)
-
-        except Exception as e:
-            logger.warning(f"Audit log failed: {e}")
-            return False
-
-
-# ============================================================
-# MAIN MPESA SERVICE
-# ============================================================
-
-class MpesaService:
-    """Main M-Pesa service orchestrator."""
-
-    def __init__(self):
-        self.service_repo = ServiceRepository()
-        self.payment_repo = PaymentRepository()
-        self.pricing_engine = PricingEngine(self.service_repo)
-        self.auth_service = MpesaAuthService()
-        self.stk_service = MpesaSTKService(self.auth_service, self.pricing_engine)
-        self.callback_service = MpesaCallbackService(self.payment_repo, self.service_repo)
-
-        logger.info("M-Pesa Service initialized (Enterprise Grade v6)")
-        logger.info(f"  Environment: {self.auth_service.environment}")
-        logger.info(f"  Shortcode: {self.stk_service.shortcode}")
-        logger.info(f"  Configured: {self.is_configured()}")
-
-    def is_configured(self) -> bool:
-        """Check configuration."""
-        return all([
-            settings.MPESA_CONSUMER_KEY,
-            settings.MPESA_CONSUMER_SECRET,
-            settings.MPESA_SHORTCODE,
-            settings.MPESA_PASSKEY,
-            settings.CALLBACK_BASE_URL
-        ])
-
-    async def initiate_stk_push(
-        self,
-        phone: str,
-        service_id: str,
-        description: Optional[str] = None,
-        user_id: Optional[str] = None,
-        corporate_id: Optional[str] = None
-    ) -> Dict:
-        """Initiate STK Push - NO AMOUNT FROM FRONTEND."""
-        try:
-            request = STKPushRequest(
-                phone=phone,
-                service_id=service_id,
-                description=description,
-                user_id=user_id,
-                corporate_id=corporate_id
-            )
-        except ValueError as e:
-            logger.error(f"Validation error: {e}")
-            return {"success": False, "error": str(e)}
-
-        logger.info(f"Initiating STK Push for service: {request.service_id}")
-
-        pricing = await self.pricing_engine.calculate_price(
-            service_id=request.service_id,
-            user_id=request.user_id,
-            corporate_id=request.corporate_id
-        )
-
-        if not pricing:
-            return {
-                "success": False,
-                "error": f"Service '{request.service_id}' not found or inactive"
-            }
-
-        logger.info(f"Total price: {pricing.total} {pricing.currency}")
-
-        response = await self.stk_service.initiate_stk_push(request)
-
-        # ─── FIX: Always create payment record if STK push was successful ───
-        if response.success and response.checkout_request_id:
-            payment_data = {
-                "user_id": request.user_id,
-                "service_id": request.service_id,
-                "service_name": pricing.breakdown.get("service_name", request.service_id),
-                "amount": float(pricing.total),
-                "phone": request.phone,
-                "checkout_request_id": response.checkout_request_id,
-                "status": PaymentStatus.PENDING.value,
-                "pricing_version": pricing.pricing_version,
-                "pricing_snapshot": pricing.breakdown
-            }
-
-            logger.info(f"📝 Creating payment record: {json.dumps(payment_data, default=str)}")
-            
-            saved = await self.payment_repo.create(payment_data)
-            if saved:
-                logger.info(f"✅ Payment record saved: {response.checkout_request_id}")
-                logger.info(f"   Payment ID: {saved.get('id')}")
-            else:
-                logger.error(f"❌ Payment record NOT saved for checkout: {response.checkout_request_id}")
-                # Don't return error - STK push was already sent
-        else:
-            logger.warning(f"STK Push failed or no checkout ID: {response.error}")
-
-        return {
-            "success": response.success,
-            "checkout_request_id": response.checkout_request_id,
-            "customer_message": response.customer_message,
-            "response_description": response.response_description,
-            "error": response.error,
-            "service_name": pricing.breakdown.get("service_name", request.service_id),
-            "amount": float(pricing.total),
-            "pricing_breakdown": pricing.breakdown
-        }
-
-    async def process_callback(self, callback_data: Dict) -> bool:
-        """Process M-Pesa callback."""
-        return await self.callback_service.process_callback(callback_data)
-
-    async def get_payment_status(self, checkout_request_id: str) -> Dict:
-        """Get payment status."""
-        try:
-            payment = await self.payment_repo.get_by_checkout_id(checkout_request_id)
-
-            if not payment:
-                return {"success": False, "error": "Payment not found"}
-
-            return {
-                "success": True,
-                "checkout_request_id": payment["checkout_request_id"],
-                "status": payment["status"],
-                "amount": payment["amount"],
-                "service_id": payment.get("service_id"),
-                "service_name": payment.get("service_name"),
-                "created_at": payment["created_at"],
-                "updated_at": payment.get("updated_at"),
-                "mpesa_receipt": payment.get("mpesa_receipt"),
-                "pricing_version": payment.get("pricing_version"),
-                "pricing_snapshot": payment.get("pricing_snapshot")
-            }
-
-        except Exception as e:
-            logger.exception("Get payment status error")
-            return {"success": False, "error": str(e)}
-
-    async def confirm_payment_manually(self, checkout_request_id: str, user_id: str) -> Dict:
-        """Manually confirm a payment."""
-        try:
-            logger.info(f"🔄 Manual confirm: {checkout_request_id} for user: {user_id}")
-            
-            payment = await self.payment_repo.get_by_checkout_id(checkout_request_id)
-
-            if not payment:
-                logger.error(f"❌ Payment not found: {checkout_request_id}")
-                return {"success": False, "error": "Payment not found"}
-
-            if payment.get("user_id") != user_id:
-                logger.error(f"❌ Payment does not belong to user: {user_id}")
-                return {"success": False, "error": "Payment does not belong to this user"}
-
-            if payment.get("status") == PaymentStatus.COMPLETED.value:
-                logger.info(f"✅ Payment already completed: {checkout_request_id}")
-                service_id = payment.get("service_id")
-                if service_id:
-                    await self.callback_service._unlock_service(user_id, service_id, checkout_request_id)
-                return {"success": True, "message": "Already confirmed", "already_completed": True}
-
-            service_id = payment.get("service_id")
-            if not service_id:
-                logger.error(f"❌ Service ID not found in payment")
-                return {"success": False, "error": "Service ID not found"}
-
-            logger.info(f"📝 Updating payment status to COMPLETED")
-            
-            update_data = {
-                "status": PaymentStatus.COMPLETED.value,
-                "updated_at": datetime.now(UTC).isoformat(),
-                "result_code": "0",
-                "result_desc": "Confirmed manually"
-            }
-
-            updated = await self.payment_repo.update_with_optimistic_lock(
-                checkout_id=checkout_request_id,
-                data=update_data,
-                expected_status=PaymentStatus.PENDING.value
-            )
-
-            if not updated:
-                logger.error(f"❌ Payment was already processed")
-                return {"success": False, "error": "Payment was already processed"}
-
-            logger.info(f"✅ Payment updated, unlocking service...")
-            
-            unlock_success = await self.callback_service._unlock_service(
-                user_id, service_id, checkout_request_id
-            )
-
-            if unlock_success:
-                logger.info(f"✅ Service unlocked: {service_id}")
-                await self.callback_service._create_notification(user_id, service_id)
-                await self.callback_service._create_audit_log(
-                    payment_id=payment.get("id"),
-                    action="manual_confirm",
-                    old_status=payment.get("status"),
-                    new_status=PaymentStatus.COMPLETED.value,
-                    payload=update_data
-                )
-
-                return {
-                    "success": True, 
-                    "message": "Payment confirmed and service unlocked",
-                    "service_id": service_id
-                }
-            else:
-                logger.error(f"❌ Failed to unlock service: {service_id}")
-                return {"success": False, "error": "Failed to unlock service"}
-
-        except Exception as e:
-            logger.exception("Manual confirm error")
-            return {"success": False, "error": str(e)}
-
-    async def get_user_services(self, user_id: str) -> List[Dict]:
-        """Get unlocked services for a user."""
-        try:
-            records = await self.payment_repo.get_user_services(user_id)
-
-            services = []
-            for item in records:
-                service_id = item.get("service_id")
-                expires_at = item.get("expires_at")
-
-                if expires_at and datetime.fromisoformat(expires_at) < datetime.now(UTC):
-                    continue
-
-                service = await self.service_repo.get_by_code(service_id)
-                service_name = service.get('name', service_id) if service else service_id
-
-                services.append({
-                    "service_id": service_id,
-                    "service_name": service_name,
-                    "status": ServiceAccessStatus.ACTIVE.value,
-                    "expires_at": expires_at,
-                    "unlocked_at": item.get("created_at")
-                })
-
-            return services
-
-        except Exception as e:
-            logger.exception("Get user services error")
-            return []
-
-    async def check_service_access(self, user_id: str, service_id: str) -> Dict:
-        """Check if a user has access to a service."""
-        try:
-            access = await self.payment_repo.get_service_access(user_id, service_id)
-            has_access = access is not None
-
-            if has_access and access.get("expires_at"):
-                if datetime.fromisoformat(access["expires_at"]) < datetime.now(UTC):
-                    has_access = False
-
-            service = await self.service_repo.get_by_code(service_id)
-            service_name = service.get('name', service_id) if service else service_id
-
-            return {
-                "service_id": service_id,
-                "unlocked": has_access,
-                "service_name": service_name
-            }
-
-        except Exception as e:
-            logger.exception("Check service access error")
-            return {"service_id": service_id, "unlocked": False, "service_name": service_id}
-
-    async def get_payment_history(self, user_id: str, limit: int = 50) -> List[Dict]:
-        """Get payment history."""
-        return await self.payment_repo.get_history(user_id, limit)
-
-    async def get_all_services(self, include_inactive: bool = False) -> List[Dict]:
-        """Get all available services from database."""
-        return await self.service_repo.get_all(include_inactive)
-
-    # ─── Admin API ───
-
-    async def admin_create_service(self, data: Dict) -> Optional[Dict]:
-        """Admin: Create a new service."""
-        return await self.service_repo.create(data)
-
-    async def admin_update_service(
-        self,
-        service_id: str,
-        data: Dict,
-        changed_by: str,
-        reason: str = None
-    ) -> Optional[Dict]:
-        """Admin: Update a service with price history."""
-        try:
-            current = await self.service_repo.get_by_code(service_id, include_inactive=True)
-            if not current:
-                return None
-
-            updated = await self.service_repo.update(service_id, data)
-            if updated:
-                if 'base_price' in data:
-                    await self.payment_repo.create_price_history({
-                        "service_id": current.get("id"),
-                        "old_price": current.get("base_price"),
-                        "new_price": data["base_price"],
-                        "changed_by": changed_by,
-                        "reason": reason or data.get("reason", "Price update")
-                    })
-
-                await self.payment_repo.create_audit_log({
-                    "payment_id": None,
-                    "action": "service_updated",
-                    "old_status": None,
-                    "new_status": None,
-                    "payload": {
-                        "service_id": service_id,
-                        "changes": data,
-                        "changed_by": changed_by,
-                        "reason": reason
-                    }
-                })
-
-            return updated
-
-        except Exception as e:
-            logger.exception("Admin update service error")
-            return None
-
-    async def admin_delete_service(self, service_id: str, deleted_by: str) -> bool:
-        """Admin: Delete/Deactivate a service."""
-        return await self.service_repo.soft_delete(service_id, deleted_by)
-
-    async def admin_restore_service(self, service_id: str) -> bool:
-        """Admin: Restore a soft-deleted service."""
-        return await self.service_repo.restore(service_id)
-
-    async def admin_get_service(self, service_id: str) -> Optional[Dict]:
-        """Admin: Get a service (including inactive)."""
-        return await self.service_repo.get_by_code(service_id, include_inactive=True)
-
-    async def admin_get_all_services(self) -> List[Dict]:
-        """Admin: Get all services including inactive."""
-        return await self.service_repo.get_all(include_inactive=True)
-
-    async def admin_get_price_history(self, service_id: str) -> List[Dict]:
-        """Admin: Get price history for a service."""
-        try:
-            service = await self.service_repo.get_by_code(service_id, include_inactive=True)
-            if not service:
-                return []
-
-            response = await self.payment_repo._run_sync(
-                lambda: supabase.table("service_price_history")
-                .select("*")
-                .eq("service_id", service.get("id"))
-                .order("created_at", desc=True)
-                .execute()
-            )
-            return response.data or []
-
-        except Exception as e:
-            logger.exception("Get price history error")
-            return []
-
-    async def expire_stale_payments(self, minutes: int = 30) -> int:
-        """Expire stale pending payments."""
-        return await self.payment_repo.expire_stale_payments(minutes)
-
-
-# ============================================================
-# SINGLE INSTANCE
-# ============================================================
-
-mpesa_service = MpesaService()
+            if result
