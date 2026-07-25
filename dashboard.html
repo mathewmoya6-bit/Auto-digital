@@ -1152,7 +1152,7 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (BACKEND HANDLES PAYMENT INSERT)
+        // AUTO-D KENYA - DASHBOARD (ALIGNED WITH BACKEND)
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1974,7 +1974,7 @@
             };
 
             // ============================================================
-            // PAYMENT - BACKEND HANDLES PAYMENT INSERT
+            // PAYMENT - COMPLETE ALIGNED WITH BACKEND
             // ============================================================
 
             // ─── Open Payment Modal ───
@@ -2038,6 +2038,75 @@
                 if (phoneWrapper) phoneWrapper.classList.remove('error');
             };
 
+            // ─── Sync a completed payment/request into Supabase so the
+            //     dashboard doesn't keep showing "pending" after unlock ───
+            async function syncPaymentAndRequestStatus(checkoutId, serviceId) {
+                if (!supabaseClient || !currentUser) return;
+                try {
+                    if (checkoutId) {
+                        await supabaseClient
+                            .from('payments')
+                            .update({ status: 'completed' })
+                            .eq('checkout_request_id', checkoutId)
+                            .eq('user_id', currentUser.id);
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Could not sync payment status:', e.message);
+                }
+                try {
+                    if (serviceId) {
+                        await supabaseClient
+                            .from('requests')
+                            .update({ status: 'paid' })
+                            .eq('user_id', currentUser.id)
+                            .eq('service_id', serviceId)
+                            .eq('status', 'pending');
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Could not sync request status:', e.message);
+                }
+            }
+
+            // ─── Silently try to confirm/unlock in the background. Returns true
+            //     if it succeeded (and already ran confirmAndUnlock's full success
+            //     flow), false if it didn't — in which case normal polling / the
+            //     manual fallback button takes over with no visible disruption. ───
+            async function trySilentConfirm(checkoutId, serviceId) {
+                if (unlockInFlight) return false;
+                try {
+                    const token = await getAuthToken();
+                    if (!token) return false;
+
+                    const response = await fetch(`${API_BASE}/mpesa/confirm/${checkoutId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    if (!response.ok) return false;
+                    const data = await response.json().catch(() => ({}));
+
+                    const confirmSucceeded = isTruthyFlag(data?.success) ||
+                        normalizeStatus(data?.status) === 'success' ||
+                        normalizeStatus(data?.status) === 'completed' ||
+                        normalizeStatus(data?.status) === 'paid' ||
+                        isTruthyFlag(data?.unlocked) ||
+                        isTruthyFlag(data?.has_access);
+
+                    if (confirmSucceeded) {
+                        console.log('✅ Silent auto-confirm succeeded');
+                        await window.confirmAndUnlock(checkoutId, serviceId);
+                        return true;
+                    }
+                    return false;
+                } catch (e) {
+                    console.warn('Silent confirm attempt failed (will keep polling normally):', e.message);
+                    return false;
+                }
+            }
+
             // ─── Confirm Payment and Unlock Service ───
             window.confirmAndUnlock = async function(checkoutId, serviceId) {
                 if (unlockInFlight) {
@@ -2088,11 +2157,11 @@
                         normalizeStatus(data?.status) === 'completed' ||
                         normalizeStatus(data?.status) === 'paid' ||
                         isTruthyFlag(data?.unlocked) ||
-                        isTruthyFlag(data?.has_access) ||
-                        data?.already_completed === true
+                        isTruthyFlag(data?.has_access)
                     );
 
-                    if (confirmSucceeded || data?.already_completed === true) {
+                    if (confirmSucceeded) {
+                        // ─── Success! Mark service as purchased ───
                         if (dashboardData && dashboardData.services) {
                             const svc = dashboardData.services.find(s => s.id === serviceId);
                             if (svc) {
@@ -2101,20 +2170,7 @@
                             }
                         }
 
-                        // ─── FIX: Don't insert payment here - backend already did it ───
-                        // Only sync the request status
-                        try {
-                            if (serviceId) {
-                                await supabaseClient
-                                    .from('requests')
-                                    .update({ status: 'paid' })
-                                    .eq('user_id', currentUser.id)
-                                    .eq('service_id', serviceId)
-                                    .eq('status', 'pending');
-                            }
-                        } catch (e) {
-                            console.warn('⚠️ Could not sync request status:', e.message);
-                        }
+                        await syncPaymentAndRequestStatus(checkoutId, serviceId);
 
                         if (overlay) {
                             if (spinner) spinner.style.display = 'none';
@@ -2132,6 +2188,7 @@
                         }, 1500);
 
                     } else {
+                        // ─── Check if service is already unlocked ───
                         const hasAccess = await checkServiceAccess(serviceId);
                         if (hasAccess) {
                             if (dashboardData && dashboardData.services) {
@@ -2141,6 +2198,7 @@
                                     svc.status = 'active';
                                 }
                             }
+                            await syncPaymentAndRequestStatus(checkoutId, serviceId);
                             if (overlay) {
                                 document.getElementById('paymentStatusText').textContent = '✅ Service Already Unlocked!';
                                 document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
@@ -2218,6 +2276,7 @@
                                 svc.status = 'active';
                             }
                         }
+                        await syncPaymentAndRequestStatus(checkoutRequestId, serviceId);
                         showToast('✅ Service is unlocked!', 'success');
                         updateWorkflowStep(4);
                         
@@ -2242,19 +2301,6 @@
                 const phoneEl = document.getElementById('mpesaPhone');
                 const payBtn = document.getElementById('payNowBtn');
                 const phoneWrapper = document.getElementById('phoneInputWrapper');
-
-                // ─── FIX: Check authentication first ───
-                if (!currentUser || !currentUser.id) {
-                    showToast('⚠️ Please log in first', 'error');
-                    await checkAuth();
-                    if (!currentUser || !currentUser.id) {
-                        showToast('⚠️ Session expired. Please log in again.', 'error');
-                        setTimeout(() => {
-                            window.location.href = 'https://auto-d.meipressgroup.com/';
-                        }, 1500);
-                        return;
-                    }
-                }
 
                 let rawPhone = phoneEl ? phoneEl.value.trim() : '';
                 console.log('Raw phone input:', rawPhone);
@@ -2285,6 +2331,7 @@
                     console.log('After removing leading 0:', phone);
                 }
 
+                // ─── Validate: exactly 9 digits, starts with 7 or 11 ───
                 if (!/^(7\d{8}|11\d{7})$/.test(phone)) {
                     const errorMsg = phone.length > 0 
                         ? `Invalid number: "${rawPhone}". Please enter a Safaricom number starting with 07 or 011 (e.g., 0712345678 or 0110000000)`
@@ -2304,7 +2351,6 @@
                 const formattedPhone = phone;
                 console.log('Phone for API (9 digits):', formattedPhone);
 
-                // ─── FIX: Check if selectedService exists ───
                 if (!selectedService) {
                     showToast('No service selected', 'error');
                     return;
@@ -2313,19 +2359,7 @@
                 if (isProcessingPayment) return;
 
                 const token = await requireAuthToken();
-                if (!token) {
-                    showToast('⚠️ Please log in first', 'error');
-                    return;
-                }
-
-                const userId = currentUser?.id;
-                if (!userId) {
-                    showToast('⚠️ User ID not found. Please log in again.', 'error');
-                    setTimeout(() => {
-                        window.location.href = 'https://auto-d.meipressgroup.com/';
-                    }, 1500);
-                    return;
-                }
+                if (!token) return;
 
                 isProcessingPayment = true;
                 confirmAttempted = false;
@@ -2355,7 +2389,7 @@
                     phone: formattedPhone,
                     service_id: selectedService.id,
                     description: buildDescription(selectedService.name),
-                    user_id: userId
+                    user_id: currentUser.id
                 };
                 
                 console.log('📤 Sending request:', requestBody);
@@ -2393,13 +2427,22 @@
 
                     const checkoutId = data.checkout_request_id || data.checkoutRequestID;
                     checkoutRequestId = checkoutId;
-                    
-                    // ─── FIX: Use pendingServiceRedirect or selectedService.id ───
+                    // Capture the target service now, before any modal/state resets can happen.
                     const targetServiceId = pendingServiceRedirect || selectedService.id;
 
-                    // ─── FIX: Payment record is created by the backend ───
-                    // The backend already created the payment record in initiate_stk_push()
-                    console.log(`✅ Payment initiated with checkout_id: ${checkoutId} for service: ${targetServiceId}`);
+                    // NOTE: We intentionally do NOT insert a `payments` row here.
+                    // The backend's /mpesa/stkpush handler already creates the
+                    // authoritative payment record server-side (see
+                    // MpesaService.initiate_stk_push -> payment_repo.create()).
+                    // A second insert from the frontend using the anon key was
+                    // redundant, could conflict with the backend's row on the
+                    // checkout_request_id, and its failures were being silently
+                    // swallowed (or, after a recent change, wrongly treated as
+                    // fatal) even when the backend's own record was fine.
+                    // If the backend ever reports success but genuinely failed to
+                    // save the record, that's a backend-side bug to fix there,
+                    // not something the frontend should compensate for by writing
+                    // its own duplicate row.
 
                     if (overlay) {
                         document.getElementById('paymentStatusText').textContent = '📱 STK Push Sent!';
@@ -2489,6 +2532,19 @@
 
                             if (statusResponse.status === 404) {
                                 console.log(`⏳ Status check #${pollingAttempts}: Still processing...`);
+
+                                // ─── After a handful of 404s, try one silent confirm ───
+                                // /confirm may do a live lookup even when /status has no cached
+                                // record yet. If it succeeds, the user never has to click anything.
+                                if (pollingAttempts === 8 && !confirmAttempted && !unlockInFlight) {
+                                    console.log('🔄 Attempting silent auto-confirm...');
+                                    const unlockedSilently = await trySilentConfirm(checkoutId, targetServiceId);
+                                    if (unlockedSilently) {
+                                        clearInterval(pollTimer);
+                                        pollTimer = null;
+                                        return;
+                                    }
+                                }
                                 
                                 if (pollingAttempts > 10 && !confirmAttempted) {
                                     confirmAttempted = true;
@@ -2583,10 +2639,15 @@
                 }
             };
 
-            // ─── Legacy Manual Unlock ───
+            // ─── Legacy Manual Unlock (kept for compatibility) ───
             window.manualUnlock = async function(checkoutId, serviceId) {
                 await window.confirmAndUnlock(checkoutId, serviceId);
             };
+
+            async function unlockServiceViaConfirm(checkoutId, serviceId) {
+                // This is now handled by confirmAndUnlock
+                return await window.confirmAndUnlock(checkoutId, serviceId);
+            }
 
             async function checkServiceAccess(serviceId) {
                 try {
