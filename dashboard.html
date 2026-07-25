@@ -1146,7 +1146,7 @@
     <script>
         // ════════════════════════════════════════════════════════════════
         // AUTO-D KENYA - DASHBOARD
-        // FIX: Hardcoded services since Supabase query returns empty
+        // FIX: Correct payment flow - unlock ONLY after backend confirms SUCCESS
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1177,8 +1177,7 @@
                 'ownership': '📊'
             };
 
-            // ─── FIX: Hardcoded services with correct prices ───
-            // These match your services table: id, code, name, price
+            // ─── Hardcoded services ───────────────────────────────────
             const DEFAULT_SERVICES = [
                 { id: 'mileage', code: 'mileage', name: 'Mileage Calculator', price: 100, icon: '📈', route: '/mileage.html', purchased: false, status: 'locked' },
                 { id: 'valuation', code: 'valuation', name: 'Instant Vehicle Value', price: 150, icon: '💰', route: '/instant-value.html', purchased: false, status: 'locked' },
@@ -1195,10 +1194,8 @@
             let pendingServiceRedirect = null;
             let pendingRequestId = null;
             let pollTimer = null;
-            let confirmAttempted = false;
-            let pollingAttempts = 0;
-            let unlockInFlight = false;
-            const MAX_POLLING_ATTEMPTS = 30;
+            let isWaitingForPayment = false;
+            const MAX_POLLING_ATTEMPTS = 60; // 60 * 2s = 2 minutes max
 
             // ─── DOM Refs ──────────────────────────────────────────────
             const vehicleGrid = document.getElementById('vehicleGrid');
@@ -1377,7 +1374,6 @@
                         localStorage.setItem('auto_d_user', JSON.stringify(userData));
                         updateUserUI();
 
-                        // Verify with backend
                         try {
                             const meResp = await fetch(`${API_BASE}/auth/me`, {
                                 headers: { 'Authorization': `Bearer ${session.access_token}` }
@@ -1469,12 +1465,300 @@
             };
 
             // ============================================================
-            // LOAD DASHBOARD - Uses hardcoded services
+            // PAYMENT STATUS POLLING - CORRECT FLOW
+            // ============================================================
+
+            async function waitForPayment(checkoutId, serviceId, maxAttempts = MAX_POLLING_ATTEMPTS) {
+                const overlay = document.getElementById('paymentOverlay');
+                const spinner = document.getElementById('paymentSpinner');
+                const statusText = document.getElementById('paymentStatusText');
+                const statusDetail = document.getElementById('paymentStatusDetail');
+
+                let attempts = 0;
+                let isComplete = false;
+
+                return new Promise((resolve) => {
+                    if (pollTimer) {
+                        clearInterval(pollTimer);
+                        pollTimer = null;
+                    }
+
+                    pollTimer = setInterval(async () => {
+                        attempts++;
+
+                        try {
+                            // Update status message
+                            if (statusText) {
+                                statusText.textContent = '⏳ Waiting for M-Pesa confirmation...';
+                            }
+                            if (statusDetail) {
+                                statusDetail.textContent = `Please check your phone and enter your M-Pesa PIN. (${Math.round(attempts * 2)}s)`;
+                            }
+
+                            // ─── POLL PAYMENT STATUS ───
+                            const pollToken = await getAuthToken();
+                            const headers = { 'Accept': 'application/json' };
+                            if (pollToken) {
+                                headers['Authorization'] = `Bearer ${pollToken}`;
+                            }
+
+                            const statusResponse = await fetch(`${API_BASE}/mpesa/status/${checkoutId}`, {
+                                headers: headers
+                            });
+
+                            if (!statusResponse.ok) {
+                                if (statusResponse.status === 404) {
+                                    // Still processing - continue polling
+                                    if (attempts > 20 && !isComplete) {
+                                        // Show "still waiting" message after 40 seconds
+                                        if (statusDetail) {
+                                            statusDetail.innerHTML = `
+                                                <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
+                                                    <p style="font-size:14px;color:var(--text-secondary);">
+                                                        Still waiting for payment confirmation...
+                                                    </p>
+                                                    <p style="font-size:12px;color:var(--text-muted);">
+                                                        Did you enter your PIN on your phone?
+                                                    </p>
+                                                    <button onclick="window.retryPaymentConfirmation('${checkoutId}', '${serviceId}')" 
+                                                            style="padding:10px 20px;background:var(--primary);color:#0f172a;border:none;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;width:100%;">
+                                                        🔄 I've Entered My PIN
+                                                    </button>
+                                                </div>
+                                            `;
+                                        }
+                                    }
+                                    return;
+                                }
+                                console.warn('Status check error:', statusResponse.status);
+                                return;
+                            }
+
+                            const statusData = await statusResponse.json();
+                            const normalized = normalizeStatus(statusData.status);
+
+                            // ─── CHECK STATUS ───
+                            if (normalized === 'completed' || normalized === 'success' || normalized === 'paid' || 
+                                normalized === 'complete' || isTruthyFlag(statusData.success)) {
+                                // ─── SUCCESS! ───
+                                isComplete = true;
+                                clearInterval(pollTimer);
+                                pollTimer = null;
+
+                                if (statusText) {
+                                    statusText.innerHTML = '✅ Payment Successful! 🎉';
+                                }
+                                if (statusDetail) {
+                                    statusDetail.textContent = 'Unlocking your service now...';
+                                }
+                                if (spinner) {
+                                    spinner.style.display = 'none';
+                                }
+
+                                showToast('✅ Payment received successfully!', 'success');
+
+                                // ─── UNLOCK SERVICE ───
+                                await unlockServiceAfterPayment(checkoutId, serviceId);
+                                resolve(true);
+                                return;
+
+                            } else if (normalized === 'failed' || normalized === 'error' || normalized === 'cancelled' || 
+                                       normalized === 'canceled' || normalized === 'timeout') {
+                                // ─── FAILURE ───
+                                isComplete = true;
+                                clearInterval(pollTimer);
+                                pollTimer = null;
+
+                                if (statusText) {
+                                    statusText.textContent = '❌ Payment Failed';
+                                }
+                                if (statusDetail) {
+                                    statusDetail.textContent = statusData.description || statusData.message || 'Please try again.';
+                                }
+                                if (spinner) {
+                                    spinner.style.display = 'none';
+                                }
+
+                                showToast('❌ Payment failed: ' + (statusData.description || 'Please try again'), 'error');
+                                resolve(false);
+                                return;
+                            }
+
+                            // ─── TIMEOUT ───
+                            if (attempts >= maxAttempts) {
+                                isComplete = true;
+                                clearInterval(pollTimer);
+                                pollTimer = null;
+
+                                if (statusText) {
+                                    statusText.textContent = '⏰ Payment Timeout';
+                                }
+                                if (statusDetail) {
+                                    statusDetail.innerHTML = `
+                                        <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
+                                            <p style="font-size:14px;color:var(--text-secondary);">
+                                                Payment confirmation timed out.
+                                            </p>
+                                            <p style="font-size:12px;color:var(--text-muted);">
+                                                If you've already paid, click below to confirm.
+                                            </p>
+                                            <button onclick="window.manualConfirmPayment('${checkoutId}', '${serviceId}')" 
+                                                    style="padding:12px 24px;background:var(--success);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;width:100%;">
+                                                ✅ I've Completed Payment
+                                            </button>
+                                        </div>
+                                    `;
+                                }
+                                if (spinner) {
+                                    spinner.style.display = 'none';
+                                }
+
+                                showToast('⏰ Payment confirmation timed out. Please check your M-Pesa.', 'warning');
+                                resolve(false);
+                                return;
+                            }
+
+                        } catch (pollError) {
+                            console.warn('Polling error:', pollError);
+                            if (attempts >= maxAttempts) {
+                                clearInterval(pollTimer);
+                                pollTimer = null;
+                                resolve(false);
+                            }
+                        }
+                    }, 2000); // Poll every 2 seconds
+                });
+            }
+
+            // ─── UNLOCK SERVICE - ONLY CALLED AFTER SUCCESSFUL PAYMENT ───
+            async function unlockServiceAfterPayment(checkoutId, serviceId) {
+                try {
+                    const token = await getAuthToken();
+                    if (!token) {
+                        showToast('⚠️ Authentication error. Please log in again.', 'error');
+                        return;
+                    }
+
+                    // ─── CONFIRM PAYMENT WITH BACKEND ───
+                    const response = await fetch(`${API_BASE}/mpesa/confirm/${checkoutId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    const data = await response.json();
+                    console.log('📥 Confirm response:', data);
+
+                    if (response.ok && (isTruthyFlag(data.success) || data.status === 'completed')) {
+                        // ─── UPDATE LOCAL STATE ───
+                        if (dashboardData && dashboardData.services) {
+                            const svc = dashboardData.services.find(s => s.id === serviceId);
+                            if (svc) {
+                                svc.purchased = true;
+                                svc.status = 'active';
+                            }
+                        }
+
+                        // ─── UPDATE UI ───
+                        renderServices(dashboardData.services || []);
+
+                        const overlay = document.getElementById('paymentOverlay');
+                        const statusText = document.getElementById('paymentStatusText');
+                        const statusDetail = document.getElementById('paymentStatusDetail');
+                        const spinner = document.getElementById('paymentSpinner');
+
+                        if (overlay) {
+                            if (spinner) spinner.style.display = 'none';
+                            if (statusText) statusText.innerHTML = '✅ Service Unlocked! 🎉';
+                            if (statusDetail) statusDetail.textContent = 'Opening service now...';
+                        }
+
+                        showToast(`✅ ${selectedService?.name || 'Service'} unlocked successfully!`, 'success');
+                        updateWorkflowStep(4);
+
+                        // ─── CLOSE AND REDIRECT ───
+                        setTimeout(() => {
+                            if (overlay) overlay.classList.remove('open');
+                            closePaymentModal();
+                            if (serviceId) {
+                                redirectToService(serviceId);
+                            }
+                        }, 1500);
+                    } else {
+                        showToast('⚠️ Payment confirmed but service unlock failed. Please contact support.', 'warning');
+                        const overlay = document.getElementById('paymentOverlay');
+                        if (overlay) overlay.classList.remove('open');
+                        closePaymentModal();
+                    }
+                } catch (error) {
+                    console.error('Unlock error:', error);
+                    showToast('❌ Error unlocking service: ' + error.message, 'error');
+                    const overlay = document.getElementById('paymentOverlay');
+                    if (overlay) overlay.classList.remove('open');
+                    closePaymentModal();
+                }
+            }
+
+            // ─── MANUAL CONFIRM (fallback) ───
+            window.manualConfirmPayment = async function(checkoutId, serviceId) {
+                const overlay = document.getElementById('paymentOverlay');
+                const statusText = document.getElementById('paymentStatusText');
+                const statusDetail = document.getElementById('paymentStatusDetail');
+                const spinner = document.getElementById('paymentSpinner');
+
+                if (statusText) statusText.textContent = '⏳ Confirming payment...';
+                if (statusDetail) statusDetail.textContent = 'Please wait...';
+                if (spinner) spinner.style.display = 'block';
+
+                await unlockServiceAfterPayment(checkoutId, serviceId);
+            };
+
+            window.retryPaymentConfirmation = async function(checkoutId, serviceId) {
+                const overlay = document.getElementById('paymentOverlay');
+                const statusText = document.getElementById('paymentStatusText');
+                const statusDetail = document.getElementById('paymentStatusDetail');
+                const spinner = document.getElementById('paymentSpinner');
+
+                if (statusText) statusText.textContent = '⏳ Retrying confirmation...';
+                if (statusDetail) statusDetail.textContent = 'Checking payment status...';
+                if (spinner) spinner.style.display = 'block';
+
+                // Restart polling with a fresh check
+                if (pollTimer) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+
+                const result = await waitForPayment(checkoutId, serviceId, 20); // 20 more attempts
+                if (!result) {
+                    // If still not successful, show manual confirm button again
+                    if (statusText) statusText.textContent = '⏳ Still waiting...';
+                    if (statusDetail) {
+                        statusDetail.innerHTML = `
+                            <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
+                                <p style="font-size:14px;color:var(--text-secondary);">
+                                    Still waiting for confirmation.
+                                </p>
+                                <button onclick="window.manualConfirmPayment('${checkoutId}', '${serviceId}')" 
+                                        style="padding:12px 24px;background:var(--success);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;width:100%;">
+                                    ✅ I've Completed Payment
+                                </button>
+                            </div>
+                        `;
+                    }
+                    if (spinner) spinner.style.display = 'none';
+                }
+            };
+
+            // ============================================================
+            // LOAD DASHBOARD
             // ============================================================
 
             async function loadDashboard() {
                 try {
-                    // Show loading states
                     if (vehicleGrid) {
                         vehicleGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
                     }
@@ -1482,7 +1766,7 @@
                         servicesGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
                     }
 
-                    // ─── 1. Use hardcoded services (matching your DB) ───
+                    // ─── 1. Use hardcoded services ───
                     let services = DEFAULT_SERVICES.map(s => ({ ...s }));
                     console.log('📋 Using hardcoded services:', services);
 
@@ -1985,7 +2269,7 @@
             };
 
             // ============================================================
-            // PAYMENT FUNCTIONS
+            // PAYMENT FUNCTIONS - CORRECT FLOW
             // ============================================================
 
             window.openPaymentModal = function(service) {
@@ -2019,8 +2303,7 @@
                 pendingServiceRedirect = null;
                 pendingRequestId = null;
                 isProcessingPayment = false;
-                confirmAttempted = false;
-                pollingAttempts = 0;
+                isWaitingForPayment = false;
                 if (pollTimer) {
                     clearInterval(pollTimer);
                     pollTimer = null;
@@ -2086,10 +2369,13 @@
 
                 const overlay = document.getElementById('paymentOverlay');
                 const spinner = document.getElementById('paymentSpinner');
+                const statusText = document.getElementById('paymentStatusText');
+                const statusDetail = document.getElementById('paymentStatusDetail');
+
                 if (overlay) {
                     if (spinner) spinner.style.display = 'block';
-                    document.getElementById('paymentStatusText').textContent = 'Initiating M-Pesa payment...';
-                    document.getElementById('paymentStatusDetail').textContent = 'Please wait...';
+                    if (statusText) statusText.textContent = 'Initiating M-Pesa payment...';
+                    if (statusDetail) statusDetail.textContent = 'Please wait...';
                     overlay.classList.add('open');
                 }
 
@@ -2118,8 +2404,8 @@
                         const errorMsg = data.detail || data.error || data.message || 'Payment initiation failed';
                         showToast('❌ ' + errorMsg, 'error');
                         if (overlay) {
-                            document.getElementById('paymentStatusText').textContent = '❌ Payment Failed';
-                            document.getElementById('paymentStatusDetail').textContent = errorMsg;
+                            if (statusText) statusText.textContent = '❌ Payment Failed';
+                            if (statusDetail) statusDetail.textContent = errorMsg;
                             if (spinner) spinner.style.display = 'none';
                         }
                         setTimeout(() => {
@@ -2134,101 +2420,30 @@
                     const targetServiceId = pendingServiceRedirect || selectedService.id;
 
                     if (overlay) {
-                        document.getElementById('paymentStatusText').textContent = '📱 STK Push Sent!';
-                        document.getElementById('paymentStatusDetail').textContent = 'Please check your phone and enter your M-Pesa PIN.';
+                        if (statusText) statusText.textContent = '📱 STK Push Sent!';
+                        if (statusDetail) statusDetail.textContent = 'Please check your phone and enter your M-Pesa PIN.';
                     }
                     showToast('📱 STK Push sent! Check your phone.', 'info');
 
-                    if (pollTimer) clearInterval(pollTimer);
-                    pollingAttempts = 0;
-                    
-                    pollTimer = setInterval(async () => {
-                        pollingAttempts++;
-                        
-                        if (pollingAttempts > MAX_POLLING_ATTEMPTS) {
-                            clearInterval(pollTimer);
-                            pollTimer = null;
-                            if (overlay && !confirmAttempted) {
-                                confirmAttempted = true;
-                                document.getElementById('paymentStatusText').textContent = '⏰ Timeout';
-                                document.getElementById('paymentStatusDetail').innerHTML = `
-                                    <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
-                                        <p>If you've already paid, click below.</p>
-                                        <button onclick="window.confirmAndUnlock('${checkoutId}', '${targetServiceId}')" 
-                                                style="padding:14px 28px;background:var(--primary);color:#0f172a;border:none;border-radius:10px;font-weight:700;font-size:16px;cursor:pointer;width:100%;">
-                                            ✅ I've Completed Payment
-                                        </button>
-                                    </div>
-                                `;
-                                if (spinner) spinner.style.display = 'none';
-                            }
-                            return;
+                    // ─── CORRECT: Wait for payment confirmation ───
+                    isWaitingForPayment = true;
+                    const paymentSuccess = await waitForPayment(checkoutId, targetServiceId);
+
+                    if (!paymentSuccess) {
+                        // Payment failed or timed out - user will see appropriate message
+                        if (payBtn) {
+                            payBtn.disabled = false;
+                            payBtn.textContent = '💳 Pay Now';
                         }
-
-                        try {
-                            const pollToken = await getAuthToken();
-                            const headers = { 'Accept': 'application/json' };
-                            if (pollToken) headers['Authorization'] = `Bearer ${pollToken}`;
-                            
-                            const statusResponse = await fetch(`${API_BASE}/mpesa/status/${checkoutId}`, {
-                                headers: headers
-                            });
-
-                            if (!statusResponse.ok) {
-                                if (statusResponse.status === 404) {
-                                    if (pollingAttempts > 10 && !confirmAttempted) {
-                                        confirmAttempted = true;
-                                        if (overlay) {
-                                            document.getElementById('paymentStatusText').textContent = '⏳ Waiting for confirmation';
-                                            document.getElementById('paymentStatusDetail').innerHTML = `
-                                                <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
-                                                    <button onclick="window.confirmAndUnlock('${checkoutId}', '${targetServiceId}')" 
-                                                            style="padding:14px 28px;background:var(--success);color:#000;border:none;border-radius:10px;font-weight:700;font-size:16px;cursor:pointer;width:100%;">
-                                                        ✅ I've Completed Payment
-                                                    </button>
-                                                </div>
-                                            `;
-                                            if (spinner) spinner.style.display = 'none';
-                                        }
-                                    }
-                                    return;
-                                }
-                                return;
-                            }
-
-                            const statusData = await statusResponse.json();
-                            const normalized = normalizeStatus(statusData.status);
-                            
-                            if (['success', 'completed', 'paid'].includes(normalized) || isTruthyFlag(statusData.success)) {
-                                clearInterval(pollTimer);
-                                pollTimer = null;
-                                await window.confirmAndUnlock(checkoutId, targetServiceId);
-                                return;
-                            } else if (['failed', 'error', 'cancelled'].includes(normalized)) {
-                                clearInterval(pollTimer);
-                                pollTimer = null;
-                                if (overlay) {
-                                    document.getElementById('paymentStatusText').textContent = '❌ Payment Failed';
-                                    document.getElementById('paymentStatusDetail').textContent = 'Please try again.';
-                                    if (spinner) spinner.style.display = 'none';
-                                }
-                                showToast('❌ Payment failed. Please try again.', 'error');
-                                setTimeout(() => {
-                                    if (overlay) overlay.classList.remove('open');
-                                    closePaymentModal();
-                                }, 2000);
-                                return;
-                            }
-                        } catch (pollError) {
-                            console.warn('Polling error:', pollError);
-                        }
-                    }, 2000);
+                        isProcessingPayment = false;
+                        isWaitingForPayment = false;
+                    }
 
                 } catch (error) {
                     console.error('Payment error:', error);
                     if (overlay) {
-                        document.getElementById('paymentStatusText').textContent = '❌ Payment Error';
-                        document.getElementById('paymentStatusDetail').textContent = error.message || 'Please try again.';
+                        if (statusText) statusText.textContent = '❌ Payment Error';
+                        if (statusDetail) statusDetail.textContent = error.message || 'Please try again.';
                         if (spinner) spinner.style.display = 'none';
                     }
                     showToast('❌ Payment error: ' + error.message, 'error');
@@ -2242,87 +2457,6 @@
                         payBtn.disabled = false;
                         payBtn.textContent = '💳 Pay Now';
                     }
-                }
-            };
-
-            window.confirmAndUnlock = async function(checkoutId, serviceId) {
-                if (unlockInFlight) return;
-                unlockInFlight = true;
-
-                const overlay = document.getElementById('paymentOverlay');
-                const spinner = document.getElementById('paymentSpinner');
-                
-                try {
-                    if (overlay) {
-                        if (spinner) spinner.style.display = 'block';
-                        document.getElementById('paymentStatusText').textContent = 'Confirming payment...';
-                        document.getElementById('paymentStatusDetail').textContent = 'Please wait...';
-                    }
-
-                    const token = await getAuthToken();
-                    if (!token) {
-                        showToast('⚠️ Authentication error.', 'error');
-                        if (overlay) overlay.classList.remove('open');
-                        return;
-                    }
-
-                    const response = await fetch(`${API_BASE}/mpesa/confirm/${checkoutId}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        }
-                    });
-
-                    const data = await response.json();
-
-                    if (response.ok && (isTruthyFlag(data.success) || data.status === 'completed')) {
-                        if (dashboardData?.services) {
-                            const svc = dashboardData.services.find(s => s.id === serviceId);
-                            if (svc) {
-                                svc.purchased = true;
-                                svc.status = 'active';
-                            }
-                        }
-
-                        if (overlay) {
-                            if (spinner) spinner.style.display = 'none';
-                            document.getElementById('paymentStatusText').innerHTML = '✅ Service Unlocked! 🎉';
-                            document.getElementById('paymentStatusDetail').textContent = 'Opening service now...';
-                        }
-                        
-                        showToast(`✅ ${selectedService?.name || 'Service'} unlocked!`, 'success');
-                        updateWorkflowStep(4);
-
-                        setTimeout(() => {
-                            if (overlay) overlay.classList.remove('open');
-                            closePaymentModal();
-                            redirectToService(serviceId);
-                        }, 1500);
-                    } else {
-                        if (overlay) {
-                            document.getElementById('paymentStatusText').textContent = '⚠️ Payment Pending';
-                            document.getElementById('paymentStatusDetail').innerHTML = `
-                                <div style="display:flex;flex-direction:column;gap:12px;align-items:center;">
-                                    <button onclick="window.confirmAndUnlock('${checkoutId}', '${serviceId}')" 
-                                            style="padding:14px 28px;background:var(--primary);color:#0f172a;border:none;border-radius:10px;font-weight:700;font-size:16px;cursor:pointer;">
-                                        🔄 Retry
-                                    </button>
-                                </div>
-                            `;
-                            if (spinner) spinner.style.display = 'none';
-                        }
-                    }
-                } catch (error) {
-                    console.error('Confirm error:', error);
-                    if (overlay) {
-                        document.getElementById('paymentStatusText').textContent = '❌ Error';
-                        document.getElementById('paymentStatusDetail').textContent = 'Please try again.';
-                        if (spinner) spinner.style.display = 'none';
-                    }
-                } finally {
-                    unlockInFlight = false;
                 }
             };
 
@@ -2499,6 +2633,7 @@
                 console.log('🚗 Auto-D Kenya Dashboard');
                 console.log('📋 Using hardcoded services: mileage=100, valuation=150, ownership=200');
                 console.log('🔗 API Base:', API_BASE);
+                console.log('✅ Payment flow: UNLOCK ONLY after backend confirms SUCCESS');
 
                 initSupabase();
 
