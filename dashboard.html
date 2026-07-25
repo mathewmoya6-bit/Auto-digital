@@ -1145,8 +1145,8 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (Fully aligned with backend API)
-        // FIX: Services loaded from Supabase 'services' table directly
+        // AUTO-D KENYA - DASHBOARD
+        // FIX: Hardcoded services since Supabase query returns empty
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1176,6 +1176,14 @@
                 'valuation': '💰',
                 'ownership': '📊'
             };
+
+            // ─── FIX: Hardcoded services with correct prices ───
+            // These match your services table: id, code, name, price
+            const DEFAULT_SERVICES = [
+                { id: 'mileage', code: 'mileage', name: 'Mileage Calculator', price: 100, icon: '📈', route: '/mileage.html', purchased: false, status: 'locked' },
+                { id: 'valuation', code: 'valuation', name: 'Instant Vehicle Value', price: 150, icon: '💰', route: '/instant-value.html', purchased: false, status: 'locked' },
+                { id: 'ownership', code: 'ownership', name: 'Ownership Cost Report', price: 200, icon: '📊', route: '/ownership-cost.html', purchased: false, status: 'locked' }
+            ];
 
             // ─── State ──────────────────────────────────────────────────
             let currentUser = null;
@@ -1461,7 +1469,7 @@
             };
 
             // ============================================================
-            // LOAD DASHBOARD - Services from Supabase 'services' table
+            // LOAD DASHBOARD - Uses hardcoded services
             // ============================================================
 
             async function loadDashboard() {
@@ -1474,39 +1482,9 @@
                         servicesGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
                     }
 
-                    // ─── 1. Fetch services from Supabase 'services' table ───
-                    let services = [];
-                    try {
-                        const servicesData = await supabaseRequest('services', 'id, code, name, price, currency, active');
-                        console.log('📋 Services from Supabase:', servicesData);
-                        
-                        if (servicesData && servicesData.length > 0) {
-                            services = servicesData
-                                .filter(s => s.active !== false)
-                                .map(s => ({
-                                    id: s.code,
-                                    code: s.code,
-                                    name: s.name || SERVICE_NAMES[s.code] || s.code,
-                                    price: parseFloat(s.price) || 0,
-                                    icon: SERVICE_ICONS[s.code] || '📦',
-                                    route: SERVICE_ROUTES[s.code],
-                                    purchased: false,
-                                    status: 'locked'
-                                }));
-                        }
-                    } catch (e) {
-                        console.warn('Could not fetch services from Supabase:', e.message);
-                    }
-
-                    // ─── If no services found, use defaults ───
-                    if (services.length === 0) {
-                        console.log('⚠️ No services found, using defaults');
-                        services = [
-                            { id: 'mileage', code: 'mileage', name: 'Mileage Calculator', price: 100, icon: '📈', route: '/mileage.html', purchased: false, status: 'locked' },
-                            { id: 'valuation', code: 'valuation', name: 'Instant Vehicle Value', price: 150, icon: '💰', route: '/instant-value.html', purchased: false, status: 'locked' },
-                            { id: 'ownership', code: 'ownership', name: 'Ownership Cost Report', price: 200, icon: '📊', route: '/ownership-cost.html', purchased: false, status: 'locked' }
-                        ];
-                    }
+                    // ─── 1. Use hardcoded services (matching your DB) ───
+                    let services = DEFAULT_SERVICES.map(s => ({ ...s }));
+                    console.log('📋 Using hardcoded services:', services);
 
                     // ─── 2. Fetch vehicles ───
                     let vehicles = [];
@@ -1547,6 +1525,7 @@
                             if (userSvcResp.ok) {
                                 const userSvcJson = await userSvcResp.json();
                                 unlockedServiceIds = (userSvcJson.services || []).map(s => s.service_id);
+                                console.log('🔓 Unlocked services from backend:', unlockedServiceIds);
                             }
                         }
                     } catch (e) {
@@ -1583,7 +1562,7 @@
                         status: unlockedSet.has(s.id) ? 'active' : 'locked'
                     }));
 
-                    console.log('✅ Services loaded:', services);
+                    console.log('✅ Final services:', services);
 
                     const pendingRequests = requests ? requests.filter(r => r.status === 'pending' || r.status === 'paid').length : 0;
 
@@ -2518,7 +2497,7 @@
 
             (async function() {
                 console.log('🚗 Auto-D Kenya Dashboard');
-                console.log('📋 Loading services from Supabase "services" table');
+                console.log('📋 Using hardcoded services: mileage=100, valuation=150, ownership=200');
                 console.log('🔗 API Base:', API_BASE);
 
                 initSupabase();
