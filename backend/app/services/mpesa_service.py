@@ -1,6 +1,9 @@
 """
 M-Pesa Service - Enterprise Grade
+3 Services: mileage (100), valuation (150), ownership (200)
+ALL FIXES APPLIED
 """
+
 import base64
 import json
 import logging
@@ -29,7 +32,7 @@ class PaymentStatus(str, Enum):
 
 class STKPushRequest(BaseModel):
     phone: str
-    service_id: str  # CODE from frontend (e.g., "mileage")
+    service_id: str
     description: Optional[str] = None
     user_id: Optional[str] = None
     request_id: Optional[str] = None
@@ -62,7 +65,7 @@ class ServiceRepository:
         return await loop.run_in_executor(_db_executor, operation)
 
     async def get_by_code(self, code: str) -> Optional[Dict]:
-        """Get service by code (e.g., 'mileage') from services table."""
+        """Get service by code (e.g., 'mileage')."""
         try:
             code = code.strip().lower()
             logger.info(f"🔍 [SERVICE] Looking up by code: '{code}'")
@@ -78,7 +81,6 @@ class ServiceRepository:
 
             if not response.data:
                 logger.warning(f"❌ [SERVICE] Not found by code: '{code}'")
-                # Log all available services for debugging
                 all_services = await self._run_sync(
                     lambda: supabase.table("services")
                     .select("id, code, name, price, active")
@@ -91,7 +93,7 @@ class ServiceRepository:
             logger.info(f"✅ [SERVICE] Found by code: {row.get('code')} (id={row.get('id')}) = {row.get('price')} KES")
             
             return {
-                "id": row.get("id"),           # INTEGER
+                "id": row.get("id"),
                 "code": row.get("code"),
                 "name": row.get("name"),
                 "price": Decimal(str(row.get("price", 0))),
@@ -104,9 +106,8 @@ class ServiceRepository:
             raise
 
     async def get_by_id(self, service_id: int) -> Optional[Dict]:
-        """Get service by integer ID from services table."""
+        """Get service by integer ID."""
         try:
-            # FIX 5: Verify service_id is integer
             if not isinstance(service_id, int):
                 raise ValueError(f"service_id must be int, got {type(service_id)}: {service_id}")
             
@@ -166,28 +167,12 @@ class ServiceRepository:
 class PaymentRepository:
     """Payment database operations."""
     
-    # FIX 4: Allowed columns for payments table
     ALLOWED_PAYMENT_COLUMNS: Set[str] = {
-        "id",
-        "user_id",
-        "request_id",
-        "service_id",
-        "service_name",
-        "amount",
-        "currency",
-        "phone",
-        "checkout_request_id",
-        "merchant_request_id",
-        "status",
-        "result_code",
-        "result_desc",
-        "mpesa_receipt",
-        "paid_amount",
-        "paid_phone",
-        "transaction_date",
-        "callback_payload",
-        "created_at",
-        "updated_at",
+        "id", "user_id", "request_id", "service_id", "service_name",
+        "amount", "currency", "phone", "checkout_request_id",
+        "merchant_request_id", "status", "result_code", "result_desc",
+        "mpesa_receipt", "paid_amount", "paid_phone", "transaction_date",
+        "callback_payload", "created_at", "updated_at",
     }
     
     async def _run_sync(self, operation):
@@ -195,20 +180,12 @@ class PaymentRepository:
         return await loop.run_in_executor(_db_executor, operation)
 
     async def create(self, data: Dict) -> Dict:
-        """
-        Create a payment record with validation.
-        FIX 2: Raise exceptions instead of returning None
-        FIX 3: Log exact data before insert
-        FIX 4: Validate columns
-        FIX 7: Return inserted row with proper error handling
-        """
+        """Create a payment record with validation."""
         try:
-            # FIX 4: Validate columns
             invalid = set(data.keys()) - self.ALLOWED_PAYMENT_COLUMNS
             if invalid:
                 raise ValueError(f"Unknown columns for payments table: {invalid}")
             
-            # FIX 3: Log exact data before insert
             logger.info("📝 [PAYMENT] Data being inserted:")
             logger.info(json.dumps(data, default=str, indent=2))
             
@@ -221,7 +198,6 @@ class PaymentRepository:
                 lambda: supabase.table("payments").insert(data).execute()
             )
             
-            # FIX 7: Return inserted row with proper error handling
             if not response.data:
                 raise Exception("Insert succeeded but no data returned")
             
@@ -255,10 +231,7 @@ class PaymentRepository:
             raise
 
     async def update_with_lock(self, checkout_id: str, data: Dict, expected_status: str = "pending") -> Optional[Dict]:
-        """
-        Update payment with optimistic locking.
-        FIX 9: Improved callback locking with idempotency
-        """
+        """Update payment with optimistic locking."""
         try:
             logger.info(f"🔄 [PAYMENT] Updating {checkout_id} with lock (expected: {expected_status})")
             data['updated_at'] = datetime.now(UTC).isoformat()
@@ -298,9 +271,8 @@ class PaymentRepository:
             raise
 
     async def create_service_access(self, data: Dict) -> Dict:
-        """Create service access record with INTEGER service_id."""
+        """Create service access record."""
         try:
-            # FIX 10: Check existing before insert
             user_id = data.get("user_id")
             service_id = data.get("service_id")
             
@@ -403,7 +375,6 @@ class MpesaAuthService:
         self._lock = asyncio.Lock()
 
     async def get_access_token(self) -> str:
-        """Get access token with caching."""
         async with self._lock:
             if self._cached_token and self._token_expiry and datetime.now(UTC) < self._token_expiry:
                 logger.debug("🔑 Using cached token")
@@ -443,7 +414,6 @@ class MpesaSTKService:
         self.base_url = "https://api.safaricom.co.ke" if settings.MPESA_ENV == "production" else "https://sandbox.safaricom.co.ke"
 
     async def initiate(self, phone: str, amount: float, account_ref: str, desc: str) -> Dict:
-        """Initiate STK Push - returns raw Safaricom response."""
         try:
             logger.info(f"📱 [STK] Initiating: amount={amount}, ref={account_ref}")
             
@@ -491,7 +461,6 @@ class MpesaSTKService:
 
 class MpesaService:
     def __init__(self):
-        # FIX 12: Verify all required settings on startup
         self._verify_settings()
         
         self.service_repo = ServiceRepository()
@@ -504,11 +473,9 @@ class MpesaService:
         logger.info(f"   Environment: {settings.MPESA_ENV}")
         logger.info(f"   Shortcode: {settings.MPESA_SHORTCODE}")
         
-        # FIX 11: Fail fast if no services
         self._verify_services_sync()
 
     def _verify_settings(self):
-        """FIX 12: Verify all required settings on startup."""
         required = {
             "MPESA_CONSUMER_KEY": settings.MPESA_CONSUMER_KEY,
             "MPESA_CONSUMER_SECRET": settings.MPESA_CONSUMER_SECRET,
@@ -526,7 +493,6 @@ class MpesaService:
         logger.info("✅ All required settings verified")
 
     def _verify_services_sync(self):
-        """FIX 11: Fail fast if no services."""
         try:
             response = supabase.table("services").select("id, code, name, price, active").execute()
             services = response.data or []
@@ -538,7 +504,6 @@ class MpesaService:
             for s in services:
                 logger.info(f"   ✅ {s.get('id')}: {s.get('code')} = {s.get('price')} KES")
                 
-            # Verify expected services exist
             expected = ["mileage", "valuation", "ownership"]
             found = [s.get('code') for s in services]
             missing = [e for e in expected if e not in found]
@@ -550,15 +515,12 @@ class MpesaService:
             raise
 
     async def get_services(self) -> List[Dict]:
-        """Get all active services."""
         return await self.service_repo.get_all()
 
     async def get_service_by_code(self, service_code: str) -> Optional[Dict]:
-        """Get a single service by code."""
         return await self.service_repo.get_by_code(service_code)
 
     async def get_service_by_id(self, service_id: int) -> Optional[Dict]:
-        """Get a single service by ID."""
         return await self.service_repo.get_by_id(service_id)
 
     async def initiate_payment(
@@ -569,9 +531,7 @@ class MpesaService:
         user_id: Optional[str] = None, 
         request_id: Optional[str] = None
     ) -> Dict:
-        """Initiate an STK Push payment."""
         try:
-            # ─── Step 1: Validate request ───
             request = STKPushRequest(
                 phone=phone,
                 service_id=service_code,
@@ -587,15 +547,13 @@ class MpesaService:
             logger.info(f"   User: {request.user_id}")
             logger.info(f"   Request: {request.request_id}")
 
-            # ─── Step 2: Get service by CODE ───
             service = await self.service_repo.get_by_code(request.service_id)
             if not service:
                 raise Exception(f"Service '{request.service_id}' not found")
 
-            service_id = service.get("id")  # INTEGER
+            service_id = service.get("id")
             amount = float(service["price"])
             
-            # FIX 5 & 6: Verify service_id is integer and service exists
             if not isinstance(service_id, int):
                 raise ValueError(f"service_id must be int, got {type(service_id)}")
             
@@ -604,7 +562,6 @@ class MpesaService:
             
             logger.info(f"✅ Service found: {service.get('name')} (ID: {service_id}) = {amount} KES")
 
-            # ─── Step 3: Send STK Push ───
             stk_result = await self.stk_service.initiate(
                 phone=request.phone,
                 amount=amount,
@@ -615,11 +572,9 @@ class MpesaService:
             checkout_id = stk_result.get("checkout_request_id")
             logger.info(f"✅ STK Push sent: {checkout_id}")
 
-            # ─── Step 4: Create payment record ───
-            # FIX 1: Removed pricing_version (not in schema)
             payment_data = {
                 "user_id": request.user_id,
-                "service_id": service_id,           # INTEGER
+                "service_id": service_id,
                 "service_name": service.get("name"),
                 "amount": amount,
                 "currency": service.get("currency", "KES"),
@@ -648,7 +603,6 @@ class MpesaService:
             return {"success": False, "error": str(e)}
 
     async def process_callback(self, callback_data: Dict) -> bool:
-        """Process M-Pesa callback."""
         try:
             logger.info("=" * 60)
             logger.info("📞 [CALLBACK] Received")
@@ -665,7 +619,6 @@ class MpesaService:
             if not checkout_id:
                 raise Exception("No CheckoutRequestID in callback")
 
-            # ─── Step 5: Get payment ───
             payment = await self.payment_repo.get_by_checkout_id(checkout_id)
             if not payment:
                 raise Exception(f"Payment not found for checkout_id: {checkout_id}")
@@ -673,7 +626,6 @@ class MpesaService:
             logger.info(f"   Payment ID: {payment.get('id')}")
             logger.info(f"   Current Status: {payment.get('status')}")
 
-            # ─── FIX 9: Idempotency check ───
             if payment.get("status") == PaymentStatus.COMPLETED.value:
                 logger.info(f"✅ Payment already completed: {checkout_id}")
                 return True
@@ -688,11 +640,9 @@ class MpesaService:
             return False
 
     async def _handle_success(self, payment: Dict, checkout_id: str, stk: Dict) -> bool:
-        """Handle successful payment."""
         try:
             logger.info("✅ [CALLBACK] Processing success")
             
-            # ─── Step 6: Extract metadata ───
             metadata = stk.get("CallbackMetadata", {}).get("Item", [])
             meta = {item.get("Name"): item.get("Value") for item in metadata}
 
@@ -704,7 +654,6 @@ class MpesaService:
             logger.info(f"   Amount: {amount}")
             logger.info(f"   Phone: {phone}")
 
-            # ─── FIX 8: Save callback data ───
             update_data = {
                 "status": PaymentStatus.COMPLETED.value,
                 "updated_at": datetime.now(UTC).isoformat(),
@@ -714,10 +663,9 @@ class MpesaService:
                 "result_code": "0",
                 "result_desc": "Payment successful",
                 "transaction_date": datetime.now(UTC).isoformat(),
-                "callback_payload": stk,  # FIX 8: Save the full callback
+                "callback_payload": stk,
             }
 
-            # ─── Step 7: Update with optimistic lock ───
             updated = await self.payment_repo.update_with_lock(checkout_id, update_data)
             if not updated:
                 logger.warning(f"⚠️ Payment already processed: {checkout_id}")
@@ -725,18 +673,15 @@ class MpesaService:
 
             logger.info(f"✅ Payment updated: {checkout_id}")
 
-            # ─── Step 8: Unlock service ───
             user_id = payment.get("user_id")
-            service_id = payment.get("service_id")  # INTEGER
+            service_id = payment.get("service_id")
 
             if user_id and service_id:
                 try:
-                    # FIX 6: Verify service exists
                     service = await self.service_repo.get_by_id(service_id)
                     if not service:
                         raise Exception(f"Service with ID {service_id} not found")
                     
-                    # FIX 10: Check existing access before insert
                     expires_at = datetime.now(UTC) + timedelta(days=365)
                     await self.payment_repo.create_service_access({
                         "user_id": user_id,
@@ -750,7 +695,6 @@ class MpesaService:
                 except Exception as e:
                     logger.error(f"❌ Failed to unlock service: {e}")
 
-            # ─── Step 9: Update request status ───
             request_id = payment.get("request_id")
             if request_id:
                 try:
@@ -767,7 +711,6 @@ class MpesaService:
             return False
 
     async def _handle_failure(self, checkout_id: str, result_code: str, result_desc: str) -> bool:
-        """Handle failed payment."""
         try:
             logger.warning(f"❌ [CALLBACK] Processing failure: {result_code} - {result_desc}")
             
@@ -792,13 +735,11 @@ class MpesaService:
             return False
 
     async def get_payment_status(self, checkout_id: str) -> Dict:
-        """Get payment status."""
         try:
             payment = await self.payment_repo.get_by_checkout_id(checkout_id)
             if not payment:
                 return {"success": False, "error": "Payment not found"}
             
-            # FIX 15: Convert ID back to code for frontend
             service_id = payment.get("service_id")
             service_code = None
             if service_id:
@@ -811,7 +752,7 @@ class MpesaService:
                 "checkout_request_id": payment.get("checkout_request_id"),
                 "status": payment.get("status"),
                 "amount": payment.get("amount"),
-                "service_id": service_code,  # Return code to frontend
+                "service_id": service_code,
                 "service_name": payment.get("service_name"),
                 "mpesa_receipt": payment.get("mpesa_receipt"),
                 "created_at": payment.get("created_at"),
@@ -822,18 +763,16 @@ class MpesaService:
             return {"success": False, "error": str(e)}
 
     async def get_user_services(self, user_id: str) -> List[Dict]:
-        """Get unlocked services for a user."""
         try:
             records = await self.payment_repo.get_user_service_access(user_id)
             services = []
             
             for record in records:
-                service_id = record.get("service_id")  # INTEGER
+                service_id = record.get("service_id")
                 service = await self.service_repo.get_by_id(service_id)
                 if service:
-                    # FIX 15: Return code to frontend
                     services.append({
-                        "service_id": service.get("code"),  # Convert to code
+                        "service_id": service.get("code"),
                         "service_name": service.get("name"),
                         "status": record.get("status"),
                         "expires_at": record.get("expires_at"),
@@ -846,9 +785,7 @@ class MpesaService:
             return []
 
     async def check_service_access(self, user_id: str, service_code: str) -> Dict:
-        """Check if user has access to a service by code."""
         try:
-            # FIX 15: Convert code → ID
             service = await self.service_repo.get_by_code(service_code)
             if not service:
                 return {
@@ -857,12 +794,12 @@ class MpesaService:
                     "error": "Service not found"
                 }
             
-            service_id = service.get("id")  # INTEGER
+            service_id = service.get("id")
             access = await self.payment_repo.check_service_access_by_id(user_id, service_id)
             
             if access:
                 return {
-                    "service_id": service_code,  # Return code to frontend
+                    "service_id": service_code,
                     "unlocked": True,
                     "status": access.get("status"),
                     "expires_at": access.get("expires_at"),
@@ -878,11 +815,9 @@ class MpesaService:
             return {"service_id": service_code, "unlocked": False, "error": str(e)}
 
     async def get_payment_history(self, user_id: str) -> List[Dict]:
-        """Get user's payment history."""
         try:
             payments = await self.payment_repo.get_user_payments(user_id)
             
-            # FIX 15: Convert ID → code for frontend
             for payment in payments:
                 service_id = payment.get("service_id")
                 if service_id:
@@ -897,20 +832,15 @@ class MpesaService:
             return []
 
     # ─── Admin Methods ───
-    # FIX: All admin methods use INTEGER service_id
 
     async def admin_get_service(self, service_id: int) -> Optional[Dict]:
-        """Admin: Get a service by ID."""
         return await self.service_repo.get_by_id(service_id)
 
     async def admin_get_all_services(self, include_inactive: bool = False) -> List[Dict]:
-        """Admin: Get all services."""
         return await self.service_repo.get_all(include_inactive)
 
     async def admin_update_service(self, service_id: int, data: Dict, changed_by: str) -> Optional[Dict]:
-        """Admin: Update a service by INTEGER ID."""
         try:
-            # Verify service exists using ID
             current = await self.service_repo.get_by_id(service_id)
             if not current:
                 logger.error(f"Service with ID {service_id} not found")
@@ -920,4 +850,101 @@ class MpesaService:
             
             response = await self.service_repo._run_sync(
                 lambda: supabase.table("services")
-               
+                .update(data)
+                .eq("id", service_id)
+                .execute()
+            )
+            
+            if response.data:
+                logger.info(f"✅ Service {service_id} updated by {changed_by}")
+                return response.data[0]
+            return None
+
+        except Exception as e:
+            logger.exception(f"❌ Admin update service error: {service_id}")
+            return None
+
+    async def admin_delete_service(self, service_id: int, deleted_by: str) -> bool:
+        try:
+            data = {
+                "active": False,
+                "deleted_at": datetime.now(UTC).isoformat(),
+                "deleted_by": deleted_by
+            }
+            response = await self.service_repo._run_sync(
+                lambda: supabase.table("services")
+                .update(data)
+                .eq("id", service_id)
+                .execute()
+            )
+            if response.data:
+                logger.info(f"🗑️ Service {service_id} deleted by {deleted_by}")
+                return True
+            return False
+
+        except Exception as e:
+            logger.exception(f"❌ Admin delete service error: {service_id}")
+            return False
+
+    async def admin_restore_service(self, service_id: int) -> bool:
+        try:
+            data = {
+                "active": True,
+                "deleted_at": None,
+                "deleted_by": None
+            }
+            response = await self.service_repo._run_sync(
+                lambda: supabase.table("services")
+                .update(data)
+                .eq("id", service_id)
+                .execute()
+            )
+            return bool(response.data)
+
+        except Exception as e:
+            logger.exception(f"❌ Admin restore service error: {service_id}")
+            return False
+
+    async def admin_get_price_history(self, service_id: int) -> List[Dict]:
+        try:
+            service = await self.service_repo.get_by_id(service_id)
+            if not service:
+                return []
+
+            response = await self.service_repo._run_sync(
+                lambda: supabase.table("service_price_history")
+                .select("*")
+                .eq("service_id", service_id)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            return response.data or []
+
+        except Exception as e:
+            logger.exception(f"❌ Admin get price history error: {service_id}")
+            return []
+
+    async def expire_stale_payments(self, minutes: int = 30) -> int:
+        try:
+            cutoff = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
+
+            response = await self.payment_repo._run_sync(
+                lambda: supabase.table("payments")
+                .update({
+                    "status": PaymentStatus.FAILED.value,
+                    "updated_at": datetime.now(UTC).isoformat(),
+                    "result_desc": "Payment expired - no callback received"
+                })
+                .eq("status", PaymentStatus.PENDING.value)
+                .lt("created_at", cutoff)
+                .execute()
+            )
+
+            return len(response.data) if response.data else 0
+
+        except Exception as e:
+            logger.exception(f"❌ Expire stale payments error")
+            return 0
+
+
+mpesa_service = MpesaService()
