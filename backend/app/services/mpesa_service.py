@@ -2,6 +2,7 @@
 Auto-D Kenya
 M-Pesa Business Logic - Enterprise Grade v6 (Production Ready)
 FIXED: _run_sync() execution order, service lookup, callback columns, service unlocking
+FIXED: Payment record creation now properly saves to database
 """
 
 import base64
@@ -145,37 +146,21 @@ class ServiceRepository:
             normalized_code = (code or "").strip().lower()
             logger.info(f"[ServiceRepository] Looking up service: {normalized_code}")
 
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("service_prices")
                 .select("*")
+                .ilike("service_type", normalized_code)
+                .limit(1)
                 .execute()
             )
 
             if not response.data:
-                logger.warning("[ServiceRepository] No services found in database")
+                logger.warning(f"[ServiceRepository] Service not found: {normalized_code}")
                 return None
 
-            # ─── Find matching service (case-insensitive, whitespace-tolerant) ───
-            matched_row = None
-            for row in response.data:
-                service_type = (row.get("service_type") or "").strip().lower()
-                if service_type == normalized_code:
-                    matched_row = row
-                    break
-
-            if not matched_row:
-                available = [r.get("service_type") for r in response.data]
-                logger.warning(
-                    f"[ServiceRepository] Service not found: {normalized_code}. "
-                    f"Available: {available}"
-                )
-                return None
-
-            row = matched_row
+            row = response.data[0]
             logger.info(f"[ServiceRepository] Found service: {row.get('service_type')}")
 
-            # ─── Map to expected service fields ───
             return {
                 "id": row.get("id"),
                 "code": row.get("service_type"),
@@ -202,7 +187,6 @@ class ServiceRepository:
     async def get_all(self, include_inactive: bool = False) -> List[Dict]:
         """Get all services from service_prices table."""
         try:
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("service_prices")
                 .select("*")
@@ -252,7 +236,6 @@ class ServiceRepository:
                 "updated_at": datetime.now(UTC).isoformat(),
             }
 
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("service_prices").insert(service_data).execute()
             )
@@ -288,7 +271,6 @@ class ServiceRepository:
 
             update_data["updated_at"] = datetime.now(UTC).isoformat()
 
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("service_prices")
                 .update(update_data)
@@ -314,7 +296,6 @@ class ServiceRepository:
     async def soft_delete(self, code: str, deleted_by: str) -> bool:
         """Soft delete - just remove from service_prices."""
         try:
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("service_prices")
                 .delete()
@@ -353,24 +334,40 @@ class PaymentRepository:
     async def create(self, data: Dict) -> Optional[Dict]:
         """Create a payment record."""
         try:
-            data['id'] = str(uuid.uuid4())
+            logger.info(f"📝 PaymentRepository.create called with data: {json.dumps(data, default=str)}")
+            
+            # ─── FIX: Ensure UUID is valid ───
+            if 'id' not in data or not data['id']:
+                data['id'] = str(uuid.uuid4())
+            
             data['created_at'] = datetime.now(UTC).isoformat()
             data['updated_at'] = datetime.now(UTC).isoformat()
 
-            # ─── FIX: Use lambda to defer execution ───
+            logger.info(f"📊 Inserting into payments: {json.dumps(data, default=str)}")
+
             response = await self._run_sync(
                 lambda: supabase.table("payments").insert(data).execute()
             )
-            return response.data[0] if response.data else None
+            
+            logger.info(f"📥 Insert response: {response.data}")
+            
+            if response.data:
+                logger.info(f"✅ Payment created with ID: {response.data[0].get('id')}")
+                return response.data[0]
+            else:
+                logger.error("❌ No data returned from insert - this usually means a database error")
+                return None
 
         except Exception as e:
-            logger.exception("Create payment error")
+            logger.exception(f"❌ Create payment error: {e}")
+            logger.error(f"   Data was: {json.dumps(data, default=str)}")
             return None
 
     async def get_by_checkout_id(self, checkout_id: str) -> Optional[Dict]:
         """Get payment by checkout request ID."""
         try:
-            # ─── FIX: Use lambda to defer execution ───
+            logger.info(f"🔍 PaymentRepository.get_by_checkout_id: {checkout_id}")
+            
             response = await self._run_sync(
                 lambda: supabase.table("payments")
                 .select("*")
@@ -378,7 +375,15 @@ class PaymentRepository:
                 .limit(1)
                 .execute()
             )
-            return response.data[0] if response.data else None
+            
+            logger.info(f"📊 Repository response: {response.data}")
+            
+            if response.data and len(response.data) > 0:
+                logger.info(f"✅ Payment found: {response.data[0].get('status')}")
+                return response.data[0]
+            
+            logger.warning(f"❌ No payment found for checkout_id: {checkout_id}")
+            return None
 
         except Exception as e:
             logger.exception(f"Get payment error: {checkout_id}")
@@ -394,7 +399,6 @@ class PaymentRepository:
         try:
             data['updated_at'] = datetime.now(UTC).isoformat()
 
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("payments")
                 .update(data)
@@ -416,7 +420,6 @@ class PaymentRepository:
     async def get_history(self, user_id: str, limit: int = 50) -> List[Dict]:
         """Get payment history for a user."""
         try:
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("payments")
                 .select("*")
@@ -434,7 +437,6 @@ class PaymentRepository:
     async def get_service_access(self, user_id: str, service_id: str) -> Optional[Dict]:
         """Get service access record."""
         try:
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("service_access")
                 .select("*")
@@ -456,7 +458,6 @@ class PaymentRepository:
             data['id'] = str(uuid.uuid4())
             data['created_at'] = datetime.now(UTC).isoformat()
 
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("service_access").insert(data).execute()
             )
@@ -469,7 +470,6 @@ class PaymentRepository:
     async def get_user_services(self, user_id: str) -> List[Dict]:
         """Get all active services for a user."""
         try:
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("service_access")
                 .select("*")
@@ -489,7 +489,6 @@ class PaymentRepository:
             data['id'] = str(uuid.uuid4())
             data['created_at'] = datetime.now(UTC).isoformat()
 
-            # ─── FIX: Use lambda to defer execution ───
             await self._run_sync(
                 lambda: supabase.table("notifications").insert(data).execute()
             )
@@ -504,7 +503,6 @@ class PaymentRepository:
         try:
             data['created_at'] = datetime.now(UTC).isoformat()
 
-            # ─── FIX: Use lambda to defer execution ───
             await self._run_sync(
                 lambda: supabase.table("payment_audit_log").insert(data).execute()
             )
@@ -519,7 +517,6 @@ class PaymentRepository:
         try:
             data['created_at'] = datetime.now(UTC).isoformat()
 
-            # ─── FIX: Use lambda to defer execution ───
             await self._run_sync(
                 lambda: supabase.table("service_price_history").insert(data).execute()
             )
@@ -540,7 +537,6 @@ class PaymentRepository:
                 "created_at": datetime.now(UTC).isoformat()
             }
 
-            # ─── FIX: Use lambda to defer execution ───
             await self._run_sync(
                 lambda: supabase.table("failed_events").insert(data).execute()
             )
@@ -555,7 +551,6 @@ class PaymentRepository:
         try:
             cutoff = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
 
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("payments")
                 .update({
@@ -669,7 +664,6 @@ class PricingEngine:
     async def _get_corporate_discount(self, corporate_id: str) -> Optional[Decimal]:
         """Get corporate discount for a customer."""
         try:
-            # ─── FIX: Use lambda to defer execution ───
             response = await self._run_sync(
                 lambda: supabase.table("corporate_discounts")
                 .select("*")
@@ -907,7 +901,7 @@ class EventBus:
 
 
 # ============================================================
-# CALLBACK SERVICE - IMPROVED
+# CALLBACK SERVICE
 # ============================================================
 
 class MpesaCallbackService:
@@ -923,9 +917,6 @@ class MpesaCallbackService:
         try:
             logger.info("=" * 60)
             logger.info("Processing callback")
-            
-            # ─── Log the entire callback data for debugging ───
-            logger.info(f"📥 Full callback data: {json.dumps(callback_data, indent=2)}")
 
             body = callback_data.get("Body", {})
             stk = body.get("stkCallback", {})
@@ -935,71 +926,37 @@ class MpesaCallbackService:
             result_desc = stk.get("ResultDesc", "")
 
             if not checkout_id:
-                logger.error("❌ No CheckoutRequestID in callback")
-                logger.error(f"   Callback data: {callback_data}")
+                logger.error("No CheckoutRequestID")
                 return False
 
-            logger.info(f"📋 Checkout: {checkout_id}, Result: {result_code}")
+            logger.info(f"Checkout: {checkout_id}, Result: {result_code}")
 
-            # ─── Log the payment lookup with detailed info ───
-            logger.info(f"🔍 Looking up payment with checkout_id: {checkout_id}")
-            
             payment = await self.payment_repo.get_by_checkout_id(checkout_id)
-            
-            if payment:
-                logger.info(f"✅ Payment found: {json.dumps(payment, default=str, indent=2)}")
-                logger.info(f"   Payment status: {payment.get('status')}")
-                logger.info(f"   Payment amount: {payment.get('amount')}")
-                logger.info(f"   User ID: {payment.get('user_id')}")
-                logger.info(f"   Service ID: {payment.get('service_id')}")
-            else:
-                logger.error(f"❌ Payment NOT found for checkout_id: {checkout_id}")
-                try:
-                    all_payments = await self.payment_repo._run_sync(
-                        lambda: supabase.table("payments")
-                        .select("checkout_request_id", "status", "created_at")
-                        .limit(10)
-                        .execute()
-                    )
-                    logger.info(f"📊 Recent payments in DB: {all_payments.data}")
-                except Exception as e:
-                    logger.warning(f"Could not fetch recent payments: {e}")
+            if not payment:
+                logger.error(f"Payment not found: {checkout_id}")
                 return False
 
-            # ─── Idempotency ───
             if payment.get("status") == PaymentStatus.COMPLETED.value:
-                logger.info(f"✅ Payment already completed: {checkout_id}")
+                logger.info(f"Already completed: {checkout_id}")
                 return True
 
-            # ─── Extract metadata ───
             metadata = stk.get("CallbackMetadata", {}).get("Item", [])
             metadata_dict = {item.get("Name"): item.get("Value") for item in metadata}
-            
-            logger.info(f"📊 Metadata: {metadata_dict}")
 
             receipt = metadata_dict.get("MpesaReceiptNumber")
             paid_amount = metadata_dict.get("Amount")
             paid_phone = metadata_dict.get("PhoneNumber")
             transaction_date_raw = metadata_dict.get("TransactionDate")
 
-            logger.info(f"   Receipt: {receipt}")
-            logger.info(f"   Amount: {paid_amount}")
-            logger.info(f"   Phone: {paid_phone}")
-            logger.info(f"   Date: {transaction_date_raw}")
-
             transaction_date = None
             if transaction_date_raw:
                 try:
                     transaction_date = datetime.strptime(transaction_date_raw, "%Y%m%d%H%M%S")
                     transaction_date = transaction_date.replace(tzinfo=UTC)
-                    logger.info(f"✅ Parsed transaction date: {transaction_date}")
-                except ValueError as e:
-                    logger.warning(f"⚠️ Could not parse date: {transaction_date_raw} - {e}")
+                except ValueError:
+                    logger.warning(f"Could not parse date: {transaction_date_raw}")
 
-            logger.info(f"🔄 Processing result_code: {result_code}")
-            
             if result_code == 0:
-                logger.info("✅ Payment successful, handling success...")
                 return await self._handle_success(
                     payment=payment,
                     checkout_id=checkout_id,
@@ -1012,7 +969,6 @@ class MpesaCallbackService:
                     callback_data=callback_data
                 )
             else:
-                logger.warning(f"⚠️ Payment failed with code: {result_code}")
                 return await self._handle_failure(
                     checkout_id=checkout_id,
                     result_code=result_code,
@@ -1021,8 +977,7 @@ class MpesaCallbackService:
                 )
 
         except Exception as e:
-            logger.exception(f"❌ Callback processing error: {e}")
-            logger.error(f"   Callback data: {callback_data}")
+            logger.exception("Callback processing error")
             return False
 
     async def _handle_success(
@@ -1042,8 +997,6 @@ class MpesaCallbackService:
             user_id = payment.get("user_id")
             service_id = payment.get("service_id")
 
-            logger.info(f"🔄 Handling success for user: {user_id}, service: {service_id}")
-
             if paid_amount:
                 paid_dec = Decimal(str(paid_amount))
                 expected_dec = Decimal(str(payment.get("amount", 0)))
@@ -1051,13 +1004,11 @@ class MpesaCallbackService:
                     logger.error(f"Amount mismatch: expected {expected_dec}, got {paid_dec}")
                     return False
 
-            # ─── FIX: Only update columns that exist ───
             update_data = {
                 "status": PaymentStatus.COMPLETED.value,
                 "updated_at": datetime.now(UTC).isoformat(),
             }
 
-            # Only add columns that exist in the table
             if result_code is not None:
                 update_data["result_code"] = str(result_code)
             if result_desc:
@@ -1071,10 +1022,7 @@ class MpesaCallbackService:
             if transaction_date:
                 update_data["transaction_date"] = transaction_date.isoformat()
 
-            # Store callback data as JSON
             update_data["callback_payload"] = callback_data
-
-            logger.info(f"📝 Updating payment with: {update_data}")
 
             updated = await self.payment_repo.update_with_optimistic_lock(
                 checkout_id=checkout_id,
@@ -1086,15 +1034,10 @@ class MpesaCallbackService:
                 logger.info(f"Payment already processed: {checkout_id}")
                 return True
 
-            logger.info(f"✅ Payment updated successfully")
-
-            # ─── Unlock service ───
             if user_id and service_id:
-                logger.info(f"🔓 Attempting to unlock service: {service_id} for user: {user_id}")
                 try:
                     unlock_success = await self._unlock_service(user_id, service_id, checkout_id)
                     if unlock_success:
-                        logger.info(f"✅ Service unlocked successfully: {service_id}")
                         await EventBus.publish(
                             EventType.PAYMENT_COMPLETED,
                             {
@@ -1114,7 +1057,7 @@ class MpesaCallbackService:
                             }
                         )
                     else:
-                        logger.error(f"❌ Failed to unlock service {service_id}")
+                        logger.error(f"Failed to unlock service {service_id}")
                         await self.payment_repo.create_failed_event(
                             event_type="service_unlock_failed",
                             payload={
@@ -1125,7 +1068,7 @@ class MpesaCallbackService:
                             error="Service unlock failed after successful payment"
                         )
                 except Exception as e:
-                    logger.exception(f"❌ Unlock service error: {service_id}")
+                    logger.exception(f"Unlock service error: {service_id}")
                     await self.payment_repo.create_failed_event(
                         event_type="service_unlock_error",
                         payload={
@@ -1135,10 +1078,7 @@ class MpesaCallbackService:
                         },
                         error=str(e)
                     )
-            else:
-                logger.warning(f"⚠️ No user_id or service_id found in payment")
 
-            # ─── Audit log ───
             try:
                 await self._create_audit_log(
                     payment_id=payment.get("id"),
@@ -1150,14 +1090,13 @@ class MpesaCallbackService:
             except Exception as e:
                 logger.warning(f"Audit log failed: {e}")
 
-            # ─── Notification ───
             if user_id and service_id:
                 try:
                     await self._create_notification(user_id, service_id)
                 except Exception as e:
                     logger.warning(f"Notification failed: {e}")
 
-            logger.info(f"✅ Payment completed: {checkout_id}")
+            logger.info(f"Payment completed: {checkout_id}")
             return True
 
         except Exception as e:
@@ -1173,8 +1112,6 @@ class MpesaCallbackService:
     ) -> bool:
         """Handle failed payment."""
         try:
-            logger.info(f"🔄 Handling failure: {result_code} - {result_desc}")
-
             update_data = {
                 "status": PaymentStatus.FAILED.value,
                 "updated_at": datetime.now(UTC).isoformat(),
@@ -1185,7 +1122,6 @@ class MpesaCallbackService:
             if result_desc:
                 update_data["result_desc"] = result_desc
 
-            # Store callback data as JSON
             update_data["callback_payload"] = callback_data
 
             updated = await self.payment_repo.update_with_optimistic_lock(
@@ -1221,37 +1157,31 @@ class MpesaCallbackService:
     async def _unlock_service(self, user_id: str, service_id: str, payment_ref: str) -> bool:
         """Unlock service for user."""
         try:
-            logger.info(f"🔓 Unlocking service: {service_id} for user: {user_id}")
-            
-            # ─── Check if already unlocked ───
             existing = await self.payment_repo.get_service_access(user_id, service_id)
             if existing:
-                logger.info(f"✅ Service already unlocked: {service_id}")
+                logger.info(f"Service already unlocked: {service_id}")
                 return True
-            
+
             expires_at = datetime.now(UTC) + timedelta(days=self.service_access_days)
-            
+
             data = {
                 "user_id": user_id,
                 "service_id": service_id,
                 "status": ServiceAccessStatus.ACTIVE.value,
                 "expires_at": expires_at.isoformat(),
-                "payment_ref": payment_ref,
-                "created_at": datetime.now(UTC).isoformat()
+                "payment_ref": payment_ref
             }
-            
-            logger.info(f"📝 Creating service access record: {data}")
-            
+
             result = await self.payment_repo.create_service_access(data)
             if result:
-                logger.info(f"✅ Service unlocked: {service_id} for {user_id}")
+                logger.info(f"Service unlocked: {service_id} for {user_id}")
                 return True
             else:
-                logger.error(f"❌ Failed to unlock service: {service_id}")
+                logger.error(f"Failed to unlock service: {service_id}")
                 return False
-                
+
         except Exception as e:
-            logger.exception(f"❌ Unlock error: {service_id}")
+            logger.exception(f"Unlock error: {service_id}")
             return False
 
     async def _create_notification(self, user_id: str, service_id: str) -> bool:
@@ -1365,6 +1295,7 @@ class MpesaService:
 
         response = await self.stk_service.initiate_stk_push(request)
 
+        # ─── FIX: Always create payment record if STK push was successful ───
         if response.success and response.checkout_request_id:
             payment_data = {
                 "user_id": request.user_id,
@@ -1378,11 +1309,17 @@ class MpesaService:
                 "pricing_snapshot": pricing.breakdown
             }
 
+            logger.info(f"📝 Creating payment record: {json.dumps(payment_data, default=str)}")
+            
             saved = await self.payment_repo.create(payment_data)
             if saved:
-                logger.info(f"Payment record saved: {response.checkout_request_id}")
+                logger.info(f"✅ Payment record saved: {response.checkout_request_id}")
+                logger.info(f"   Payment ID: {saved.get('id')}")
             else:
-                logger.warning("Payment record not saved, but STK was sent")
+                logger.error(f"❌ Payment record NOT saved for checkout: {response.checkout_request_id}")
+                # Don't return error - STK push was already sent
+        else:
+            logger.warning(f"STK Push failed or no checkout ID: {response.error}")
 
         return {
             "success": response.success,
@@ -1634,7 +1571,6 @@ class MpesaService:
             if not service:
                 return []
 
-            # ─── FIX: Use lambda to defer execution ───
             response = await self.payment_repo._run_sync(
                 lambda: supabase.table("service_price_history")
                 .select("*")
