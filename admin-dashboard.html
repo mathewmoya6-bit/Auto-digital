@@ -1051,6 +1051,7 @@
             const connectionStatus = document.getElementById('connectionStatus');
             const fuelGrid = document.getElementById('fuelGrid');
             const serviceList = document.getElementById('serviceList');
+            const healthBar = document.getElementById('healthBar');
 
             // ─── Initialize Supabase ────────────────────────────────────
             function initSupabase() {
@@ -1196,6 +1197,7 @@
                         .from('service_prices')
                         .insert({
                             service_type: serviceData.code,
+                            name: serviceData.name,
                             price: serviceData.price,
                             currency: serviceData.currency || 'KES',
                             description: serviceData.description || '',
@@ -1255,7 +1257,10 @@
                     const data = typeof val === 'number' ? { price: val } : val;
                     return {
                         key: key,
-                        name: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                        // Prefer the admin-set `name` column; fall back to a
+                        // title-cased version of the service code only if no
+                        // custom name was ever saved.
+                        name: data.name || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
                         price: data.price || 0,
                         currency: data.currency || 'KES',
                         description: data.description || '',
@@ -1278,7 +1283,7 @@
 
                 serviceList.innerHTML = entries.map(s => `
                     <div class="service-item" data-service="${s.key}">
-                        <span class="service-name">${s.icon || '📦'} ${s.name}</span>
+                        <span class="service-name">${s.icon || '📦'} ${escapeHtml(s.name)}</span>
                         <div class="service-price" id="price${s.key}">${s.currency} ${s.price}</div>
                         <span class="service-status-badge ${s.is_active ? 'active' : 'inactive'}">
                             ${s.is_active ? '✅ Active' : '❌ Inactive'}
@@ -1295,6 +1300,11 @@
                         </div>
                     </div>
                 `).join('');
+            }
+
+            function escapeHtml(str) {
+                if (!str) return '';
+                return String(str).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
             }
 
             // ─── Update Service ─────────────────────────────────────────
@@ -1341,9 +1351,12 @@
                     const newStatus = service.is_active !== false;
                     await upsertSupabase('service_prices', {
                         service_type: type,
+                        name: service.name,
                         price: service.price,
                         currency: service.currency || 'KES',
                         description: service.description || '',
+                        icon: service.icon || '',
+                        display_order: service.display_order || 0,
                         is_active: !newStatus
                     }, 'service_type');
                     
@@ -1460,6 +1473,7 @@
                     if (editingServiceId) {
                         const result = await upsertSupabase('service_prices', {
                             service_type: code,
+                            name: name,
                             price: price,
                             currency: currency,
                             description: description,
@@ -1473,6 +1487,7 @@
                     } else {
                         const result = await createService({
                             code: code,
+                            name: name,
                             price: price,
                             currency: currency,
                             description: description,
@@ -1756,13 +1771,29 @@
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
                     
-                    const [{ count: vehicles }, { count: reports }, { count: users }, { count: apiCalls }] = await Promise.all([
+                    const [
+                        { count: vehicles },
+                        { count: reports },
+                        { count: users },
+                        { count: apiCalls },
+                        { data: completedPayments, error: paymentsError }
+                    ] = await Promise.all([
                         client.from('vehicle_variants').select('*', { count: 'exact', head: true }),
                         client.from('mileage_reports').select('*', { count: 'exact', head: true }),
                         client.from('users').select('*', { count: 'exact', head: true }),
                         client.from('api_logs').select('*', { count: 'exact', head: true })
-                            .gte('created_at', new Date(new Date().setHours(0,0,0,0)).toISOString())
+                            .gte('created_at', new Date(new Date().setHours(0,0,0,0)).toISOString()),
+                        client.from('payments').select('amount').eq('status', 'completed')
                     ]);
+
+                    // Real revenue = sum of actually-completed payments, not a
+                    // made-up multiplier against an unrelated report count.
+                    let revenue = 0;
+                    if (!paymentsError && Array.isArray(completedPayments)) {
+                        revenue = completedPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+                    } else if (paymentsError) {
+                        console.warn('⚠️ Could not compute revenue from payments table:', paymentsError.message);
+                    }
                     
                     return {
                         success: true,
@@ -1770,7 +1801,8 @@
                             vehicles: vehicles || 0,
                             reports: reports || 0,
                             users: users || 0,
-                            apiCalls: apiCalls || 0
+                            apiCalls: apiCalls || 0,
+                            revenue: revenue
                         }
                     };
                 } catch (error) {
@@ -1786,7 +1818,7 @@
                     if (result.success) {
                         const stats = result.data;
                         document.getElementById('statValuations').textContent = (stats.vehicles || 0).toLocaleString();
-                        document.getElementById('statRevenue').textContent = 'KES ' + ((stats.reports || 0) * 150).toLocaleString();
+                        document.getElementById('statRevenue').textContent = 'KES ' + (stats.revenue || 0).toLocaleString();
                         document.getElementById('statUsers').textContent = (stats.users || 0).toLocaleString();
                         document.getElementById('statApiCalls').textContent = (stats.apiCalls || 0).toLocaleString();
                     }
@@ -1889,6 +1921,24 @@
                                               isDegraded ? 'var(--warning)' : 'var(--danger)';
             }
 
+            // ─── Wire up the health bar's "click to check now" ─────────
+            if (healthBar) {
+                healthBar.addEventListener('click', function() {
+                    checkHealth(true);
+                });
+            }
+
+            // ─── Live clock in the welcome banner ───────────────────────
+            function tickClock() {
+                const el = document.getElementById('currentTime');
+                if (el) {
+                    el.textContent = new Date().toLocaleString('en-KE', {
+                        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+                        hour: '2-digit', minute: '2-digit', second: '2-digit'
+                    });
+                }
+            }
+
             // ─── Auth Functions ─────────────────────────────────────────
             async function getCurrentUser() {
                 try {
@@ -1948,26 +1998,43 @@
                 }
             }
 
+            // ─── Admin check: tries the `auth_user_id` column first (the
+            //     schema this file originally assumed), then falls back to
+            //     matching on `id` directly (the pattern the customer-facing
+            //     dashboard uses: user_id = auth.users.id). This way a schema
+            //     mismatch doesn't silently lock every admin out. ───
             async function isAdmin(userId) {
                 const uid = userId || currentUser?.id;
-                try {
-                    const client = getSupabaseClient();
-                    if (!client || !uid) return false;
+                const client = getSupabaseClient();
+                if (!client || !uid) return false;
 
+                try {
                     const { data, error } = await client
                         .from('users')
                         .select('account_type')
                         .eq('auth_user_id', uid)
                         .single();
-
                     if (!error && data) {
                         return data.account_type === 'admin' || data.account_type === 'staff';
                     }
-                    return false;
                 } catch (error) {
-                    console.warn('⚠️ Admin check error:', error.message);
-                    return false;
+                    console.warn('⚠️ Admin check via auth_user_id failed, trying id column:', error.message);
                 }
+
+                try {
+                    const { data, error } = await client
+                        .from('users')
+                        .select('account_type')
+                        .eq('id', uid)
+                        .single();
+                    if (!error && data) {
+                        return data.account_type === 'admin' || data.account_type === 'staff';
+                    }
+                } catch (error) {
+                    console.warn('⚠️ Admin check via id failed too:', error.message);
+                }
+
+                return false;
             }
 
             // ─── Check Auth ────────────────────────────────────────────
@@ -2028,6 +2095,7 @@
                     
                     showToast('✅ Login successful!', 'success');
                     await loadDashboardData();
+                    startBackgroundTimers();
 
                 } catch (error) {
                     loginError.classList.add('show');
@@ -2046,8 +2114,31 @@
                 dashboardScreen.classList.add('hidden');
                 loginScreen.classList.remove('hidden');
                 document.getElementById('adminPassword').value = '';
+                stopBackgroundTimers();
                 showToast('👋 Logged out', 'info');
             });
+
+            // ─── Background timers: live clock + periodic health checks.
+            //     Started on successful login/init, stopped on logout so we
+            //     don't leave intervals running against a logged-out session. ───
+            function startBackgroundTimers() {
+                stopBackgroundTimers();
+                tickClock();
+                clockInterval = setInterval(tickClock, 1000);
+                checkHealth(false);
+                healthCheckInterval = setInterval(() => checkHealth(false), 60000);
+            }
+
+            function stopBackgroundTimers() {
+                if (clockInterval) {
+                    clearInterval(clockInterval);
+                    clockInterval = null;
+                }
+                if (healthCheckInterval) {
+                    clearInterval(healthCheckInterval);
+                    healthCheckInterval = null;
+                }
+            }
 
             // ─── Load Dashboard Data ──────────────────────────────────
             async function loadDashboardData() {
@@ -2069,7 +2160,8 @@
                         activityLogs = result.data.map(log => ({
                             action: log.action,
                             user: log.username || 'system',
-                            time: new Date(log.created_at).toLocaleTimeString()
+                            time: new Date(log.created_at).toLocaleTimeString(),
+                            timestamp: log.created_at
                         }));
                         renderLogs();
                     }
@@ -2089,9 +2181,9 @@
                 }
                 container.innerHTML = activityLogs.slice(0, 10).map(log => `
                     <div class="log-item">
-                        <span class="log-action">${log.action}</span>
-                        <span class="log-user">${log.user}</span>
-                        <span class="log-time">${log.time}</span>
+                        <span class="log-action">${escapeHtml(log.action)}</span>
+                        <span class="log-user">${escapeHtml(log.user)}</span>
+                        <span class="log-time">${escapeHtml(log.time)}</span>
                     </div>
                 `).join('');
             }
@@ -2181,9 +2273,10 @@
                     const rows = activityLogs.map(log => [
                         log.action,
                         log.user,
-                        new Date().toISOString()
+                        // Use the log's own timestamp, not the moment of export.
+                        log.timestamp || log.time || ''
                     ]);
-                    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+                    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
                     const blob = new Blob([csv], { type: 'text/csv' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -2234,6 +2327,7 @@
                     loginScreen.classList.add('hidden');
                     dashboardScreen.classList.remove('hidden');
                     await loadDashboardData();
+                    startBackgroundTimers();
                 } else {
                     loginScreen.classList.remove('hidden');
                     dashboardScreen.classList.add('hidden');
@@ -2247,14 +2341,17 @@
                             dashboardScreen.classList.add('hidden');
                             loginScreen.classList.remove('hidden');
                             localStorage.removeItem('admin_session');
+                            stopBackgroundTimers();
                             showToast('👋 Session ended', 'info');
                         }
                         if (event === 'SIGNED_IN') {
-                            checkAuth().then(() => {
-                                if (isLoggedIn) {
+                            checkAuth().then((ok) => {
+                                if (ok) {
+                                    isLoggedIn = true;
                                     dashboardScreen.classList.remove('hidden');
                                     loginScreen.classList.add('hidden');
                                     loadDashboardData();
+                                    startBackgroundTimers();
                                 }
                             });
                         }
