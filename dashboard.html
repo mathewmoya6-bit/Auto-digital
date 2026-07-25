@@ -1152,7 +1152,7 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (FIXED PAYMENT CONFIRMATION)
+        // AUTO-D KENYA - DASHBOARD (FIXED: Backend handles payment insert)
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1974,7 +1974,7 @@
             };
 
             // ============================================================
-            // PAYMENT - FIXED CONFIRMATION
+            // PAYMENT - BACKEND HANDLES PAYMENT INSERT
             // ============================================================
 
             // ─── Open Payment Modal ───
@@ -2082,7 +2082,6 @@
                     }
                     console.log('📥 Confirm response:', data);
 
-                    // ─── FIX: Check if confirm succeeded or service already unlocked ───
                     const confirmSucceeded = (response && response.ok) && (
                         isTruthyFlag(data?.success) ||
                         normalizeStatus(data?.status) === 'success' ||
@@ -2094,7 +2093,6 @@
                     );
 
                     if (confirmSucceeded || data?.already_completed === true) {
-                        // ─── Success! Mark service as purchased ───
                         if (dashboardData && dashboardData.services) {
                             const svc = dashboardData.services.find(s => s.id === serviceId);
                             if (svc) {
@@ -2103,15 +2101,9 @@
                             }
                         }
 
-                        // ─── Sync payment status in Supabase ───
+                        // ─── FIX: Don't insert payment here - backend already did it ───
+                        // Only sync the request status
                         try {
-                            if (checkoutId) {
-                                await supabaseClient
-                                    .from('payments')
-                                    .update({ status: 'completed' })
-                                    .eq('checkout_request_id', checkoutId)
-                                    .eq('user_id', currentUser.id);
-                            }
                             if (serviceId) {
                                 await supabaseClient
                                     .from('requests')
@@ -2121,7 +2113,7 @@
                                     .eq('status', 'pending');
                             }
                         } catch (e) {
-                            console.warn('⚠️ Could not sync status:', e.message);
+                            console.warn('⚠️ Could not sync request status:', e.message);
                         }
 
                         if (overlay) {
@@ -2140,7 +2132,6 @@
                         }, 1500);
 
                     } else {
-                        // ─── Check if service is already unlocked ───
                         const hasAccess = await checkServiceAccess(serviceId);
                         if (hasAccess) {
                             if (dashboardData && dashboardData.services) {
@@ -2252,6 +2243,19 @@
                 const payBtn = document.getElementById('payNowBtn');
                 const phoneWrapper = document.getElementById('phoneInputWrapper');
 
+                // ─── FIX: Check authentication first ───
+                if (!currentUser || !currentUser.id) {
+                    showToast('⚠️ Please log in first', 'error');
+                    await checkAuth();
+                    if (!currentUser || !currentUser.id) {
+                        showToast('⚠️ Session expired. Please log in again.', 'error');
+                        setTimeout(() => {
+                            window.location.href = 'https://auto-d.meipressgroup.com/';
+                        }, 1500);
+                        return;
+                    }
+                }
+
                 let rawPhone = phoneEl ? phoneEl.value.trim() : '';
                 console.log('Raw phone input:', rawPhone);
 
@@ -2281,7 +2285,6 @@
                     console.log('After removing leading 0:', phone);
                 }
 
-                // ─── Validate: exactly 9 digits, starts with 7 or 11 ───
                 if (!/^(7\d{8}|11\d{7})$/.test(phone)) {
                     const errorMsg = phone.length > 0 
                         ? `Invalid number: "${rawPhone}". Please enter a Safaricom number starting with 07 or 011 (e.g., 0712345678 or 0110000000)`
@@ -2301,6 +2304,7 @@
                 const formattedPhone = phone;
                 console.log('Phone for API (9 digits):', formattedPhone);
 
+                // ─── FIX: Check if selectedService exists ───
                 if (!selectedService) {
                     showToast('No service selected', 'error');
                     return;
@@ -2309,7 +2313,19 @@
                 if (isProcessingPayment) return;
 
                 const token = await requireAuthToken();
-                if (!token) return;
+                if (!token) {
+                    showToast('⚠️ Please log in first', 'error');
+                    return;
+                }
+
+                const userId = currentUser?.id;
+                if (!userId) {
+                    showToast('⚠️ User ID not found. Please log in again.', 'error');
+                    setTimeout(() => {
+                        window.location.href = 'https://auto-d.meipressgroup.com/';
+                    }, 1500);
+                    return;
+                }
 
                 isProcessingPayment = true;
                 confirmAttempted = false;
@@ -2339,7 +2355,7 @@
                     phone: formattedPhone,
                     service_id: selectedService.id,
                     description: buildDescription(selectedService.name),
-                    user_id: currentUser.id
+                    user_id: userId
                 };
                 
                 console.log('📤 Sending request:', requestBody);
@@ -2377,26 +2393,14 @@
 
                     const checkoutId = data.checkout_request_id || data.checkoutRequestID;
                     checkoutRequestId = checkoutId;
+                    
+                    // ─── FIX: Use pendingServiceRedirect or selectedService.id ───
                     const targetServiceId = pendingServiceRedirect || selectedService.id;
 
-                    if (supabaseClient && currentUser) {
-                        try {
-                            await supabaseClient
-                                .from('payments')
-                                .insert({
-                                    user_id: currentUser.id,
-                                    checkout_request_id: checkoutId,
-                                    service_id: selectedService.id,
-                                    service_name: selectedService.name,
-                                    amount: selectedService.price || 0,
-                                    phone: '254' + formattedPhone,
-                                    status: 'pending',
-                                    created_at: new Date().toISOString()
-                                });
-                        } catch (e) {
-                            console.warn('Could not save transaction:', e);
-                        }
-                    }
+                    // ─── FIX: Do NOT insert into payments here - backend handles it ───
+                    // The backend already created the payment record in initiate_stk_push()
+                    // We just need to log it for tracking
+                    console.log(`✅ Payment initiated with checkout_id: ${checkoutId} for service: ${targetServiceId}`);
 
                     if (overlay) {
                         document.getElementById('paymentStatusText').textContent = '📱 STK Push Sent!';
