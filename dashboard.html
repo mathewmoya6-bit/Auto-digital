@@ -1152,7 +1152,7 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (ALIGNED WITH BACKEND)
+        // AUTO-D KENYA - DASHBOARD (ALIGNED WITH BACKEND SERVICES TABLE)
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1164,6 +1164,7 @@
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
+            // ─── Service Routes aligned with backend ──────────────────
             const SERVICE_ROUTES = {
                 'mileage': '/mileage.html',
                 'valuation': '/instant-value.html',
@@ -1176,6 +1177,14 @@
                 'valuation': 'Instant Vehicle Value',
                 'ownership': 'Ownership Cost Report',
                 'full_report': 'Full Vehicle Report'
+            };
+
+            // ─── Service Icons ────────────────────────────────────────
+            const SERVICE_ICONS = {
+                'mileage': '📈',
+                'valuation': '💰',
+                'ownership': '📊',
+                'full_report': '📑'
             };
 
             // ─── State ──────────────────────────────────────────────────
@@ -1437,12 +1446,12 @@
             };
 
             // ============================================================
-            // LOAD DASHBOARD
+            // LOAD DASHBOARD - ALIGNED WITH BACKEND SERVICES TABLE
             // ============================================================
 
             async function loadDashboard() {
                 try {
-                    
+                    // Show loading states
                     if (vehicleGrid) {
                         vehicleGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
                     }
@@ -1454,25 +1463,67 @@
                     if (paymentsList) paymentsList.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">Loading payments...</div>';
                     if (notificationsList) notificationsList.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">Loading notifications...</div>';
 
-                    let servicePrices = {};
+                    // ─── Fetch services from backend (uses services table) ───
+                    let servicesFromBackend = [];
                     try {
-                        const servicesData = await supabaseRequest('service_prices');
-                        if (servicesData && servicesData.length > 0) {
-                            const latest = {};
-                            servicesData.forEach(item => {
-                                if (!latest[item.service_type] || new Date(item.created_at) > new Date(latest[item.service_type].created_at)) {
-                                    latest[item.service_type] = item;
+                        const token = await getAuthToken();
+                        if (token) {
+                            const response = await fetch(`${API_BASE}/mpesa/services`, {
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'Authorization': `Bearer ${token}`
                                 }
                             });
-                            Object.keys(latest).forEach(key => {
-                                servicePrices[key] = latest[key].price;
-                            });
+                            if (response.ok) {
+                                const data = await response.json();
+                                servicesFromBackend = data.services || data || [];
+                            }
                         }
                     } catch (e) {
-                        console.warn('⚠️ Could not fetch service prices:', e.message);
-                        servicePrices = { mileage: 100, valuation: 150, ownership: 200, full_report: 350 };
+                        console.warn('Could not fetch services from backend:', e.message);
                     }
 
+                    // ─── If backend didn't return services, try Supabase directly ───
+                    let services = [];
+                    if (servicesFromBackend.length > 0) {
+                        services = servicesFromBackend.map(s => ({
+                            id: s.code || s.id,
+                            name: s.name || SERVICE_NAMES[s.code] || s.code,
+                            price: s.price || 0,
+                            icon: SERVICE_ICONS[s.code] || '📦',
+                            route: SERVICE_ROUTES[s.code],
+                            purchased: false, // Will be updated from service_access
+                            status: 'locked'
+                        }));
+                    } else {
+                        try {
+                            const servicesData = await supabaseRequest('services', 'id, code, name, price, currency, active, display_order');
+                            if (servicesData && servicesData.length > 0) {
+                                services = servicesData.map(s => ({
+                                    id: s.code,
+                                    name: s.name,
+                                    price: s.price || 0,
+                                    icon: SERVICE_ICONS[s.code] || '📦',
+                                    route: SERVICE_ROUTES[s.code],
+                                    purchased: false,
+                                    status: 'locked'
+                                }));
+                            }
+                        } catch (e) {
+                            console.warn('Could not fetch services from Supabase:', e.message);
+                        }
+                    }
+
+                    // ─── If still no services, use defaults ───
+                    if (services.length === 0) {
+                        services = [
+                            { id: 'mileage', name: 'Mileage Calculator', price: 100, icon: '📈', route: '/mileage.html', purchased: false, status: 'locked' },
+                            { id: 'valuation', name: 'Instant Vehicle Value', price: 150, icon: '💰', route: '/instant-value.html', purchased: false, status: 'locked' },
+                            { id: 'ownership', name: 'Ownership Cost Report', price: 200, icon: '📊', route: '/ownership-cost.html', purchased: false, status: 'locked' }
+                        ];
+                    }
+
+                    // ─── Fetch user data ───
                     let vehicles = [];
                     let payments = [];
                     let notifications = [];
@@ -1491,6 +1542,7 @@
                         console.warn('⚠️ Could not fetch all data:', e.message);
                     }
 
+                    // ─── Determine unlocked services ───
                     const unlockedServices = {};
                     if (serviceAccess && serviceAccess.length > 0) {
                         serviceAccess.forEach(item => {
@@ -1500,7 +1552,16 @@
                         });
                     }
 
-                    if (requests && requests.length > 0) {
+                    // Also check payments and requests for completed status
+                    if (payments) {
+                        payments.forEach(p => {
+                            if (p.status === 'completed' || p.status === 'paid') {
+                                unlockedServices[p.service_id] = true;
+                            }
+                        });
+                    }
+
+                    if (requests) {
                         requests.forEach(r => {
                             if (r.status === 'paid' || r.status === 'completed') {
                                 unlockedServices[r.service_id] = true;
@@ -1508,12 +1569,12 @@
                         });
                     }
 
-                    const services = [
-                        { id: 'mileage', name: '📈 Mileage Calculator', price: servicePrices.mileage || 100, icon: '📈', route: '/mileage.html', purchased: !!unlockedServices['mileage'] },
-                        { id: 'valuation', name: '💰 Instant Vehicle Value', price: servicePrices.valuation || 150, icon: '💰', route: '/instant-value.html', purchased: !!unlockedServices['valuation'] },
-                        { id: 'ownership', name: '📊 Ownership Cost Report', price: servicePrices.ownership || 200, icon: '📊', route: '/ownership-cost.html', purchased: !!unlockedServices['ownership'] },
-                        { id: 'full_report', name: '📑 Full Vehicle Report', price: servicePrices.full_report || 350, icon: '📑', route: '/full-report.html', purchased: !!unlockedServices['full_report'] }
-                    ];
+                    // ─── Update services with purchase status ───
+                    services = services.map(s => ({
+                        ...s,
+                        purchased: !!unlockedServices[s.id],
+                        status: unlockedServices[s.id] ? 'active' : 'locked'
+                    }));
 
                     const pendingRequests = requests ? requests.filter(r => r.status === 'pending' || r.status === 'paid').length : 0;
 
@@ -1652,8 +1713,8 @@
                 servicesGrid.innerHTML = services.map(s => {
                     const isPurchased = s.purchased || s.status === 'purchased' || s.status === 'active';
                     const statusClass = isPurchased ? 'purchased' : 'locked';
-                    const statusText = isPurchased ? '✅ Purchased' : '🔒 Locked';
-                    const btnText = isPurchased ? '🚀 Open Service' : '💰 Purchase ' + (s.price || 0) + ' KES';
+                    const statusText = isPurchased ? '✅ Active' : '🔒 Locked';
+                    const btnText = isPurchased ? '🚀 Open Service' : `💰 Purchase ${(s.price || 0)} KES`;
                     const btnClass = isPurchased ? 'purchased' : 'locked';
                     const expiry = s.expires_at ? `Expires: ${new Date(s.expires_at).toLocaleDateString()}` : '';
 
@@ -1826,18 +1887,14 @@
                 const serviceSelect = document.getElementById('requestService');
                 if (serviceSelect) {
                     serviceSelect.innerHTML = '<option value="">Select service...</option>';
-                    const services = [
-                        { id: 'valuation', name: '💰 Instant Vehicle Value (KES 150)' },
-                        { id: 'mileage', name: '📈 Mileage Calculator (KES 100)' },
-                        { id: 'ownership', name: '📊 Ownership Cost Report (KES 200)' },
-                        { id: 'full_report', name: '📑 Full Vehicle Report (KES 350)' }
-                    ];
-                    services.forEach(s => {
-                        const opt = document.createElement('option');
-                        opt.value = s.id;
-                        opt.textContent = s.name;
-                        serviceSelect.appendChild(opt);
-                    });
+                    if (dashboardData?.services) {
+                        dashboardData.services.forEach(s => {
+                            const opt = document.createElement('option');
+                            opt.value = s.id;
+                            opt.textContent = `${s.icon || '📦'} ${s.name} (KES ${s.price || 0})`;
+                            serviceSelect.appendChild(opt);
+                        });
+                    }
                 }
 
                 const notesEl = document.getElementById('requestNotes');
@@ -1892,7 +1949,7 @@
                                 vehicle_id: vehicleId,
                                 vehicle_plate: vehicle?.plate || 'N/A',
                                 service_id: serviceId,
-                                service_name: SERVICE_NAMES[serviceId] || serviceId,
+                                service_name: service.name || serviceId,
                                 amount: service.price || 0,
                                 status: 'pending',
                                 created_at: new Date().toISOString()
@@ -1977,7 +2034,6 @@
             // PAYMENT - COMPLETE ALIGNED WITH BACKEND
             // ============================================================
 
-            // ─── Open Payment Modal ───
             window.openPaymentModal = function(service) {
                 selectedService = service;
                 const nameEl = document.getElementById('paymentServiceName');
@@ -2038,8 +2094,6 @@
                 if (phoneWrapper) phoneWrapper.classList.remove('error');
             };
 
-            // ─── Sync a completed payment/request into Supabase so the
-            //     dashboard doesn't keep showing "pending" after unlock ───
             async function syncPaymentAndRequestStatus(checkoutId, serviceId) {
                 if (!supabaseClient || !currentUser) return;
                 try {
@@ -2067,10 +2121,6 @@
                 }
             }
 
-            // ─── Silently try to confirm/unlock in the background. Returns true
-            //     if it succeeded (and already ran confirmAndUnlock's full success
-            //     flow), false if it didn't — in which case normal polling / the
-            //     manual fallback button takes over with no visible disruption. ───
             async function trySilentConfirm(checkoutId, serviceId) {
                 if (unlockInFlight) return false;
                 try {
@@ -2107,7 +2157,6 @@
                 }
             }
 
-            // ─── Confirm Payment and Unlock Service ───
             window.confirmAndUnlock = async function(checkoutId, serviceId) {
                 if (unlockInFlight) {
                     console.log('⏳ Unlock already in progress, ignoring duplicate call.');
@@ -2161,7 +2210,6 @@
                     );
 
                     if (confirmSucceeded) {
-                        // ─── Success! Mark service as purchased ───
                         if (dashboardData && dashboardData.services) {
                             const svc = dashboardData.services.find(s => s.id === serviceId);
                             if (svc) {
@@ -2188,7 +2236,6 @@
                         }, 1500);
 
                     } else {
-                        // ─── Check if service is already unlocked ───
                         const hasAccess = await checkServiceAccess(serviceId);
                         if (hasAccess) {
                             if (dashboardData && dashboardData.services) {
@@ -2247,7 +2294,6 @@
                 }
             };
 
-            // ─── Check Service and Redirect ───
             window.checkServiceAndRedirect = async function(serviceId) {
                 try {
                     showToast('🔄 Checking service access...', 'info');
@@ -2296,7 +2342,6 @@
                 }
             };
 
-            // ─── Process Payment ───
             window.processPayment = async function() {
                 const phoneEl = document.getElementById('mpesaPhone');
                 const payBtn = document.getElementById('payNowBtn');
@@ -2331,7 +2376,6 @@
                     console.log('After removing leading 0:', phone);
                 }
 
-                // ─── Validate: exactly 9 digits, starts with 7 or 11 ───
                 if (!/^(7\d{8}|11\d{7})$/.test(phone)) {
                     const errorMsg = phone.length > 0 
                         ? `Invalid number: "${rawPhone}". Please enter a Safaricom number starting with 07 or 011 (e.g., 0712345678 or 0110000000)`
@@ -2427,22 +2471,7 @@
 
                     const checkoutId = data.checkout_request_id || data.checkoutRequestID;
                     checkoutRequestId = checkoutId;
-                    // Capture the target service now, before any modal/state resets can happen.
                     const targetServiceId = pendingServiceRedirect || selectedService.id;
-
-                    // NOTE: We intentionally do NOT insert a `payments` row here.
-                    // The backend's /mpesa/stkpush handler already creates the
-                    // authoritative payment record server-side (see
-                    // MpesaService.initiate_stk_push -> payment_repo.create()).
-                    // A second insert from the frontend using the anon key was
-                    // redundant, could conflict with the backend's row on the
-                    // checkout_request_id, and its failures were being silently
-                    // swallowed (or, after a recent change, wrongly treated as
-                    // fatal) even when the backend's own record was fine.
-                    // If the backend ever reports success but genuinely failed to
-                    // save the record, that's a backend-side bug to fix there,
-                    // not something the frontend should compensate for by writing
-                    // its own duplicate row.
 
                     if (overlay) {
                         document.getElementById('paymentStatusText').textContent = '📱 STK Push Sent!';
@@ -2450,7 +2479,6 @@
                     }
                     showToast('📱 STK Push sent! Check your phone.', 'info');
 
-                    // ─── Poll with timeout ───
                     if (pollTimer) {
                         clearInterval(pollTimer);
                         pollTimer = null;
@@ -2533,9 +2561,6 @@
                             if (statusResponse.status === 404) {
                                 console.log(`⏳ Status check #${pollingAttempts}: Still processing...`);
 
-                                // ─── After a handful of 404s, try one silent confirm ───
-                                // /confirm may do a live lookup even when /status has no cached
-                                // record yet. If it succeeds, the user never has to click anything.
                                 if (pollingAttempts === 8 && !confirmAttempted && !unlockInFlight) {
                                     console.log('🔄 Attempting silent auto-confirm...');
                                     const unlockedSilently = await trySilentConfirm(checkoutId, targetServiceId);
@@ -2638,16 +2663,6 @@
                     }
                 }
             };
-
-            // ─── Legacy Manual Unlock (kept for compatibility) ───
-            window.manualUnlock = async function(checkoutId, serviceId) {
-                await window.confirmAndUnlock(checkoutId, serviceId);
-            };
-
-            async function unlockServiceViaConfirm(checkoutId, serviceId) {
-                // This is now handled by confirmAndUnlock
-                return await window.confirmAndUnlock(checkoutId, serviceId);
-            }
 
             async function checkServiceAccess(serviceId) {
                 try {
@@ -2837,7 +2852,7 @@
             });
 
             // ============================================================
-            // PHONE INPUT VALIDATION - SIMPLE 10 DIGIT FORMAT
+            // PHONE INPUT VALIDATION
             // ============================================================
 
             document.addEventListener('DOMContentLoaded', function() {
@@ -2875,6 +2890,7 @@
                 console.log('🚗 Auto-D Kenya Dashboard');
                 console.log('📋 API Base:', API_BASE);
                 console.log('📋 Phone format: 0700000000 or 0110000000 (10 digits)');
+                console.log('📋 Services aligned with backend services table');
 
                 initSupabase();
 
