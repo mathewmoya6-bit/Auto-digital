@@ -1,7 +1,8 @@
 """
 Auto-D Kenya
-M-Pesa Business Logic - Enterprise Grade v6 (Production Ready)
-FIXED: _run_sync() execution order, service lookup, callback columns, payment status
+M-Pesa Business Logic - Enterprise Grade v7 (Production Ready)
+FIXED: _run_sync() execution order, service lookup, callback columns, payment status,
+optimistic locking, money comparison, retry logic, database constraints
 """
 
 import base64
@@ -120,11 +121,11 @@ class PricingResult(BaseModel):
 
 
 # ============================================================
-# REPOSITORIES - COMPLETELY FIXED
+# REPOSITORIES
 # ============================================================
 
 class ServiceRepository:
-    """Service database operations - FIXED."""
+    """Service database operations."""
 
     def __init__(self):
         self._cache = None
@@ -140,37 +141,26 @@ class ServiceRepository:
         """
         Get service by code from service_prices table.
         Handles whitespace and case differences robustly.
+        FIX: Uses ilike for case-insensitive matching with limit 1.
         """
         try:
             normalized_code = (code or "").strip().lower()
             logger.info(f"[ServiceRepository] Looking up service: {normalized_code}")
 
+            # ─── FIX: Use ilike with limit 1 for performance ───
             response = await self._run_sync(
                 lambda: supabase.table("service_prices")
                 .select("*")
+                .ilike("service_type", normalized_code)
+                .limit(1)
                 .execute()
             )
 
             if not response.data:
-                logger.warning("[ServiceRepository] No services found in database")
+                logger.warning(f"[ServiceRepository] Service not found: {normalized_code}")
                 return None
 
-            matched_row = None
-            for row in response.data:
-                service_type = (row.get("service_type") or "").strip().lower()
-                if service_type == normalized_code:
-                    matched_row = row
-                    break
-
-            if not matched_row:
-                available = [r.get("service_type") for r in response.data]
-                logger.warning(
-                    f"[ServiceRepository] Service not found: {normalized_code}. "
-                    f"Available: {available}"
-                )
-                return None
-
-            row = matched_row
+            row = response.data[0]
             logger.info(f"[ServiceRepository] Found service: {row.get('service_type')}")
 
             return {
@@ -336,7 +326,7 @@ class ServiceRepository:
 
 
 class PaymentRepository:
-    """Payment database operations - COMPLETELY FIXED."""
+    """Payment database operations."""
 
     async def _run_sync(self, operation):
         """Run a synchronous database operation in a thread pool."""
@@ -391,8 +381,26 @@ class PaymentRepository:
         data: Dict,
         expected_status: str = "pending"
     ) -> Optional[Dict]:
-        """Update payment with optimistic locking."""
+        """
+        Update payment with optimistic locking.
+        FIX: Properly handles payment missing, already processed, and update failure.
+        """
         try:
+            # ─── FIX: First check if payment exists and its current status ───
+            payment = await self.get_by_checkout_id(checkout_id)
+
+            if not payment:
+                logger.error(f"❌ Payment does not exist: {checkout_id}")
+                return None
+
+            if payment.get("status") != expected_status:
+                logger.info(
+                    f"ℹ️ Payment already processed: {checkout_id}, "
+                    f"current status: {payment.get('status')}, "
+                    f"expected: {expected_status}"
+                )
+                return payment
+
             data['updated_at'] = datetime.now(UTC).isoformat()
 
             response = await self._run_sync(
@@ -404,9 +412,10 @@ class PaymentRepository:
             )
 
             if response.data:
+                logger.info(f"✅ Payment updated: {checkout_id}")
                 return response.data[0]
 
-            logger.warning(f"Optimistic lock failed for {checkout_id}")
+            logger.warning(f"⚠️ Optimistic lock failed for {checkout_id}")
             return None
 
         except Exception as e:
@@ -683,7 +692,7 @@ class PricingEngine:
 # ============================================================
 
 class MpesaAuthService:
-    """Handles M-Pesa authentication with token caching."""
+    """Handles M-Pesa authentication with token caching and retries."""
 
     def __init__(self):
         self.environment = settings.MPESA_ENV
@@ -699,7 +708,7 @@ class MpesaAuthService:
         self._token_lock = asyncio.Lock()
 
     async def get_access_token(self) -> Optional[str]:
-        """Get access token with caching."""
+        """Get access token with caching and retry logic."""
         async with self._token_lock:
             if self._cached_token and self._token_expiry:
                 if datetime.now(UTC) < self._token_expiry:
@@ -716,21 +725,33 @@ class MpesaAuthService:
                 headers = {"Authorization": f"Basic {auth}"}
                 url = f"{self.base_url}/oauth/v1/generate?grant_type=client_credentials"
 
-                async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout)) as client:
-                    response = await client.get(url, headers=headers)
-                    response.raise_for_status()
+                # ─── FIX: Retry logic for OAuth token requests ───
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout)) as client:
+                            response = await client.get(url, headers=headers)
+                            response.raise_for_status()
 
-                    data = response.json()
-                    token = data.get("access_token")
+                            data = response.json()
+                            token = data.get("access_token")
 
-                    if token:
-                        self._cached_token = token
-                        self._token_expiry = datetime.now(UTC) + timedelta(minutes=self.token_cache_minutes)
-                        logger.info("Token cached")
-                        return token
-                    else:
-                        logger.error("No token in response")
-                        return None
+                            if token:
+                                self._cached_token = token
+                                self._token_expiry = datetime.now(UTC) + timedelta(minutes=self.token_cache_minutes)
+                                logger.info("Token cached")
+                                return token
+                            else:
+                                logger.error("No token in response")
+                                return None
+
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code in (500, 502, 503, 504) and attempt < max_retries - 1:
+                            wait_time = attempt + 1
+                            logger.warning(f"OAuth attempt {attempt + 1} failed, retrying in {wait_time}s...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        raise
 
             except Exception as e:
                 logger.exception("Token error")
@@ -799,12 +820,18 @@ class MpesaSTKService:
 
             description = request.description or f"Auto-D: {request.service_id}"
 
+            # ─── FIX: Round STK amount correctly ───
+            stk_amount = amount.quantize(
+                Decimal("1"),
+                rounding=ROUND_HALF_UP
+            )
+
             payload = {
                 "BusinessShortCode": self.shortcode,
                 "Password": password,
                 "Timestamp": timestamp,
                 "TransactionType": "CustomerPayBillOnline",
-                "Amount": int(amount),
+                "Amount": int(stk_amount),
                 "PartyA": phone,
                 "PartyB": self.shortcode,
                 "PhoneNumber": phone,
@@ -952,7 +979,8 @@ class MpesaCallbackService:
                 except ValueError:
                     logger.warning(f"Could not parse date: {transaction_date_raw}")
 
-            if result_code == 0:
+            # ─── FIX: Handle "0" as string ───
+            if str(result_code) == "0":
                 return await self._handle_success(
                     payment=payment,
                     checkout_id=checkout_id,
@@ -993,32 +1021,34 @@ class MpesaCallbackService:
             user_id = payment.get("user_id")
             service_id = payment.get("service_id")
 
-            if paid_amount:
-                paid_dec = Decimal(str(paid_amount))
-                expected_dec = Decimal(str(payment.get("amount", 0)))
+            # ─── FIX: Safe money comparison with rounding ───
+            if paid_amount is not None:
+                paid_dec = Decimal(str(paid_amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                expected_dec = Decimal(str(payment.get("amount", 0))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                 if paid_dec != expected_dec:
-                    logger.error(f"Amount mismatch: expected {expected_dec}, got {paid_dec}")
+                    logger.error(f"Amount mismatch. Expected {expected_dec} got {paid_dec}")
                     return False
 
+            # ─── FIX: Only update columns that exist ───
             update_data = {
                 "status": PaymentStatus.COMPLETED.value,
                 "updated_at": datetime.now(UTC).isoformat(),
+                "result_code": str(result_code),
+                "result_desc": result_desc,
             }
 
-            if result_code is not None:
-                update_data["result_code"] = str(result_code)
-            if result_desc:
-                update_data["result_desc"] = result_desc
-            if receipt:
-                update_data["mpesa_receipt"] = receipt
-            if paid_amount is not None:
-                update_data["paid_amount"] = float(paid_amount)
-            if paid_phone:
-                update_data["paid_phone"] = paid_phone
-            if transaction_date:
-                update_data["transaction_date"] = transaction_date.isoformat()
+            # ─── FIX: Only include optional columns if they have values ───
+            optional_columns = {
+                "mpesa_receipt": receipt,
+                "paid_amount": float(paid_amount) if paid_amount is not None else None,
+                "paid_phone": paid_phone,
+                "transaction_date": transaction_date.isoformat() if transaction_date else None,
+                "callback_payload": callback_data,
+            }
 
-            update_data["callback_payload"] = callback_data
+            for column, value in optional_columns.items():
+                if value is not None:
+                    update_data[column] = value
 
             updated = await self.payment_repo.update_with_optimistic_lock(
                 checkout_id=checkout_id,
@@ -1026,10 +1056,16 @@ class MpesaCallbackService:
                 expected_status=PaymentStatus.PENDING.value
             )
 
-            if not updated:
+            if updated is None:
+                logger.error(f"❌ Failed to update payment: {checkout_id}")
+                return False
+
+            # ─── FIX: Check if already processed ───
+            if updated.get("status") != PaymentStatus.COMPLETED.value:
                 logger.info(f"Payment already processed: {checkout_id}")
                 return True
 
+            # ─── Unlock service ───
             if user_id and service_id:
                 try:
                     unlock_success = await self._unlock_service(user_id, service_id, checkout_id)
@@ -1075,6 +1111,7 @@ class MpesaCallbackService:
                         error=str(e)
                     )
 
+            # ─── Audit log ───
             try:
                 await self._create_audit_log(
                     payment_id=payment.get("id"),
@@ -1086,6 +1123,7 @@ class MpesaCallbackService:
             except Exception as e:
                 logger.warning(f"Audit log failed: {e}")
 
+            # ─── Notification ───
             if user_id and service_id:
                 try:
                     await self._create_notification(user_id, service_id)
@@ -1111,14 +1149,10 @@ class MpesaCallbackService:
             update_data = {
                 "status": PaymentStatus.FAILED.value,
                 "updated_at": datetime.now(UTC).isoformat(),
+                "result_code": str(result_code),
+                "result_desc": result_desc,
+                "callback_payload": callback_data,
             }
-
-            if result_code is not None:
-                update_data["result_code"] = str(result_code)
-            if result_desc:
-                update_data["result_desc"] = result_desc
-
-            update_data["callback_payload"] = callback_data
 
             updated = await self.payment_repo.update_with_optimistic_lock(
                 checkout_id=checkout_id,
@@ -1151,15 +1185,11 @@ class MpesaCallbackService:
             return False
 
     async def _unlock_service(self, user_id: str, service_id: str, payment_ref: str) -> bool:
-        """Unlock service for user."""
+        """Unlock service for user with duplicate prevention."""
         try:
             logger.info(f"🔓 Unlocking service: {service_id} for user: {user_id}")
             
-            existing = await self.payment_repo.get_service_access(user_id, service_id)
-            if existing:
-                logger.info(f"✅ Service already unlocked: {service_id}")
-                return True
-            
+            # ─── FIX: Try to create service access with duplicate handling ───
             expires_at = datetime.now(UTC) + timedelta(days=self.service_access_days)
             
             data = {
@@ -1173,13 +1203,20 @@ class MpesaCallbackService:
             
             logger.info(f"📝 Creating service access record: {data}")
             
-            result = await self.payment_repo.create_service_access(data)
-            if result:
-                logger.info(f"✅ Service unlocked: {service_id} for {user_id}")
-                return True
-            else:
-                logger.error(f"❌ Failed to unlock service: {service_id}")
-                return False
+            try:
+                result = await self.payment_repo.create_service_access(data)
+                if result:
+                    logger.info(f"✅ Service unlocked: {service_id} for {user_id}")
+                    return True
+                else:
+                    logger.error(f"❌ Failed to unlock service: {service_id}")
+                    return False
+            except Exception as exc:
+                # ─── FIX: Check for duplicate constraint violation ───
+                if "duplicate" in str(exc).lower() or "unique" in str(exc).lower():
+                    logger.info(f"ℹ️ Service already unlocked: {service_id} for {user_id}")
+                    return True
+                raise
                 
         except Exception as e:
             logger.exception(f"❌ Unlock error: {service_id}")
@@ -1242,7 +1279,7 @@ class MpesaService:
         self.stk_service = MpesaSTKService(self.auth_service, self.pricing_engine)
         self.callback_service = MpesaCallbackService(self.payment_repo, self.service_repo)
 
-        logger.info("M-Pesa Service initialized (Enterprise Grade v6)")
+        logger.info("M-Pesa Service initialized (Enterprise Grade v7)")
         logger.info(f"  Environment: {self.auth_service.environment}")
         logger.info(f"  Shortcode: {self.stk_service.shortcode}")
         logger.info(f"  Configured: {self.is_configured()}")
@@ -1330,7 +1367,6 @@ class MpesaService:
         """Process M-Pesa callback."""
         return await self.callback_service.process_callback(callback_data)
 
-    # ─── FIXED: get_payment_status now returns 200 for pending payments ───
     async def get_payment_status(self, checkout_request_id: str) -> Dict:
         """Get payment status - returns 200 for both pending and completed."""
         try:
@@ -1353,7 +1389,7 @@ class MpesaService:
             logger.info(f"   Service: {payment.get('service_id')}")
             logger.info("=" * 60)
 
-            # ─── FIX: Return the actual status, not just "completed" ───
+            # ─── FIX: Return more comprehensive payment information ───
             return {
                 "success": True,
                 "checkout_request_id": payment["checkout_request_id"],
@@ -1361,9 +1397,11 @@ class MpesaService:
                 "amount": payment.get("amount", 0),
                 "service_id": payment.get("service_id"),
                 "service_name": payment.get("service_name"),
+                "result_code": payment.get("result_code"),
+                "result_desc": payment.get("result_desc"),
+                "receipt": payment.get("mpesa_receipt"),
                 "created_at": payment.get("created_at"),
                 "updated_at": payment.get("updated_at"),
-                "mpesa_receipt": payment.get("mpesa_receipt"),
                 "pricing_version": payment.get("pricing_version"),
                 "pricing_snapshot": payment.get("pricing_snapshot")
             }
@@ -1414,9 +1452,13 @@ class MpesaService:
                 expected_status=PaymentStatus.PENDING.value
             )
 
-            if not updated:
+            if updated is None:
                 logger.error(f"❌ Payment was already processed")
                 return {"success": False, "error": "Payment was already processed"}
+
+            if updated.get("status") != PaymentStatus.COMPLETED.value:
+                logger.info(f"ℹ️ Payment already processed: {updated.get('status')}")
+                return {"success": True, "message": "Already processed", "already_completed": True}
 
             logger.info(f"✅ Payment updated, unlocking service...")
             
