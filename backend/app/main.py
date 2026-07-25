@@ -1,4 +1,3 @@
-# backend/app/main.py
 """
 Auto-D Kenya - FastAPI Application
 Vehicle cost analysis and valuation system
@@ -29,7 +28,19 @@ from app.api.v1.fuel import router as fuel_router
 from app.api.v1.admin import router as admin_router
 from app.api.v1.reports import router as reports_router
 from app.api.v1.running_cost import router as running_cost_router
-from app.api.v1.mpesa import router as mpesa_router
+
+# ─── M-Pesa Router ────────────────────────────────────────────────
+# FIX: Import M-Pesa router with error handling
+try:
+    from app.api.v1.mpesa import router as mpesa_router
+    MPESA_ROUTER_LOADED = True
+    logger_import = logging.getLogger(__name__)
+    logger_import.info("✅ M-Pesa router loaded successfully")
+except ImportError as e:
+    MPESA_ROUTER_LOADED = False
+    logger_import = logging.getLogger(__name__)
+    logger_import.warning(f"⚠️ M-Pesa router not available: {e}")
+    mpesa_router = None
 
 # ─── Configure Logging ─────────────────────────────────────────────
 try:
@@ -87,6 +98,14 @@ async def lifespan(app: FastAPI):
     # ─── FIX: Log CORS origins from settings ──────────────────────
     logger.info(f"🔒 CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
     
+    # ─── FIX: Check if services table exists ──────────────────────
+    try:
+        response = supabase.table("services").select("count", count="exact").limit(1).execute()
+        logger.info(f"✅ Services table found: {response.count} services")
+    except Exception as e:
+        logger.warning(f"⚠️ Services table not found or empty: {e}")
+        logger.warning("   Please run the database migration to create the services table")
+    
     logger.info("=" * 60)
     logger.info("✅ Application is ready to serve requests")
     logger.info("=" * 60)
@@ -116,7 +135,6 @@ app = FastAPI(
 
 
 # ─── CORS Configuration ────────────────────────────────────────────
-# ─── FIX: Load CORS from settings instead of hardcoding ──────────
 cors_origins = settings.BACKEND_CORS_ORIGINS
 
 logger.info(f"🔒 Configuring CORS with origins: {cors_origins}")
@@ -177,11 +195,19 @@ app.include_router(fuel_router, prefix=f"{api_prefix}/fuel", tags=["Fuel"])
 app.include_router(admin_router, prefix=f"{api_prefix}/admin", tags=["Admin"])
 app.include_router(reports_router, prefix=f"{api_prefix}/reports", tags=["Reports"])
 
-app.include_router(
-    mpesa_router,
-    prefix=api_prefix,
-    tags=["M-Pesa"]
-)
+# ─── FIX: Include M-Pesa router with error handling ──────────────
+if MPESA_ROUTER_LOADED and mpesa_router is not None:
+    try:
+        app.include_router(
+            mpesa_router,
+            prefix=api_prefix,
+            tags=["M-Pesa"]
+        )
+        logger.info("✅ M-Pesa router registered successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to register M-Pesa router: {e}")
+else:
+    logger.warning("⚠️ M-Pesa router not loaded - payment endpoints will be unavailable")
 
 logger.info("✅ All routers registered")
 
@@ -204,13 +230,22 @@ async def health_check():
         getattr(settings, "MPESA_PASSKEY", "")
     ])
     
+    # Check if services exist
+    services_exist = False
+    try:
+        response = supabase.table("services").select("count", count="exact").limit(1).execute()
+        services_exist = response.count > 0 if hasattr(response, 'count') else True
+    except Exception:
+        pass
+    
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
         "supabase": supabase_status,
         "mpesa": "configured" if mpesa_configured else "not_configured",
-        "mpesa_router_loaded": True,
+        "mpesa_router_loaded": MPESA_ROUTER_LOADED,
         "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
+        "services_table": "exists" if services_exist else "not_found",
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "version": getattr(settings, "API_VERSION", "4.0.0"),
         "docs_enabled": settings.ENABLE_DOCS,
@@ -268,6 +303,7 @@ async def root():
             "mpesa": getattr(settings, "ENABLE_MPESA", True),
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
             "mpesa_configured": mpesa_configured,
+            "mpesa_router_loaded": MPESA_ROUTER_LOADED,
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
             "docs": settings.ENABLE_DOCS
         }
@@ -294,6 +330,7 @@ async def info():
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
             "mpesa_environment": getattr(settings, "MPESA_ENV", "sandbox"),
             "mpesa_configured": mpesa_configured,
+            "mpesa_router_loaded": MPESA_ROUTER_LOADED,
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
             "analytics": getattr(settings, "ENABLE_ANALYTICS", True),
             "caching": getattr(settings, "ENABLE_CACHING", True),
@@ -318,6 +355,7 @@ if __name__ == "__main__":
     logger.info(f"🚀 Starting server on {host}:{port}")
     logger.info(f"🐛 Debug mode: {debug}")
     logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
+    logger.info(f"📱 M-Pesa Router Loaded: {MPESA_ROUTER_LOADED}")
     logger.info(f"📡 API Base URL: {getattr(settings, 'API_BASE_URL', 'http://localhost:' + str(port))}")
     logger.info(f"📚 Docs enabled: {settings.ENABLE_DOCS}")
     if settings.ENABLE_DOCS:
