@@ -77,6 +77,10 @@ async def stkpush(
         service_id = body.get("service_id")
         description = body.get("description")
         corporate_id = body.get("corporate_id")
+        # FIX: accept the optional 'requests' table row id from the dashboard so
+        # the payment can be linked back to it and its status flipped to 'paid'
+        # server-side once M-Pesa confirms (see mpesa_service.initiate_stk_push).
+        request_id = body.get("request_id")
 
         if not phone:
             raise HTTPException(
@@ -92,7 +96,7 @@ async def stkpush(
 
         logger.info(
             f"Initiating STK Push | user={current_user['id']} | "
-            f"phone={phone} | service_id={service_id}"
+            f"phone={phone} | service_id={service_id} | request_id={request_id}"
         )
 
         result = await mpesa_service.initiate_stk_push(
@@ -101,6 +105,7 @@ async def stkpush(
             description=description,
             user_id=current_user["id"],
             corporate_id=corporate_id,
+            request_id=request_id,
         )
 
         if result is None:
