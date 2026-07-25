@@ -2,6 +2,7 @@
 Auto-D Kenya
 M-Pesa Business Logic - Enterprise Grade v7 (Production Ready)
 FIXED: Backend creates payment records, frontend only reads
+FIXED: Returns success: False when payment fails to save
 """
 
 import base64
@@ -1052,12 +1053,35 @@ class MpesaService:
 
             saved = await self.payment_repo.create(payment_data)
             if not saved:
-                # ─── CRITICAL: If payment fails to save, log error but don't return error ───
-                # The STK was already sent, so we need to return the checkout ID
-                logger.error(f"❌ Payment record NOT saved for checkout: {checkout_id}")
-                # Still return success to frontend so they can poll status
+                # ─── FIX: Return error instead of success ───
+                logger.error(
+                    f"❌ Payment record NOT saved for checkout: {checkout_id}. "
+                    "Aborting — frontend will be told this failed, even though "
+                    "the STK push itself went out."
+                )
+                # Log to failed events for manual reconciliation
+                try:
+                    await self.payment_repo.create_failed_event(
+                        event_type="payment_create_failed",
+                        payload=payment_data,
+                        error="payment_repo.create() returned None after successful STK push"
+                    )
+                except Exception:
+                    logger.exception("Could not log failed_event for manual reconciliation")
 
-            logger.info(f"✅ STK Push initiated: {checkout_id}")
+                return {
+                    "success": False,
+                    "error": (
+                        "Your M-Pesa prompt was sent, but we couldn't save the "
+                        "payment record on our end. Please do NOT enter your PIN — "
+                        "cancel the prompt on your phone and try again. If you "
+                        "already paid, contact support with this reference: "
+                        f"{checkout_id}"
+                    ),
+                    "checkout_request_id": checkout_id,
+                }
+
+            logger.info(f"✅ STK Push initiated and payment saved: {checkout_id}")
 
             return {
                 "success": True,
