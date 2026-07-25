@@ -1038,7 +1038,6 @@
             let activityLogs = [];
             let healthCheckInterval = null;
             let clockInterval = null;
-            let realtimeSubscriptions = [];
             let healthCheckInFlight = false;
             let editingServiceId = null;
 
@@ -1077,8 +1076,8 @@
                 return supabaseClient;
             }
 
-            // ─── Database Functions ─────────────────────────────────────
-            async function query(table, select = '*', filters = {}, order = null, limit = null) {
+            // ─── Supabase Direct Query Functions ──────────────────────
+            async function querySupabase(table, select = '*', filters = {}, order = null, limit = null) {
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
@@ -1105,7 +1104,7 @@
                 }
             }
 
-            async function upsert(table, data, conflictKey = 'id') {
+            async function upsertSupabase(table, data, conflictKey = 'id') {
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
@@ -1124,7 +1123,7 @@
                 }
             }
 
-            async function del(table, filters) {
+            async function deleteSupabase(table, filters) {
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
@@ -1138,42 +1137,6 @@
                 } catch (error) {
                     console.error(`❌ Delete error (${table}):`, error);
                     return { success: false, error: error.message };
-                }
-            }
-
-            // ─── Backend API helper ─────────────────────────────────────
-            async function getAuthHeaders() {
-                const headers = { 'Content-Type': 'application/json' };
-                try {
-                    const client = getSupabaseClient();
-                    if (client) {
-                        const { data } = await client.auth.getSession();
-                        const token = data?.session?.access_token;
-                        if (token) headers['Authorization'] = `Bearer ${token}`;
-                    }
-                } catch (_) { /* proceed without auth header */ }
-                return headers;
-            }
-
-            async function apiFetch(path, options = {}) {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 6000);
-                try {
-                    const headers = await getAuthHeaders();
-                    const res = await fetch(`${API_BASE}${path}`, {
-                        ...options,
-                        headers: { ...headers, ...(options.headers || {}) },
-                        signal: controller.signal
-                    });
-                    clearTimeout(timeoutId);
-                    if (!res.ok) {
-                        const text = await res.text().catch(() => '');
-                        throw new Error(`API ${res.status}: ${text.slice(0, 200)}`);
-                    }
-                    return await res.json();
-                } catch (error) {
-                    clearTimeout(timeoutId);
-                    throw error;
                 }
             }
 
@@ -1198,26 +1161,17 @@
             // ─── Get all services from service_prices ─────────────────
             async function getServicePrices() {
                 try {
-                    const client = getSupabaseClient();
-                    if (!client) throw new Error('Supabase not initialized');
-                    const { data, error } = await client
-                        .from('service_prices')
-                        .select('*')
-                        .order('created_at', { ascending: false });
-                    if (error) throw error;
+                    const result = await querySupabase('service_prices', '*', {}, { column: 'created_at', ascending: false });
+                    if (!result.success) throw new Error(result.error);
                     
                     const latest = {};
-                    data.forEach(item => {
+                    result.data.forEach(item => {
                         if (!latest[item.service_type] || new Date(item.created_at) > new Date(latest[item.service_type].created_at)) {
                             latest[item.service_type] = item;
                         }
                     });
                     
-                    const prices = {};
-                    Object.keys(latest).forEach(key => {
-                        prices[key] = latest[key];
-                    });
-                    return { success: true, data: prices };
+                    return { success: true, data: latest };
                 } catch (error) {
                     console.error('❌ Get service prices error:', error);
                     return { success: false, error: error.message };
@@ -1226,7 +1180,7 @@
 
             // ─── Update service price ──────────────────────────────────
             async function updateServicePrice(serviceType, price, currency = 'KES') {
-                return await upsert('service_prices', {
+                return await upsertSupabase('service_prices', {
                     service_type: serviceType,
                     price: price,
                     currency: currency
@@ -1260,11 +1214,11 @@
 
             // ─── Delete service ────────────────────────────────────────
             async function deleteServiceByType(serviceType) {
-                return await del('service_prices', { service_type: serviceType });
+                return await deleteSupabase('service_prices', { service_type: serviceType });
             }
 
             // ─── Fetch Service Prices ──────────────────────────────────
-            async function fetchServicePrices() {
+            window.fetchServicePrices = async function() {
                 try {
                     const result = await getServicePrices();
                     if (result.success && result.data && Object.keys(result.data).length > 0) {
@@ -1282,7 +1236,7 @@
                     document.getElementById('serviceStatus').textContent = '● Offline';
                     document.getElementById('serviceStatus').className = 'badge badge-danger';
                 }
-            }
+            };
 
             function renderFallbackServicePrices() {
                 const fallback = {
@@ -1297,7 +1251,6 @@
             }
 
             function renderServicePrices(services) {
-                // Build list of service entries
                 const entries = Object.entries(services).map(([key, val]) => {
                     const data = typeof val === 'number' ? { price: val } : val;
                     return {
@@ -1312,7 +1265,6 @@
                     };
                 });
 
-                // Sort by display_order
                 entries.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
 
                 if (entries.length === 0) {
@@ -1363,7 +1315,7 @@
                     const result = await updateServicePrice(type, price);
                     if (!result.success) throw new Error(result.error);
 
-                    await fetchServicePrices();
+                    await window.fetchServicePrices();
                     const name = type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     await addAdminLog(`💳 ${name} price updated to ${price}`, 'admin');
                     showToast(`✅ ${name} price updated!`, 'success');
@@ -1387,7 +1339,7 @@
                     if (!service) throw new Error('Service not found');
                     
                     const newStatus = service.is_active !== false;
-                    await upsert('service_prices', {
+                    await upsertSupabase('service_prices', {
                         service_type: type,
                         price: service.price,
                         currency: service.currency || 'KES',
@@ -1395,7 +1347,7 @@
                         is_active: !newStatus
                     }, 'service_type');
                     
-                    await fetchServicePrices();
+                    await window.fetchServicePrices();
                     const name = type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     await addAdminLog(`🔒 ${name} ${newStatus ? 'deactivated' : 'activated'}`, 'admin');
                     showToast(`✅ ${name} ${newStatus ? 'deactivated' : 'activated'}!`, 'success');
@@ -1471,7 +1423,7 @@
                     const result = await deleteServiceByType(editingServiceId);
                     if (!result.success) throw new Error(result.error);
                     
-                    await fetchServicePrices();
+                    await window.fetchServicePrices();
                     const name = editingServiceId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     await addAdminLog(`🗑️ ${name} service deleted`, 'admin');
                     showToast(`✅ ${name} deleted!`, 'success');
@@ -1506,8 +1458,7 @@
 
                 try {
                     if (editingServiceId) {
-                        // Update existing service
-                        const result = await upsert('service_prices', {
+                        const result = await upsertSupabase('service_prices', {
                             service_type: code,
                             price: price,
                             currency: currency,
@@ -1520,7 +1471,6 @@
                         await addAdminLog(`💳 ${name} service updated (${price} ${currency})`, 'admin');
                         showToast(`✅ ${name} updated!`, 'success');
                     } else {
-                        // Create new service
                         const result = await createService({
                             code: code,
                             price: price,
@@ -1536,7 +1486,7 @@
                     }
                     
                     closeServiceModal();
-                    await fetchServicePrices();
+                    await window.fetchServicePrices();
                 } catch (error) {
                     console.error('Save service error:', error);
                     showToast(`❌ Failed to save service: ${error.message}`, 'error');
@@ -1554,117 +1504,29 @@
             });
 
             // ─── Fuel Prices ────────────────────────────────────────────
-            async function getFuelPricesFromApi() {
+            window.fetchFuelPrices = async function() {
                 try {
-                    const data = await apiFetch('/fuel/prices', { method: 'GET' });
-                    const prices = {};
-                    if (Array.isArray(data)) {
-                        data.forEach(item => {
-                            const key = item.fuel_type || item.type;
-                            if (!key) return;
-                            prices[key] = {
-                                price: item.price,
-                                date: item.effective_date || item.date || item.created_at,
-                                currency: item.currency || 'KES'
-                            };
-                        });
-                    } else if (data && typeof data === 'object') {
-                        Object.entries(data).forEach(([key, val]) => {
-                            if (val && typeof val === 'object') {
-                                prices[key] = {
-                                    price: val.price,
-                                    date: val.effective_date || val.date,
-                                    currency: val.currency || 'KES'
-                                };
-                            } else if (typeof val === 'number') {
-                                prices[key] = { price: val, date: null, currency: 'KES' };
+                    const result = await querySupabase('fuel_prices', '*', { region: 'nairobi' }, { column: 'created_at', ascending: false });
+                    if (result.success && result.data) {
+                        const latest = {};
+                        result.data.forEach(item => {
+                            if (!latest[item.fuel_type] || new Date(item.created_at) > new Date(latest[item.fuel_type].created_at)) {
+                                latest[item.fuel_type] = item;
                             }
                         });
-                    }
-                    if (Object.keys(prices).length === 0) throw new Error('Unrecognized response shape');
-                    return { success: true, data: prices };
-                } catch (error) {
-                    console.warn('⚠️ /fuel/prices API call failed, falling back:', error.message);
-                    return { success: false, error: error.message };
-                }
-            }
-
-            async function updateFuelPriceViaApi(fuelType, price) {
-                try {
-                    await apiFetch('/admin/fuel-prices', {
-                        method: 'PUT',
-                        body: JSON.stringify({ fuel_type: fuelType, price, currency: 'KES' })
-                    });
-                    return { success: true };
-                } catch (error) {
-                    console.warn(`⚠️ Admin fuel-price API update failed for ${fuelType}:`, error.message);
-                    return { success: false, error: error.message };
-                }
-            }
-
-            async function getFuelPrices() {
-                try {
-                    const client = getSupabaseClient();
-                    if (!client) throw new Error('Supabase not initialized');
-                    const { data, error } = await client
-                        .from('fuel_prices')
-                        .select('*')
-                        .eq('region', 'nairobi')
-                        .order('created_at', { ascending: false });
-                    if (error) throw error;
-                    
-                    const latest = {};
-                    data.forEach(item => {
-                        if (!latest[item.fuel_type] || new Date(item.created_at) > new Date(latest[item.fuel_type].created_at)) {
-                            latest[item.fuel_type] = item;
-                        }
-                    });
-                    
-                    const prices = {};
-                    Object.keys(latest).forEach(key => {
-                        prices[key] = {
-                            price: latest[key].price,
-                            date: latest[key].created_at,
-                            currency: latest[key].currency || 'KES'
-                        };
-                    });
-                    return { success: true, data: prices };
-                } catch (error) {
-                    console.error('❌ Get fuel prices error:', error);
-                    return { success: false, error: error.message };
-                }
-            }
-
-            async function updateFuelPrice(fuelType, price) {
-                const apiResult = await updateFuelPriceViaApi(fuelType, price);
-                if (apiResult.success) return apiResult;
-                const today = new Date().toISOString().split('T')[0];
-                return await upsert('fuel_prices', {
-                    fuel_type: fuelType,
-                    region: 'nairobi',
-                    effective_date: today,
-                    price: price,
-                    currency: 'KES'
-                }, 'fuel_type,region,effective_date');
-            }
-
-            // ─── Fetch Fuel Prices ─────────────────────────────────────
-            async function fetchFuelPrices() {
-                try {
-                    let result = await getFuelPricesFromApi();
-                    let source = 'API';
-                    if (!result.success) {
-                        result = await getFuelPrices();
-                        source = 'Supabase';
-                    }
-                    if (result.success && result.data && Object.keys(result.data).length > 0) {
-                        renderFuelPrices(result.data);
-                        document.getElementById('fuelStatus').textContent = `● Connected (${source})`;
+                        const prices = {};
+                        Object.keys(latest).forEach(key => {
+                            prices[key] = {
+                                price: latest[key].price,
+                                date: latest[key].created_at,
+                                currency: latest[key].currency || 'KES'
+                            };
+                        });
+                        renderFuelPrices(prices);
+                        document.getElementById('fuelStatus').textContent = '● Connected';
                         document.getElementById('fuelStatus').className = 'badge badge-success';
                     } else {
                         renderFallbackFuelPrices();
-                        document.getElementById('fuelStatus').textContent = '● No Data';
-                        document.getElementById('fuelStatus').className = 'badge badge-warning';
                     }
                 } catch (error) {
                     console.warn('⚠️ Fuel fetch error:', error.message);
@@ -1672,7 +1534,7 @@
                     document.getElementById('fuelStatus').textContent = '● Offline';
                     document.getElementById('fuelStatus').className = 'badge badge-danger';
                 }
-            }
+            };
 
             function renderFallbackFuelPrices() {
                 const fallback = {
@@ -1735,12 +1597,20 @@
                 statusEl.textContent = '⟳ Updating...';
 
                 try {
-                    const result = await updateFuelPrice(type, price);
+                    const today = new Date().toISOString().split('T')[0];
+                    const result = await upsertSupabase('fuel_prices', {
+                        fuel_type: type,
+                        region: 'nairobi',
+                        effective_date: today,
+                        price: price,
+                        currency: 'KES'
+                    }, 'fuel_type,region,effective_date');
+                    
                     if (!result.success) throw new Error(result.error);
 
                     statusEl.className = 'status-badge synced';
                     statusEl.textContent = '✓ Synced';
-                    await fetchFuelPrices();
+                    await window.fetchFuelPrices();
                     await addAdminLog(`⛽ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated to KES ${price.toFixed(2)}`, 'admin');
                     showToast(`✅ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated!`, 'success');
                 } catch (error) {
@@ -1754,22 +1624,16 @@
             // ─── Engine Settings ────────────────────────────────────────
             async function getEngineSettings() {
                 try {
-                    const client = getSupabaseClient();
-                    if (!client) throw new Error('Supabase not initialized');
-                    const { data, error } = await client
-                        .from('settings')
-                        .select('value')
-                        .eq('key', 'engine_settings')
-                        .single();
-                    if (error) {
-                        return { success: true, data: {
-                            depreciation_rate: 0.15,
-                            insurance_rate: 0.045,
-                            annual_mileage: 20000,
-                            tyre_lifespan: 45000
-                        } };
+                    const result = await querySupabase('settings', 'value', { key: 'engine_settings' });
+                    if (result.success && result.data && result.data.length > 0) {
+                        return { success: true, data: result.data[0].value };
                     }
-                    return { success: true, data: data.value };
+                    return { success: true, data: {
+                        depreciation_rate: 0.15,
+                        insurance_rate: 0.045,
+                        annual_mileage: 20000,
+                        tyre_lifespan: 45000
+                    } };
                 } catch (error) {
                     console.warn('⚠️ Get engine settings error:', error.message);
                     return { success: true, data: {
@@ -1782,14 +1646,14 @@
             }
 
             async function updateEngineSettings(settings) {
-                return await upsert('settings', {
+                return await upsertSupabase('settings', {
                     key: 'engine_settings',
                     value: settings
                 }, 'key');
             }
 
             // ─── Fetch Engine Settings ─────────────────────────────────
-            async function fetchEngineSettings() {
+            window.fetchEngineSettings = async function() {
                 try {
                     const result = await getEngineSettings();
                     if (result.success) {
@@ -1806,7 +1670,7 @@
                     document.getElementById('annualMileage').value = 20000;
                     document.getElementById('tyreLifespan').value = 45000;
                 }
-            }
+            };
 
             // ─── Update Setting ─────────────────────────────────────────
             window.updateSetting = async function(setting) {
@@ -1883,42 +1747,10 @@
             }
 
             async function getAdminLogs(limit = 50) {
-                return await query('admin_logs', '*', {}, { column: 'created_at', ascending: false }, limit);
+                return await querySupabase('admin_logs', '*', {}, { column: 'created_at', ascending: false }, limit);
             }
 
             // ─── Dashboard Stats ────────────────────────────────────────
-            function pickField(obj, candidates) {
-                for (const key of candidates) {
-                    if (obj && obj[key] !== undefined && obj[key] !== null) return obj[key];
-                }
-                return undefined;
-            }
-
-            async function getDashboardStatsFromApi() {
-                try {
-                    const data = await apiFetch('/admin/dashboard', { method: 'GET' });
-                    const vehicles = pickField(data, ['vehicles', 'vehicle_count', 'total_vehicles', 'variants']);
-                    const reports = pickField(data, ['reports', 'report_count', 'total_reports', 'mileage_reports']);
-                    const users = pickField(data, ['users', 'user_count', 'total_users', 'active_users']);
-                    const apiCalls = pickField(data, ['apiCalls', 'api_calls', 'api_calls_today', 'requests_today']);
-                    if ([vehicles, reports, users, apiCalls].every(v => v === undefined)) {
-                        throw new Error('Unrecognized response shape');
-                    }
-                    return {
-                        success: true,
-                        data: {
-                            vehicles: vehicles || 0,
-                            reports: reports || 0,
-                            users: users || 0,
-                            apiCalls: apiCalls || 0
-                        }
-                    };
-                } catch (error) {
-                    console.warn('⚠️ /admin/dashboard API call failed:', error.message);
-                    return { success: false, error: error.message };
-                }
-            }
-
             async function getDashboardStats() {
                 try {
                     const client = getSupabaseClient();
@@ -1950,10 +1782,7 @@
             // ─── Fetch Stats ───────────────────────────────────────────
             async function fetchStats() {
                 try {
-                    let result = await getDashboardStatsFromApi();
-                    if (!result.success) {
-                        result = await getDashboardStats();
-                    }
+                    const result = await getDashboardStats();
                     if (result.success) {
                         const stats = result.data;
                         document.getElementById('statValuations').textContent = (stats.vehicles || 0).toLocaleString();
@@ -2224,9 +2053,9 @@
             async function loadDashboardData() {
                 await Promise.all([
                     fetchStats(),
-                    fetchFuelPrices(),
-                    fetchServicePrices(),
-                    fetchEngineSettings(),
+                    window.fetchFuelPrices(),
+                    window.fetchServicePrices(),
+                    window.fetchEngineSettings(),
                     fetchLogs()
                 ]);
                 showToast('✅ Dashboard loaded', 'success');
@@ -2288,9 +2117,9 @@
                 try {
                     await Promise.all([
                         fetchStats(),
-                        fetchFuelPrices(),
-                        fetchServicePrices(),
-                        fetchEngineSettings(),
+                        window.fetchFuelPrices(),
+                        window.fetchServicePrices(),
+                        window.fetchEngineSettings(),
                         fetchLogs(),
                         checkHealth(true)
                     ]);
@@ -2342,7 +2171,7 @@
                     localStorage.setItem('auto_d_settings', JSON.stringify(defaults));
                     addAdminLog('⚠️ All settings reset to default', 'admin');
                     showToast('✅ Settings reset to default!', 'warning');
-                    fetchEngineSettings();
+                    window.fetchEngineSettings();
                 }
             };
 
