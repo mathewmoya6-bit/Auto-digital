@@ -3,6 +3,8 @@ Auto-D Kenya
 M-Pesa Business Logic - Enterprise Grade v7 (Production Ready)
 FIXED: Backend creates payment records, frontend only reads
 FIXED: Returns success: False when payment fails to save
+FIXED: Uses new 'services' table instead of deprecated 'service_prices'
+FIXED: Removes automatic VAT addition (prices are final as configured in admin)
 """
 
 import base64
@@ -126,7 +128,7 @@ class PricingResult(BaseModel):
 # ============================================================
 
 class ServiceRepository:
-    """Service database operations."""
+    """Service database operations using the new 'services' table."""
 
     def __init__(self):
         self._cache = None
@@ -139,17 +141,22 @@ class ServiceRepository:
         return await loop.run_in_executor(_db_executor, operation)
 
     async def get_by_code(self, code: str, include_inactive: bool = False) -> Optional[Dict]:
-        """Get service by code from service_prices table."""
+        """Get service by code from services table."""
         try:
             normalized_code = (code or "").strip().lower()
             logger.info(f"[ServiceRepository] Looking up service: {normalized_code}")
 
-            response = await self._run_sync(
-                lambda: supabase.table("service_prices")
+            query = (
+                supabase.table("services")
                 .select("*")
-                .ilike("service_type", normalized_code)
-                .limit(1)
-                .execute()
+                .eq("code", normalized_code)
+            )
+
+            if not include_inactive:
+                query = query.eq("active", True)
+
+            response = await self._run_sync(
+                lambda: query.limit(1).execute()
             )
 
             if not response.data:
@@ -157,25 +164,25 @@ class ServiceRepository:
                 return None
 
             row = response.data[0]
-            logger.info(f"[ServiceRepository] Found service: {row.get('service_type')} - Price: {row.get('price')}")
+            logger.info(f"[ServiceRepository] Found service: {row.get('code')} - Price: {row.get('price')}")
 
             return {
                 "id": row.get("id"),
-                "code": row.get("service_type"),
-                "name": row.get("service_type", code).replace("_", " ").title(),
-                "base_price": Decimal(str(row.get("price", 0))),
+                "code": row.get("code"),
+                "name": row.get("name"),
                 "price": Decimal(str(row.get("price", 0))),
-                "vat_rate": Decimal("0.16"),
-                "discount_value": Decimal("0"),
-                "discount_type": None,
-                "service_fee": Decimal("0"),
+                "base_price": Decimal(str(row.get("price", 0))),
                 "currency": row.get("currency", "KES"),
                 "description": row.get("description", ""),
-                "is_active": True,
-                "active": True,
-                "version": 1,
-                "display_order": 0,
-                "sort_order": 0,
+                "service_fee": Decimal(str(row.get("service_fee", 0))),
+                "vat_rate": Decimal("0"),  # Prices are final as configured
+                "discount_value": Decimal("0"),
+                "discount_type": None,
+                "active": row.get("active", True),
+                "is_active": row.get("active", True),
+                "version": row.get("version", 1),
+                "display_order": row.get("display_order", 0),
+                "sort_order": row.get("display_order", 0),
             }
 
         except Exception as e:
@@ -183,44 +190,121 @@ class ServiceRepository:
             return None
 
     async def get_all(self, include_inactive: bool = False) -> List[Dict]:
-        """Get all services from service_prices table."""
+        """Get all services from services table."""
         try:
+            query = supabase.table("services").select("*")
+            
+            if not include_inactive:
+                query = query.eq("active", True)
+            
             response = await self._run_sync(
-                lambda: supabase.table("service_prices")
-                .select("*")
-                .order("id")
-                .execute()
+                lambda: query.order("display_order").execute()
             )
 
             if not response.data:
+                logger.warning("No services found in services table")
                 return []
 
             services = []
             for row in response.data:
                 services.append({
                     "id": row.get("id"),
-                    "code": row.get("service_type"),
-                    "name": row.get("service_type", "").replace("_", " ").title(),
-                    "base_price": Decimal(str(row.get("price", 0))),
+                    "code": row.get("code"),
+                    "name": row.get("name"),
                     "price": Decimal(str(row.get("price", 0))),
-                    "vat_rate": Decimal("0.16"),
-                    "discount_value": Decimal("0"),
-                    "discount_type": None,
-                    "service_fee": Decimal("0"),
+                    "base_price": Decimal(str(row.get("price", 0))),
                     "currency": row.get("currency", "KES"),
                     "description": row.get("description", ""),
-                    "is_active": True,
-                    "active": True,
-                    "version": 1,
-                    "display_order": 0,
-                    "sort_order": 0,
+                    "service_fee": Decimal(str(row.get("service_fee", 0))),
+                    "vat_rate": Decimal("0"),  # Prices are final as configured
+                    "discount_value": Decimal("0"),
+                    "discount_type": None,
+                    "active": row.get("active", True),
+                    "is_active": row.get("active", True),
+                    "version": row.get("version", 1),
+                    "display_order": row.get("display_order", 0),
+                    "sort_order": row.get("display_order", 0),
                 })
 
+            logger.info(f"[ServiceRepository] Loaded {len(services)} services")
             return services
 
         except Exception as e:
             logger.exception("Get all services error")
             return []
+
+    async def create(self, data: Dict) -> Optional[Dict]:
+        """Create a new service (admin only)."""
+        try:
+            data['id'] = str(uuid.uuid4())
+            data['created_at'] = datetime.now(UTC).isoformat()
+            data['updated_at'] = datetime.now(UTC).isoformat()
+
+            response = await self._run_sync(
+                lambda: supabase.table("services").insert(data).execute()
+            )
+            return response.data[0] if response.data else None
+
+        except Exception as e:
+            logger.exception("Create service error")
+            return None
+
+    async def update(self, service_id: str, data: Dict) -> Optional[Dict]:
+        """Update a service (admin only)."""
+        try:
+            data['updated_at'] = datetime.now(UTC).isoformat()
+
+            response = await self._run_sync(
+                lambda: supabase.table("services")
+                .update(data)
+                .eq("id", service_id)
+                .execute()
+            )
+            return response.data[0] if response.data else None
+
+        except Exception as e:
+            logger.exception("Update service error")
+            return None
+
+    async def soft_delete(self, service_id: str, deleted_by: str) -> bool:
+        """Soft delete a service (admin only)."""
+        try:
+            data = {
+                "active": False,
+                "deleted_at": datetime.now(UTC).isoformat(),
+                "deleted_by": deleted_by
+            }
+            response = await self._run_sync(
+                lambda: supabase.table("services")
+                .update(data)
+                .eq("id", service_id)
+                .execute()
+            )
+            return bool(response.data)
+
+        except Exception as e:
+            logger.exception("Soft delete service error")
+            return False
+
+    async def restore(self, service_id: str) -> bool:
+        """Restore a soft-deleted service (admin only)."""
+        try:
+            data = {
+                "active": True,
+                "deleted_at": None,
+                "deleted_by": None
+            }
+            response = await self._run_sync(
+                lambda: supabase.table("services")
+                .update(data)
+                .eq("id", service_id)
+                .execute()
+            )
+            return bool(response.data)
+
+        except Exception as e:
+            logger.exception("Restore service error")
+            return False
 
 
 # ============================================================
@@ -1006,13 +1090,18 @@ class MpesaService:
                     "error": f"Service '{request.service_id}' not found or inactive"
                 }
 
-            # ─── 3. Calculate price ───
-            base_price = float(service.get("price", 0))
-            vat_rate = float(service.get("vat_rate", 0.16))
-            amount = base_price * (1 + vat_rate)
-            amount = round(amount, 2)
+            # ─── 3. Get final price (no automatic VAT addition) ───
+            # The price in the services table is the final amount the customer pays
+            amount = float(service.get("price", 0))
+            
+            if amount <= 0:
+                logger.error(f"Invalid price for service {request.service_id}: {amount}")
+                return {
+                    "success": False,
+                    "error": f"Invalid price for service '{request.service_id}'"
+                }
 
-            logger.info(f"Service: {service.get('name')}, Price: {amount}")
+            logger.info(f"Service: {service.get('name')}, Price: {amount} KES")
 
             # ─── 4. Send STK Push ───
             stk_result = await self.stk_service.initiate_stk_push(
@@ -1046,7 +1135,7 @@ class MpesaService:
                 "phone": request.phone,
                 "checkout_request_id": checkout_id,
                 "status": PaymentStatus.PENDING.value,
-                "pricing_version": 1,
+                "pricing_version": service.get("version", 1),
             }
 
             logger.info(f"📝 Creating payment record: {json.dumps(payment_data, default=str)}")
@@ -1091,6 +1180,7 @@ class MpesaService:
                 "response_description": stk_result.get("response_description"),
                 "service_name": service.get("name", request.service_id),
                 "amount": amount,
+                "currency": service.get("currency", "KES"),
             }
 
         except Exception as e:
@@ -1263,11 +1353,11 @@ class MpesaService:
 
             updated = await self.service_repo.update(service_id, data)
             if updated:
-                if 'base_price' in data:
+                if 'price' in data:
                     await self.payment_repo.create_price_history({
                         "service_id": current.get("id"),
-                        "old_price": current.get("base_price"),
-                        "new_price": data["base_price"],
+                        "old_price": current.get("price"),
+                        "new_price": data["price"],
                         "changed_by": changed_by,
                         "reason": reason or data.get("reason", "Price update")
                     })
