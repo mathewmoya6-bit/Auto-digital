@@ -1145,8 +1145,10 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (Aligned with existing tables)
+        // AUTO-D KENYA - DASHBOARD (Fully aligned with backend API)
         // Tables: services, vehicles, requests, payments, service_access, notifications
+        // FIXES: Services from /mpesa/services, payments from /mpesa/payments,
+        // unlock status from /mpesa/user/services, request_id passed to STK
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1185,6 +1187,7 @@
             let isProcessingPayment = false;
             let checkoutRequestId = null;
             let pendingServiceRedirect = null;
+            let pendingRequestId = null; // FIX: id of the 'requests' row this payment is for
             let pollTimer = null;
             let confirmAttempted = false;
             let pollingAttempts = 0;
@@ -1367,6 +1370,26 @@
                         };
                         localStorage.setItem('auto_d_user', JSON.stringify(userData));
                         updateUserUI();
+
+                        // FIX: confirm the backend still honors this token
+                        // (GET /auth/me) rather than only trusting the local
+                        // Supabase session object, which can go stale.
+                        try {
+                            const meResp = await fetch(`${API_BASE}/auth/me`, {
+                                headers: { 'Authorization': `Bearer ${session.access_token}` }
+                            });
+                            if (!meResp.ok) {
+                                console.warn('Backend rejected session token, signing out');
+                                await supabaseClient.auth.signOut();
+                                localStorage.removeItem('auto_d_user');
+                                return false;
+                            }
+                        } catch (e) {
+                            console.warn('Could not verify session with backend:', e.message);
+                            // Network hiccup shouldn't lock the user out — proceed
+                            // with the locally-trusted session.
+                        }
+
                         return true;
                     }
                     const stored = localStorage.getItem('auto_d_user');
@@ -1444,7 +1467,7 @@
             };
 
             // ============================================================
-            // LOAD DASHBOARD
+            // LOAD DASHBOARD - Uses backend APIs for services, payments, unlock status
             // ============================================================
 
             async function loadDashboard() {
@@ -1457,29 +1480,33 @@
                         servicesGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
                     }
 
-                    // ─── 1. Fetch services from services table ───
+                    // ─── 1. Fetch services from the backend (authoritative catalog) ───
+                    // FIX: was querying the 'services' table directly with the anon
+                    // key. Use GET /mpesa/services instead so pricing always matches
+                    // what /mpesa/stkpush will actually charge.
                     let services = [];
                     try {
-                        const servicesData = await supabaseRequest('services', 'id, code, name, price, currency, active');
-                        if (servicesData && servicesData.length > 0) {
-                            services = servicesData
-                                .filter(s => s.active !== false)
-                                .map(s => ({
-                                    id: s.code,
-                                    code: s.code,
-                                    name: s.name || SERVICE_NAMES[s.code] || s.code,
-                                    price: parseFloat(s.price) || 0,
-                                    icon: SERVICE_ICONS[s.code] || '📦',
-                                    route: SERVICE_ROUTES[s.code],
-                                    purchased: false,
-                                    status: 'locked'
-                                }));
+                        const svcResp = await fetch(`${API_BASE}/mpesa/services`);
+                        if (svcResp.ok) {
+                            const svcJson = await svcResp.json();
+                            services = (svcJson.services || []).map(s => ({
+                                id: s.code,
+                                code: s.code,
+                                name: s.name || SERVICE_NAMES[s.code] || s.code,
+                                price: parseFloat(s.price) || 0,
+                                icon: SERVICE_ICONS[s.code] || '📦',
+                                route: SERVICE_ROUTES[s.code],
+                                purchased: false,
+                                status: 'locked'
+                            }));
                         }
                     } catch (e) {
-                        console.warn('Could not fetch services:', e.message);
+                        console.warn('Could not fetch services from backend:', e.message);
                     }
 
-                    // ─── If no services found, use defaults ───
+                    // ─── If backend is unreachable, fall back to defaults so the
+                    // page still renders (prices here are DISPLAY ONLY — the real
+                    // charge always comes from the backend at STK push time) ───
                     if (services.length === 0) {
                         services = [
                             { id: 'mileage', code: 'mileage', name: 'Mileage Calculator', price: 100, icon: '📈', route: '/mileage.html', purchased: false, status: 'locked' },
@@ -1499,26 +1526,45 @@
                         console.warn('Could not fetch vehicles:', e.message);
                     }
 
-                    // ─── 3. Fetch payments ───
+                    // ─── 3. Fetch payments — FIX: from the backend (GET /mpesa/payments),
+                    // not the raw 'payments' table, so this always matches what the
+                    // backend itself considers the payment history to be ───
                     let payments = [];
                     try {
-                        if (currentUser) {
-                            const paymentsData = await supabaseRequest('payments', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
-                            payments = paymentsData || [];
+                        const payToken = await getAuthToken();
+                        if (payToken) {
+                            const payResp = await fetch(`${API_BASE}/mpesa/payments`, {
+                                headers: { 'Authorization': `Bearer ${payToken}` }
+                            });
+                            if (payResp.ok) {
+                                const payJson = await payResp.json();
+                                payments = payJson.payments || [];
+                            }
                         }
                     } catch (e) {
-                        console.warn('Could not fetch payments:', e.message);
+                        console.warn('Could not fetch payments from backend:', e.message);
                     }
 
-                    // ─── 4. Fetch service access ───
-                    let serviceAccess = [];
+                    // ─── 4. Fetch unlocked services — FIX: from the backend
+                    // (GET /mpesa/user/services), which is the ONLY source of
+                    // truth for whether a service is unlocked. We no longer read
+                    // 'service_access' directly with the anon key and no longer
+                    // infer unlock status from raw payment/request rows — a
+                    // tampered client could otherwise fake those. ───
+                    let unlockedServiceIds = [];
                     try {
-                        if (currentUser) {
-                            const accessData = await supabaseRequest('service_access', '*', { user_id: currentUser.id, status: 'active' });
-                            serviceAccess = accessData || [];
+                        const svcToken = await getAuthToken();
+                        if (svcToken) {
+                            const userSvcResp = await fetch(`${API_BASE}/mpesa/user/services`, {
+                                headers: { 'Authorization': `Bearer ${svcToken}` }
+                            });
+                            if (userSvcResp.ok) {
+                                const userSvcJson = await userSvcResp.json();
+                                unlockedServiceIds = (userSvcJson.services || []).map(s => s.service_id);
+                            }
                         }
                     } catch (e) {
-                        console.warn('Could not fetch service access:', e.message);
+                        console.warn('Could not fetch user services from backend:', e.message);
                     }
 
                     // ─── 5. Fetch requests ───
@@ -1543,41 +1589,14 @@
                         console.warn('Could not fetch notifications:', e.message);
                     }
 
-                    // ─── Determine unlocked services ───
-                    const unlockedServices = {};
-                    
-                    // Check service_access
-                    if (serviceAccess && serviceAccess.length > 0) {
-                        serviceAccess.forEach(item => {
-                            if (!item.expires_at || new Date(item.expires_at) > new Date()) {
-                                unlockedServices[item.service_id] = true;
-                            }
-                        });
-                    }
-
-                    // Check payments for completed status
-                    if (payments) {
-                        payments.forEach(p => {
-                            if (p.status === 'completed' || p.status === 'paid' || p.status === 'success') {
-                                unlockedServices[p.service_id] = true;
-                            }
-                        });
-                    }
-
-                    // Check requests
-                    if (requests) {
-                        requests.forEach(r => {
-                            if (r.status === 'paid' || r.status === 'completed') {
-                                unlockedServices[r.service_id] = true;
-                            }
-                        });
-                    }
-
-                    // ─── Update services with purchase status ───
+                    // ─── Apply unlocked status from the backend's answer only ───
+                    // FIX: previously computed from three client-readable tables;
+                    // now purely from GET /mpesa/user/services.
+                    const unlockedSet = new Set(unlockedServiceIds);
                     services = services.map(s => ({
                         ...s,
-                        purchased: !!unlockedServices[s.id],
-                        status: unlockedServices[s.id] ? 'active' : 'locked'
+                        purchased: unlockedSet.has(s.id),
+                        status: unlockedSet.has(s.id) ? 'active' : 'locked'
                     }));
 
                     const pendingRequests = requests ? requests.filter(r => r.status === 'pending' || r.status === 'paid').length : 0;
@@ -1586,7 +1605,7 @@
                         stats: {
                             vehicles: vehicles ? vehicles.length : 0,
                             requests: pendingRequests,
-                            active_services: Object.keys(unlockedServices).length || 0,
+                            active_services: unlockedServiceIds.length || 0,
                             amount_spent: payments ? payments.reduce((sum, p) => sum + (p.amount || 0), 0) : 0,
                             fleet_value: vehicles ? vehicles.reduce((sum, v) => sum + (v.value || 0), 0) : 0,
                             monthly_running_cost: 45000
@@ -1931,6 +1950,7 @@
                             return;
                         } else {
                             console.log('Request created:', data);
+                            pendingRequestId = data?.id || null; // FIX: remember it for payment
                             showToast('✅ Request created!', 'success');
                         }
                     }
@@ -1962,6 +1982,7 @@
                         price: request.amount || 100
                     };
                     pendingServiceRedirect = request.service_id;
+                    pendingRequestId = requestId; // FIX: link this payment to its request
                     updateWorkflowStep(3);
                     openPaymentModal(selectedService);
 
@@ -2031,6 +2052,7 @@
                 if (modal) modal.classList.remove('open');
                 selectedService = null;
                 pendingServiceRedirect = null;
+                pendingRequestId = null; // FIX: don't leak this into the next payment
                 isProcessingPayment = false;
                 confirmAttempted = false;
                 pollingAttempts = 0;
@@ -2110,7 +2132,8 @@
                     phone: phone,
                     service_id: selectedService.id,
                     description: `Auto-D: ${selectedService.name}`,
-                    user_id: currentUser.id
+                    user_id: currentUser.id,
+                    request_id: pendingRequestId || null // FIX: lets the backend auto-mark this request 'paid'
                 };
 
                 try {
@@ -2458,6 +2481,20 @@
 
             window.handleLogout = async function() {
                 try {
+                    // FIX: also tell the backend to invalidate the session
+                    // (POST /auth/logout), not just the Supabase client locally.
+                    try {
+                        const token = await getAuthToken();
+                        if (token) {
+                            await fetch(`${API_BASE}/auth/logout`, {
+                                method: 'POST',
+                                headers: { 'Authorization': `Bearer ${token}` }
+                            });
+                        }
+                    } catch (e) {
+                        console.warn('Backend logout call failed (continuing anyway):', e.message);
+                    }
+
                     if (supabaseClient) await supabaseClient.auth.signOut();
                     localStorage.removeItem('auto_d_user');
                     window.location.href = 'https://auto-d.meipressgroup.com/';
@@ -2499,6 +2536,7 @@
             (async function() {
                 console.log('🚗 Auto-D Kenya Dashboard');
                 console.log('📋 Tables: services, vehicles, requests, payments, service_access, notifications');
+                console.log('🔗 API Base:', API_BASE);
 
                 initSupabase();
 
