@@ -1,693 +1,223 @@
 """
-M-Pesa API Routes
+M-Pesa Routes - Clean Version
+3 Services: mileage (100), valuation (150), ownership (200)
 """
 
 import logging
-from datetime import datetime
-
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
-
-from app.core.database import supabase
-from app.core.security import (
-    get_current_user,
-    verify_admin,
-    verify_api_key,
-)
+from fastapi import APIRouter, HTTPException, Depends, Request
+from pydantic import BaseModel
+from typing import Optional, Dict, Any
 from app.services.mpesa_service import mpesa_service
+from app.core.auth import get_current_user
 
 logger = logging.getLogger(__name__)
-
-# ─── CRITICAL: Define the router at module level ───
-router = APIRouter(tags=["M-Pesa"])
+router = APIRouter(prefix="/mpesa", tags=["M-Pesa"])
 
 
-# ==========================================================
-# HEALTH
-# ==========================================================
-
-@router.get("/mpesa/test")
-async def test():
-    return {
-        "success": True,
-        "message": "M-Pesa router loaded",
-        "environment": mpesa_service.auth_service.environment,
-        "shortcode": mpesa_service.stk_service.shortcode,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+class STKPushRequest(BaseModel):
+    phone: str
+    service_id: str  # CODE from frontend (e.g., "mileage")
+    description: Optional[str] = None
+    user_id: Optional[str] = None
+    request_id: Optional[str] = None
 
 
-@router.get("/mpesa/health")
+@router.get("/health")
 async def health():
-    return {
-        "success": True,
-        "configured": mpesa_service.is_configured(),
-        "environment": mpesa_service.auth_service.environment,
-        "shortcode": mpesa_service.stk_service.shortcode,
-        "callback_url": mpesa_service.stk_service.callback_url,
-    }
+    return {"status": "ok", "service": "mpesa"}
 
 
-@router.get("/mpesa/shortcode")
-async def shortcode():
-    return {
-        "success": True,
-        "shortcode": mpesa_service.stk_service.shortcode,
-        "environment": mpesa_service.auth_service.environment,
-    }
+@router.get("/shortcode")
+async def get_shortcode():
+    from app.core.config import settings
+    return {"shortcode": settings.MPESA_SHORTCODE}
 
 
-# ==========================================================
-# STK PUSH
-# ==========================================================
+@router.get("/services")
+async def get_services():
+    """Get all available services"""
+    services = await mpesa_service.get_services()
+    return {"services": services}
 
-@router.post("/mpesa/stkpush")
-async def stkpush(
-    request: Request,
-    current_user: dict = Depends(get_current_user),
-):
+
+@router.get("/user/services")
+async def get_user_services(current_user: Dict = Depends(get_current_user)):
+    """Get user's unlocked services"""
+    services = await mpesa_service.get_user_services(current_user.get("id"))
+    return {"services": services}
+
+
+@router.get("/user/services/{service_code}/status")
+async def check_service_status(service_code: str, current_user: Dict = Depends(get_current_user)):
+    """Check if user has access to a service"""
+    return await mpesa_service.check_service_access(current_user.get("id"), service_code)
+
+
+@router.post("/stkpush")
+async def initiate_stk_push(request: STKPushRequest, current_user: Dict = Depends(get_current_user)):
     """
-    Initiate an M-Pesa STK Push.
-    Amount is calculated by the backend from the service_id.
+    Initiate STK Push payment
+    FIX: Uses initiate_payment method (not initiate_stk_push)
     """
-    try:
-        body = await request.json()
-
-        phone = body.get("phone")
-        service_id = body.get("service_id")
-        description = body.get("description")
-        corporate_id = body.get("corporate_id")
-        # FIX: accept the optional 'requests' table row id from the dashboard so
-        # the payment can be linked back to it and its status flipped to 'paid'
-        # server-side once M-Pesa confirms (see mpesa_service.initiate_stk_push).
-        request_id = body.get("request_id")
-
-        if not phone:
-            raise HTTPException(
-                status_code=400,
-                detail="Phone number is required."
-            )
-
-        if not service_id:
-            raise HTTPException(
-                status_code=400,
-                detail="service_id is required."
-            )
-
-        logger.info(
-            f"Initiating STK Push | user={current_user['id']} | "
-            f"phone={phone} | service_id={service_id} | request_id={request_id}"
-        )
-
-        result = await mpesa_service.initiate_stk_push(
-            phone=phone,
-            service_id=service_id,
-            description=description,
-            user_id=current_user["id"],
-            corporate_id=corporate_id,
-            request_id=request_id,
-        )
-
-        if result is None:
-            logger.error("MpesaService returned None")
-            raise HTTPException(
-                status_code=500,
-                detail="M-Pesa service returned no response."
-            )
-
-        if not isinstance(result, dict):
-            logger.error(f"Unexpected response type: {type(result)}")
-            raise HTTPException(
-                status_code=500,
-                detail="Invalid response from M-Pesa service."
-            )
-
-        if not result.get("success", False):
-            error = result.get("error") or result.get("message") or "Failed to initiate STK Push."
-            logger.error(f"STK Push failed: {error}")
-            raise HTTPException(
-                status_code=400,
-                detail=error
-            )
-
-        logger.info("STK Push initiated successfully.")
-        return result
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logger.exception("Unexpected error during STK Push")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
+    result = await mpesa_service.initiate_payment(
+        phone=request.phone,
+        service_code=request.service_id,
+        description=request.description,
+        user_id=current_user.get("id"),
+        request_id=request.request_id,
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
 
 
-# ==========================================================
-# CALLBACK
-# ==========================================================
-
-@router.post("/mpesa/callback")
-async def callback(request: Request):
-    """
-    M-Pesa callback endpoint.
-    """
+@router.post("/callback")
+async def mpesa_callback(request: Request):
+    """M-Pesa callback endpoint"""
     try:
         data = await request.json()
-
-        logger.info("Received M-Pesa callback")
-        logger.debug(f"Callback data: {data}")
-
         success = await mpesa_service.process_callback(data)
-
-        return {
-            "ResultCode": 0 if success else 1,
-            "ResultDesc": "Success" if success else "Failed"
-        }
-
+        return {"ResultCode": 0, "ResultDesc": "Success" if success else "Failed"}
     except Exception as e:
-        logger.exception("Callback processing failed")
-        return {
-            "ResultCode": 1,
-            "ResultDesc": f"Processing Failed: {str(e)}"
-        }
+        logger.exception("Callback error")
+        return {"ResultCode": 1, "ResultDesc": str(e)}
 
 
-# ==========================================================
-# PAYMENT STATUS
-# ==========================================================
+@router.get("/status/{checkout_request_id}")
+async def get_payment_status(checkout_request_id: str):
+    """Get payment status"""
+    return await mpesa_service.get_payment_status(checkout_request_id)
 
-@router.get("/mpesa/status/{checkout_request_id}")
-async def payment_status(checkout_request_id: str):
-    """
-    Get payment status by checkout request ID.
-    """
-    try:
-        logger.info(f"Checking payment {checkout_request_id}")
 
-        result = await mpesa_service.get_payment_status(checkout_request_id)
-
-        if result is None or not result.get("success"):
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "success": False,
-                    "error": "Payment not found."
+@router.post("/confirm/{checkout_request_id}")
+async def confirm_payment(checkout_request_id: str, current_user: Dict = Depends(get_current_user)):
+    """Manually confirm a payment"""
+    payment = await mpesa_service.payment_repo.get_by_checkout_id(checkout_request_id)
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    if payment.get("user_id") != current_user.get("id"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    if payment.get("status") == "completed":
+        return {"success": True, "status": "already_completed"}
+    
+    # Create synthetic callback
+    callback_data = {
+        "Body": {
+            "stkCallback": {
+                "CheckoutRequestID": checkout_request_id,
+                "ResultCode": "0",
+                "ResultDesc": "Confirmed manually",
+                "CallbackMetadata": {
+                    "Item": [
+                        {"Name": "Amount", "Value": payment.get("amount", 0)},
+                        {"Name": "MpesaReceiptNumber", "Value": f"MANUAL-{checkout_request_id[:8]}"},
+                    ]
                 }
-            )
-
-        return JSONResponse(
-            status_code=200,
-            content=result
-        )
-
-    except Exception as e:
-        logger.exception(f"Payment status error: {checkout_request_id}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": f"Internal server error: {str(e)}"
             }
-        )
-
-
-# ==========================================================
-# MANUAL CONFIRM
-# ==========================================================
-
-@router.post("/mpesa/confirm/{checkout_request_id}")
-async def confirm(
-    checkout_request_id: str,
-    current_user: dict = Depends(get_current_user),
-):
-    """
-    Manually confirm a payment and unlock the service.
-    """
-    try:
-        logger.info(
-            f"Manual confirm | user={current_user['id']} | "
-            f"checkout={checkout_request_id}"
-        )
-
-        result = await mpesa_service.confirm_payment_manually(
-            checkout_request_id,
-            current_user["id"],
-        )
-
-        if result is None:
-            raise HTTPException(
-                status_code=500,
-                detail="No response from M-Pesa service."
-            )
-
-        if not result.get("success", False):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Confirmation failed.")
-            )
-
-        return result
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logger.exception(f"Manual confirm error: {checkout_request_id}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-
-# ==========================================================
-# SERVICES
-# ==========================================================
-
-@router.get("/mpesa/services")
-async def services():
-    """
-    Get all available services.
-    """
-    try:
-        services_list = await mpesa_service.get_all_services()
-
-        return {
-            "success": True,
-            "services": services_list,
-            "count": len(services_list),
         }
-
-    except Exception as e:
-        logger.exception("Get services error")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": f"Internal server error: {str(e)}"
-            }
-        )
+    }
+    
+    success = await mpesa_service.process_callback(callback_data)
+    if success:
+        return {"success": True, "message": "Payment confirmed"}
+    raise HTTPException(status_code=500, detail="Failed to confirm payment")
 
 
-@router.get("/mpesa/user/services")
-async def user_services(
-    current_user: dict = Depends(get_current_user),
-):
-    """
-    Get all unlocked services for the current user.
-    """
-    try:
-        services_list = await mpesa_service.get_user_services(current_user["id"])
-
-        return {
-            "success": True,
-            "services": services_list,
-            "count": len(services_list),
-        }
-
-    except Exception as e:
-        logger.exception("Get user services error")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": f"Internal server error: {str(e)}"
-            }
-        )
+@router.get("/payments")
+async def get_payment_history(current_user: Dict = Depends(get_current_user)):
+    """Get user's payment history"""
+    payments = await mpesa_service.get_payment_history(current_user.get("id"))
+    return {"payments": payments}
 
 
-@router.get("/mpesa/user/services/{service_id}/status")
-async def service_status(
-    service_id: str,
-    current_user: dict = Depends(get_current_user),
-):
-    """
-    Check if a user has access to a specific service.
-    """
-    try:
-        result = await mpesa_service.check_service_access(
-            current_user["id"],
-            service_id
-        )
+# ─── Admin Routes ───
 
-        return {
-            "success": True,
-            **result
-        }
-
-    except Exception as e:
-        logger.exception(f"Service status error: {service_id}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": f"Internal server error: {str(e)}"
-            }
-        )
+@router.get("/admin/services")
+async def admin_get_services(current_user: Dict = Depends(get_current_user)):
+    """Admin: Get all services including inactive"""
+    services = await mpesa_service.admin_get_all_services(include_inactive=True)
+    return {"services": services}
 
 
-# ==========================================================
-# PAYMENT HISTORY
-# ==========================================================
-
-@router.get("/mpesa/payments")
-async def payment_history(
-    current_user: dict = Depends(get_current_user),
-):
-    """
-    Get payment history for the current user.
-    """
-    try:
-        payments = await mpesa_service.get_payment_history(current_user["id"])
-
-        return {
-            "success": True,
-            "payments": payments,
-            "count": len(payments),
-        }
-
-    except Exception as e:
-        logger.exception("Get payment history error")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": f"Internal server error: {str(e)}"
-            }
-        )
+@router.get("/admin/services/{service_id}")
+async def admin_get_service(service_id: int, current_user: Dict = Depends(get_current_user)):
+    """Admin: Get service by ID"""
+    service = await mpesa_service.admin_get_service(service_id)
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    return {"service": service}
 
 
-# ==========================================================
-# ADMIN
-# ==========================================================
-
-@router.post("/mpesa/admin/service-prices")
-async def service_prices(
-    request: Request,
-    current_user: dict = Depends(verify_admin),
-    api_key: str = Depends(verify_api_key),
-):
-    """
-    Admin: Create or update service prices.
-    """
-    try:
-        body = await request.json()
-
-        response = (
-            supabase.table("service_prices")
-            .insert(body)
-            .execute()
-        )
-
-        return {
-            "success": True,
-            "data": response.data,
-        }
-
-    except Exception as e:
-        logger.exception("Admin service prices error")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": f"Internal server error: {str(e)}"
-            }
-        )
+@router.post("/admin/services")
+async def admin_create_service(data: Dict, current_user: Dict = Depends(get_current_user)):
+    """Admin: Create a new service"""
+    # This would need to be implemented in the service
+    raise HTTPException(status_code=501, detail="Not implemented yet")
 
 
-@router.get("/mpesa/admin/stats")
-async def stats(
-    current_user: dict = Depends(verify_admin),
-    api_key: str = Depends(verify_api_key),
-):
-    """
-    Admin: Get payment statistics.
-    """
-    try:
-        payments = (
-            supabase.table("payments")
-            .select("*")
-            .execute()
-        )
-
-        data = payments.data or []
-
-        return {
-            "success": True,
-            "total_payments": len(data),
-            "completed": len([p for p in data if p["status"] == "completed"]),
-            "pending": len([p for p in data if p["status"] == "pending"]),
-            "failed": len([p for p in data if p["status"] == "failed"]),
-            "total_amount": sum(float(p["amount"]) for p in data),
-        }
-
-    except Exception as e:
-        logger.exception("Admin stats error")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": f"Internal server error: {str(e)}"
-            }
-        )
-
-
-@router.get("/mpesa/admin/services")
-async def admin_services(
-    current_user: dict = Depends(verify_admin),
-    api_key: str = Depends(verify_api_key),
-):
-    """
-    Admin: Get all services including inactive.
-    """
-    try:
-        services_list = await mpesa_service.admin_get_all_services()
-
-        return {
-            "success": True,
-            "services": services_list,
-            "count": len(services_list),
-        }
-
-    except Exception as e:
-        logger.exception("Admin get services error")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": f"Internal server error: {str(e)}"
-            }
-        )
-
-
-@router.post("/mpesa/admin/services")
-async def admin_create_service(
-    request: Request,
-    current_user: dict = Depends(verify_admin),
-    api_key: str = Depends(verify_api_key),
-):
-    """
-    Admin: Create a new service.
-    """
-    try:
-        body = await request.json()
-
-        result = await mpesa_service.admin_create_service(body)
-
-        if result is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Failed to create service."
-            )
-
-        return {
-            "success": True,
-            "data": result,
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logger.exception("Admin create service error")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-
-@router.put("/mpesa/admin/services/{service_id}")
+@router.put("/admin/services/{service_id}")
 async def admin_update_service(
-    service_id: str,
-    request: Request,
-    current_user: dict = Depends(verify_admin),
-    api_key: str = Depends(verify_api_key),
+    service_id: int, 
+    data: Dict, 
+    current_user: Dict = Depends(get_current_user)
 ):
-    """
-    Admin: Update a service.
-    """
-    try:
-        body = await request.json()
-
-        changed_by = current_user.get("email") or current_user.get("id")
-        reason = body.get("reason")
-
-        result = await mpesa_service.admin_update_service(
-            service_id=service_id,
-            data=body,
-            changed_by=changed_by,
-            reason=reason,
-        )
-
-        if result is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Service not found or update failed."
-            )
-
-        return {
-            "success": True,
-            "data": result,
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logger.exception("Admin update service error")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
+    """Admin: Update a service"""
+    result = await mpesa_service.admin_update_service(
+        service_id=service_id,
+        data=data,
+        changed_by=current_user.get("id")
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Service not found or update failed")
+    return {"service": result}
 
 
-@router.delete("/mpesa/admin/services/{service_id}")
-async def admin_delete_service(
-    service_id: str,
-    current_user: dict = Depends(verify_admin),
-    api_key: str = Depends(verify_api_key),
-):
-    """
-    Admin: Soft delete a service.
-    """
-    try:
-        deleted_by = current_user.get("email") or current_user.get("id")
-
-        result = await mpesa_service.admin_delete_service(
-            service_id=service_id,
-            deleted_by=deleted_by,
-        )
-
-        if not result:
-            raise HTTPException(
-                status_code=404,
-                detail="Service not found or deletion failed."
-            )
-
-        return {
-            "success": True,
-            "message": "Service deleted successfully.",
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logger.exception("Admin delete service error")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
+@router.delete("/admin/services/{service_id}")
+async def admin_delete_service(service_id: int, current_user: Dict = Depends(get_current_user)):
+    """Admin: Delete a service"""
+    success = await mpesa_service.admin_delete_service(
+        service_id=service_id,
+        deleted_by=current_user.get("id")
+    )
+    if not success:
+        raise HTTPException(status_code=404, detail="Service not found or delete failed")
+    return {"success": True, "message": "Service deleted"}
 
 
-@router.post("/mpesa/admin/services/{service_id}/restore")
-async def admin_restore_service(
-    service_id: str,
-    current_user: dict = Depends(verify_admin),
-    api_key: str = Depends(verify_api_key),
-):
-    """
-    Admin: Restore a soft-deleted service.
-    """
-    try:
-        result = await mpesa_service.admin_restore_service(service_id)
-
-        if not result:
-            raise HTTPException(
-                status_code=404,
-                detail="Service not found or restoration failed."
-            )
-
-        return {
-            "success": True,
-            "message": "Service restored successfully.",
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logger.exception("Admin restore service error")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
+@router.post("/admin/services/{service_id}/restore")
+async def admin_restore_service(service_id: int, current_user: Dict = Depends(get_current_user)):
+    """Admin: Restore a service"""
+    success = await mpesa_service.admin_restore_service(service_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Service not found or restore failed")
+    return {"success": True, "message": "Service restored"}
 
 
-@router.get("/mpesa/admin/services/{service_id}/price-history")
-async def admin_price_history(
-    service_id: str,
-    current_user: dict = Depends(verify_admin),
-    api_key: str = Depends(verify_api_key),
-):
-    """
-    Admin: Get price history for a service.
-    """
-    try:
-        history = await mpesa_service.admin_get_price_history(service_id)
-
-        return {
-            "success": True,
-            "service_id": service_id,
-            "history": history,
-            "count": len(history),
-        }
-
-    except Exception as e:
-        logger.exception("Admin price history error")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": f"Internal server error: {str(e)}"
-            }
-        )
+@router.get("/admin/services/{service_id}/price-history")
+async def admin_get_price_history(service_id: int, current_user: Dict = Depends(get_current_user)):
+    """Admin: Get price history for a service"""
+    history = await mpesa_service.admin_get_price_history(service_id)
+    return {"price_history": history}
 
 
-@router.post("/mpesa/admin/expire-stale")
-async def admin_expire_stale(
-    current_user: dict = Depends(verify_admin),
-    api_key: str = Depends(verify_api_key),
-):
-    """
-    Admin: Expire stale pending payments.
-    """
-    try:
-        count = await mpesa_service.expire_stale_payments(minutes=30)
+@router.post("/admin/expire-stale")
+async def admin_expire_stale(minutes: int = 30, current_user: Dict = Depends(get_current_user)):
+    """Admin: Expire stale pending payments"""
+    count = await mpesa_service.expire_stale_payments(minutes)
+    return {"expired_count": count}
 
-        return {
-            "success": True,
-            "expired_count": count,
-            "message": f"Expired {count} stale payments.",
-        }
 
-    except Exception as e:
-        logger.exception("Admin expire stale error")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": f"Internal server error: {str(e)}"
-            }
-        )
+@router.get("/admin/stats")
+async def admin_get_stats(current_user: Dict = Depends(get_current_user)):
+    """Admin: Get stats"""
+    # Get counts
+    services = await mpesa_service.get_services()
+    payments = await mpesa_service.payment_repo.get_user_payments(current_user.get("id"))
+    
+    return {
+        "total_services": len(services),
+        "total_payments": len(payments),
+        "active_services": len([s for s in services if s.get("active")]),
+    }
