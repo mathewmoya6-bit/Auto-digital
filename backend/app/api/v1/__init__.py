@@ -19,6 +19,29 @@ from .admin import router as admin_router
 from .reports import router as reports_router
 from .running_cost import router as running_cost_router
 
+# ============================================================
+# NEW: Price Alignment & Market Scraper Routes
+# ============================================================
+try:
+    from .price_alignment import router as price_alignment_router
+    logger.info("✅ Price Alignment router loaded successfully")
+except ImportError as e:
+    price_alignment_router = None
+    logger.warning(f"⚠️ Price Alignment router not available: {e}")
+except Exception as e:
+    price_alignment_router = None
+    logger.error(f"❌ Error loading Price Alignment router: {e}")
+
+try:
+    from .market import router as market_router
+    logger.info("✅ Market router loaded successfully")
+except ImportError as e:
+    market_router = None
+    logger.warning(f"⚠️ Market router not available: {e}")
+except Exception as e:
+    market_router = None
+    logger.error(f"❌ Error loading Market router: {e}")
+
 # Try to import M-Pesa router - graceful fallback
 try:
     from .mpesa import router as mpesa_router
@@ -40,6 +63,8 @@ __all__ = [
     "admin_router",
     "reports_router",
     "running_cost_router",
+    "price_alignment_router",  # NEW
+    "market_router",           # NEW
     "mpesa_router",
 ]
 
