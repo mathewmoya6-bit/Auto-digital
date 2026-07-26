@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mileage & Running Cost Calculator — Auto-D Kenya</title>
+    <title>Cost of Vehicle Ownership — Auto-D Kenya</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,6 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
+        /* ─── CSS Variables ────────────────────────────────────────── */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -27,6 +28,14 @@
             --font-heading: 'Space Grotesk', sans-serif;
             --font-body: 'Inter', sans-serif;
             --font-mono: 'JetBrains Mono', monospace;
+            
+            --c-depreciation: #eab308;
+            --c-financing: #f97316;
+            --c-insurance: #38bdf8;
+            --c-fuel: #a78bfa;
+            --c-maintenance: #34d399;
+            --c-tyres: #f472b6;
+            --c-licensing: #94a3b8;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -145,60 +154,11 @@
             top: 20px;
             max-height: calc(100vh - 40px);
             overflow-y: auto;
+            position: relative;
         }
         .calculator-panel::-webkit-scrollbar { width: 4px; }
         .calculator-panel::-webkit-scrollbar-track { background: transparent; }
         .calculator-panel::-webkit-scrollbar-thumb { background: #eab308; border-radius: 10px; }
-
-        .panel-label {
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 600;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: #eab308;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 12px;
-            margin-top: 16px;
-        }
-        .panel-label:first-of-type { margin-top: 0; }
-        .panel-label .num {
-            font-family: 'JetBrains Mono', monospace;
-            color: #64748b;
-            background: #f0ece4;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 700;
-        }
-
-        .form-group { margin-bottom: 12px; }
-        label {
-            display: block;
-            font-size: 9px;
-            color: #cbd5e1;
-            margin-bottom: 3px;
-            font-family: 'JetBrains Mono', monospace;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-        }
-        select, input[type="number"], input[type="text"], input[type="password"] {
-            width: 100%;
-            background: #f0ece4;
-            color: #0a0c10;
-            border: none;
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-family: 'Inter', sans-serif;
-            font-size: 12px;
-            font-weight: 500;
-            appearance: none;
-            transition: outline 0.15s;
-        }
-        select:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
-        select:focus, input:focus { outline: 2px solid #eab308; outline-offset: 1px; }
 
         /* ─── LOCK OVERLAY ──────────────────────────────────────────── */
         .lock-overlay {
@@ -297,66 +257,65 @@
             padding: 4px 0;
         }
 
-        .fuel-filter-group {
-            display: flex;
-            gap: 4px;
-            flex-wrap: wrap;
-            margin-top: 4px;
-        }
-        .fuel-filter-btn {
-            padding: 3px 10px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 14px;
-            background: transparent;
-            color: #cbd5e1;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .fuel-filter-btn:hover { border-color: #eab308; color: #eab308; }
-        .fuel-filter-btn.active {
-            background: #eab308;
-            border-color: #eab308;
-            color: #0a0c10;
+        .panel-label {
+            font-family: 'Space Grotesk', sans-serif;
             font-weight: 600;
-        }
-        .fuel-filter-btn .fuel-dot {
-            display: inline-block;
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            margin-right: 3px;
-        }
-        .fuel-filter-btn .fuel-dot.petrol { background: #eab308; }
-        .fuel-filter-btn .fuel-dot.diesel { background: #22c55e; }
-        .fuel-filter-btn .fuel-dot.electric { background: #8b5cf6; }
-        .fuel-filter-btn .fuel-dot.hybrid { background: linear-gradient(135deg, #eab308, #22c55e); }
-
-        .toggle-group {
-            display: flex;
-            gap: 6px;
-            margin-top: 4px;
-        }
-        .toggle-btn {
-            flex: 1;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            color: #64748b;
-            font-size: 10px;
-            font-weight: 600;
-            padding: 6px 8px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .toggle-btn.active {
-            background: rgba(234, 179, 8, 0.12);
-            border-color: rgba(234, 179, 8, 0.4);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
             color: #eab308;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            margin-top: 16px;
         }
-        .financed-fields { display: none; padding-top: 4px; }
-        .financed-fields.show { display: block; }
+        .panel-label:first-of-type { margin-top: 0; }
+        .panel-label .num {
+            font-family: 'JetBrains Mono', monospace;
+            color: #64748b;
+            background: #f0ece4;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .form-group { margin-bottom: 12px; }
+        label {
+            display: block;
+            font-size: 9px;
+            color: #cbd5e1;
+            margin-bottom: 3px;
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        select, input[type="number"], input[type="text"], input[type="password"], input[type="range"] {
+            width: 100%;
+            background: #f0ece4;
+            color: #0a0c10;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            appearance: none;
+            transition: outline 0.15s;
+        }
+        select:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
+        select:focus, input:focus { outline: 2px solid #eab308; outline-offset: 1px; }
+        input[type="range"] {
+            padding: 0;
+            accent-color: var(--amber);
+        }
+        .range-value {
+            color: var(--amber);
+            font-weight: 600;
+            font-size: 12px;
+            font-family: var(--font-mono);
+        }
 
         .calc-btn {
             width: 100%;
@@ -396,42 +355,30 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        .quick-routes { margin-top: 4px; }
-        .quick-routes-title {
-            font-size: 8px;
-            color: #cbd5e1;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-family: 'JetBrains Mono', monospace;
-            margin-bottom: 4px;
-            opacity: 0.7;
-        }
-        .route-chips {
+        .toggle-group {
             display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            max-height: 60px;
-            overflow-y: auto;
-            padding-right: 4px;
+            gap: 6px;
+            margin-top: 4px;
         }
-        .route-chips::-webkit-scrollbar { width: 3px; }
-        .route-chips::-webkit-scrollbar-track { background: transparent; }
-        .route-chips::-webkit-scrollbar-thumb { background: #eab308; border-radius: 10px; }
-        .chip {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            background: transparent;
+        .toggle-btn {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.03);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            color: #cbd5e1;
-            padding: 3px 8px;
-            border-radius: 4px;
+            color: #64748b;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 6px 8px;
+            border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s;
-            white-space: nowrap;
-            background: rgba(255, 255, 255, 0.03);
         }
-        .chip:hover { border-color: #eab308; color: #eab308; background: rgba(234, 179, 8, 0.08); }
-        .chip .km-badge { font-size: 7px; opacity: 0.6; margin-left: 3px; }
+        .toggle-btn.active {
+            background: rgba(234, 179, 8, 0.12);
+            border-color: rgba(234, 179, 8, 0.4);
+            color: #eab308;
+        }
+        .financed-fields { display: none; padding-top: 4px; }
+        .financed-fields.show { display: block; }
 
         .results-panel {
             display: flex;
@@ -526,111 +473,117 @@
         }
         .vehicle-specs .spec-item .spec-value { color: #cbd5e1; }
 
-        .trip-total {
-            background: linear-gradient(135deg, #0a0c15, #1a2332);
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+        @media (max-width: 700px) { .stats-grid { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 480px) { .stats-grid { grid-template-columns: 1fr; } }
+
+        .stat-card {
+            background: #0a0c15;
+            border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 8px;
-            padding: 14px 20px;
-            text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 14px 16px;
         }
-        .trip-total .label {
+        .stat-card .label {
             font-family: 'JetBrains Mono', monospace;
             font-size: 9px;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: #eab308;
-        }
-        .trip-total .amount {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 32px;
-            font-weight: 700;
-            color: #f8fafc;
-            margin: 4px 0 2px;
-        }
-        .trip-total .amount .currency { color: #eab308; font-size: 18px; }
-        .trip-total .sub {
-            font-size: 11px;
-            color: #cbd5e1;
-        }
-        .trip-total .sub strong { color: #eab308; }
-
-        .cost-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-            gap: 6px;
-            margin-top: 8px;
-        }
-        .cost-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 10px;
-            background: #0a0c15;
-            border-radius: 4px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-        }
-        .cost-item .label { color: #64748b; }
-        .cost-item .value { font-weight: 600; color: #f8fafc; }
-        .cost-item.total-item {
-            background: rgba(234, 179, 8, 0.08);
-            border-color: #eab308;
-        }
-        .cost-item.total-item .label { color: #eab308; font-weight: 700; }
-        .cost-item.total-item .value { color: #eab308; font-weight: 700; }
-
-        .perkm-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-            gap: 4px;
-        }
-        .perkm-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 4px 8px;
-            background: #0a0c15;
-            border-radius: 3px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-        }
-        .perkm-item .label { color: #64748b; }
-        .perkm-item .value { font-weight: 600; }
-
-        .commercial-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr 1fr;
-            gap: 8px;
-        }
-        .commercial-card {
-            padding: 10px 12px;
-            background: #0a0c15;
-            border-radius: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        .commercial-card .commercial-label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
             color: #64748b;
             text-transform: uppercase;
             letter-spacing: 0.04em;
         }
-        .commercial-card .commercial-value {
+        .stat-card .num {
             font-family: 'Space Grotesk', sans-serif;
-            font-size: 18px;
+            font-size: 22px;
             font-weight: 700;
-            color: #f8fafc;
             margin-top: 2px;
         }
-        .commercial-card .commercial-value .currency { color: #eab308; font-size: 13px; }
-        .commercial-card .commercial-sub {
+        .stat-card .num.amber { color: #eab308; }
+        .stat-card .num.green { color: #22c55e; }
+        .stat-card .num.blue { color: #3b82f6; }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+            color: #94a3b8;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .stacked-bars {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .year-row {
+            display: grid;
+            grid-template-columns: 50px 1fr 80px;
+            align-items: center;
+            gap: 10px;
+        }
+        .year-row .yr-label {
+            font-size: 11px;
+            color: #94a3b8;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+        }
+        .year-row .yr-total {
+            font-size: 12px;
+            font-weight: 700;
+            text-align: right;
+            font-family: 'JetBrains Mono', monospace;
+            color: #f8fafc;
+        }
+        .bar-track {
+            display: flex;
+            height: 22px;
+            border-radius: 4px;
+            overflow: hidden;
+            background: rgba(255,255,255,0.03);
+        }
+        .bar-seg {
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+
+        .table-wrap { overflow-x: auto; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        th, td {
+            text-align: right;
+            padding: 8px 10px;
+            white-space: nowrap;
+        }
+        th:first-child, td:first-child { text-align: left; }
+        th {
+            color: #64748b;
+            font-weight: 600;
             font-size: 9px;
-            color: #cbd5e1;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         }
-        .commercial-card.highlight {
-            border-color: #eab308;
-            background: rgba(234, 179, 8, 0.05);
-        }
+        td { border-bottom: 1px solid rgba(51,65,85,0.4); }
+        tr:last-child td { border-bottom: none; font-weight: 700; color: #eab308; }
 
         .metrics-grid {
             display: grid;
@@ -668,6 +621,45 @@
             font-size: 18px;
             letter-spacing: 2px;
         }
+
+        .health-score {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 10px 14px;
+            background: #0a0c15;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .health-score .score-ring {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
+            background: conic-gradient(#22c55e var(--pct, 0%), #1a2332 var(--pct, 0%));
+            position: relative;
+            flex-shrink: 0;
+        }
+        .health-score .score-ring .inner {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: #0a0c15;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .health-score .score-details {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: #cbd5e1;
+        }
+        .health-score .score-details strong { color: #f8fafc; }
 
         .env-grid {
             display: grid;
@@ -803,7 +795,6 @@
         .toast-error { background: #ef4444; color: #fff; }
         .toast-info { background: #3b82f6; color: #fff; }
         .toast-warning { background: #eab308; color: #000; }
-
         @keyframes slideIn {
             from { opacity: 0; transform: translateX(80px); }
             to { opacity: 1; transform: translateX(0); }
@@ -818,62 +809,6 @@
             line-height: 1.5;
         }
         .disclaimer strong { color: #eab308; }
-
-        .table-wrap { overflow-x: auto; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 11px;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        th, td {
-            text-align: right;
-            padding: 6px 8px;
-            white-space: nowrap;
-        }
-        th:first-child, td:first-child { text-align: left; }
-        th {
-            color: #64748b;
-            font-weight: 600;
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        td { border-bottom: 1px solid rgba(51,65,85,0.4); }
-        tr:last-child td { border-bottom: none; font-weight: 700; color: #eab308; }
-
-        .stats-grid-5 {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 8px;
-        }
-        @media (max-width: 768px) { .stats-grid-5 { grid-template-columns: repeat(3, 1fr); } }
-        @media (max-width: 480px) { .stats-grid-5 { grid-template-columns: 1fr 1fr; } }
-
-        .stat-card-sm {
-            background: #0a0c15;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 8px;
-            padding: 10px 12px;
-            text-align: center;
-        }
-        .stat-card-sm .label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 7px;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-        .stat-card-sm .num {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 700;
-            margin-top: 2px;
-        }
-        .stat-card-sm .num.amber { color: #eab308; }
-        .stat-card-sm .num.green { color: #22c55e; }
-        .stat-card-sm .num.blue { color: #3b82f6; }
 
         .auto-d-badge {
             display: inline-block;
@@ -961,37 +896,40 @@
             .main-grid { gap: 16px; }
             .calculator-panel { position: static; max-height: none; }
             .result-card { padding: 14px; }
-            .trip-total .amount { font-size: 26px; }
-            .cost-grid { grid-template-columns: 1fr 1fr; }
-            .perkm-grid { grid-template-columns: 1fr 1fr; }
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .year-row { grid-template-columns: 36px 1fr 60px; gap: 6px; }
+            .year-row .yr-label { font-size: 9px; }
+            .year-row .yr-total { font-size: 10px; }
+            .bar-track { height: 18px; }
             .report-footer { flex-direction: column; text-align: center; }
             .report-footer .meta { text-align: center; }
-            .commercial-grid { grid-template-columns: 1fr 1fr; }
         }
         @media (max-width: 480px) {
-            .cost-grid { grid-template-columns: 1fr; }
-            .perkm-grid { grid-template-columns: 1fr; }
+            .stats-grid { grid-template-columns: 1fr; }
             .env-grid { grid-template-columns: 1fr 1fr; }
             .action-bar { flex-direction: column; }
             .action-btn { justify-content: center; }
             .vehicle-tag { flex-direction: column; align-items: flex-start; }
             .vehicle-specs { flex-direction: column; gap: 4px; }
-            .commercial-grid { grid-template-columns: 1fr; }
+            .metrics-grid { grid-template-columns: 1fr; }
+            .lock-overlay { padding: 20px; }
+            .lock-overlay .lock-icon { font-size: 40px; }
+            .lock-overlay h3 { font-size: 18px; }
         }
 
         @media print {
-            .calculator-panel, .action-bar, .report-footer { display: none !important; }
+            .calculator-panel, .action-bar, .report-footer, .lock-overlay, .auth-section { display: none !important; }
             .result-card { background: #fff !important; border-color: #ddd !important; }
             .result-card .card-title { color: #b8860b !important; }
-            .trip-total { background: #f5f5f5 !important; }
-            .trip-total .amount { color: #000 !important; }
-            .trip-total .amount .currency { color: #b8860b !important; }
-            .cost-item { background: #f5f5f5 !important; border-color: #ddd !important; }
-            .cost-item .value { color: #000 !important; }
-            .perkm-item { background: #f5f5f5 !important; border-color: #ddd !important; }
-            .commercial-card { background: #f5f5f5 !important; border-color: #ddd !important; }
-            .commercial-card .commercial-value { color: #000 !important; }
+            .stat-card { background: #f5f5f5 !important; border-color: #ddd !important; }
+            .stat-card .num { color: #000 !important; }
+            .stat-card .num.amber { color: #b8860b !important; }
+            .bar-track { background: #eee !important; }
+            .year-row .yr-total { color: #000 !important; }
             .rci-display { background: #f5f5f5 !important; border-color: #ddd !important; }
+            .health-score { background: #f5f5f5 !important; border-color: #ddd !important; }
+            .health-score .score-ring { background: #eee !important; }
+            .health-score .score-ring .inner { background: #fff !important; }
             .env-item { background: #f5f5f5 !important; border-color: #ddd !important; }
             .env-item .env-value { color: #000 !important; }
             .rec-item { background: #f5f5f5 !important; border-color: #ddd !important; }
@@ -1005,12 +943,7 @@
             .results-panel { margin-top: 20px !important; }
             .vehicle-tag #vehicleLabel { color: #000 !important; }
             .fuel-pill { background: #eee !important; color: #b8860b !important; }
-            .stat-card-sm { background: #f5f5f5 !important; border-color: #ddd !important; }
-            .stat-card-sm .num { color: #000 !important; }
-            .auto-d-badge { display: none !important; }
-            .header-right .auth-status { display: none !important; }
-            .status-message { display: none !important; }
-            .lock-overlay { display: none !important; }
+            .table-wrap { overflow: visible; }
         }
     </style>
 </head>
@@ -1028,11 +961,11 @@
 
         <header class="report-header" role="banner">
             <div class="header-left">
-                <div class="badge">🏢 Auto-D <span style="color:var(--amber);font-weight:700;">Kenya</span> · 5-Year Running Cost Engine</div>
-                <h1>Auto-D <span>Kenya</span><br />Mileage Rate &amp; 5-Year Cost</h1>
+                <div class="badge">💰 Auto-D <span style="color:var(--amber);font-weight:700;">TCO</span> · Total Cost of Ownership</div>
+                <h1>Auto-D <span>Kenya</span><br />Cost of Vehicle Ownership</h1>
                 <p class="subtitle">
-                    Real-world running cost estimates for Kenyan vehicles<br />
-                    <span style="font-size:12px;color:var(--text-muted);">⚡ API-driven · Dynamic costing · Long-term planning</span>
+                    Complete year-by-year ownership cost breakdown<br />
+                    <span style="font-size:12px;color:var(--text-muted);">⚡ Depreciation · Financing · Insurance · Fuel · Maintenance · Tyres · Licensing</span>
                 </p>
             </div>
             <div class="header-right">
@@ -1046,13 +979,13 @@
 
         <div class="main-grid">
 
-            <section class="calculator-panel" aria-label="Vehicle cost calculator" style="position:relative;">
+            <section class="calculator-panel" aria-label="Vehicle cost calculator">
 
                 <!-- ─── LOCK OVERLAY ────────────────────────────────────── -->
                 <div class="lock-overlay show" id="lockOverlay">
                     <div class="lock-icon">🔒</div>
                     <h3>Sign In Required</h3>
-                    <p>Please sign in to access the mileage &amp; running cost calculator with real-time Kenyan market data.</p>
+                    <p>Please sign in to access the total cost of ownership calculator.</p>
                     <button class="unlock-btn" id="unlockBtn">🔑 Sign In</button>
                 </div>
 
@@ -1086,7 +1019,6 @@
                     <span id="statusMessageText">Loading categories...</span>
                 </div>
 
-                <!-- ─── Category Dropdown ─────────────────────────────── -->
                 <div class="form-group">
                     <label for="categorySelect">Vehicle Category</label>
                     <select id="categorySelect">
@@ -1094,7 +1026,6 @@
                     </select>
                 </div>
 
-                <!-- ─── Make Dropdown ────────────────────────────────── -->
                 <div class="form-group">
                     <label for="makeSelect">Vehicle Make</label>
                     <select id="makeSelect" disabled>
@@ -1102,7 +1033,6 @@
                     </select>
                 </div>
 
-                <!-- ─── Model Dropdown ────────────────────────────────── -->
                 <div class="form-group">
                     <label for="modelSelect">Vehicle Model</label>
                     <select id="modelSelect" disabled>
@@ -1110,7 +1040,6 @@
                     </select>
                 </div>
 
-                <!-- ─── Generation Dropdown ───────────────────────────── -->
                 <div class="form-group">
                     <label for="generationSelect">Vehicle Generation</label>
                     <select id="generationSelect" disabled>
@@ -1118,7 +1047,6 @@
                     </select>
                 </div>
 
-                <!-- ─── Variant Dropdown ──────────────────────────────── -->
                 <div class="form-group">
                     <label for="variantSelect">Vehicle Variant</label>
                     <select id="variantSelect" disabled>
@@ -1126,77 +1054,8 @@
                     </select>
                 </div>
 
-                <!-- ─── Fuel Filter ───────────────────────────────────── -->
                 <div class="form-group">
-                    <label id="fuelFilterLabel">Filter by Fuel Type</label>
-                    <div class="fuel-filter-group" id="fuelFilterGroup">
-                        <button type="button" class="fuel-filter-btn active" data-fuel="all" aria-pressed="true">
-                            <span class="fuel-dot" style="background:var(--text-secondary);"></span> All
-                        </button>
-                        <button type="button" class="fuel-filter-btn" data-fuel="petrol" aria-pressed="false">
-                            <span class="fuel-dot petrol"></span> Petrol
-                        </button>
-                        <button type="button" class="fuel-filter-btn" data-fuel="diesel" aria-pressed="false">
-                            <span class="fuel-dot diesel"></span> Diesel
-                        </button>
-                        <button type="button" class="fuel-filter-btn" data-fuel="electric" aria-pressed="false">
-                            <span class="fuel-dot electric"></span> Electric
-                        </button>
-                        <button type="button" class="fuel-filter-btn" data-fuel="hybrid" aria-pressed="false">
-                            <span class="fuel-dot hybrid"></span> Hybrid
-                        </button>
-                    </div>
-                </div>
-
-                <!-- ─── TRIP PARAMETERS ────────────────────────────────── -->
-                <div class="panel-label"><span class="num">02</span> Trip Parameters</div>
-
-                <div class="form-group">
-                    <label for="distanceInput">Trip Distance (km)</label>
-                    <input type="number" id="distanceInput" min="0" max="100000" step="1" value="150" />
-                </div>
-
-                <div class="form-group">
-                    <label for="annualKmInput">Annual Mileage (km/year)</label>
-                    <input type="number" id="annualKmInput" min="0" max="200000" step="1000" value="20000" />
-                </div>
-
-                <div class="form-group">
-                    <label for="fuelPriceInput">Current Fuel Price (KES/L)</label>
-                    <input type="number" id="fuelPriceInput" min="0" max="500" step="0.5" />
-                </div>
-
-                <div class="form-group">
-                    <label>Driving Style</label>
-                    <select id="drivingStyle">
-                        <option value="eco">Eco (Fuel Efficient)</option>
-                        <option value="normal" selected>Normal</option>
-                        <option value="aggressive">Aggressive</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label>Trip Type</label>
-                    <select id="tripType">
-                        <option value="city">City</option>
-                        <option value="highway" selected>Highway</option>
-                        <option value="mixed">Mixed</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label>Usage Type</label>
-                    <select id="usageType">
-                        <option value="private" selected>Private</option>
-                        <option value="commercial_passenger">Commercial - Passenger</option>
-                        <option value="commercial_freight">Commercial - Freight</option>
-                        <option value="fleet">Fleet</option>
-                        <option value="taxi">Taxi / Uber / Bolt</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label>Vehicle Year of Manufacture</label>
+                    <label for="yearSelect">Vehicle Year</label>
                     <select id="yearSelect">
                         <option value="2026">2026</option>
                         <option value="2025">2025</option>
@@ -1218,37 +1077,100 @@
                     </select>
                 </div>
 
-                <!-- ─── PURCHASE TYPE ──────────────────────────────────── -->
-                <div class="panel-label"><span class="num">03</span> Purchase Type</div>
+                <div class="form-group">
+                    <label for="initialValue">Initial Value (KES)</label>
+                    <input type="number" id="initialValue" placeholder="e.g., 5000000" />
+                </div>
 
                 <div class="form-group">
-                    <label>How are you buying?</label>
+                    <label for="currentValue">Current Market Value (KES)</label>
+                    <input type="number" id="currentValue" placeholder="e.g., 3500000" />
+                </div>
+
+                <div class="form-group">
+                    <label>Purchase Type</label>
                     <div class="toggle-group">
-                        <button type="button" class="toggle-btn active" id="btnCash">💰 Cash Purchase</button>
-                        <button type="button" class="toggle-btn" id="btnFinanced">🏦 Financed / Loan</button>
+                        <button type="button" class="toggle-btn active" id="btnNew">🆕 New</button>
+                        <button type="button" class="toggle-btn" id="btnUsed">🔁 Used</button>
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <!-- ─── USAGE PROFILE ──────────────────────────────────── -->
+                <div class="panel-label"><span class="num">02</span> Usage Profile</div>
+
+                <div class="form-group">
+                    <label>Annual Distance <span class="range-value" id="valMileage">20,000 km</span></label>
+                    <input type="range" id="mileageRange" min="4000" max="60000" step="1000" value="20000" />
+                </div>
+
+                <div class="form-group">
+                    <label>Ownership Period <span class="range-value" id="valYears">5 years</span></label>
+                    <input type="range" id="yearsRange" min="1" max="10" step="1" value="5" />
+                </div>
+
+                <div class="form-group">
+                    <label for="locationSelect">County / Location</label>
+                    <select id="locationSelect">
+                        <option value="nairobi">Nairobi</option>
+                        <option value="mombasa">Mombasa</option>
+                        <option value="kisumu">Kisumu</option>
+                        <option value="nakuru">Nakuru</option>
+                        <option value="eldoret">Eldoret</option>
+                        <option value="kiambu">Kiambu</option>
+                        <option value="kajiado">Kajiado</option>
+                        <option value="machakos">Machakos</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+
+                <div class="divider"></div>
+
+                <!-- ─── INSURANCE ────────────────────────────────────── -->
+                <div class="panel-label"><span class="num">03</span> Insurance</div>
+
+                <div class="form-group">
+                    <label>Insurance Rate <span class="range-value" id="valInsuranceRate">4.5%</span></label>
+                    <input type="range" id="insuranceRange" min="1.5" max="8" step="0.5" value="4.5" />
+                </div>
+
+                <div class="form-group">
+                    <label for="insuranceType">Insurance Type</label>
+                    <select id="insuranceType">
+                        <option value="comprehensive">Comprehensive</option>
+                        <option value="third_party">Third Party</option>
+                        <option value="third_party_fire">Third Party Fire &amp; Theft</option>
+                    </select>
+                </div>
+
+                <div class="divider"></div>
+
+                <!-- ─── FINANCING ────────────────────────────────────── -->
+                <div class="panel-label"><span class="num">04</span> Financing (optional)</div>
+
+                <div class="form-group">
+                    <div class="toggle-group">
+                        <button type="button" class="toggle-btn active" id="btnCash">Cash purchase</button>
+                        <button type="button" class="toggle-btn" id="btnFinanced">Financed / loan</button>
                     </div>
                 </div>
                 <div class="financed-fields" id="financedFields">
                     <div class="form-group">
-                        <label>Down payment <span class="val" id="valDown">30%</span></label>
-                        <input type="range" id="downPct" min="5" max="70" step="5" value="30" />
+                        <label>Down payment <span class="range-value" id="valDown">30%</span></label>
+                        <input type="range" id="downRange" min="5" max="70" step="5" value="30" />
                     </div>
                     <div class="form-group">
-                        <label>Interest rate (annual) <span class="val" id="valRate">16%</span></label>
-                        <input type="range" id="rate" min="8" max="28" step="0.5" value="16" />
+                        <label>Interest rate <span class="range-value" id="valRate">16%</span></label>
+                        <input type="range" id="rateRange" min="8" max="28" step="0.5" value="16" />
                     </div>
                     <div class="form-group">
-                        <label>Loan term <span class="val" id="valTerm">4 years</span></label>
-                        <input type="range" id="term" min="1" max="7" step="1" value="4" />
+                        <label>Loan term <span class="range-value" id="valTerm">4 years</span></label>
+                        <input type="range" id="termRange" min="1" max="7" step="1" value="4" />
                     </div>
                 </div>
 
-                <div class="quick-routes">
-                    <p class="quick-routes-title">📌 Quick Routes</p>
-                    <div class="route-chips" id="routeChips"></div>
-                </div>
-
-                <button class="calc-btn" id="calculateBtn" disabled>🚀 Calculate Mileage Rate &amp; 5-Year Cost</button>
+                <button class="calc-btn" id="calculateBtn" disabled>🚀 Calculate Ownership Cost</button>
 
                 <div class="disclaimer">
                     ⚠️ <strong>Disclaimer:</strong> All figures are estimates based on Auto-D recommended Kenyan market rates as of 2026. 
@@ -1276,67 +1198,68 @@
 
                 <div class="result-card">
                     <div class="card-title">
-                        💰 Trip Summary
-                        <span class="badge">Mileage Rate</span>
+                        💰 Ownership Summary
+                        <span class="badge">Total Cost</span>
                     </div>
-                    <div class="trip-total">
-                        <div class="label">Total Running Cost</div>
-                        <div class="amount">
-                            <span class="currency">KES</span>
-                            <span id="tripTotal">—</span>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="label">Total Cost</div>
+                            <div class="num amber" id="outTotal">—</div>
                         </div>
-                        <div class="sub">
-                            <span id="tripSub">—</span>
+                        <div class="stat-card">
+                            <div class="label">Per Month</div>
+                            <div class="num" id="outMonthly">—</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">Per Kilometre</div>
+                            <div class="num blue" id="outPerKm">—</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">Resale Value</div>
+                            <div class="num green" id="outResale">—</div>
                         </div>
                     </div>
-                    <div class="cost-grid" id="tripCostGrid"></div>
                 </div>
 
                 <div class="result-card">
                     <div class="card-title">
-                        📊 Cost per km Breakdown
-                        <span class="badge">Running Cost</span>
+                        📊 Year-by-Year Breakdown
+                        <span class="badge">7 Components</span>
                     </div>
-                    <div class="perkm-grid" id="perkmGrid"></div>
+                    <div class="legend">
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-depreciation)"></span>Depreciation</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-financing)"></span>Financing</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-insurance)"></span>Insurance</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-fuel)"></span>Fuel</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-maintenance)"></span>Maintenance</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-tyres)"></span>Tyres</div>
+                        <div class="legend-item"><span class="legend-dot" style="background:var(--c-licensing)"></span>Licensing</div>
+                    </div>
+                    <div class="stacked-bars" id="stackedBars"></div>
                 </div>
 
                 <div class="result-card">
                     <div class="card-title">
-                        📅 5-Year Running Cost Projection
-                        <span class="badge">Long-term Planning</span>
+                        📋 Full Breakdown Table
+                        <span class="badge">KES</span>
                     </div>
-                    <div class="stats-grid-5" id="fiveYearStats"></div>
-                    <div class="table-wrap" style="margin-top:12px;">
-                        <table id="yearlyTable">
+                    <div class="table-wrap">
+                        <table>
                             <thead>
                                 <tr>
-                                    <th>Year</th>
-                                    <th>Fuel</th>
-                                    <th>Service</th>
-                                    <th>Tyres</th>
-                                    <th>Insurance</th>
-                                    <th>Depreciation</th>
-                                    <th>Total</th>
-                                    <th>Value</th>
+                                    <th>Year</th><th>Depreciation</th><th>Financing</th><th>Insurance</th>
+                                    <th>Fuel</th><th>Maintenance</th><th>Tyres</th><th>Licensing</th><th>Total</th>
                                 </tr>
                             </thead>
-                            <tbody id="yearlyBody"></tbody>
+                            <tbody id="resultsBody"></tbody>
                         </table>
                     </div>
                 </div>
 
                 <div class="result-card">
                     <div class="card-title">
-                        💼 Commercial Rates
-                        <span class="badge">Usage-based</span>
-                    </div>
-                    <div class="commercial-grid" id="commercialGrid"></div>
-                </div>
-
-                <div class="result-card">
-                    <div class="card-title">
                         📈 Performance Metrics
-                        <span class="badge">RCI</span>
+                        <span class="badge">RCI + Health</span>
                     </div>
                     <div class="metrics-grid">
                         <div class="rci-display">
@@ -1349,22 +1272,14 @@
                                 <div class="rci-label" id="rciLabel">—</div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <div class="result-card">
-                    <div class="card-title">
-                        📅 Monthly & Annual Costs
-                        <span class="badge">Budgeting</span>
-                    </div>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-                        <div>
-                            <h4 style="font-family:var(--font-heading);font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Monthly</h4>
-                            <div class="cost-grid" id="monthlyGrid"></div>
-                        </div>
-                        <div>
-                            <h4 style="font-family:var(--font-heading);font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Annual</h4>
-                            <div class="cost-grid" id="annualGrid"></div>
+                        <div class="health-score">
+                            <div class="score-ring" id="healthRing" style="--pct:0%;">
+                                <div class="inner" id="healthScore">—</div>
+                            </div>
+                            <div class="score-details">
+                                <strong>Vehicle Health</strong><br />
+                                <span id="healthLabel">—</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1379,13 +1294,13 @@
 
                 <div class="result-card">
                     <div class="card-title">
-                        💡 Smart Recommendations
+                        💡 Recommendations
                         <span class="badge">AI</span>
                     </div>
                     <div class="rec-list" id="recList">
                         <div class="rec-item info">
                             <span class="icon">💡</span>
-                            <span class="rec-text">Select a vehicle to receive personalized recommendations</span>
+                            <span class="rec-text">Select a vehicle to receive recommendations</span>
                             <span class="rec-tag">Ready</span>
                         </div>
                     </div>
@@ -1393,7 +1308,7 @@
 
                 <div class="result-card">
                     <div class="action-bar">
-                        <button class="action-btn print" id="printBtn">🖨️ Print Report</button>
+                        <button class="action-btn print" id="printBtn">🖨️ Print</button>
                         <button class="action-btn share" id="shareBtn">📤 Share</button>
                     </div>
                 </div>
@@ -1411,16 +1326,16 @@
         <footer class="report-footer" role="contentinfo">
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
-                <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v6.0
+                <strong>Engine:</strong> TCO · 7 Components · Fleet-grade<br />
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.0
             </div>
         </footer>
     </div>
 
     <script>
-        // ================================================================
-        // AUTO-D KENYA - COMPLETE FRONTEND WITH AUTH GATE
-        // ================================================================
+        // ═══════════════════════════════════════════════════════════════
+        // AUTO-D KENYA - COST OF OWNERSHIP WITH AUTH GATE
+        // ═══════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
@@ -1437,10 +1352,10 @@
             let isAuthenticated = false;
             let currentUser = null;
             let isFinanced = false;
-            let currentVariantData = null;
-            let routes = [];
-            let debounceTimer = null;
+            let isNewPurchase = true;
             let isUnlocked = false;
+            let currentVariantData = null;
+            let debounceTimer = null;
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1449,36 +1364,48 @@
                 modelSelect: document.getElementById('modelSelect'),
                 generationSelect: document.getElementById('generationSelect'),
                 variantSelect: document.getElementById('variantSelect'),
-                fuelFilterGroup: document.getElementById('fuelFilterGroup'),
-                distanceInput: document.getElementById('distanceInput'),
-                annualKmInput: document.getElementById('annualKmInput'),
-                fuelPriceInput: document.getElementById('fuelPriceInput'),
-                drivingStyle: document.getElementById('drivingStyle'),
-                tripType: document.getElementById('tripType'),
-                usageType: document.getElementById('usageType'),
                 yearSelect: document.getElementById('yearSelect'),
-                routeChips: document.getElementById('routeChips'),
+                initialValue: document.getElementById('initialValue'),
+                currentValue: document.getElementById('currentValue'),
+                locationSelect: document.getElementById('locationSelect'),
+                insuranceType: document.getElementById('insuranceType'),
+                mileageRange: document.getElementById('mileageRange'),
+                yearsRange: document.getElementById('yearsRange'),
+                insuranceRange: document.getElementById('insuranceRange'),
+                downRange: document.getElementById('downRange'),
+                rateRange: document.getElementById('rateRange'),
+                termRange: document.getElementById('termRange'),
+                valMileage: document.getElementById('valMileage'),
+                valYears: document.getElementById('valYears'),
+                valInsuranceRate: document.getElementById('valInsuranceRate'),
+                valDown: document.getElementById('valDown'),
+                valRate: document.getElementById('valRate'),
+                valTerm: document.getElementById('valTerm'),
+                btnNew: document.getElementById('btnNew'),
+                btnUsed: document.getElementById('btnUsed'),
+                btnCash: document.getElementById('btnCash'),
+                btnFinanced: document.getElementById('btnFinanced'),
+                financedFields: document.getElementById('financedFields'),
                 calculateBtn: document.getElementById('calculateBtn'),
                 vehicleLabel: document.getElementById('vehicleLabel'),
                 fuelPill: document.getElementById('fuelPill'),
                 transmissionPill: document.getElementById('transmissionPill'),
                 engineCCDisplay: document.getElementById('engineCCDisplay'),
                 vehicleSpecs: document.getElementById('vehicleSpecs'),
-                tripTotal: document.getElementById('tripTotal'),
-                tripSub: document.getElementById('tripSub'),
-                tripCostGrid: document.getElementById('tripCostGrid'),
-                perkmGrid: document.getElementById('perkmGrid'),
-                commercialGrid: document.getElementById('commercialGrid'),
-                monthlyGrid: document.getElementById('monthlyGrid'),
-                annualGrid: document.getElementById('annualGrid'),
+                outTotal: document.getElementById('outTotal'),
+                outMonthly: document.getElementById('outMonthly'),
+                outPerKm: document.getElementById('outPerKm'),
+                outResale: document.getElementById('outResale'),
+                stackedBars: document.getElementById('stackedBars'),
+                resultsBody: document.getElementById('resultsBody'),
                 rciValue: document.getElementById('rciValue'),
                 rciStars: document.getElementById('rciStars'),
                 rciLabel: document.getElementById('rciLabel'),
+                healthRing: document.getElementById('healthRing'),
+                healthScore: document.getElementById('healthScore'),
+                healthLabel: document.getElementById('healthLabel'),
                 envGrid: document.getElementById('envGrid'),
                 recList: document.getElementById('recList'),
-                lastUpdated: document.getElementById('lastUpdated'),
-                fiveYearStats: document.getElementById('fiveYearStats'),
-                yearlyBody: document.getElementById('yearlyBody'),
                 loadingOverlay: document.getElementById('loadingOverlay'),
                 loadingStatus: document.getElementById('loadingStatus'),
                 statusMessage: document.getElementById('statusMessage'),
@@ -1494,27 +1421,21 @@
                 btnLogin: document.getElementById('btnLogin'),
                 btnSignup: document.getElementById('btnSignup'),
                 btnCancelAuth: document.getElementById('btnCancelAuth'),
-                btnCash: document.getElementById('btnCash'),
-                btnFinanced: document.getElementById('btnFinanced'),
-                financedFields: document.getElementById('financedFields'),
-                downPct: document.getElementById('downPct'),
-                rate: document.getElementById('rate'),
-                term: document.getElementById('term'),
-                valDown: document.getElementById('valDown'),
-                valRate: document.getElementById('valRate'),
-                valTerm: document.getElementById('valTerm'),
                 lockOverlay: document.getElementById('lockOverlay'),
-                unlockBtn: document.getElementById('unlockBtn')
+                unlockBtn: document.getElementById('unlockBtn'),
+                lastUpdated: document.getElementById('lastUpdated')
             };
 
             // ─── HELPERS ──────────────────────────────────────────────
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
 
+            function fmt(v) { return "KES " + Math.round(v).toLocaleString("en-KE"); }
+
             function formatCurrency(val) {
-                if (val === undefined || val === null || isNaN(val)) return '0.00';
+                if (val === undefined || val === null || isNaN(val)) return '0';
                 return Number(val).toLocaleString('en-KE', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
                 });
             }
 
@@ -1539,11 +1460,6 @@
                 toast.setAttribute('role', 'alert');
                 document.body.appendChild(toast);
                 setTimeout(() => toast.remove(), 4000);
-            }
-
-            function getVehicleAge(year) {
-                const currentYear = new Date().getFullYear();
-                return Math.max(0, currentYear - parseInt(year));
             }
 
             function setStatus(type, message) {
@@ -1659,13 +1575,19 @@
                 }
             }
 
+            // ─── FIX #1 ────────────────────────────────────────────────
+            // Previously this function's "unlock" branch excluded
+            // categorySelect from the re-enable loop, so after signing in
+            // the category dropdown stayed disabled forever and the whole
+            // calculator was unusable even for authenticated users.
+            // categorySelect is now allowed to be re-enabled like every
+            // other top-level input.
             function updateLockState() {
                 const shouldLock = !isAuthenticated;
                 
                 if (shouldLock) {
                     el.lockOverlay.classList.add('show');
                     isUnlocked = false;
-                    // Disable all interactive elements
                     document.querySelectorAll('.calculator-panel select, .calculator-panel input, .calc-btn').forEach(el => {
                         el.disabled = true;
                     });
@@ -1673,29 +1595,17 @@
                 } else {
                     el.lockOverlay.classList.remove('show');
                     isUnlocked = true;
-                    // Enable interactive elements
                     document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach(el => {
-                        if (el.id !== 'categorySelect' && el.id !== 'makeSelect' && el.id !== 'modelSelect' && 
+                        if (el.id !== 'makeSelect' && el.id !== 'modelSelect' &&
                             el.id !== 'generationSelect' && el.id !== 'variantSelect') {
                             el.disabled = false;
                         }
                     });
-                    // Re-enable based on selection state
-                    if (el.categorySelect.value) {
-                        el.makeSelect.disabled = false;
-                    }
-                    if (el.makeSelect.value) {
-                        el.modelSelect.disabled = false;
-                    }
-                    if (el.modelSelect.value) {
-                        el.generationSelect.disabled = false;
-                    }
-                    if (el.generationSelect.value) {
-                        el.variantSelect.disabled = false;
-                    }
-                    if (el.variantSelect.value) {
-                        el.calculateBtn.disabled = false;
-                    }
+                    if (el.categorySelect.value) el.makeSelect.disabled = false;
+                    if (el.makeSelect.value) el.modelSelect.disabled = false;
+                    if (el.modelSelect.value) el.generationSelect.disabled = false;
+                    if (el.generationSelect.value) el.variantSelect.disabled = false;
+                    if (el.variantSelect.value) el.calculateBtn.disabled = false;
                     showToast('🔓 Calculator unlocked! Welcome back.', 'success');
                 }
             }
@@ -1832,44 +1742,6 @@
                     console.error('Error loading variant details:', error);
                     setStatus('error', 'Failed to load vehicle details');
                     return null;
-                }
-            }
-
-            async function loadRoutes() {
-                try {
-                    const { data, error } = await supabaseClient.from('routes').select('*').limit(12);
-                    if (!error && data) {
-                        routes = data.map(r => ({
-                            from_city: r.from_city || 'Unknown',
-                            to_city: r.to_city || 'Unknown',
-                            km: r.distance_km || r.km || 0
-                        })).filter(r => r.km > 0);
-                    }
-                    return routes;
-                } catch (error) {
-                    console.warn('Error loading routes:', error);
-                    return [];
-                }
-            }
-
-            async function loadFuelPrice() {
-                try {
-                    const now = new Date().toISOString();
-                    const { data, error } = await supabaseClient
-                        .from('fuel_prices')
-                        .select('price_per_unit')
-                        .lte('effective_from', now)
-                        .or(`effective_to.is.null,effective_to.gte.${now}`)
-                        .order('effective_from', { ascending: false })
-                        .limit(1);
-                    if (!error && data && data.length > 0 && data[0].price_per_unit) {
-                        el.fuelPriceInput.value = data[0].price_per_unit;
-                        return data[0].price_per_unit;
-                    }
-                    return 0;
-                } catch (error) {
-                    console.warn('Error loading fuel price:', error);
-                    return 0;
                 }
             }
 
@@ -2056,148 +1928,110 @@
                 ).join('');
             }
 
-            // ─── RENDER ROUTE CHIPS ────────────────────────────────────
-            function renderRouteChips() {
-                el.routeChips.innerHTML = '';
-                if (!routes || routes.length === 0) {
-                    el.routeChips.innerHTML = '<span style="color:var(--text-muted);font-size:9px;">No routes available</span>';
-                    return;
-                }
-                routes.slice(0, 12).forEach(r => {
-                    const chip = document.createElement('button');
-                    chip.className = 'chip';
-                    chip.dataset.km = r.km;
-                    chip.innerHTML = `${escapeHTML(r.from_city || '?')} → ${escapeHTML(r.to_city || '?')} <span class="km-badge">${escapeHTML(String(r.km))}km</span>`;
-                    el.routeChips.appendChild(chip);
-                });
-            }
-
             // ─── CALCULATION ENGINE ────────────────────────────────────
-            function calculateRunningCost(variant, inputs) {
+            function calculateTCO(variant, inputs) {
                 if (!variant) return null;
 
-                const { distance, annualKm, fuelPrice, drivingStyle, tripType, usageType, year } = inputs;
-                const d = distance || 150;
-                const annual = annualKm || 20000;
+                const {
+                    initialValue = 5000000,
+                    currentValue = 3500000,
+                    annualMileage = 20000,
+                    ownershipYears = 5,
+                    insuranceRate = 0.045,
+                    fuelConsumption = 12,
+                    fuelPrice = 200,
+                    isNew = true,
+                    isFinanced = false,
+                    downPct = 0.3,
+                    interestRate = 0.16,
+                    loanTerm = 4
+                } = inputs;
 
-                if (d <= 0) return null;
+                const depRate = isNew ? 0.25 : 0.15;
+                const annualFuelCost = (annualMileage / fuelConsumption) * fuelPrice;
+                const annualMaintenanceCost = annualMileage * 5;
+                const annualTyreCost = (annualMileage / 50000) * 48000;
+                const licensingCost = initialValue * 0.01;
+                const annualInsurance = initialValue * insuranceRate;
 
-                const vehicleAge = getVehicleAge(year);
-                const basePrice = variant.market_value || 3500000;
-                const depRate = 0.15;
-
-                const ageAdjustedCost = basePrice * Math.pow(1 - depRate, vehicleAge);
-                const basePriceForCalc = Math.max(ageAdjustedCost, basePrice * 0.15);
-
-                const fuelConsumption = variant.fuel_consumption_combined || 12.5;
-                const drivingFactors = { eco: 0.85, normal: 1.0, aggressive: 1.15 };
-                const drivingFactor = drivingFactors[drivingStyle] || 1.0;
-                const tripFactors = { city: 1.15, highway: 0.90, mixed: 1.0 };
-                const tripFactor = tripFactors[tripType] || 1.0;
-                const finalFuelConsumption = (fuelConsumption / drivingFactor) / tripFactor;
-
-                const fuelPricePerUnit = fuelPrice || 203.47;
-                const fuelCostPerKm = fuelPricePerUnit / finalFuelConsumption;
-                const fuelCostTrip = fuelCostPerKm * d;
-
-                const minorCost = 15000;
-                const minorInterval = 10000;
-                const majorCost = 45000;
-                const majorInterval = 40000;
-                const servicePerKm = (minorCost / minorInterval) + (majorCost / majorInterval);
-                const serviceTrip = servicePerKm * d;
-
-                const tyreCost = 80000;
-                const tyreLife = 50000;
-                const tyrePerKm = tyreCost / tyreLife;
-                const tyreTrip = tyrePerKm * d;
-
-                const insuranceAnnual = 80000;
-                const insurancePerKm = insuranceAnnual / annual;
-                const insuranceTrip = insurancePerKm * d;
-
-                const depreciationPerKm = (basePriceForCalc * depRate) / annual;
-                const depreciationTrip = depreciationPerKm * d;
-
-                const tripTotal = fuelCostTrip + serviceTrip + tyreTrip + insuranceTrip + depreciationTrip;
-                const tripCostPerKm = tripTotal / d;
-
-                const monthlyKm = annual / 12;
-                const monthlyFuel = fuelCostPerKm * monthlyKm;
-                const monthlyService = servicePerKm * monthlyKm;
-                const monthlyTyre = tyrePerKm * monthlyKm;
-                const monthlyInsurance = insuranceAnnual / 12;
-                const monthlyDepreciation = (basePriceForCalc * depRate) / 12;
-
-                const annualFuel = fuelCostPerKm * annual;
-                const annualService = servicePerKm * annual;
-                const annualTyre = tyrePerKm * annual;
-                const annualDepreciation = basePriceForCalc * depRate;
-
-                const fiveYearData = [];
-                let remainingValue = basePriceForCalc;
-                let total5YearCost = 0;
-
-                for (let y = 1; y <= 5; y++) {
-                    const depRateYear = depRate * (1 + (y - 1) * 0.08);
-                    const yearlyDepreciation = remainingValue * Math.min(depRateYear, 0.20);
-                    remainingValue = remainingValue - yearlyDepreciation;
-
-                    const yearlyFuel = annualFuel * (1 + (y - 1) * 0.05);
-                    const yearlyService = annualService * (1 + (y - 1) * 0.08);
-                    const yearlyInsurance = insuranceAnnual * (1 + (y - 1) * 0.03);
-                    const yearlyTyres = annualTyre * (1 + (y - 1) * 0.06);
-                    const yearlyTotal = yearlyDepreciation + yearlyFuel + yearlyService + yearlyInsurance + yearlyTyres;
-
-                    total5YearCost += yearlyTotal;
-
-                    fiveYearData.push({
-                        year: y,
-                        depreciation: yearlyDepreciation,
-                        fuel: yearlyFuel,
-                        service: yearlyService,
-                        insurance: yearlyInsurance,
-                        tyres: yearlyTyres,
-                        total: yearlyTotal,
-                        value: remainingValue
-                    });
+                let financingCost = 0;
+                if (isFinanced) {
+                    const loanAmount = initialValue * (1 - downPct);
+                    financingCost = loanAmount * interestRate * loanTerm;
                 }
 
+                const yearsData = [];
+                let totalCost = 0;
+                let totalMileage = 0;
+
+                for (let i = 0; i < ownershipYears; i++) {
+                    const yearNumber = i + 1;
+                    const currentYearValue = initialValue * Math.pow(1 - depRate, i + 1);
+                    
+                    const depreciationYear = initialValue * depRate * Math.pow(1 - depRate, i);
+                    const fuelYear = annualFuelCost;
+                    const maintenanceYear = annualMaintenanceCost;
+                    const tyresYear = annualTyreCost;
+                    const licensingYear = licensingCost;
+                    const insuranceYear = annualInsurance;
+                    const financingYear = isFinanced ? financingCost / ownershipYears : 0;
+                    
+                    const yearTotal = depreciationYear + financingYear + insuranceYear +
+                        fuelYear + maintenanceYear + tyresYear + licensingYear;
+                    
+                    yearsData.push({
+                        year: yearNumber,
+                        depreciation: depreciationYear,
+                        financing: financingYear,
+                        insurance: insuranceYear,
+                        fuel: fuelYear,
+                        maintenance: maintenanceYear,
+                        tyres: tyresYear,
+                        licensing: licensingYear,
+                        total: yearTotal,
+                        value: currentYearValue
+                    });
+                    
+                    totalCost += yearTotal;
+                    totalMileage += annualMileage;
+                }
+
+                const averageMonthly = totalCost / (ownershipYears * 12);
+                const costPerKm = totalMileage > 0 ? totalCost / totalMileage : 0;
+                const resaleValue = yearsData.length > 0 ? yearsData[yearsData.length - 1].value : 0;
+                const averageAnnualCost = totalCost / ownershipYears;
+                const rciValue = (averageAnnualCost / initialValue) * 100;
+
+                let rciRating, rciStars, rciClass;
+                if (rciValue < 15) { rciRating = 'Excellent'; rciStars = '⭐⭐⭐⭐⭐'; rciClass = 'excellent'; }
+                else if (rciValue < 20) { rciRating = 'Good'; rciStars = '⭐⭐⭐⭐'; rciClass = 'good'; }
+                else if (rciValue < 25) { rciRating = 'Average'; rciStars = '⭐⭐⭐'; rciClass = 'average'; }
+                else if (rciValue < 30) { rciRating = 'Expensive'; rciStars = '⭐⭐'; rciClass = 'expensive'; }
+                else { rciRating = 'Very Expensive'; rciStars = '⭐'; rciClass = 'very-expensive'; }
+
+                const healthScore = Math.max(0, 100 - (rciValue * 2));
+                const healthPercentage = Math.min(100, healthScore);
+                const healthLabel = healthPercentage >= 80 ? 'Excellent Condition' :
+                    healthPercentage >= 60 ? 'Good Condition' :
+                    healthPercentage >= 40 ? 'Fair Condition' : 'Needs Attention';
+
                 return {
-                    tripTotal,
-                    tripCostPerKm,
-                    distance: d,
-                    fuelCostPerKm,
-                    fuelCostTrip,
-                    serviceTrip,
-                    tyreTrip,
-                    insuranceTrip,
-                    depreciationTrip,
-                    fuelConsumption: finalFuelConsumption,
-                    fuelTypeDisplay: variant.fuel_type || 'Petrol',
-                    transmissionDisplay: variant.transmission || 'Automatic',
-                    initialCost: basePriceForCalc,
-                    ageAdjustedCost: ageAdjustedCost,
-                    vehicleAge: vehicleAge,
-                    annualKm: annual,
-                    monthlyKm: monthlyKm,
-                    age: vehicleAge,
-                    usageType: usageType || 'private',
-                    monthlyFuel,
-                    monthlyService,
-                    monthlyTyre,
-                    monthlyInsurance,
-                    monthlyDepreciation,
-                    annualFuel,
-                    annualService,
-                    annualTyre,
-                    annualInsurance: insuranceAnnual,
-                    annualDepreciation,
-                    fiveYearData,
-                    total5YearCost,
-                    remainingValue,
-                    variant: variant,
-                    depreciation_rate: depRate
+                    yearsData,
+                    totalCost,
+                    averageMonthly,
+                    costPerKm,
+                    resaleValue,
+                    rciValue,
+                    rciRating,
+                    rciStars,
+                    rciClass,
+                    healthPercentage,
+                    healthLabel,
+                    annualMileage,
+                    ownershipYears,
+                    initialValue,
+                    fuelConsumption,
+                    fuelPrice
                 };
             }
 
@@ -2205,211 +2039,191 @@
             function renderResults(result, variant) {
                 if (!result) return;
 
-                const tripTotal = result.tripTotal || 0;
-                const tripCostPerKm = result.tripCostPerKm || 0;
-                el.tripTotal.textContent = formatCurrency(tripTotal);
-                el.tripSub.textContent = `at ${formatCurrency(tripCostPerKm)} KES/km over ${formatNumber(result.distance || 0)} km`;
+                el.outTotal.textContent = fmt(result.totalCost);
+                el.outMonthly.textContent = fmt(result.averageMonthly);
+                el.outPerKm.textContent = `KES ${result.costPerKm.toFixed(2)}`;
+                el.outResale.textContent = fmt(result.resaleValue);
 
-                let tripHtml = '';
-                const components = {
-                    'Fuel': result.fuelCostTrip || 0,
-                    'Service': result.serviceTrip || 0,
-                    'Tyres': result.tyreTrip || 0,
-                    'Insurance': result.insuranceTrip || 0,
-                    'Depreciation': result.depreciationTrip || 0
-                };
-                Object.entries(components).forEach(([key, value]) => {
-                    tripHtml += `
-                        <div class="cost-item">
-                            <span class="label">${escapeHTML(key)}</span>
-                            <span class="value">KES ${escapeHTML(formatCurrency(value))}</span>
+                const stackedBars = el.stackedBars;
+                stackedBars.innerHTML = '';
+                const maxTotal = Math.max(...result.yearsData.map(y => y.total), 1);
+
+                result.yearsData.forEach((year) => {
+                    const row = document.createElement('div');
+                    row.className = 'year-row';
+                    
+                    const depreciationPct = (year.depreciation / maxTotal) * 100;
+                    const financingPct = (year.financing / maxTotal) * 100;
+                    const insurancePct = (year.insurance / maxTotal) * 100;
+                    const fuelPct = (year.fuel / maxTotal) * 100;
+                    const maintenancePct = (year.maintenance / maxTotal) * 100;
+                    const tyresPct = (year.tyres / maxTotal) * 100;
+                    const licensingPct = (year.licensing / maxTotal) * 100;
+                    
+                    row.innerHTML = `
+                        <div class="yr-label">Year ${year.year}</div>
+                        <div class="bar-track">
+                            <div class="bar-seg" style="width:${depreciationPct}%;background:var(--c-depreciation);" title="Depreciation: ${fmt(year.depreciation)}"></div>
+                            <div class="bar-seg" style="width:${financingPct}%;background:var(--c-financing);" title="Financing: ${fmt(year.financing)}"></div>
+                            <div class="bar-seg" style="width:${insurancePct}%;background:var(--c-insurance);" title="Insurance: ${fmt(year.insurance)}"></div>
+                            <div class="bar-seg" style="width:${fuelPct}%;background:var(--c-fuel);" title="Fuel: ${fmt(year.fuel)}"></div>
+                            <div class="bar-seg" style="width:${maintenancePct}%;background:var(--c-maintenance);" title="Maintenance: ${fmt(year.maintenance)}"></div>
+                            <div class="bar-seg" style="width:${tyresPct}%;background:var(--c-tyres);" title="Tyres: ${fmt(year.tyres)}"></div>
+                            <div class="bar-seg" style="width:${licensingPct}%;background:var(--c-licensing);" title="Licensing: ${fmt(year.licensing)}"></div>
                         </div>
+                        <div class="yr-total">${fmt(year.total)}</div>
                     `;
+                    stackedBars.appendChild(row);
                 });
-                tripHtml += `
-                    <div class="cost-item total-item" style="grid-column: 1 / -1;">
-                        <span class="label">TOTAL</span>
-                        <span class="value" style="color:var(--amber);">KES ${escapeHTML(formatCurrency(tripTotal))}</span>
-                    </div>
-                `;
-                el.tripCostGrid.innerHTML = tripHtml;
 
-                let perkmHtml = '';
-                const perkmComponents = {
-                    'Fuel': result.fuelCostPerKm || 0,
-                    'Service': (result.serviceTrip || 0) / (result.distance || 1),
-                    'Tyres': (result.tyreTrip || 0) / (result.distance || 1),
-                    'Insurance': (result.insuranceTrip || 0) / (result.distance || 1),
-                    'Depreciation': (result.depreciationTrip || 0) / (result.distance || 1)
-                };
-                Object.entries(perkmComponents).forEach(([key, value]) => {
-                    perkmHtml += `
-                        <div class="perkm-item">
-                            <span class="label">${escapeHTML(key)}</span>
-                            <span class="value">KES ${escapeHTML(formatCurrency(value))}</span>
-                        </div>
-                    `;
-                });
-                perkmHtml += `
-                    <div class="perkm-item" style="border-color:var(--amber);background:rgba(234,179,8,0.05);grid-column:1/-1;">
-                        <span class="label" style="font-weight:700;color:var(--amber);">TOTAL</span>
-                        <span class="value" style="font-weight:700;color:var(--amber);">KES ${escapeHTML(formatCurrency(tripCostPerKm))}</span>
-                    </div>
-                `;
-                el.perkmGrid.innerHTML = perkmHtml;
-
-                const fiveYearData = result.fiveYearData || [];
-                const total5Year = result.total5YearCost || 0;
-                const avgYearly = total5Year / 5;
-                const perMonth = total5Year / 60;
-
-                el.fiveYearStats.innerHTML = `
-                    <div class="stat-card-sm">
-                        <div class="label">5-Year Total</div>
-                        <div class="num amber">KES ${formatCurrency(total5Year)}</div>
-                    </div>
-                    <div class="stat-card-sm">
-                        <div class="label">Yearly Avg</div>
-                        <div class="num">KES ${formatCurrency(avgYearly)}</div>
-                    </div>
-                    <div class="stat-card-sm">
-                        <div class="label">Monthly Avg</div>
-                        <div class="num">KES ${formatCurrency(perMonth)}</div>
-                    </div>
-                    <div class="stat-card-sm">
-                        <div class="label">Est. Resale Value</div>
-                        <div class="num green">KES ${formatCurrency(result.remainingValue || 0)}</div>
-                    </div>
-                    <div class="stat-card-sm">
-                        <div class="label">Value Retention</div>
-                        <div class="num blue">${Math.round((result.remainingValue / result.initialCost) * 100)}%</div>
-                    </div>
-                `;
-
-                const tbody = el.yearlyBody;
+                const tbody = el.resultsBody;
                 tbody.innerHTML = '';
-                fiveYearData.forEach((year) => {
+
+                result.yearsData.forEach((year) => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td style="text-align:left;padding:4px 8px;">Year ${year.year}</td>
-                        <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.fuel)}</td>
-                        <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.service)}</td>
-                        <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.tyres)}</td>
-                        <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.insurance)}</td>
-                        <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.depreciation)}</td>
-                        <td style="text-align:right;padding:4px 8px;font-weight:700;color:var(--amber);">KES ${formatCurrency(year.total)}</td>
-                        <td style="text-align:right;padding:4px 8px;font-weight:600;color:var(--green);">KES ${formatCurrency(year.value)}</td>
+                        <td>Year ${year.year}</td>
+                        <td>${fmt(year.depreciation)}</td>
+                        <td>${fmt(year.financing)}</td>
+                        <td>${fmt(year.insurance)}</td>
+                        <td>${fmt(year.fuel)}</td>
+                        <td>${fmt(year.maintenance)}</td>
+                        <td>${fmt(year.tyres)}</td>
+                        <td>${fmt(year.licensing)}</td>
+                        <td>${fmt(year.total)}</td>
                     `;
                     tbody.appendChild(tr);
                 });
 
-                const perKm = tripCostPerKm;
-                const commercialRates = [
-                    { label: 'Private', value: perKm * 1.0, sub: 'Base rate' },
-                    { label: 'Passenger', value: perKm * 1.25, sub: '+25% wear & tear' },
-                    { label: 'Freight', value: perKm * 1.35, sub: '+35% heavy load' },
-                    { label: 'Fleet', value: perKm * 0.9, sub: '-10% bulk discount' }
-                ];
-                el.commercialGrid.innerHTML = commercialRates.map(c => `
-                    <div class="commercial-card ${c.label === 'Private' ? 'highlight' : ''}">
-                        <div class="commercial-label">${c.label}</div>
-                        <div class="commercial-value">
-                            <span class="currency">KES</span> ${formatCurrency(c.value)}
-                            <span style="font-size:10px;color:var(--text-muted);">/km</span>
-                        </div>
-                        <div class="commercial-sub">${c.sub}</div>
-                    </div>
-                `).join('');
+                const totals = result.yearsData.reduce((acc, year) => {
+                    acc.depreciation += year.depreciation;
+                    acc.financing += year.financing;
+                    acc.insurance += year.insurance;
+                    acc.fuel += year.fuel;
+                    acc.maintenance += year.maintenance;
+                    acc.tyres += year.tyres;
+                    acc.licensing += year.licensing;
+                    acc.total += year.total;
+                    return acc;
+                }, { depreciation: 0, financing: 0, insurance: 0, fuel: 0, maintenance: 0, tyres: 0, licensing: 0, total: 0 });
 
-                const monthlyItems = [
-                    { label: 'Fuel', value: result.monthlyFuel || 0 },
-                    { label: 'Service', value: result.monthlyService || 0 },
-                    { label: 'Tyres', value: result.monthlyTyre || 0 },
-                    { label: 'Insurance', value: result.monthlyInsurance || 0 },
-                    { label: 'Depreciation', value: result.monthlyDepreciation || 0 }
-                ];
-                el.monthlyGrid.innerHTML = monthlyItems.map(item => `
-                    <div class="cost-item">
-                        <span class="label">${escapeHTML(item.label)}</span>
-                        <span class="value">KES ${escapeHTML(formatCurrency(item.value))}</span>
-                    </div>
-                `).join('');
+                const totalTr = document.createElement('tr');
+                totalTr.style.borderTop = '2px solid var(--amber)';
+                totalTr.innerHTML = `
+                    <td><strong>Total</strong></td>
+                    <td><strong>${fmt(totals.depreciation)}</strong></td>
+                    <td><strong>${fmt(totals.financing)}</strong></td>
+                    <td><strong>${fmt(totals.insurance)}</strong></td>
+                    <td><strong>${fmt(totals.fuel)}</strong></td>
+                    <td><strong>${fmt(totals.maintenance)}</strong></td>
+                    <td><strong>${fmt(totals.tyres)}</strong></td>
+                    <td><strong>${fmt(totals.licensing)}</strong></td>
+                    <td><strong>${fmt(totals.total)}</strong></td>
+                `;
+                tbody.appendChild(totalTr);
 
-                const annualItems = [
-                    { label: 'Fuel', value: result.annualFuel || 0 },
-                    { label: 'Service', value: result.annualService || 0 },
-                    { label: 'Tyres', value: result.annualTyre || 0 },
-                    { label: 'Insurance', value: result.annualInsurance || 0 },
-                    { label: 'Depreciation', value: result.annualDepreciation || 0 }
-                ];
-                el.annualGrid.innerHTML = annualItems.map(item => `
-                    <div class="cost-item">
-                        <span class="label">${escapeHTML(item.label)}</span>
-                        <span class="value">KES ${escapeHTML(formatCurrency(item.value))}</span>
-                    </div>
-                `).join('');
+                el.rciValue.textContent = result.rciValue.toFixed(1) + '%';
+                el.rciValue.className = `rci-value ${result.rciClass}`;
+                el.rciStars.textContent = result.rciStars;
+                el.rciLabel.textContent = result.rciRating;
 
-                const rci = tripCostPerKm;
-                let rciLabel, rciStars, rciClass;
-                if (rci <= 20) { rciLabel = 'Excellent'; rciStars = '★★★★★'; rciClass = 'excellent'; }
-                else if (rci <= 35) { rciLabel = 'Good'; rciStars = '★★★★'; rciClass = 'good'; }
-                else if (rci <= 50) { rciLabel = 'Average'; rciStars = '★★★'; rciClass = 'average'; }
-                else if (rci <= 70) { rciLabel = 'Expensive'; rciStars = '★★'; rciClass = 'expensive'; }
-                else { rciLabel = 'Very Expensive'; rciStars = '★'; rciClass = 'very-expensive'; }
+                el.healthRing.style.setProperty('--pct', `${result.healthPercentage}%`);
+                el.healthScore.textContent = Math.round(result.healthPercentage);
+                el.healthLabel.textContent = result.healthLabel;
 
-                el.rciValue.textContent = formatCurrency(rci) + ' KES/km';
-                el.rciValue.className = 'rci-value ' + rciClass;
-                el.rciStars.textContent = rciStars;
-                el.rciLabel.textContent = rciLabel;
-
-                const fuelType = result.fuelTypeDisplay?.toLowerCase() || '';
-                const co2PerKm = fuelType === 'electric' ? 0 : fuelType === 'hybrid' ? 80 : fuelType === 'diesel' ? 160 : 140;
-                const co2Trip = co2PerKm * (result.distance || 0);
                 el.envGrid.innerHTML = `
                     <div class="env-item">
-                        <div class="env-value">${formatNumber(co2PerKm)}</div>
-                        <div class="env-label">g CO₂/km</div>
-                    </div>
-                    <div class="env-item">
-                        <div class="env-value">${formatNumber(co2Trip)}</div>
-                        <div class="env-label">g CO₂/trip</div>
-                    </div>
-                    <div class="env-item">
-                        <div class="env-value">${result.fuelTypeDisplay || '—'}</div>
-                        <div class="env-label">Fuel Type</div>
-                    </div>
-                    <div class="env-item">
                         <div class="env-value">${(result.fuelConsumption || 0).toFixed(1)}</div>
-                        <div class="env-label">km/L</div>
+                        <div class="env-label">L/100km</div>
+                    </div>
+                    <div class="env-item">
+                        <div class="env-value">${result.annualMileage || 0}</div>
+                        <div class="env-label">km/year</div>
+                    </div>
+                    <div class="env-item">
+                        <div class="env-value">${Math.round(result.totalCost / 1000)}k</div>
+                        <div class="env-label">Total Cost (KES)</div>
+                    </div>
+                    <div class="env-item">
+                        <div class="env-value">${Math.round(result.averageMonthly / 1000)}k</div>
+                        <div class="env-label">Monthly (KES)</div>
+                    </div>
+                    <div class="env-item">
+                        <div class="env-value">${result.costPerKm.toFixed(2)}</div>
+                        <div class="env-label">KES/km</div>
+                    </div>
+                    <div class="env-item">
+                        <div class="env-value">${Math.round(result.resaleValue / 1000)}k</div>
+                        <div class="env-label">Resale Value</div>
                     </div>
                 `;
 
                 const recList = el.recList;
-                const recs = [];
+                recList.innerHTML = '';
+                const recommendations = [];
 
-                if (tripCostPerKm > 50) {
-                    recs.push({ icon: '⚠️', text: 'High running cost detected. Consider a more fuel-efficient vehicle.', type: 'warning' });
-                } else if (tripCostPerKm < 20) {
-                    recs.push({ icon: '✅', text: 'Excellent running cost efficiency! Your vehicle is economical to operate.', type: 'success' });
+                if (result.fuelConsumption && result.fuelConsumption > 10) {
+                    recommendations.push({
+                        icon: '⛽',
+                        text: `Fuel consumption is ${result.fuelConsumption} L/100km. Consider a more fuel-efficient vehicle.`,
+                        type: 'warning'
+                    });
+                } else if (result.fuelConsumption) {
+                    recommendations.push({
+                        icon: '✅',
+                        text: `Good fuel efficiency at ${result.fuelConsumption} L/100km.`,
+                        type: 'success'
+                    });
                 }
 
-                if (fuelType === 'electric') {
-                    recs.push({ icon: '🌱', text: 'Electric vehicle - zero emissions and lower running costs.', type: 'success' });
+                if (result.totalCost / result.initialValue > 0.5) {
+                    recommendations.push({
+                        icon: '💰',
+                        text: `Total ownership cost is ${Math.round(result.totalCost / result.initialValue * 100)}% of purchase price.`,
+                        type: 'warning'
+                    });
+                } else {
+                    recommendations.push({
+                        icon: '💡',
+                        text: `Total ownership cost is ${Math.round(result.totalCost / result.initialValue * 100)}% of purchase price.`,
+                        type: 'info'
+                    });
                 }
 
-                if (result.depreciation_rate > 0.18) {
-                    recs.push({ icon: '📉', text: `High depreciation rate (${(result.depreciation_rate * 100).toFixed(0)}%). Consider vehicles with better resale value.`, type: 'warning' });
+                if (result.healthPercentage < 60) {
+                    recommendations.push({
+                        icon: '🔧',
+                        text: `Vehicle health score is ${Math.round(result.healthPercentage)}%. Consider regular maintenance.`,
+                        type: 'warning'
+                    });
+                } else {
+                    recommendations.push({
+                        icon: '✅',
+                        text: `Vehicle health score is ${Math.round(result.healthPercentage)}%. Good condition!`,
+                        type: 'success'
+                    });
                 }
 
-                recs.push({ icon: '📊', text: `5-Year running cost: KES ${formatCurrency(total5Year)}. Avg KES ${formatCurrency(avgYearly)}/year.`, type: 'info' });
-
-                recList.innerHTML = recs.map(rec => `
-                    <div class="rec-item ${rec.type}">
+                recommendations.forEach(rec => {
+                    const div = document.createElement('div');
+                    div.className = `rec-item ${rec.type}`;
+                    div.innerHTML = `
                         <span class="icon">${rec.icon}</span>
                         <span class="rec-text">${rec.text}</span>
                         <span class="rec-tag">${rec.type === 'success' ? '✅' : rec.type === 'warning' ? '⚠️' : 'ℹ️'}</span>
-                    </div>
-                `).join('');
+                    `;
+                    recList.appendChild(div);
+                });
+
+                if (recommendations.length === 0) {
+                    recList.innerHTML = `
+                        <div class="rec-item info">
+                            <span class="icon">💡</span>
+                            <span class="rec-text">No specific recommendations. Your vehicle appears to be in good standing.</span>
+                            <span class="rec-tag">✅</span>
+                        </div>
+                    `;
+                }
 
                 el.lastUpdated.textContent = new Date().toLocaleString('en-KE', {
                     year: 'numeric', month: 'short', day: 'numeric',
@@ -2418,94 +2232,69 @@
             }
 
             // ─── MAIN CALCULATION ──────────────────────────────────────
-            async function calculateAndRender(variant = null) {
+            async function calculate() {
                 if (!isUnlocked) {
                     showToast('⚠️ Please sign in to access the calculator', 'warning');
                     return;
                 }
 
-                if (!variant) {
-                    variant = currentVariantData;
-                }
-
-                if (!variant) {
-                    showToast('Please select a vehicle', 'error');
+                const variantId = el.variantSelect.value;
+                if (!variantId) {
+                    showToast('Please select a vehicle variant', 'error');
                     return;
                 }
 
-                const distance = num(el.distanceInput.value);
-                const annualKm = num(el.annualKmInput.value) || 20000;
-                const fuelPrice = num(el.fuelPriceInput.value) || 0;
-
-                if (distance <= 0) {
-                    showToast('Please enter a valid distance greater than 0', 'error');
+                const variant = await loadVariantDetails(variantId);
+                if (!variant) {
+                    showToast('Failed to load vehicle details', 'error');
                     return;
                 }
+
+                currentVariantData = variant;
+                displayVehicleInfo(variant);
 
                 const inputs = {
-                    distance: distance,
-                    annualKm: annualKm,
-                    fuelPrice: fuelPrice,
-                    drivingStyle: el.drivingStyle.value,
-                    tripType: el.tripType.value,
-                    usageType: el.usageType.value,
-                    year: el.yearSelect.value,
-                    financed: isFinanced
+                    initialValue: num(el.initialValue.value) || variant.market_value || 5000000,
+                    currentValue: num(el.currentValue.value) || (variant.market_value || 5000000) * 0.7,
+                    annualMileage: num(el.mileageRange.value) || 20000,
+                    ownershipYears: num(el.yearsRange.value) || 5,
+                    insuranceRate: num(el.insuranceRange.value) / 100 || 0.045,
+                    fuelConsumption: variant.fuel_consumption_combined || 12,
+                    fuelPrice: 200,
+                    isNew: isNewPurchase,
+                    isFinanced: isFinanced,
+                    downPct: num(el.downRange.value) / 100 || 0.3,
+                    interestRate: num(el.rateRange.value) / 100 || 0.16,
+                    loanTerm: num(el.termRange.value) || 4
                 };
 
+                el.calculateBtn.disabled = true;
+                el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
+
                 try {
-                    const result = calculateRunningCost(variant, inputs);
+                    const result = calculateTCO(variant, inputs);
                     if (result) {
                         renderResults(result, variant);
-                        showToast('✅ Analysis complete!', 'success');
+                        showToast('✅ TCO calculated successfully!', 'success');
                     } else {
                         showToast('Calculation failed', 'error');
                     }
                 } catch (error) {
                     console.error('❌ Calculation error:', error);
-                    showToast('Error calculating costs', 'error');
-                }
-            }
-
-            // ─── LOAD VARIANT AND CALCULATE ────────────────────────────
-            async function loadVariantAndCalculate(variantId) {
-                if (!variantId || !isUnlocked) return;
-
-                el.calculateBtn.disabled = true;
-                el.calculateBtn.innerHTML = '<span class="spinner"></span> Loading...';
-
-                try {
-                    const variantData = await loadVariantDetails(variantId);
-
-                    if (!variantData) {
-                        showToast('Failed to load vehicle details', 'error');
-                        el.calculateBtn.disabled = false;
-                        el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
-                        return;
-                    }
-
-                    currentVariantData = variantData;
-                    displayVehicleInfo(variantData);
-                    await calculateAndRender(variantData);
-
-                } catch (error) {
-                    console.error('Error loading variant:', error);
-                    showToast('Error loading vehicle details', 'error');
+                    showToast('Error calculating TCO', 'error');
                 }
 
                 el.calculateBtn.disabled = false;
-                el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
+                el.calculateBtn.innerHTML = '🚀 Calculate Ownership Cost';
             }
 
             // ─── EVENT HANDLERS ─────────────────────────────────────────
             function initEventListeners() {
-                // Unlock button - trigger sign in
                 el.unlockBtn.addEventListener('click', function() {
                     el.btnSignIn.click();
                     el.btnSignIn.scrollIntoView({ behavior: 'smooth' });
                 });
 
-                // Auth
                 el.btnSignIn.addEventListener('click', () => {
                     el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
                 });
@@ -2542,47 +2331,18 @@
                 });
                 el.btnSignOut.addEventListener('click', signOut);
 
-                // Fuel Filter
-                el.fuelFilterGroup.addEventListener('click', function(e) {
-                    if (!isUnlocked) return;
-                    const btn = e.target.closest('.fuel-filter-btn');
-                    if (!btn) return;
-                    document.querySelectorAll('.fuel-filter-btn').forEach(b => {
-                        b.classList.remove('active');
-                        b.setAttribute('aria-pressed', 'false');
-                    });
-                    btn.classList.add('active');
-                    btn.setAttribute('aria-pressed', 'true');
-                    if (selectedCategoryId) {
-                        populateMakes(selectedCategoryId);
-                    }
-                });
-
                 // Category Change
-                let selectedCategoryId = null;
                 el.categorySelect.addEventListener('change', async function() {
-                    selectedCategoryId = this.value;
-                    if (selectedCategoryId && isUnlocked) {
-                        await populateMakes(selectedCategoryId);
+                    const catId = this.value;
+                    if (catId && isUnlocked) {
+                        await populateMakes(catId);
                         el.modelSelect.value = '';
                         el.generationSelect.value = '';
                         el.variantSelect.value = '';
-                        currentVariantData = null;
-                        el.calculateBtn.disabled = true;
-                    } else {
-                        el.makeSelect.innerHTML = '<option value="">Select a category first</option>';
-                        el.makeSelect.disabled = true;
-                        el.modelSelect.innerHTML = '<option value="">Select a make first</option>';
-                        el.modelSelect.disabled = true;
-                        el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
-                        el.generationSelect.disabled = true;
-                        el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                        el.variantSelect.disabled = true;
                         el.calculateBtn.disabled = true;
                     }
                 });
 
-                // Make Change
                 el.makeSelect.addEventListener('change', async function() {
                     if (!isUnlocked) return;
                     const makeId = this.value;
@@ -2590,162 +2350,137 @@
                         await populateModels(makeId);
                         el.generationSelect.value = '';
                         el.variantSelect.value = '';
-                        currentVariantData = null;
-                        el.calculateBtn.disabled = true;
-                    } else {
-                        el.modelSelect.innerHTML = '<option value="">Select a make first</option>';
-                        el.modelSelect.disabled = true;
-                        el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
-                        el.generationSelect.disabled = true;
-                        el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                        el.variantSelect.disabled = true;
                         el.calculateBtn.disabled = true;
                     }
                 });
 
-                // Model Change
                 el.modelSelect.addEventListener('change', async function() {
                     if (!isUnlocked) return;
                     const modelId = this.value;
                     if (modelId) {
                         await populateGenerations(modelId);
                         el.variantSelect.value = '';
-                        currentVariantData = null;
-                        el.calculateBtn.disabled = true;
-                    } else {
-                        el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
-                        el.generationSelect.disabled = true;
-                        el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                        el.variantSelect.disabled = true;
                         el.calculateBtn.disabled = true;
                     }
                 });
 
-                // Generation Change
                 el.generationSelect.addEventListener('change', async function() {
                     if (!isUnlocked) return;
                     const genId = this.value;
                     if (genId) {
                         await populateVariants(genId);
-                        currentVariantData = null;
-                        el.calculateBtn.disabled = true;
-                    } else {
-                        el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                        el.variantSelect.disabled = true;
                         el.calculateBtn.disabled = true;
                     }
                 });
 
-                // Variant Change
-                el.variantSelect.addEventListener('change', function() {
+                el.variantSelect.addEventListener('change', async function() {
                     if (!isUnlocked) return;
                     const variantId = this.value;
                     if (variantId) {
-                        loadVariantAndCalculate(variantId);
-                    } else {
-                        currentVariantData = null;
-                        el.calculateBtn.disabled = true;
+                        el.calculateBtn.disabled = false;
+                        const variant = await loadVariantDetails(variantId);
+                        if (variant) {
+                            currentVariantData = variant;
+                            displayVehicleInfo(variant);
+                            if (variant.market_value) {
+                                el.initialValue.value = variant.market_value;
+                                el.currentValue.value = Math.round(variant.market_value * 0.7);
+                            }
+                        }
                     }
                 });
 
-                // Input changes (auto-calculate)
-                ['change', 'input'].forEach(evt => {
-                    [el.distanceInput, el.annualKmInput,
-                     el.fuelPriceInput, el.drivingStyle,
-                     el.tripType, el.usageType,
-                     el.yearSelect].forEach(elem => {
+                // Sliders
+                el.mileageRange.addEventListener('input', function() {
+                    el.valMileage.textContent = `${parseInt(this.value).toLocaleString()} km`;
+                });
+                el.yearsRange.addEventListener('input', function() {
+                    el.valYears.textContent = `${parseInt(this.value)} years`;
+                });
+                el.insuranceRange.addEventListener('input', function() {
+                    el.valInsuranceRate.textContent = `${parseFloat(this.value)}%`;
+                });
+                el.downRange.addEventListener('input', function() {
+                    el.valDown.textContent = `${parseInt(this.value)}%`;
+                });
+                el.rateRange.addEventListener('input', function() {
+                    el.valRate.textContent = `${parseFloat(this.value)}%`;
+                });
+                el.termRange.addEventListener('input', function() {
+                    el.valTerm.textContent = `${parseInt(this.value)} years`;
+                });
+
+                // Purchase Type
+                el.btnNew.addEventListener('click', function() {
+                    this.classList.add('active');
+                    el.btnUsed.classList.remove('active');
+                    isNewPurchase = true;
+                });
+                el.btnUsed.addEventListener('click', function() {
+                    this.classList.add('active');
+                    el.btnNew.classList.remove('active');
+                    isNewPurchase = false;
+                });
+
+                // Financing
+                el.btnCash.addEventListener('click', function() {
+                    this.classList.add('active');
+                    el.btnFinanced.classList.remove('active');
+                    el.financedFields.classList.remove('show');
+                    isFinanced = false;
+                });
+                el.btnFinanced.addEventListener('click', function() {
+                    this.classList.add('active');
+                    el.btnCash.classList.remove('active');
+                    el.financedFields.classList.add('show');
+                    isFinanced = true;
+                });
+
+                el.calculateBtn.addEventListener('click', calculate);
+
+                // Auto-calculate on input change
+                ['input', 'change'].forEach(evt => {
+                    [el.initialValue, el.currentValue, el.mileageRange, el.yearsRange,
+                     el.insuranceRange, el.downRange, el.rateRange, el.termRange,
+                     el.locationSelect, el.insuranceType].forEach(elem => {
                         elem.addEventListener(evt, function() {
-                            if (el.variantSelect.value && currentVariantData && isUnlocked) {
+                            if (el.variantSelect.value && isUnlocked) {
                                 clearTimeout(debounceTimer);
-                                debounceTimer = setTimeout(() => calculateAndRender(currentVariantData), 400);
+                                debounceTimer = setTimeout(calculate, 500);
                             }
                         });
                     });
                 });
 
-                // Route Chips
-                el.routeChips.addEventListener('click', function(e) {
-                    if (!isUnlocked) return;
-                    const chip = e.target.closest('.chip');
-                    if (!chip) return;
-                    const km = parseInt(chip.dataset.km, 10);
-                    if (!isNaN(km) && km > 0) {
-                        el.distanceInput.value = km;
-                        if (el.variantSelect.value && currentVariantData) {
-                            clearTimeout(debounceTimer);
-                            debounceTimer = setTimeout(() => calculateAndRender(currentVariantData), 400);
-                        }
-                    }
-                });
-
-                // Calculate Button
-                el.calculateBtn.addEventListener('click', () => {
-                    if (!isUnlocked) {
-                        showToast('⚠️ Please sign in to access the calculator', 'warning');
-                        return;
-                    }
-                    if (currentVariantData) {
-                        calculateAndRender(currentVariantData);
-                    } else {
-                        showToast('Please select a vehicle first', 'warning');
-                    }
-                });
-
-                // Purchase Type
-                el.btnCash.addEventListener('click', function() {
-                    if (!isUnlocked) return;
-                    this.classList.add('active');
-                    el.btnFinanced.classList.remove('active');
-                    el.financedFields.classList.remove('show');
-                    isFinanced = false;
-                    if (currentVariantData) setTimeout(() => calculateAndRender(currentVariantData), 400);
-                });
-                el.btnFinanced.addEventListener('click', function() {
-                    if (!isUnlocked) return;
-                    this.classList.add('active');
-                    el.btnCash.classList.remove('active');
-                    el.financedFields.classList.add('show');
-                    isFinanced = true;
-                    if (currentVariantData) setTimeout(() => calculateAndRender(currentVariantData), 400);
-                });
-
-                // Sliders
-                function bindSlider(id, valId, formatter) {
-                    const elem = document.getElementById(id);
-                    const out = document.getElementById(valId);
-                    const update = () => out.textContent = formatter(elem.value);
-                    elem.addEventListener("input", update);
-                    update();
-                }
-                bindSlider("downPct", "valDown", v => v + "%");
-                bindSlider("rate", "valRate", v => v + "%");
-                bindSlider("term", "valTerm", v => v + (v == 1 ? " year" : " years"));
-
-                // Print & Share
                 document.getElementById('printBtn').addEventListener('click', () => window.print());
                 document.getElementById('shareBtn').addEventListener('click', function() {
                     const url = window.location.href;
-                    const text = `Auto-D Kenya Mileage & 5-Year Cost Report\nVehicle: ${el.vehicleLabel.textContent}\nTrip Total: KES ${el.tripTotal.textContent}`;
+                    const text = `Auto-D Kenya TCO Report\nVehicle: ${el.vehicleLabel.textContent}\nTotal: ${el.outTotal.textContent}\nMonthly: ${el.outMonthly.textContent}\nPer Km: ${el.outPerKm.textContent}`;
                     if (navigator.share) {
-                        navigator.share({ title: 'Auto-D Kenya Mileage Report', text, url }).catch(() => {});
+                        navigator.share({ title: 'Auto-D Kenya TCO Report', text, url }).catch(() => {});
                     } else {
                         navigator.clipboard.writeText(`${text}\n${url}`).then(() => {
-                            showToast('Report copied to clipboard!', 'success');
+                            showToast('📋 Report copied to clipboard!', 'success');
                         }).catch(() => showToast('Share not available', 'error'));
                     }
                 });
 
-                // Check auth state periodically
                 setInterval(async () => {
                     const wasAuthenticated = isAuthenticated;
                     await checkAuth();
                     if (wasAuthenticated !== isAuthenticated) {
                         updateLockState();
                     }
-                }, 30000); // Check every 30 seconds
+                }, 30000);
             }
 
             // ─── INIT ──────────────────────────────────────────────────
+            // ─── FIX #2 ────────────────────────────────────────────────
+            // init() previously called updateLockState() a second time
+            // right after checkAuth() (which already calls it internally),
+            // causing the "Calculator unlocked! Welcome back." toast to
+            // fire twice for anyone already signed in on page load. The
+            // redundant call has been removed.
             async function init() {
                 el.loadingOverlay.classList.add('active');
 
@@ -2759,14 +2494,8 @@
                     }
 
                     await checkAuth();
-                    
-                    // Always load data, but lock UI if not authenticated
-                    await loadFuelPrice();
-                    await loadRoutes();
-                    renderRouteChips();
                     await populateCategories();
 
-                    // Auto-select first category if available
                     if (el.categorySelect.options.length > 1) {
                         el.categorySelect.selectedIndex = 1;
                         el.categorySelect.dispatchEvent(new Event('change'));
@@ -2776,11 +2505,7 @@
                         year: 'numeric', month: 'short', day: 'numeric'
                     });
 
-                    // Apply lock state after data is loaded
-                    updateLockState();
-
-                    console.log('✅ Auto-D Kenya Engine initialized (API-driven, no hardcoding)');
-                    console.log('📡 Using view: vehicle_full_specs');
+                    console.log('✅ Auto-D Kenya TCO Calculator initialized');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
 
                 } catch (error) {
@@ -2792,7 +2517,6 @@
                 }
             }
 
-            // ─── START ──────────────────────────────────────────────────
             document.addEventListener('DOMContentLoaded', function() {
                 initEventListeners();
                 init();
