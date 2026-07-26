@@ -1286,7 +1286,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> TCO · 7 Components · Fleet-grade<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.2
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.3
             </div>
         </footer>
     </div>
@@ -1294,7 +1294,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - COST OF OWNERSHIP CALCULATOR
-        // Version 4.2 - Fixed duplicate variants with de-duplication
+        // Version 4.3 - Fixed duplicate model names with getVehicleName()
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1433,6 +1433,45 @@
                 if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
             }
 
+            // ─── VEHICLE NAME HELPER - Prevents duplicate model names ──
+            /**
+             * Get a clean vehicle display name without duplicate model names
+             * 
+             * Examples:
+             *   getVehicleName("Toyota", "RAV4", "RAV4 XA40 Base") → "Toyota RAV4 XA40 Base"
+             *   getVehicleName("Honda", "Civic", "Civic FB Base") → "Honda Civic FB Base"
+             *   getVehicleName("Mazda", "Demio", "Sport") → "Mazda Demio Sport"
+             * 
+             * @param {string} make - Vehicle make (e.g., "Toyota")
+             * @param {string} model - Vehicle model (e.g., "RAV4")
+             * @param {string} variant - Vehicle variant/trim (e.g., "RAV4 XA40 Base")
+             * @returns {string} Clean vehicle name
+             */
+            function getVehicleName(make, model, variant) {
+                // Clean up inputs
+                const cleanMake = (make || '').trim();
+                const cleanModel = (model || '').trim();
+                const cleanVariant = (variant || '').trim();
+                
+                // If no variant, just return make + model
+                if (!cleanVariant) {
+                    return `${cleanMake} ${cleanModel}`.trim();
+                }
+                
+                // Check if variant starts with the model name (case insensitive)
+                // This handles: "RAV4 XA40 Base" → starts with "RAV4"
+                const variantWords = cleanVariant.split(/\s+/);
+                const firstWord = variantWords[0] || '';
+                
+                if (firstWord.toLowerCase() === cleanModel.toLowerCase()) {
+                    // Variant already includes model name → don't duplicate it
+                    return `${cleanMake} ${cleanVariant}`.trim();
+                }
+                
+                // Variant doesn't include model name → include it
+                return `${cleanMake} ${cleanModel} ${cleanVariant}`.trim();
+            }
+
             // ─── PRICE ESTIMATOR ─────────────────────────────────────
             function estimateVehiclePrice(variant) {
                 const baseEstimates = {
@@ -1466,37 +1505,6 @@
                 else if (fuelType.toLowerCase() === 'diesel') price *= 1.1;
                 
                 return Math.round(price);
-            }
-
-            // ─── DEDUPLICATE VARIANTS ──────────────────────────────
-            function deduplicateVariants(variants) {
-                const seen = new Map();
-                const unique = [];
-                let duplicateCount = 0;
-
-                variants.forEach(v => {
-                    let name = v.variant_name || 'Variant';
-                    
-                    // ─── Clean duplicate model names ──────────────
-                    // Example: "RAV4 RAV4 XA40 Base" → "RAV4 XA40 Base"
-                    const parts = name.split(' ');
-                    if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
-                        parts.splice(0, 1);
-                        name = parts.join(' ');
-                        duplicateCount++;
-                    }
-                    
-                    // ─── Create a key for deduplication ──────────
-                    const key = name.trim().toLowerCase();
-                    
-                    if (!seen.has(key)) {
-                        seen.set(key, true);
-                        unique.push({ ...v, clean_name: name });
-                    }
-                });
-
-                console.log(`✅ Deduplicated: ${variants.length} → ${unique.length} variants (${variants.length - unique.length} duplicates removed)`);
-                return unique;
             }
 
             // ─── SUPABASE ──────────────────────────────────────────────
@@ -1761,10 +1769,7 @@
                         { column: 'generation_id', value: generationId },
                         { column: 'variant_name', ascending: true }
                     );
-                    
-                    // ─── DEDUPLICATE BEFORE RETURNING ────────────
-                    return deduplicateVariants(data);
-                    
+                    return data;
                 } catch (error) {
                     console.error('Error loading variants:', error);
                     setStatus('error', 'Failed to load variants');
@@ -1909,37 +1914,58 @@
 
                 if (!generationId || !isUnlocked) return;
 
-                // ─── VARIANT DATA IS ALREADY DEDUPLICATED IN loadVariants() ───
                 const variants = await loadVariants(generationId);
-                
                 if (!variants || variants.length === 0) {
                     select.innerHTML = '<option value="">No variants available</option>';
                     return;
                 }
 
+                // Track seen variants to prevent duplicates
+                const seen = new Map();
+
                 variants.forEach(v => {
+                    let label = v.variant_name || 'Variant';
+                    
+                    // Clean: Remove duplicate model names
+                    // "RAV4 RAV4 XA40 Base" → "RAV4 XA40 Base"
+                    const parts = label.split(' ');
+                    if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
+                        parts.splice(0, 1);
+                        label = parts.join(' ');
+                    }
+                    
+                    // Check for duplicates by cleaned name
+                    const key = label.trim().toLowerCase();
+                    if (seen.has(key)) return;
+                    seen.set(key, true);
+                    
                     const opt = document.createElement('option');
                     opt.value = v.variant_id;
                     
-                    // Use the cleaned name or original
-                    let label = v.clean_name || v.variant_name || 'Variant';
+                    // Build display label with specs
+                    let displayLabel = label;
+                    if (v.engine_size_cc) displayLabel += ` ${v.engine_size_cc}cc`;
+                    if (v.power_hp) displayLabel += ` ${v.power_hp}hp`;
+                    if (v.fuel_type_name) displayLabel += ` (${v.fuel_type_name})`;
+                    if (v.transmission_type_name) displayLabel += ` ${v.transmission_type_name}`;
                     
-                    if (v.engine_size_cc) label += ` ${v.engine_size_cc}cc`;
-                    if (v.power_hp) label += ` ${v.power_hp}hp`;
-                    if (v.fuel_type_name) label += ` (${v.fuel_type_name})`;
-                    if (v.transmission_type_name) label += ` ${v.transmission_type_name}`;
-                    
-                    opt.textContent = label;
+                    opt.textContent = displayLabel;
                     select.appendChild(opt);
                 });
 
                 select.disabled = false;
-                setStatus('success', `✅ Loaded ${variants.length} unique variants (duplicates removed)`);
+                setStatus('success', `✅ Loaded ${seen.size} unique variants`);
             }
 
             // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
             function displayVehicleInfo(variant, tcoData) {
-                const label = `${variant.make_name || ''} ${variant.model_name || ''} ${variant.variant_name || ''}`.trim();
+                // ─── USE getVehicleName() TO PREVENT DUPLICATES ───
+                const label = getVehicleName(
+                    variant.make_name || '',
+                    variant.model_name || '',
+                    variant.variant_name || ''
+                );
+                
                 el.vehicleLabel.textContent = label || 'Unnamed variant';
                 el.fuelPill.textContent = variant.fuel_type_name || '—';
                 el.transmissionPill.textContent = variant.transmission_type_name || '—';
@@ -2599,9 +2625,9 @@
                         year: 'numeric', month: 'short', day: 'numeric'
                     });
 
-                    console.log('✅ Auto-D Kenya TCO Calculator initialized (v4.2)');
+                    console.log('✅ Auto-D Kenya TCO Calculator initialized (v4.3)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
-                    console.log('🔄 Duplicate variant removal enabled');
+                    console.log('🔧 getVehicleName() enabled - prevents duplicate model names');
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
