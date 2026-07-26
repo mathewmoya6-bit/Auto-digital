@@ -1286,7 +1286,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> TCO · 7 Components · Fleet-grade<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.1
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.2
             </div>
         </footer>
     </div>
@@ -1294,7 +1294,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - COST OF OWNERSHIP CALCULATOR
-        // Version 4.1 - Fixed view name, TCO data integration, price estimation
+        // Version 4.2 - Fixed duplicate variants with de-duplication
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1304,8 +1304,8 @@
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                VIEW_NAME: 'vehicle_master_specs',  // Fixed: Use correct view name
-                TCO_VIEW: 'vehicle_ownership_cost_complete',  // Added TCO view
+                VIEW_NAME: 'vehicle_master_specs',
+                TCO_VIEW: 'vehicle_ownership_cost_complete',
                 INSURANCE_TYPES: {
                     comprehensive: { rateMultiplier: 1.0 },
                     third_party: { flatFee: 7000 },
@@ -1446,7 +1446,6 @@
                 const bodyType = variant.body_type_name || variant.model_body_type || 'Sedan';
                 let price = baseEstimates[bodyType] || baseEstimates['Sedan'];
                 
-                // Adjust for engine size
                 const engineCC = variant.engine_size_cc || 2000;
                 if (engineCC > 4000) price *= 1.5;
                 else if (engineCC > 3000) price *= 1.3;
@@ -1455,20 +1454,49 @@
                 else if (engineCC > 1200) price *= 0.85;
                 else price *= 0.7;
                 
-                // Adjust for luxury makes
                 const luxuryMakes = ['Mercedes', 'BMW', 'Audi', 'Lexus', 'Porsche', 'Range Rover', 'Jaguar', 'Volvo', 'Land Rover'];
                 const makeName = variant.make_name || '';
                 if (luxuryMakes.some(m => makeName.includes(m))) {
                     price *= 1.4;
                 }
                 
-                // Adjust for fuel type
                 const fuelType = variant.fuel_type_name || '';
                 if (fuelType.toLowerCase() === 'electric') price *= 1.3;
                 else if (fuelType.toLowerCase() === 'hybrid') price *= 1.2;
                 else if (fuelType.toLowerCase() === 'diesel') price *= 1.1;
                 
                 return Math.round(price);
+            }
+
+            // ─── DEDUPLICATE VARIANTS ──────────────────────────────
+            function deduplicateVariants(variants) {
+                const seen = new Map();
+                const unique = [];
+                let duplicateCount = 0;
+
+                variants.forEach(v => {
+                    let name = v.variant_name || 'Variant';
+                    
+                    // ─── Clean duplicate model names ──────────────
+                    // Example: "RAV4 RAV4 XA40 Base" → "RAV4 XA40 Base"
+                    const parts = name.split(' ');
+                    if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
+                        parts.splice(0, 1);
+                        name = parts.join(' ');
+                        duplicateCount++;
+                    }
+                    
+                    // ─── Create a key for deduplication ──────────
+                    const key = name.trim().toLowerCase();
+                    
+                    if (!seen.has(key)) {
+                        seen.set(key, true);
+                        unique.push({ ...v, clean_name: name });
+                    }
+                });
+
+                console.log(`✅ Deduplicated: ${variants.length} → ${unique.length} variants (${variants.length - unique.length} duplicates removed)`);
+                return unique;
             }
 
             // ─── SUPABASE ──────────────────────────────────────────────
@@ -1733,7 +1761,10 @@
                         { column: 'generation_id', value: generationId },
                         { column: 'variant_name', ascending: true }
                     );
-                    return data;
+                    
+                    // ─── DEDUPLICATE BEFORE RETURNING ────────────
+                    return deduplicateVariants(data);
+                    
                 } catch (error) {
                     console.error('Error loading variants:', error);
                     setStatus('error', 'Failed to load variants');
@@ -1878,7 +1909,9 @@
 
                 if (!generationId || !isUnlocked) return;
 
+                // ─── VARIANT DATA IS ALREADY DEDUPLICATED IN loadVariants() ───
                 const variants = await loadVariants(generationId);
+                
                 if (!variants || variants.length === 0) {
                     select.innerHTML = '<option value="">No variants available</option>';
                     return;
@@ -1887,17 +1920,21 @@
                 variants.forEach(v => {
                     const opt = document.createElement('option');
                     opt.value = v.variant_id;
-                    let label = v.variant_name || 'Variant';
+                    
+                    // Use the cleaned name or original
+                    let label = v.clean_name || v.variant_name || 'Variant';
+                    
                     if (v.engine_size_cc) label += ` ${v.engine_size_cc}cc`;
                     if (v.power_hp) label += ` ${v.power_hp}hp`;
                     if (v.fuel_type_name) label += ` (${v.fuel_type_name})`;
                     if (v.transmission_type_name) label += ` ${v.transmission_type_name}`;
+                    
                     opt.textContent = label;
                     select.appendChild(opt);
                 });
 
                 select.disabled = false;
-                setStatus('success', `✅ Loaded ${variants.length} variants`);
+                setStatus('success', `✅ Loaded ${variants.length} unique variants (duplicates removed)`);
             }
 
             // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
@@ -1927,7 +1964,6 @@
                     { label: '🏷️', value: variant.category_name || '—' }
                 ];
 
-                // Show price info with TCO data or estimate
                 const price = tcoData?.purchase_price || estimateVehiclePrice(variant);
                 const costPerKm = tcoData?.cost_per_km || 0;
                 
@@ -1964,23 +2000,18 @@
                     loanTerm = 4
                 } = inputs;
 
-                // Use TCO data for depreciation rate if available
                 let depRate = isNew ? 0.25 : 0.15;
                 if (tcoData?.depreciation_rate_year_1) {
                     depRate = tcoData.depreciation_rate_year_1;
                 }
 
                 // ─── FUEL COST ─────────────────────────────────────────
-                // Detect fuel consumption unit
                 let fuelConsumptionLPer100km;
                 if (fuelConsumption < 5 && fuelConsumption > 0) {
-                    // Likely L/100km (e.g., 3.5, 4.2)
                     fuelConsumptionLPer100km = fuelConsumption;
                 } else if (fuelConsumption > 10 && fuelConsumption < 50) {
-                    // Likely km/L (e.g., 12.5, 18.3) - convert to L/100km
                     fuelConsumptionLPer100km = 100 / fuelConsumption;
                 } else {
-                    // Default to 12.5 km/L = 8 L/100km
                     fuelConsumptionLPer100km = 8;
                 }
 
@@ -1991,10 +2022,8 @@
                 const annualTyreCost = (annualMileage / 50000) * 48000;
                 const licensingCost = initialValue * 0.01;
 
-                // ─── INSURANCE ─────────────────────────────────────────
                 const insuranceCfg = CONFIG.INSURANCE_TYPES[insuranceType] || CONFIG.INSURANCE_TYPES.comprehensive;
 
-                // ─── FINANCING ─────────────────────────────────────────
                 let financingCost = 0;
                 if (isFinanced) {
                     const loanAmount = initialValue * (1 - downPct);
@@ -2289,7 +2318,6 @@
                     return;
                 }
 
-                // Load variant and TCO data
                 const variant = await loadVariantDetails(variantId);
                 if (!variant) {
                     showToast('Failed to load vehicle details', 'error');
@@ -2301,7 +2329,6 @@
                 currentTCOData = tcoData;
                 displayVehicleInfo(variant, tcoData);
 
-                // Get initial value from TCO data or estimate
                 let initialValue = num(el.initialValue.value);
                 if (!initialValue || initialValue <= 0) {
                     if (tcoData?.purchase_price) {
@@ -2312,7 +2339,6 @@
                     el.initialValue.value = initialValue;
                 }
 
-                // Get current value
                 let currentValue = num(el.currentValue.value);
                 if (!currentValue || currentValue <= 0) {
                     currentValue = initialValue * 0.7;
@@ -2573,9 +2599,9 @@
                         year: 'numeric', month: 'short', day: 'numeric'
                     });
 
-                    console.log('✅ Auto-D Kenya TCO Calculator initialized (v4.1)');
+                    console.log('✅ Auto-D Kenya TCO Calculator initialized (v4.2)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
-                    console.log('📊 Using TCO view:', CONFIG.TCO_VIEW);
+                    console.log('🔄 Duplicate variant removal enabled');
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
