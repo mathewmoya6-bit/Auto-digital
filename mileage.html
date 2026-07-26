@@ -132,7 +132,10 @@
             grid-template-columns: 420px 1fr;
             gap: 28px;
         }
-        @media (max-width: 1024px) { .main-grid { grid-template-columns: 1fr; } }
+        @media (max-width: 1024px) {
+            .main-grid { grid-template-columns: 1fr; }
+            .calculator-panel { position: static !important; max-height: none !important; }
+        }
 
         .calculator-panel {
             background: #111827;
@@ -240,7 +243,7 @@
         }
 
         .form-group { margin-bottom: 12px; }
-        label {
+        .form-group label {
             display: block;
             font-size: 9px;
             color: #cbd5e1;
@@ -249,6 +252,19 @@
             letter-spacing: 0.04em;
             text-transform: uppercase;
         }
+        .form-group .error-text {
+            font-size: 10px;
+            color: var(--red);
+            margin-top: 3px;
+            display: none;
+        }
+        .form-group .error-text.show { display: block; }
+        .form-group input.error,
+        .form-group select.error {
+            border: 2px solid var(--red);
+            outline: none;
+        }
+
         select, input[type="number"], input[type="text"], input[type="password"] {
             width: 100%;
             background: #f0ece4;
@@ -730,6 +746,8 @@
         .action-btn.print:hover:not(:disabled) { background: rgba(59, 130, 246, 0.08); }
         .action-btn.share { border-color: #22c55e; color: #22c55e; }
         .action-btn.share:hover:not(:disabled) { background: rgba(34, 197, 94, 0.08); }
+        .action-btn.export { border-color: var(--amber); color: var(--amber); }
+        .action-btn.export:hover:not(:disabled) { background: rgba(234, 179, 8, 0.08); }
 
         .report-footer {
             border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -922,6 +940,38 @@
             color: #3b82f6;
         }
 
+        /* ─── PROGRESS BAR ─────────────────────────────────────────── */
+        .progress-container {
+            display: none;
+            margin: 12px 0;
+            padding: 8px 12px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .progress-container.show { display: block; }
+        .progress-bar-track {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-bar-track .progress-fill {
+            height: 100%;
+            background: var(--amber);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+            width: 0%;
+        }
+        .progress-text {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
             .report-header { padding: 20px 18px; flex-direction: column; }
@@ -1005,7 +1055,7 @@
                 </p>
             </div>
             <div class="header-right">
-                <div class="version">Version <span>2026.07</span> <span class="auto-d-badge">Auto-D</span></div>
+                <div class="version">Version <span>2026.08</span> <span class="auto-d-badge">Auto-D</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus">🔓 Not Authenticated</span>
@@ -1052,32 +1102,48 @@
                     <span id="statusMessageText">Loading vehicle data...</span>
                 </div>
 
+                <!-- ─── PROGRESS ────────────────────────────────────────── -->
+                <div class="progress-container" id="progressContainer">
+                    <div class="progress-bar-track">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progressLabel">Loading...</span>
+                        <span id="progressPercent">0%</span>
+                    </div>
+                </div>
+
                 <!-- ─── VEHICLE SELECTION ────────────────────────────── -->
                 <div class="panel-label"><span class="num">01</span> Vehicle Details</div>
 
                 <div class="form-group">
                     <label for="categorySelect">Vehicle Category</label>
                     <select id="categorySelect"><option value="">Loading categories...</option></select>
+                    <div class="error-text" id="categoryError">Please select a category</div>
                 </div>
 
                 <div class="form-group">
                     <label for="makeSelect">Vehicle Make</label>
                     <select id="makeSelect" disabled><option value="">Select a category first</option></select>
+                    <div class="error-text" id="makeError">Please select a make</div>
                 </div>
 
                 <div class="form-group">
                     <label for="modelSelect">Vehicle Model</label>
                     <select id="modelSelect" disabled><option value="">Select a make first</option></select>
+                    <div class="error-text" id="modelError">Please select a model</div>
                 </div>
 
                 <div class="form-group">
                     <label for="generationSelect">Vehicle Generation</label>
                     <select id="generationSelect" disabled><option value="">Select a model first</option></select>
+                    <div class="error-text" id="generationError">Please select a generation</div>
                 </div>
 
                 <div class="form-group">
                     <label for="variantSelect">Vehicle Variant</label>
                     <select id="variantSelect" disabled><option value="">Select a generation first</option></select>
+                    <div class="error-text" id="variantError">Please select a variant</div>
                 </div>
 
                 <div class="form-group">
@@ -1096,17 +1162,20 @@
 
                 <div class="form-group">
                     <label for="distanceInput">Trip Distance (km)</label>
-                    <input type="number" id="distanceInput" min="0" max="100000" step="1" value="150" />
+                    <input type="number" id="distanceInput" min="1" max="100000" step="1" value="150" />
+                    <div class="error-text" id="distanceError">Enter a distance between 1 and 100,000 km</div>
                 </div>
 
                 <div class="form-group">
                     <label for="annualKmInput">Annual Mileage (km/year)</label>
                     <input type="number" id="annualKmInput" min="0" max="200000" step="1000" value="20000" />
+                    <div class="error-text" id="annualKmError">Enter annual mileage between 0 and 200,000 km</div>
                 </div>
 
                 <div class="form-group">
                     <label for="fuelPriceInput">Current Fuel Price (KES/L)</label>
                     <input type="number" id="fuelPriceInput" min="0" max="500" step="0.5" />
+                    <div class="error-text" id="fuelPriceError">Enter a fuel price between 0 and 500 KES</div>
                 </div>
 
                 <div class="form-group">
@@ -1271,6 +1340,7 @@
                     <div class="action-bar">
                         <button class="action-btn print" id="printBtn">🖨️ Print Report</button>
                         <button class="action-btn share" id="shareBtn">📤 Share</button>
+                        <button class="action-btn export" id="exportBtn">📥 Export Data</button>
                     </div>
                 </div>
 
@@ -1288,7 +1358,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v6.0
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v6.1
             </div>
         </footer>
     </div>
@@ -1296,6 +1366,7 @@
     <script>
         // ================================================================
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
+        // Version 6.1 - Improved with retry logic, caching, validation
         // ================================================================
 
         (function() {
@@ -1306,7 +1377,11 @@
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
-                TCO_VIEW: 'vehicle_ownership_cost_complete'
+                TCO_VIEW: 'vehicle_ownership_cost_complete',
+                CACHE_KEY: 'auto_d_vehicle_cache',
+                CACHE_DURATION: 3600000, // 1 hour
+                MAX_RETRIES: 3,
+                RETRY_DELAY: 1000
             };
 
             // ─── STATE ──────────────────────────────────────────────
@@ -1319,6 +1394,8 @@
             let routes = [];
             let debounceTimer = null;
             let isUnlocked = false;
+            let authCheckInterval = null;
+            let vehicleCache = null;
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1382,7 +1459,23 @@
                 valRate: document.getElementById('valRate'),
                 valTerm: document.getElementById('valTerm'),
                 lockOverlay: document.getElementById('lockOverlay'),
-                unlockBtn: document.getElementById('unlockBtn')
+                unlockBtn: document.getElementById('unlockBtn'),
+                progressContainer: document.getElementById('progressContainer'),
+                progressFill: document.getElementById('progressFill'),
+                progressLabel: document.getElementById('progressLabel'),
+                progressPercent: document.getElementById('progressPercent'),
+                exportBtn: document.getElementById('exportBtn'),
+                printBtn: document.getElementById('printBtn'),
+                shareBtn: document.getElementById('shareBtn')
+            };
+
+            // ─── ERROR MESSAGES ──────────────────────────────────────
+            const ERROR_MESSAGES = {
+                'PGRST205': 'Vehicle data not found in database. Please try again.',
+                'PGRST301': 'Permission denied. Please sign in again.',
+                'NETWORK_ERROR': 'Network error. Please check your connection.',
+                'TIMEOUT': 'Request timed out. Please try again.',
+                'DEFAULT': 'Something went wrong. Please try again.'
             };
 
             // ─── HELPERS ──────────────────────────────────────────────
@@ -1406,6 +1499,11 @@
                 const div = document.createElement('div');
                 div.textContent = str;
                 return div.innerHTML;
+            }
+
+            function getUserFriendlyError(error) {
+                const code = error?.code || error?.status || 'DEFAULT';
+                return ERROR_MESSAGES[code] || ERROR_MESSAGES.DEFAULT;
             }
 
             function showToast(message, type = 'info') {
@@ -1433,6 +1531,66 @@
                     if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
                 } else {
                     console.log(`[${type.toUpperCase()}] ${message}`);
+                }
+            }
+
+            // ─── PROGRESS ────────────────────────────────────────────
+            function showProgress(percent, label) {
+                if (el.progressContainer) {
+                    el.progressContainer.classList.add('show');
+                    if (el.progressFill) el.progressFill.style.width = `${Math.min(percent, 100)}%`;
+                    if (el.progressLabel) el.progressLabel.textContent = label || 'Loading...';
+                    if (el.progressPercent) el.progressPercent.textContent = `${Math.min(percent, 100)}%`;
+                }
+            }
+
+            function hideProgress() {
+                if (el.progressContainer) {
+                    el.progressContainer.classList.remove('show');
+                }
+            }
+
+            // ─── RETRY LOGIC ─────────────────────────────────────────
+            async function queryWithRetry(queryFn, maxRetries = CONFIG.MAX_RETRIES) {
+                let lastError;
+                for (let i = 0; i < maxRetries; i++) {
+                    try {
+                        return await queryFn();
+                    } catch (error) {
+                        lastError = error;
+                        console.warn(`Attempt ${i + 1} failed, retrying...`, error.message);
+                        if (i < maxRetries - 1) {
+                            await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY * (i + 1)));
+                        }
+                    }
+                }
+                throw lastError;
+            }
+
+            // ─── CACHE ────────────────────────────────────────────────
+            function getCachedData(key) {
+                try {
+                    const cached = localStorage.getItem(key);
+                    if (!cached) return null;
+                    const { data, timestamp } = JSON.parse(cached);
+                    if (Date.now() - timestamp < CONFIG.CACHE_DURATION) {
+                        return data;
+                    }
+                    localStorage.removeItem(key);
+                    return null;
+                } catch (e) {
+                    return null;
+                }
+            }
+
+            function setCachedData(key, data) {
+                try {
+                    localStorage.setItem(key, JSON.stringify({
+                        data: data,
+                        timestamp: Date.now()
+                    }));
+                } catch (e) {
+                    console.warn('Cache write failed:', e);
                 }
             }
 
@@ -1574,12 +1732,15 @@
                     showToast('⚠️ Please sign in to access vehicle data', 'warning');
                     return [];
                 }
-                let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
-                if (filter) query = query.eq(filter.column, filter.value);
-                if (order) query = query.order(order.column, { ascending: order.ascending !== false });
-                const { data, error } = await query;
-                if (error) throw error;
-                return data;
+                
+                return queryWithRetry(async () => {
+                    let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
+                    if (filter) query = query.eq(filter.column, filter.value);
+                    if (order) query = query.order(order.column, { ascending: order.ascending !== false });
+                    const { data, error } = await query;
+                    if (error) throw error;
+                    return data;
+                });
             }
 
             // ─── LOAD DATA ─────────────────────────────────────────────
@@ -1596,7 +1757,7 @@
                     return Object.values(unique);
                 } catch (error) {
                     console.error('Error loading categories:', error);
-                    setStatus('error', 'Failed to load categories');
+                    setStatus('error', getUserFriendlyError(error));
                     return [];
                 }
             }
@@ -1618,7 +1779,7 @@
                     return Object.values(unique);
                 } catch (error) {
                     console.error('Error loading makes:', error);
-                    setStatus('error', 'Failed to load makes');
+                    setStatus('error', getUserFriendlyError(error));
                     return [];
                 }
             }
@@ -1640,7 +1801,7 @@
                     return Object.values(unique);
                 } catch (error) {
                     console.error('Error loading models:', error);
-                    setStatus('error', 'Failed to load models');
+                    setStatus('error', getUserFriendlyError(error));
                     return [];
                 }
             }
@@ -1667,7 +1828,7 @@
                     return Object.values(unique);
                 } catch (error) {
                     console.error('Error loading generations:', error);
-                    setStatus('error', 'Failed to load generations');
+                    setStatus('error', getUserFriendlyError(error));
                     return [];
                 }
             }
@@ -1685,7 +1846,7 @@
                     return data;
                 } catch (error) {
                     console.error('Error loading variants:', error);
-                    setStatus('error', 'Failed to load variants');
+                    setStatus('error', getUserFriendlyError(error));
                     return [];
                 }
             }
@@ -1698,20 +1859,22 @@
                     return null;
                 } catch (error) {
                     console.error('Error loading variant details:', error);
-                    setStatus('error', 'Failed to load vehicle details');
+                    setStatus('error', getUserFriendlyError(error));
                     return null;
                 }
             }
 
             async function loadTCOData(variantId) {
                 try {
-                    const { data, error } = await supabaseClient
-                        .from(CONFIG.TCO_VIEW)
-                        .select('*')
-                        .eq('variant_id', variantId);
-                    if (error) throw error;
-                    if (data && data.length > 0) return data[0];
-                    return null;
+                    return await queryWithRetry(async () => {
+                        const { data, error } = await supabaseClient
+                            .from(CONFIG.TCO_VIEW)
+                            .select('*')
+                            .eq('variant_id', variantId);
+                        if (error) throw error;
+                        if (data && data.length > 0) return data[0];
+                        return null;
+                    });
                 } catch (error) {
                     console.warn('⚠️ TCO data load failed:', error.message);
                     return null;
@@ -1955,7 +2118,46 @@
                 });
             }
 
-            // ─── IMPROVED CALCULATION ENGINE ────────────────────────────
+            // ─── VALIDATION ────────────────────────────────────────────
+            function validateInputs() {
+                let isValid = true;
+                const distance = num(el.distanceInput.value);
+                const annualKm = num(el.annualKmInput.value);
+                const fuelPrice = num(el.fuelPriceInput.value);
+
+                // Clear previous errors
+                document.querySelectorAll('.error-text').forEach(el => el.classList.remove('show'));
+                document.querySelectorAll('.form-group input, .form-group select').forEach(el => el.classList.remove('error'));
+
+                // Validate distance
+                if (distance <= 0 || distance > 100000) {
+                    document.getElementById('distanceError').classList.add('show');
+                    document.getElementById('distanceInput').classList.add('error');
+                    isValid = false;
+                }
+
+                // Validate annual mileage
+                if (annualKm < 0 || annualKm > 200000) {
+                    document.getElementById('annualKmError').classList.add('show');
+                    document.getElementById('annualKmInput').classList.add('error');
+                    isValid = false;
+                }
+
+                // Validate fuel price
+                if (fuelPrice < 0 || fuelPrice > 500) {
+                    document.getElementById('fuelPriceError').classList.add('show');
+                    document.getElementById('fuelPriceInput').classList.add('error');
+                    isValid = false;
+                }
+
+                if (!isValid) {
+                    showToast('Please fix the validation errors above', 'error');
+                }
+
+                return isValid;
+            }
+
+            // ─── CALCULATION ENGINE ────────────────────────────────────
             function calculateRunningCost(variant, inputs, tcoData) {
                 if (!variant) return null;
 
@@ -2016,28 +2218,20 @@
                     basePrice = baseEstimate;
                 }
 
-                // ─── DEPRECIATION RATE ──────────────────────────────
+                // ─── MILEAGE-ADJUSTED DEPRECIATION ──────────────────
+                // High mileage = faster depreciation
+                const mileageFactor = Math.min(annual / 15000, 2.0);
                 let baseDepRate = tcoData?.depreciation_rate_year_1 || 0.20;
-                
-                // Adjust based on vehicle age
-                const ageAdjustment = Math.min(vehicleAge * 0.01, 0.08);
-                let adjustedDepRate = Math.max(0.10, baseDepRate - ageAdjustment);
-                
-                // Luxury cars depreciate faster
-                const luxuryMakes = ['Mercedes', 'BMW', 'Audi', 'Lexus', 'Porsche', 'Range Rover', 'Jaguar', 'Volvo'];
-                const makeName = variant.make_name || '';
-                if (luxuryMakes.some(m => makeName.includes(m)) && vehicleAge < 3) {
-                    adjustedDepRate = Math.min(0.30, adjustedDepRate * 1.3);
-                }
+                const ageFactor = Math.max(0.5, 1 - (vehicleAge * 0.05));
+                let adjustedDepRate = baseDepRate * mileageFactor * ageFactor;
+                adjustedDepRate = Math.max(0.08, Math.min(adjustedDepRate, 0.35));
 
                 // ─── AGE-ADJUSTED CURRENT VALUE ────────────────────
                 let currentValue = basePrice;
-                let depSchedule = [];
                 for (let i = 0; i < vehicleAge; i++) {
-                    const yearlyDep = adjustedDepRate * (1 + i * 0.02);
+                    const yearlyDep = adjustedDepRate * (1 + i * 0.015);
                     const yearDepAmount = currentValue * Math.min(yearlyDep, 0.25);
                     currentValue = currentValue - yearDepAmount;
-                    depSchedule.push({ year: i + 1, value: currentValue, depAmount: yearDepAmount });
                 }
                 
                 const minResidual = basePrice * 0.15;
@@ -2106,7 +2300,7 @@
 
                 for (let y = 1; y <= 5; y++) {
                     const depRateYear = adjustedDepRate * (1 - (y - 1) * 0.015);
-                    const yearlyDepreciation = remainingValue * Math.min(Math.max(depRateYear, 0.08), 0.25);
+                    const yearlyDepreciation = remainingValue * Math.min(Math.max(depRateYear, 0.06), 0.25);
                     remainingValue = remainingValue - yearlyDepreciation;
 
                     const inflationFactor = 1 + (y - 1) * 0.04;
@@ -2167,7 +2361,7 @@
                     variant: variant,
                     depreciation_rate: adjustedDepRate,
                     tcoData: tcoData,
-                    depSchedule: depSchedule
+                    mileageFactor: mileageFactor
                 };
             }
 
@@ -2230,7 +2424,7 @@
                 `;
                 el.perkmGrid.innerHTML = perkmHtml;
 
-                // 5-year stats with improved cost info
+                // 5-year stats
                 const fiveYearData = result.fiveYearData || [];
                 const total5Year = result.total5YearCost || 0;
                 const avgYearly = total5Year / 5;
@@ -2389,6 +2583,70 @@
                 });
             }
 
+            // ─── EXPORT FUNCTION ──────────────────────────────────────
+            function exportResults(result) {
+                if (!result || !currentVariantData) {
+                    showToast('No data to export. Please run a calculation first.', 'warning');
+                    return;
+                }
+
+                const data = {
+                    vehicle: {
+                        make: currentVariantData.make_name,
+                        model: currentVariantData.model_name,
+                        variant: currentVariantData.variant_name,
+                        fuel_type: currentVariantData.fuel_type_name,
+                        transmission: currentVariantData.transmission_type_name,
+                        engine_cc: currentVariantData.engine_size_cc
+                    },
+                    trip: {
+                        distance: result.distance,
+                        total_cost: result.tripTotal,
+                        cost_per_km: result.tripCostPerKm,
+                        fuel: result.fuelCostTrip,
+                        service: result.serviceTrip,
+                        tyres: result.tyreTrip,
+                        insurance: result.insuranceTrip,
+                        depreciation: result.depreciationTrip
+                    },
+                    yearly: result.fiveYearData,
+                    monthly: {
+                        fuel: result.monthlyFuel,
+                        service: result.monthlyService,
+                        tyres: result.monthlyTyre,
+                        insurance: result.monthlyInsurance,
+                        depreciation: result.monthlyDepreciation
+                    },
+                    annual: {
+                        fuel: result.annualFuel,
+                        service: result.annualService,
+                        tyres: result.annualTyre,
+                        insurance: result.annualInsurance,
+                        depreciation: result.annualDepreciation
+                    },
+                    rci: {
+                        index: result.tripCostPerKm,
+                        rating: el.rciLabel.textContent,
+                        stars: el.rciStars.textContent
+                    },
+                    five_year_total: result.total5YearCost,
+                    resale_value: result.remainingValue,
+                    value_retention: Math.round((result.remainingValue / (result.originalCost || result.initialCost)) * 100),
+                    generated: new Date().toISOString()
+                };
+
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `auto-d-report-${Date.now()}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast('✅ Report exported successfully!', 'success');
+            }
+
             // ─── MAIN CALCULATION ──────────────────────────────────────
             async function calculateAndRender(variant = null) {
                 if (!isUnlocked) {
@@ -2402,6 +2660,11 @@
                     return;
                 }
 
+                // Validate inputs
+                if (!validateInputs()) {
+                    return;
+                }
+
                 const distance = num(el.distanceInput.value);
                 const annualKm = num(el.annualKmInput.value) || 20000;
                 const fuelPrice = num(el.fuelPriceInput.value) || 0;
@@ -2411,9 +2674,13 @@
                     return;
                 }
 
+                // Show progress
+                showProgress(10, 'Loading vehicle data...');
+
                 // Try to get TCO data
                 let tcoData = null;
                 if (variant.variant_id) {
+                    showProgress(30, 'Fetching ownership data...');
                     tcoData = await loadTCOData(variant.variant_id);
                     if (tcoData) {
                         console.log('✅ TCO data loaded:', tcoData);
@@ -2432,17 +2699,24 @@
                     financed: isFinanced
                 };
 
+                showProgress(60, 'Calculating costs...');
+
                 try {
                     const result = calculateRunningCost(variant, inputs, tcoData);
                     if (result) {
+                        showProgress(90, 'Rendering results...');
                         renderResults(result, variant, tcoData);
+                        showProgress(100, 'Complete!');
+                        setTimeout(hideProgress, 500);
                         showToast('✅ Analysis complete!', 'success');
                     } else {
+                        hideProgress();
                         showToast('Calculation failed', 'error');
                     }
                 } catch (error) {
+                    hideProgress();
                     console.error('❌ Calculation error:', error);
-                    showToast('Error calculating costs', 'error');
+                    showToast('Error calculating costs: ' + error.message, 'error');
                 }
             }
 
@@ -2452,6 +2726,7 @@
 
                 el.calculateBtn.disabled = true;
                 el.calculateBtn.innerHTML = '<span class="spinner"></span> Loading...';
+                showProgress(5, 'Loading vehicle details...');
 
                 try {
                     const variantData = await loadVariantDetails(variantId);
@@ -2459,6 +2734,7 @@
                         showToast('Failed to load vehicle details', 'error');
                         el.calculateBtn.disabled = false;
                         el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
+                        hideProgress();
                         return;
                     }
 
@@ -2470,7 +2746,8 @@
 
                 } catch (error) {
                     console.error('Error loading variant:', error);
-                    showToast('Error loading vehicle details', 'error');
+                    showToast('Error loading vehicle details: ' + error.message, 'error');
+                    hideProgress();
                 }
 
                 el.calculateBtn.disabled = false;
@@ -2626,9 +2903,14 @@
                      el.tripType, el.usageType,
                      el.yearSelect].forEach(elem => {
                         elem.addEventListener(evt, function() {
+                            // Clear error state on change
+                            this.classList.remove('error');
+                            const errorEl = document.getElementById(this.id + 'Error');
+                            if (errorEl) errorEl.classList.remove('show');
+                            
                             if (el.variantSelect.value && currentVariantData && isUnlocked) {
                                 clearTimeout(debounceTimer);
-                                debounceTimer = setTimeout(() => calculateAndRender(currentVariantData), 400);
+                                debounceTimer = setTimeout(() => calculateAndRender(currentVariantData), 500);
                             }
                         });
                     });
@@ -2641,6 +2923,9 @@
                     const km = parseInt(chip.dataset.km, 10);
                     if (!isNaN(km) && km > 0) {
                         el.distanceInput.value = km;
+                        // Clear error
+                        el.distanceInput.classList.remove('error');
+                        document.getElementById('distanceError')?.classList.remove('show');
                         if (el.variantSelect.value && currentVariantData) {
                             clearTimeout(debounceTimer);
                             debounceTimer = setTimeout(() => calculateAndRender(currentVariantData), 400);
@@ -2688,8 +2973,8 @@
                 bindSlider("rate", "valRate", v => v + "%");
                 bindSlider("term", "valTerm", v => v + (v == 1 ? " year" : " years"));
 
-                document.getElementById('printBtn').addEventListener('click', () => window.print());
-                document.getElementById('shareBtn').addEventListener('click', function() {
+                el.printBtn.addEventListener('click', () => window.print());
+                el.shareBtn.addEventListener('click', function() {
                     const url = window.location.href;
                     const text = `Auto-D Kenya Mileage & 5-Year Cost Report\nVehicle: ${el.vehicleLabel.textContent}\nTrip Total: KES ${el.tripTotal.textContent}`;
                     if (navigator.share) {
@@ -2700,8 +2985,60 @@
                         }).catch(() => showToast('Share not available', 'error'));
                     }
                 });
+                el.exportBtn.addEventListener('click', function() {
+                    // Get current result from the rendered data
+                    const result = currentVariantData ? {
+                        tripTotal: num(el.tripTotal.textContent.replace(/,/g, '')),
+                        tripCostPerKm: parseFloat(el.perkmGrid.querySelector('.highlight .value')?.textContent?.replace(/[^0-9.]/g, '') || 0),
+                        distance: num(el.distanceInput.value),
+                        fuelCostTrip: num(el.tripCostGrid.querySelector('.cost-item:nth-child(1) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        serviceTrip: num(el.tripCostGrid.querySelector('.cost-item:nth-child(2) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        tyreTrip: num(el.tripCostGrid.querySelector('.cost-item:nth-child(3) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        insuranceTrip: num(el.tripCostGrid.querySelector('.cost-item:nth-child(4) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        depreciationTrip: num(el.tripCostGrid.querySelector('.cost-item:nth-child(5) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        fiveYearData: [],
+                        total5YearCost: num(document.querySelector('.stat-card-sm:nth-child(1) .num')?.textContent?.replace(/[^0-9.]/g, '')),
+                        remainingValue: num(document.querySelector('.stat-card-sm:nth-child(4) .num')?.textContent?.replace(/[^0-9.]/g, '')),
+                        monthlyFuel: num(el.monthlyGrid.querySelector('.cost-item:nth-child(1) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        monthlyService: num(el.monthlyGrid.querySelector('.cost-item:nth-child(2) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        monthlyTyre: num(el.monthlyGrid.querySelector('.cost-item:nth-child(3) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        monthlyInsurance: num(el.monthlyGrid.querySelector('.cost-item:nth-child(4) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        monthlyDepreciation: num(el.monthlyGrid.querySelector('.cost-item:nth-child(5) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        annualFuel: num(el.annualGrid.querySelector('.cost-item:nth-child(1) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        annualService: num(el.annualGrid.querySelector('.cost-item:nth-child(2) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        annualTyre: num(el.annualGrid.querySelector('.cost-item:nth-child(3) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        annualInsurance: num(el.annualGrid.querySelector('.cost-item:nth-child(4) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        annualDepreciation: num(el.annualGrid.querySelector('.cost-item:nth-child(5) .value')?.textContent?.replace(/[^0-9.]/g, '')),
+                        fuelConsumption: num(el.envGrid.querySelector('.env-item:nth-child(4) .env-value')?.textContent),
+                        fuelTypeDisplay: el.fuelPill.textContent,
+                        originalCost: num(document.querySelector('.stat-card-sm:nth-child(1) .num')?.textContent?.replace(/[^0-9.]/g, '')),
+                        ageAdjustedCost: num(document.querySelector('.stat-card-sm:nth-child(2) .num')?.textContent?.replace(/[^0-9.]/g, '')),
+                        depreciation_rate: parseFloat(el.recList.querySelector('.rec-item.warning .rec-text')?.textContent?.match(/\d+/)?.[0] || '0') / 100 || 0.20,
+                        usageType: el.usageType.value,
+                        vehicleAge: 0
+                    } : null;
 
-                setInterval(async () => {
+                    if (result) {
+                        exportResults(result);
+                    } else {
+                        showToast('Please run a calculation first', 'warning');
+                    }
+                });
+
+                // ─── CLEANUP: Remove intervals on page unload ───
+                window.addEventListener('beforeunload', function() {
+                    if (authCheckInterval) {
+                        clearInterval(authCheckInterval);
+                        authCheckInterval = null;
+                    }
+                    if (debounceTimer) {
+                        clearTimeout(debounceTimer);
+                        debounceTimer = null;
+                    }
+                });
+
+                // ─── AUTH CHECK INTERVAL ────────────────────────────
+                authCheckInterval = setInterval(async () => {
                     const wasAuthenticated = isAuthenticated;
                     await checkAuth();
                     if (wasAuthenticated !== isAuthenticated) {
@@ -2723,10 +3060,17 @@
                         return;
                     }
 
+                    showProgress(10, 'Checking authentication...');
                     await checkAuth();
+                    
+                    showProgress(25, 'Loading fuel prices...');
                     await loadFuelPrice();
+                    
+                    showProgress(40, 'Loading routes...');
                     await loadRoutes();
                     renderRouteChips();
+                    
+                    showProgress(60, 'Loading vehicle data...');
                     await populateCategories();
 
                     if (el.categorySelect.options.length > 1) {
@@ -2739,15 +3083,20 @@
                     });
 
                     updateLockState();
+                    showProgress(100, 'Ready!');
+                    setTimeout(hideProgress, 500);
 
-                    console.log('✅ Auto-D Kenya Mileage Calculator initialized (Data-driven)');
+                    console.log('✅ Auto-D Kenya Mileage Calculator initialized (v6.1)');
                     console.log('📡 Using views: vehicle_master_specs + vehicle_ownership_cost_complete');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
+                    console.log('🔄 Retry logic enabled, max retries:', CONFIG.MAX_RETRIES);
+                    console.log('💾 Cache enabled, duration:', CONFIG.CACHE_DURATION / 60000, 'minutes');
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
-                    setStatus('error', `❌ ${error.message}`);
-                    showToast('Error initializing calculator', 'error');
+                    setStatus('error', `❌ ${getUserFriendlyError(error)}`);
+                    showToast('Error initializing calculator: ' + error.message, 'error');
+                    hideProgress();
                 } finally {
                     el.loadingOverlay.classList.remove('active');
                 }
