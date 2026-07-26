@@ -460,6 +460,7 @@
             display: inline-block;
             margin-top: 12px;
             transition: color 0.2s;
+            cursor: pointer;
         }
         .feature-card .feature-link:hover { color: #facc15; }
 
@@ -789,9 +790,9 @@
 
     <ul class="nav-links" id="navLinks">
         <li><a href="/">Home</a></li>
-        <li><a href="/instant-value.html">Instant Value</a></li>
-        <li><a href="/mileage.html">Mileage Cost</a></li>
-        <li><a href="/ownership-cost.html">Ownership Cost</a></li>
+        <li><a href="#" class="service-link" data-service="instant-value">Instant Value</a></li>
+        <li><a href="#" class="service-link" data-service="mileage">Mileage Cost</a></li>
+        <li><a href="#" class="service-link" data-service="ownership">Ownership Cost</a></li>
         <li><a href="#" class="btn-nav" id="loginBtn">Log In</a></li>
         <li><a href="#" id="signupBtn">Get Started</a></li>
     </ul>
@@ -818,7 +819,7 @@
                 </p>
 
                 <div class="hero-buttons">
-                    <a href="/instant-value.html" class="btn-primary">
+                    <a href="#" class="btn-primary service-link" data-service="instant-value">
                         <i class="fas fa-rocket" aria-hidden="true"></i> Check Value Now
                     </a>
                     <a href="#features" class="btn-secondary">
@@ -871,21 +872,21 @@
                 <div class="icon" aria-hidden="true">📊</div>
                 <h3>Instant Valuation</h3>
                 <p>Get AI-powered market value estimates for any car, motorcycle, or tricycle in Kenya.</p>
-                <a href="/instant-value.html" class="feature-link">Try Now →</a>
+                <a href="#" class="feature-link service-link" data-service="instant-value">Try Now →</a>
             </div>
 
             <div class="feature-card">
                 <div class="icon" aria-hidden="true">⛽</div>
                 <h3>Mileage Cost Calculator</h3>
                 <p>Calculate your total cost per kilometer including fuel, maintenance, insurance, and depreciation.</p>
-                <a href="/mileage.html" class="feature-link">Try Now →</a>
+                <a href="#" class="feature-link service-link" data-service="mileage">Try Now →</a>
             </div>
 
             <div class="feature-card">
                 <div class="icon" aria-hidden="true">💰</div>
                 <h3>Ownership Cost Analysis</h3>
                 <p>Understand the true cost of owning a vehicle over time including purchase, fuel, maintenance, and resale.</p>
-                <a href="/ownership-cost.html" class="feature-link">Try Now →</a>
+                <a href="#" class="feature-link service-link" data-service="ownership">Try Now →</a>
             </div>
         </div>
     </section>
@@ -903,7 +904,7 @@
                 <span class="cta-feature"><i class="fas fa-check-circle" aria-hidden="true"></i> Results in seconds</span>
             </div>
 
-            <a href="/instant-value.html" class="btn-primary">
+            <a href="#" class="btn-primary service-link" data-service="instant-value">
                 <i class="fas fa-arrow-right" aria-hidden="true"></i> Get Your First Valuation
             </a>
         </div>
@@ -974,11 +975,19 @@
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
+        // ─── SERVICE ROUTES ──────────────────────────────────────
+        const SERVICE_ROUTES = {
+            'instant-value': '/instant-value.html',
+            'mileage': '/mileage.html',
+            'ownership': '/ownership-cost.html'
+        };
+
         // ─── STATE ──────────────────────────────────────────────────
         let supabaseClient = null;
         let currentUser = null;
         let isSignupMode = false;
         let isAuthenticated = false;
+        let pendingServiceRoute = null;
 
         // ─── DOM REFS ──────────────────────────────────────────────────
         const authModal = document.getElementById('authModal');
@@ -1065,10 +1074,18 @@
                 // Close modal
                 closeAuth();
 
-                // Redirect to dashboard after a moment
-                setTimeout(() => {
-                    window.location.href = '/dashboard.html';
-                }, 1000);
+                // Redirect to pending service or dashboard
+                if (pendingServiceRoute) {
+                    const route = pendingServiceRoute;
+                    pendingServiceRoute = null;
+                    setTimeout(() => {
+                        window.location.href = route;
+                    }, 500);
+                } else {
+                    setTimeout(() => {
+                        window.location.href = '/dashboard.html';
+                    }, 1000);
+                }
 
                 return data;
             } catch (error) {
@@ -1106,9 +1123,18 @@
                     // Close modal
                     closeAuth();
 
-                    setTimeout(() => {
-                        window.location.href = '/dashboard.html';
-                    }, 1000);
+                    // Redirect to pending service or dashboard
+                    if (pendingServiceRoute) {
+                        const route = pendingServiceRoute;
+                        pendingServiceRoute = null;
+                        setTimeout(() => {
+                            window.location.href = route;
+                        }, 500);
+                    } else {
+                        setTimeout(() => {
+                            window.location.href = '/dashboard.html';
+                        }, 1000);
+                    }
                 } else {
                     showToast('📧 Please check your email for confirmation.', 'info');
                 }
@@ -1135,6 +1161,25 @@
             } catch (error) {
                 console.error('❌ Sign out error:', error);
                 showToast('Error signing out', 'error');
+            }
+        }
+
+        // ─── SERVICE NAVIGATION ──────────────────────────────────────
+        function navigateToService(serviceKey) {
+            const route = SERVICE_ROUTES[serviceKey];
+            if (!route) {
+                showToast('Service not found', 'error');
+                return;
+            }
+
+            if (isAuthenticated) {
+                // User is already logged in, go directly
+                window.location.href = route;
+            } else {
+                // Store the pending route and show login modal
+                pendingServiceRoute = route;
+                showToast('🔐 Please sign in to access this service', 'warning');
+                openLogin();
             }
         }
 
@@ -1206,6 +1251,7 @@
 
         window.closeAuth = function() {
             authModal.classList.remove('open');
+            // Don't clear pendingServiceRoute on close - user might come back
         };
 
         window.switchAuthMode = function() {
@@ -1260,7 +1306,12 @@
 
             showToast(`🔐 Redirecting to ${provider}...`, 'info');
 
-            const redirectUrl = window.location.origin + '/dashboard.html';
+            // Store pending route before redirect
+            let redirectUrl = window.location.origin + '/dashboard.html';
+            if (pendingServiceRoute) {
+                // We'll handle redirect after social login via the callback
+                localStorage.setItem('auto_d_pending_route', pendingServiceRoute);
+            }
 
             supabaseClient.auth.signInWithOAuth({
                 provider: provider,
@@ -1287,6 +1338,15 @@
                     isAuthenticated = true;
                     localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                     updateUI();
+
+                    // Check for pending route after social login
+                    const pendingRoute = localStorage.getItem('auto_d_pending_route');
+                    if (pendingRoute) {
+                        localStorage.removeItem('auto_d_pending_route');
+                        setTimeout(() => {
+                            window.location.href = pendingRoute;
+                        }, 500);
+                    }
                     return true;
                 }
 
@@ -1324,7 +1384,7 @@
             setTimeout(function() {
                 toast.style.opacity = '0';
                 setTimeout(function() { toast.remove(); }, 300);
-            }, 3000);
+            }, 4000);
         }
 
         window.showToast = showToast;
@@ -1342,6 +1402,22 @@
                     navLinks.classList.remove('open');
                     mobileToggle.setAttribute('aria-expanded', 'false');
                 }
+            });
+        }
+
+        // ─── SERVICE LINK HANDLERS ──────────────────────────────────
+        function setupServiceLinks() {
+            const links = document.querySelectorAll('.service-link');
+            links.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const service = this.dataset.service;
+                    if (service && SERVICE_ROUTES[service]) {
+                        navigateToService(service);
+                    } else {
+                        showToast('Service not available', 'error');
+                    }
+                });
             });
         }
 
@@ -1371,10 +1447,13 @@
 
         // ─── INIT ──────────────────────────────────────────────────────
         async function init() {
-            console.log('🚗 Auto-D Kenya v4.0.0 - Professional Landing');
+            console.log('🚗 Auto-D Kenya v4.0.0 - Professional Landing with Auth Check');
 
             initSupabase();
             await checkAuth();
+
+            // Setup service links
+            setupServiceLinks();
 
             // Close modal on outside click
             authModal.addEventListener('click', function(e) {
@@ -1388,6 +1467,15 @@
                 }
             });
 
+            // Check for pending route after page load (e.g., from social login redirect)
+            const pendingRoute = localStorage.getItem('auto_d_pending_route');
+            if (pendingRoute && isAuthenticated) {
+                localStorage.removeItem('auto_d_pending_route');
+                setTimeout(() => {
+                    window.location.href = pendingRoute;
+                }, 500);
+            }
+
             // Expose API for debugging
             window.__AUTOD = {
                 supabase: supabaseClient,
@@ -1396,7 +1484,8 @@
                 signOut,
                 showToast,
                 openLogin,
-                openSignup
+                openSignup,
+                navigateToService
             };
         }
 
