@@ -1,69 +1,138 @@
-# backend/app/api/v1/reports.py
+# app/api/v1/reports.py
 """
-Reports API - Report generation endpoints
+Reports API - Professional report generation
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from typing import Optional, List
-from app.services.report_service import ReportService
-from app.core.security import get_current_user
+from fastapi import APIRouter, HTTPException, Query, Response, BackgroundTasks
+from typing import Optional
+from datetime import datetime
 import logging
+
+from app.services.report_generator import ReportGenerator
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-report_service = ReportService()
-
-
-@router.get("/mileage")
-async def get_mileage_report(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    current_user: dict = Depends(get_current_user)
-):
-    """Get mileage report for the current user"""
-    try:
-        user_id = current_user.get("id")
-        report = report_service.generate_mileage_report(user_id, start_date, end_date)
-        return report
-    except Exception as e:
-        logger.error(f"Error generating mileage report: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate mileage report"
-        )
-
-
-@router.get("/ownership")
-async def get_ownership_report(
-    current_user: dict = Depends(get_current_user)
-):
-    """Get ownership report for the current user"""
-    try:
-        user_id = current_user.get("id")
-        report = report_service.generate_ownership_report(user_id)
-        return report
-    except Exception as e:
-        logger.error(f"Error generating ownership report: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate ownership report"
-        )
+report_generator = ReportGenerator()
 
 
 @router.get("/valuation")
-async def get_valuation_report(
-    vehicle_ids: Optional[List[str]] = None,
-    current_user: dict = Depends(get_current_user)
+async def generate_valuation_report(
+    variant_id: str = Query(..., description="Vehicle variant ID"),
+    year: int = Query(..., description="Vehicle year"),
+    include_comparables: bool = Query(True, description="Include comparable vehicles"),
+    include_history: bool = Query(True, description="Include price history"),
+    include_trends: bool = Query(True, description="Include market trends")
 ):
-    """Get valuation report for vehicles"""
+    """
+    Generate a professional vehicle valuation report (PDF)
+    
+    Returns a PDF file with:
+    - Executive summary
+    - Valuation analysis
+    - Price history chart
+    - Comparable vehicles
+    - Market trends
+    - Recommendations
+    """
     try:
-        user_id = current_user.get("id")
-        report = report_service.generate_valuation_report(user_id, vehicle_ids)
-        return report
+        pdf_bytes = await report_generator.generate_valuation_report(
+            variant_id=variant_id,
+            year=year,
+            include_comparables=include_comparables,
+            include_history=include_history,
+            include_trends=include_trends
+        )
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=valuation_report_{variant_id}_{year}_{datetime.now().strftime('%Y%m%d')}.pdf"
+            }
+        )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Error generating valuation report: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate valuation report"
+        raise HTTPException(status_code=500, detail="Failed to generate report")
+
+
+@router.get("/market-insights")
+async def generate_market_insights_report(
+    make: Optional[str] = Query(None, description="Filter by make"),
+    body_type: Optional[str] = Query(None, description="Filter by body type"),
+    county: Optional[str] = Query(None, description="Filter by county")
+):
+    """
+    Generate a professional market insights report (PDF)
+    
+    Returns a PDF file with:
+    - Market overview
+    - Key metrics
+    - Price distribution
+    - Trending vehicles
+    - Dealer performance
+    - Market outlook
+    """
+    try:
+        pdf_bytes = await report_generator.generate_market_insights_report(
+            make=make,
+            body_type=body_type,
+            county=county
         )
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=market_insights_{datetime.now().strftime('%Y%m%d')}.pdf"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error generating market insights report: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate report")
+
+
+@router.get("/ownership-cost")
+async def generate_ownership_cost_report(
+    variant_id: str = Query(..., description="Vehicle variant ID"),
+    year: int = Query(..., description="Vehicle year"),
+    annual_mileage: int = Query(20000, description="Annual mileage in km"),
+    ownership_years: int = Query(5, description="Ownership period in years"),
+    county: str = Query("Nairobi", description="County for location adjustment")
+):
+    """
+    Generate a professional ownership cost report (PDF)
+    
+    Returns a PDF file with:
+    - Vehicle summary
+    - Cost breakdown chart
+    - Year-by-year cost table
+    - Cost per kilometer analysis
+    - Savings recommendations
+    """
+    try:
+        pdf_bytes = await report_generator.generate_ownership_cost_report(
+            variant_id=variant_id,
+            year=year,
+            annual_mileage=annual_mileage,
+            ownership_years=ownership_years,
+            county=county
+        )
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=ownership_cost_{variant_id}_{datetime.now().strftime('%Y%m%d')}.pdf"
+            }
+        )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error generating ownership cost report: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate report")
