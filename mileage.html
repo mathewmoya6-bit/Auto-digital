@@ -1111,6 +1111,11 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="fuelPriceInput">Fuel Price (KES/L)</label>
+                    <input type="number" id="fuelPriceInput" value="200" step="1" />
+                </div>
+
+                <div class="form-group">
                     <label for="locationSelect">County / Location</label>
                     <select id="locationSelect">
                         <option value="nairobi">Nairobi</option>
@@ -1344,7 +1349,33 @@
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                VIEW_NAME: 'vehicle_full_specs'
+                VIEW_NAME: 'vehicle_full_specs',
+
+                // ─── Assumption blocks — adjust to match your real data/pricing ───
+
+                // Flip to 'l_per_100km' once you've confirmed which unit your
+                // `fuel_consumption_combined` column actually stores. Most automotive
+                // datasets use L/100km even when the field name doesn't say so — if fuel
+                // costs look implausibly low, this is almost certainly why.
+                FUEL_CONSUMPTION_UNIT: 'km_per_l',
+
+                // Comprehensive scales with the rate slider against the car's (declining)
+                // value. Third-party products in Kenya are typically flat annual fees, not
+                // percentage-of-value — these figures are illustrative placeholders, swap
+                // in your actual underwriter rates.
+                INSURANCE_TYPES: {
+                    comprehensive:    { rateMultiplier: 1.0 },
+                    third_party:      { flatFee: 7000 },
+                    third_party_fire: { flatFee: 15000 }
+                },
+
+                // Small placeholder multipliers applied to insurance + maintenance by
+                // location (e.g. higher accident/theft risk, more congestion wear).
+                // Illustrative only — replace with real regional differentials if you have them.
+                LOCATION_FACTORS: {
+                    nairobi: 1.05, mombasa: 1.02, kisumu: 1.0, nakuru: 1.0,
+                    eldoret: 1.0, kiambu: 1.02, kajiado: 1.0, machakos: 1.0, other: 1.0
+                }
             };
 
             // ─── STATE ──────────────────────────────────────────────
@@ -1371,6 +1402,7 @@
                 insuranceType: document.getElementById('insuranceType'),
                 mileageRange: document.getElementById('mileageRange'),
                 yearsRange: document.getElementById('yearsRange'),
+                fuelPriceInput: document.getElementById('fuelPriceInput'),
                 insuranceRange: document.getElementById('insuranceRange'),
                 downRange: document.getElementById('downRange'),
                 rateRange: document.getElementById('rateRange'),
@@ -1916,7 +1948,7 @@
                     { label: '🔧', value: variant.trim_level || 'Standard' },
                     { label: '⚡', value: `${variant.power_hp || 0} HP` },
                     { label: '🔄', value: `${variant.torque_nm || 0} Nm` },
-                    { label: '⛽', value: `${variant.fuel_consumption_combined || 0} km/L` },
+                    { label: '⛽', value: `${variant.fuel_consumption_combined || 0} ${CONFIG.FUEL_CONSUMPTION_UNIT === 'l_per_100km' ? 'L/100km' : 'km/L'}` },
                     { label: '💺', value: `${variant.seats || 5} seats` },
                     { label: '🚪', value: `${variant.doors || 4} doors` },
                     { label: '🚗', value: variant.body_type || variant.model_body_type || '—' },
@@ -1938,6 +1970,8 @@
                     annualMileage = 20000,
                     ownershipYears = 5,
                     insuranceRate = 0.045,
+                    insuranceType = 'comprehensive',
+                    locationFactor = 1.0,
                     fuelConsumption = 12,
                     fuelPrice = 200,
                     isNew = true,
@@ -1948,11 +1982,20 @@
                 } = inputs;
 
                 const depRate = isNew ? 0.25 : 0.15;
-                const annualFuelCost = (annualMileage / fuelConsumption) * fuelPrice;
-                const annualMaintenanceCost = annualMileage * 5;
+
+                // Unit-aware fuel cost — see CONFIG.FUEL_CONSUMPTION_UNIT above.
+                const annualFuelCost = CONFIG.FUEL_CONSUMPTION_UNIT === 'l_per_100km'
+                    ? (annualMileage / 100) * fuelConsumption * fuelPrice
+                    : (annualMileage / fuelConsumption) * fuelPrice;
+
+                const annualMaintenanceCost = annualMileage * 5 * locationFactor;
                 const annualTyreCost = (annualMileage / 50000) * 48000;
                 const licensingCost = initialValue * 0.01;
-                const annualInsurance = initialValue * insuranceRate;
+
+                // Insurance is now computed per-year below (declining with the car's
+                // value for comprehensive, or as a flat fee for third-party cover)
+                // instead of a flat charge on the original purchase price every year.
+                const insuranceCfg = CONFIG.INSURANCE_TYPES[insuranceType] || CONFIG.INSURANCE_TYPES.comprehensive;
 
                 let financingCost = 0;
                 if (isFinanced) {
@@ -1973,7 +2016,9 @@
                     const maintenanceYear = annualMaintenanceCost;
                     const tyresYear = annualTyreCost;
                     const licensingYear = licensingCost;
-                    const insuranceYear = annualInsurance;
+                    const insuranceYear = insuranceCfg.flatFee
+                        ? insuranceCfg.flatFee
+                        : currentYearValue * insuranceRate * insuranceCfg.rateMultiplier * locationFactor;
                     const financingYear = isFinanced ? financingCost / ownershipYears : 0;
                     
                     const yearTotal = depreciationYear + financingYear + insuranceYear +
@@ -2134,7 +2179,7 @@
                 el.envGrid.innerHTML = `
                     <div class="env-item">
                         <div class="env-value">${(result.fuelConsumption || 0).toFixed(1)}</div>
-                        <div class="env-label">L/100km</div>
+                        <div class="env-label">${CONFIG.FUEL_CONSUMPTION_UNIT === 'l_per_100km' ? 'L/100km' : 'km/L'}</div>
                     </div>
                     <div class="env-item">
                         <div class="env-value">${result.annualMileage || 0}</div>
@@ -2253,14 +2298,19 @@
                 currentVariantData = variant;
                 displayVehicleInfo(variant);
 
+                // Note: el.yearSelect and el.currentValue are captured in the form but not
+                // yet incorporated into the calculation (e.g. age-adjusted depreciation
+                // for a used car bought partway through its life) — flagged for future work.
                 const inputs = {
                     initialValue: num(el.initialValue.value) || variant.market_value || 5000000,
                     currentValue: num(el.currentValue.value) || (variant.market_value || 5000000) * 0.7,
                     annualMileage: num(el.mileageRange.value) || 20000,
                     ownershipYears: num(el.yearsRange.value) || 5,
                     insuranceRate: num(el.insuranceRange.value) / 100 || 0.045,
+                    insuranceType: el.insuranceType.value || 'comprehensive',
+                    locationFactor: CONFIG.LOCATION_FACTORS[el.locationSelect.value] || 1.0,
                     fuelConsumption: variant.fuel_consumption_combined || 12,
-                    fuelPrice: 200,
+                    fuelPrice: num(el.fuelPriceInput.value) || 200,
                     isNew: isNewPurchase,
                     isFinanced: isFinanced,
                     downPct: num(el.downRange.value) / 100 || 0.3,
@@ -2441,7 +2491,7 @@
                 // Auto-calculate on input change
                 ['input', 'change'].forEach(evt => {
                     [el.initialValue, el.currentValue, el.mileageRange, el.yearsRange,
-                     el.insuranceRange, el.downRange, el.rateRange, el.termRange,
+                     el.fuelPriceInput, el.insuranceRange, el.downRange, el.rateRange, el.termRange,
                      el.locationSelect, el.insuranceType].forEach(elem => {
                         elem.addEventListener(evt, function() {
                             if (el.variantSelect.value && isUnlocked) {
