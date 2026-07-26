@@ -1146,7 +1146,10 @@
     <script>
         // ════════════════════════════════════════════════════════════════
         // AUTO-D KENYA - DASHBOARD
-        // FIXED: Correct payment flow - UNLOCK ONLY after backend confirms SUCCESS
+        // Payment flow hardened: service page ONLY opens after the backend
+        // has confirmed the payment via /mpesa/confirm. Every other path
+        // (poll timeout, poll failure, confirm failure, modal close, retry)
+        // is guarded so it can never call redirectToService().
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1195,7 +1198,16 @@
             let pendingRequestId = null;
             let pollTimer = null;
             let isWaitingForPayment = false;
-            let isPaymentConfirmed = false; // ⭐ CRITICAL: Only true when backend confirms
+
+            // ⭐ Single source of truth for "is it safe to unlock/redirect".
+            // This is a per-checkout token, not a boolean, so a stale
+            // confirmation from an old/cancelled flow can never unlock a
+            // different, later checkout.
+            let confirmedCheckoutId = null;
+            // Guards against unlockServiceAfterPayment() firing twice for
+            // the same checkout (e.g. poll success + manual retry racing).
+            let unlockInFlightFor = null;
+
             const MAX_POLLING_ATTEMPTS = 60; // 60 * 2s = 2 minutes max
 
             // ─── DOM Refs ──────────────────────────────────────────────
@@ -1251,7 +1263,15 @@
                 });
             }
 
-            function redirectToService(serviceId) {
+            // ⭐ The ONLY function allowed to navigate the user to a service
+            // page. It re-checks the confirmedCheckoutId token right before
+            // navigating so nothing upstream can accidentally trigger a
+            // redirect without a confirmed payment for THIS checkout.
+            function redirectToService(serviceId, checkoutId) {
+                if (checkoutId !== undefined && checkoutId !== confirmedCheckoutId) {
+                    console.error('🚫 Blocked redirect: checkout not confirmed', { serviceId, checkoutId, confirmedCheckoutId });
+                    return;
+                }
                 const route = SERVICE_ROUTES[serviceId];
                 console.log(`🚀 Redirecting to service: ${serviceId} -> ${route}`);
                 if (route) {
@@ -1446,6 +1466,10 @@
                     return;
                 }
 
+                // This is the ONLY place a service can be opened without a
+                // fresh payment: `purchased` here comes straight from the
+                // backend's /mpesa/user/services list fetched on page load,
+                // never from client-side state set during a payment attempt.
                 const isPurchased = service.purchased || service.status === 'purchased' || service.status === 'active';
 
                 if (isPurchased) {
@@ -1471,10 +1495,9 @@
             // ============================================================
 
             async function waitForPayment(checkoutId, serviceId, maxAttempts = MAX_POLLING_ATTEMPTS) {
-                const overlay = document.getElementById('paymentOverlay');
-                const spinner = document.getElementById('paymentSpinner');
                 const statusText = document.getElementById('paymentStatusText');
                 const statusDetail = document.getElementById('paymentStatusDetail');
+                const spinner = document.getElementById('paymentSpinner');
 
                 let attempts = 0;
                 let isComplete = false;
@@ -1486,10 +1509,19 @@
                     }
 
                     pollTimer = setInterval(async () => {
+                        // If the modal/flow was cancelled out from under us
+                        // (e.g. user closed the modal), stop immediately and
+                        // never touch the unlock path.
+                        if (!isWaitingForPayment || checkoutRequestId !== checkoutId) {
+                            clearInterval(pollTimer);
+                            pollTimer = null;
+                            resolve(false);
+                            return;
+                        }
+
                         attempts++;
 
                         try {
-                            // Update status message
                             if (statusText) {
                                 statusText.textContent = '⏳ Waiting for M-Pesa confirmation...';
                             }
@@ -1497,22 +1529,20 @@
                                 statusDetail.textContent = `Please check your phone and enter your M-Pesa PIN. (${Math.round(attempts * 2)}s)`;
                             }
 
-                            // ─── POLL PAYMENT STATUS ───
+                            // ─── POLL PAYMENT STATUS (read-only) ───
                             const pollToken = await getAuthToken();
                             const headers = { 'Accept': 'application/json' };
                             if (pollToken) {
                                 headers['Authorization'] = `Bearer ${pollToken}`;
                             }
 
-                            const statusResponse = await fetch(`${API_BASE}/mpesa/status/${checkoutId}`, {
+                            const statusResponse = await fetch(`${API_BASE}/mpesa/status/${encodeURIComponent(checkoutId)}`, {
                                 headers: headers
                             });
 
                             if (!statusResponse.ok) {
                                 if (statusResponse.status === 404) {
-                                    // Still processing - continue polling
                                     if (attempts > 20 && !isComplete) {
-                                        // Show "still waiting" message after 40 seconds
                                         if (statusDetail) {
                                             statusDetail.innerHTML = `
                                                 <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
@@ -1522,12 +1552,14 @@
                                                     <p style="font-size:12px;color:var(--text-muted);">
                                                         Did you enter your PIN on your phone?
                                                     </p>
-                                                    <button onclick="window.retryPaymentConfirmation('${checkoutId}', '${serviceId}')" 
+                                                    <button id="retryPinBtn"
                                                             style="padding:10px 20px;background:var(--primary);color:#0f172a;border:none;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;width:100%;">
                                                         🔄 I've Entered My PIN
                                                     </button>
                                                 </div>
                                             `;
+                                            const btn = document.getElementById('retryPinBtn');
+                                            if (btn) btn.addEventListener('click', () => window.retryPaymentConfirmation(checkoutId, serviceId));
                                         }
                                     }
                                     return;
@@ -1540,47 +1572,36 @@
                             const normalized = normalizeStatus(statusData.status);
 
                             // ─── CHECK STATUS ───
-                            if (normalized === 'completed' || normalized === 'success' || normalized === 'paid' || 
+                            if (normalized === 'completed' || normalized === 'success' || normalized === 'paid' ||
                                 normalized === 'complete' || isTruthyFlag(statusData.success)) {
-                                // ─── ✅ SUCCESS! BACKEND CONFIRMED ───
+
                                 isComplete = true;
-                                isPaymentConfirmed = true; // ⭐ CRITICAL FLAG
                                 clearInterval(pollTimer);
                                 pollTimer = null;
 
-                                if (statusText) {
-                                    statusText.innerHTML = '✅ Payment Successful! 🎉';
-                                }
-                                if (statusDetail) {
-                                    statusDetail.textContent = 'Unlocking your service now...';
-                                }
-                                if (spinner) {
-                                    spinner.style.display = 'none';
-                                }
+                                if (statusText) statusText.innerHTML = '✅ Payment Successful! 🎉';
+                                if (statusDetail) statusDetail.textContent = 'Confirming with server...';
 
-                                showToast('✅ Payment received successfully!', 'success');
+                                showToast('✅ Payment received, confirming...', 'success');
 
-                                // ─── ⭐ UNLOCK SERVICE - ONLY CALLED HERE ───
-                                await unlockServiceAfterPayment(checkoutId, serviceId);
-                                resolve(true);
+                                // ⭐ We still MUST hit /mpesa/confirm and get a
+                                // truthy result before doing anything that
+                                // looks like "unlocked". Status alone is not
+                                // sufficient authority to unlock.
+                                const confirmed = await unlockServiceAfterPayment(checkoutId, serviceId);
+                                resolve(confirmed);
                                 return;
 
-                            } else if (normalized === 'failed' || normalized === 'error' || normalized === 'cancelled' || 
+                            } else if (normalized === 'failed' || normalized === 'error' || normalized === 'cancelled' ||
                                        normalized === 'canceled' || normalized === 'timeout') {
-                                // ─── ❌ FAILURE ───
+
                                 isComplete = true;
                                 clearInterval(pollTimer);
                                 pollTimer = null;
 
-                                if (statusText) {
-                                    statusText.textContent = '❌ Payment Failed';
-                                }
-                                if (statusDetail) {
-                                    statusDetail.textContent = statusData.description || statusData.message || 'Please try again.';
-                                }
-                                if (spinner) {
-                                    spinner.style.display = 'none';
-                                }
+                                if (statusText) statusText.textContent = '❌ Payment Failed';
+                                if (statusDetail) statusDetail.textContent = statusData.description || statusData.message || 'Please try again.';
+                                if (spinner) spinner.style.display = 'none';
 
                                 showToast('❌ Payment failed: ' + (statusData.description || 'Please try again'), 'error');
                                 resolve(false);
@@ -1593,9 +1614,7 @@
                                 clearInterval(pollTimer);
                                 pollTimer = null;
 
-                                if (statusText) {
-                                    statusText.textContent = '⏰ Payment Timeout';
-                                }
+                                if (statusText) statusText.textContent = '⏰ Payment Timeout';
                                 if (statusDetail) {
                                     statusDetail.innerHTML = `
                                         <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
@@ -1605,16 +1624,16 @@
                                             <p style="font-size:12px;color:var(--text-muted);">
                                                 If you've already paid, click below to confirm.
                                             </p>
-                                            <button onclick="window.manualConfirmPayment('${checkoutId}', '${serviceId}')" 
+                                            <button id="manualConfirmBtn"
                                                     style="padding:12px 24px;background:var(--success);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;width:100%;">
                                                 ✅ I've Completed Payment
                                             </button>
                                         </div>
                                     `;
+                                    const btn = document.getElementById('manualConfirmBtn');
+                                    if (btn) btn.addEventListener('click', () => window.manualConfirmPayment(checkoutId, serviceId));
                                 }
-                                if (spinner) {
-                                    spinner.style.display = 'none';
-                                }
+                                if (spinner) spinner.style.display = 'none';
 
                                 showToast('⏰ Payment confirmation timed out. Please check your M-Pesa.', 'warning');
                                 resolve(false);
@@ -1633,17 +1652,32 @@
                 });
             }
 
-            // ─── ⭐ UNLOCK SERVICE - ONLY CALLED AFTER SUCCESSFUL PAYMENT ───
+            // ─── ⭐ UNLOCK SERVICE - the single gate that can mark a
+            // checkout as confirmed. Manual confirm and the poller both
+            // route through here, and it's idempotent per checkoutId so
+            // it can't double-fire or race with itself.
+            // Returns true only if the backend genuinely confirmed.
             async function unlockServiceAfterPayment(checkoutId, serviceId) {
+                if (unlockInFlightFor === checkoutId) {
+                    // Already confirming this exact checkout elsewhere; don't
+                    // fire a second overlapping confirm call.
+                    return confirmedCheckoutId === checkoutId;
+                }
+                if (confirmedCheckoutId === checkoutId) {
+                    // Already confirmed earlier in this session.
+                    return true;
+                }
+                unlockInFlightFor = checkoutId;
+
                 try {
                     const token = await getAuthToken();
                     if (!token) {
                         showToast('⚠️ Authentication error. Please log in again.', 'error');
-                        return;
+                        return false;
                     }
 
-                    // ─── CONFIRM PAYMENT WITH BACKEND ───
-                    const response = await fetch(`${API_BASE}/mpesa/confirm/${checkoutId}`, {
+                    // ─── CONFIRM PAYMENT WITH BACKEND (the only source of truth) ───
+                    const response = await fetch(`${API_BASE}/mpesa/confirm/${encodeURIComponent(checkoutId)}`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -1652,62 +1686,80 @@
                         }
                     });
 
-                    const data = await response.json();
+                    let data = {};
+                    try {
+                        data = await response.json();
+                    } catch (e) {
+                        data = {};
+                    }
                     console.log('📥 Confirm response:', data);
 
-                    if (response.ok && (isTruthyFlag(data.success) || data.status === 'completed')) {
-                        // ─── UPDATE LOCAL STATE ───
-                        if (dashboardData && dashboardData.services) {
-                            const svc = dashboardData.services.find(s => s.id === serviceId);
-                            if (svc) {
-                                svc.purchased = true;
-                                svc.status = 'active';
-                            }
-                        }
+                    const backendConfirmed = response.ok && (isTruthyFlag(data.success) || data.status === 'completed');
 
-                        // ─── UPDATE UI ───
-                        renderServices(dashboardData.services || []);
-
+                    if (!backendConfirmed) {
+                        showToast('⚠️ Payment could not be confirmed yet. Please wait or contact support.', 'warning');
                         const overlay = document.getElementById('paymentOverlay');
                         const statusText = document.getElementById('paymentStatusText');
                         const statusDetail = document.getElementById('paymentStatusDetail');
                         const spinner = document.getElementById('paymentSpinner');
-
-                        if (overlay) {
-                            if (spinner) spinner.style.display = 'none';
-                            if (statusText) statusText.innerHTML = '✅ Service Unlocked! 🎉';
-                            if (statusDetail) statusDetail.textContent = 'Opening service now...';
-                        }
-
-                        showToast(`✅ ${selectedService?.name || 'Service'} unlocked successfully!`, 'success');
-                        updateWorkflowStep(5);
-
-                        // ─── CLOSE AND REDIRECT ───
-                        setTimeout(() => {
-                            if (overlay) overlay.classList.remove('open');
-                            closePaymentModal();
-                            if (serviceId) {
-                                redirectToService(serviceId);
-                            }
-                        }, 1500);
-                    } else {
-                        showToast('⚠️ Payment confirmed but service unlock failed. Please contact support.', 'warning');
-                        const overlay = document.getElementById('paymentOverlay');
-                        if (overlay) overlay.classList.remove('open');
-                        closePaymentModal();
+                        if (statusText) statusText.textContent = '⚠️ Not confirmed yet';
+                        if (statusDetail) statusDetail.textContent = data.message || data.detail || 'Please try again in a moment.';
+                        if (spinner) spinner.style.display = 'none';
+                        return false;
                     }
+
+                    // ⭐ Mark THIS checkout, and only this checkout, as confirmed.
+                    confirmedCheckoutId = checkoutId;
+
+                    // ─── UPDATE LOCAL STATE (display only, not authority) ───
+                    if (dashboardData && dashboardData.services) {
+                        const svc = dashboardData.services.find(s => s.id === serviceId);
+                        if (svc) {
+                            svc.purchased = true;
+                            svc.status = 'active';
+                        }
+                    }
+                    renderServices(dashboardData.services || []);
+
+                    const overlay = document.getElementById('paymentOverlay');
+                    const statusText = document.getElementById('paymentStatusText');
+                    const statusDetail = document.getElementById('paymentStatusDetail');
+                    const spinner = document.getElementById('paymentSpinner');
+
+                    if (overlay) {
+                        if (spinner) spinner.style.display = 'none';
+                        if (statusText) statusText.innerHTML = '✅ Service Unlocked! 🎉';
+                        if (statusDetail) statusDetail.textContent = 'Opening service now...';
+                    }
+
+                    showToast(`✅ ${selectedService?.name || 'Service'} unlocked successfully!`, 'success');
+                    updateWorkflowStep(5);
+                    isWaitingForPayment = false;
+
+                    // ─── CLOSE AND REDIRECT (only path that can navigate) ───
+                    setTimeout(() => {
+                        if (overlay) overlay.classList.remove('open');
+                        closePaymentModal({ keepConfirmed: true });
+                        if (serviceId) {
+                            redirectToService(serviceId, checkoutId);
+                        }
+                    }, 1500);
+
+                    return true;
+
                 } catch (error) {
                     console.error('Unlock error:', error);
-                    showToast('❌ Error unlocking service: ' + error.message, 'error');
-                    const overlay = document.getElementById('paymentOverlay');
-                    if (overlay) overlay.classList.remove('open');
-                    closePaymentModal();
+                    showToast('❌ Error confirming payment: ' + error.message, 'error');
+                    return false;
+                } finally {
+                    if (unlockInFlightFor === checkoutId) {
+                        unlockInFlightFor = null;
+                    }
                 }
             }
 
-            // ─── MANUAL CONFIRM (fallback) ───
+            // ─── MANUAL CONFIRM (fallback, e.g. after timeout) ───
             window.manualConfirmPayment = async function(checkoutId, serviceId) {
-                const overlay = document.getElementById('paymentOverlay');
                 const statusText = document.getElementById('paymentStatusText');
                 const statusDetail = document.getElementById('paymentStatusDetail');
                 const spinner = document.getElementById('paymentSpinner');
@@ -1720,7 +1772,6 @@
             };
 
             window.retryPaymentConfirmation = async function(checkoutId, serviceId) {
-                const overlay = document.getElementById('paymentOverlay');
                 const statusText = document.getElementById('paymentStatusText');
                 const statusDetail = document.getElementById('paymentStatusDetail');
                 const spinner = document.getElementById('paymentSpinner');
@@ -1729,15 +1780,14 @@
                 if (statusDetail) statusDetail.textContent = 'Checking payment status...';
                 if (spinner) spinner.style.display = 'block';
 
-                // Restart polling with a fresh check
                 if (pollTimer) {
                     clearInterval(pollTimer);
                     pollTimer = null;
                 }
 
+                isWaitingForPayment = true;
                 const result = await waitForPayment(checkoutId, serviceId, 20); // 20 more attempts
                 if (!result) {
-                    // If still not successful, show manual confirm button again
                     if (statusText) statusText.textContent = '⏳ Still waiting...';
                     if (statusDetail) {
                         statusDetail.innerHTML = `
@@ -1745,12 +1795,14 @@
                                 <p style="font-size:14px;color:var(--text-secondary);">
                                     Still waiting for confirmation.
                                 </p>
-                                <button onclick="window.manualConfirmPayment('${checkoutId}', '${serviceId}')" 
+                                <button id="manualConfirmBtn2"
                                         style="padding:12px 24px;background:var(--success);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;width:100%;">
                                     ✅ I've Completed Payment
                                 </button>
                             </div>
                         `;
+                        const btn = document.getElementById('manualConfirmBtn2');
+                        if (btn) btn.addEventListener('click', () => window.manualConfirmPayment(checkoutId, serviceId));
                     }
                     if (spinner) spinner.style.display = 'none';
                 }
@@ -1801,7 +1853,7 @@
                         console.warn('Could not fetch payments from backend:', e.message);
                     }
 
-                    // ─── 4. Fetch unlocked services from backend ───
+                    // ─── 4. Fetch unlocked services from backend (source of truth) ───
                     let unlockedServiceIds = [];
                     try {
                         const svcToken = await getAuthToken();
@@ -1841,7 +1893,7 @@
                         console.warn('Could not fetch notifications:', e.message);
                     }
 
-                    // ─── Apply unlocked status ───
+                    // ─── Apply unlocked status (backend is authority) ───
                     const unlockedSet = new Set(unlockedServiceIds);
                     services = services.map(s => ({
                         ...s,
@@ -2278,7 +2330,12 @@
 
             window.openPaymentModal = function(service) {
                 selectedService = service;
-                isPaymentConfirmed = false; // Reset confirmation flag
+                // Starting a fresh payment attempt: clear any previously
+                // confirmed checkout so it can't leak into this new flow.
+                confirmedCheckoutId = null;
+                checkoutRequestId = null;
+                unlockInFlightFor = null;
+
                 const nameEl = document.getElementById('paymentServiceName');
                 const amountEl = document.getElementById('paymentAmount');
                 const totalEl = document.getElementById('paymentTotal');
@@ -2301,7 +2358,8 @@
                 updateWorkflowStep(3);
             };
 
-            window.closePaymentModal = function() {
+            window.closePaymentModal = function(opts) {
+                opts = opts || {};
                 const modal = document.getElementById('paymentModal');
                 if (modal) modal.classList.remove('open');
                 selectedService = null;
@@ -2309,7 +2367,12 @@
                 pendingRequestId = null;
                 isProcessingPayment = false;
                 isWaitingForPayment = false;
-                isPaymentConfirmed = false;
+                // Don't wipe confirmedCheckoutId here if we're closing the
+                // modal as *part of* a successful unlock (the redirect still
+                // needs to check it in redirectToService).
+                if (!opts.keepConfirmed) {
+                    confirmedCheckoutId = null;
+                }
                 if (pollTimer) {
                     clearInterval(pollTimer);
                     pollTimer = null;
@@ -2369,7 +2432,7 @@
                 if (!token) return;
 
                 isProcessingPayment = true;
-                isPaymentConfirmed = false; // Reset confirmation flag
+                confirmedCheckoutId = null; // fresh attempt, not confirmed yet
                 if (payBtn) {
                     payBtn.disabled = true;
                     payBtn.textContent = '⏳ Processing...';
@@ -2424,6 +2487,12 @@
                     }
 
                     const checkoutId = data.checkout_request_id || data.checkoutRequestID;
+                    if (!checkoutId) {
+                        showToast('❌ No checkout ID returned by server', 'error');
+                        if (overlay) overlay.classList.remove('open');
+                        closePaymentModal();
+                        return;
+                    }
                     checkoutRequestId = checkoutId;
                     const targetServiceId = pendingServiceRedirect || selectedService.id;
 
@@ -2438,7 +2507,8 @@
                     const paymentSuccess = await waitForPayment(checkoutId, targetServiceId);
 
                     if (!paymentSuccess) {
-                        // Payment failed or timed out - user will see appropriate message
+                        // Payment failed, timed out, or was cancelled - user
+                        // stays on the dashboard, nothing is unlocked.
                         if (payBtn) {
                             payBtn.disabled = false;
                             payBtn.textContent = '💳 Pay Now';
