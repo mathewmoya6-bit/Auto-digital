@@ -1392,7 +1392,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK WITH AUTH GATE
-        // FIXED: Only accepts real vehicle images
+        // FIXED: getVehicleName() prevents duplicate model names
         // FIXED: Images displayed in report
         // ═══════════════════════════════════════════════════════════════
 
@@ -1516,6 +1516,46 @@
                 el.statusMessageText.textContent = message;
                 const iconSpan = el.statusMessage.querySelector('span:first-child');
                 if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
+            }
+
+            // ─── VEHICLE NAME HELPER - Prevents duplicate model names ──
+            /**
+             * Get a clean vehicle display name without duplicate model names
+             * 
+             * Examples:
+             *   getVehicleName("Toyota", "Hilux", "Hilux AN110/120 Base") → "Toyota Hilux AN110/120 Base"
+             *   getVehicleName("Audi", "A4", "A4 B9 Base") → "Audi A4 B9 Base"
+             *   getVehicleName("Toyota", "RAV4", "RAV4 XA40 Base") → "Toyota RAV4 XA40 Base"
+             *   getVehicleName("Mazda", "Demio", "Sport") → "Mazda Demio Sport"
+             * 
+             * @param {string} make - Vehicle make (e.g., "Toyota")
+             * @param {string} model - Vehicle model (e.g., "Hilux")
+             * @param {string} variant - Vehicle variant/trim (e.g., "Hilux AN110/120 Base")
+             * @returns {string} Clean vehicle name
+             */
+            function getVehicleName(make, model, variant) {
+                // Clean up inputs
+                const cleanMake = (make || '').trim();
+                const cleanModel = (model || '').trim();
+                const cleanVariant = (variant || '').trim();
+                
+                // If no variant, just return make + model
+                if (!cleanVariant) {
+                    return `${cleanMake} ${cleanModel}`.trim();
+                }
+                
+                // Check if variant starts with the model name (case insensitive)
+                // This handles: "Hilux AN110/120 Base" → starts with "Hilux"
+                const variantWords = cleanVariant.split(/\s+/);
+                const firstWord = variantWords[0] || '';
+                
+                if (firstWord.toLowerCase() === cleanModel.toLowerCase()) {
+                    // Variant already includes model name → don't duplicate it
+                    return `${cleanMake} ${cleanVariant}`.trim();
+                }
+                
+                // Variant doesn't include model name → include it
+                return `${cleanMake} ${cleanModel} ${cleanVariant}`.trim();
             }
 
             // ─── IMAGE VALIDATION ──────────────────────────────────────
@@ -1978,25 +2018,52 @@
                     return;
                 }
 
+                // ─── TRACK SEEN VARIANTS TO PREVENT DUPLICATES ───
+                const seen = new Map();
+
                 variants.forEach(v => {
+                    let label = v.variant || 'Variant';
+                    
+                    // Clean: Remove duplicate model names
+                    // "Hilux Hilux AN110/120" → "Hilux AN110/120"
+                    const parts = label.split(' ');
+                    if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
+                        parts.splice(0, 1);
+                        label = parts.join(' ');
+                    }
+                    
+                    // Check for duplicates by cleaned name
+                    const key = label.trim().toLowerCase();
+                    if (seen.has(key)) return;
+                    seen.set(key, true);
+                    
                     const opt = document.createElement('option');
                     opt.value = v.variant_id;
-                    let label = v.variant || 'Variant';
-                    if (v.engine_size_cc) label += ` ${v.engine_size_cc}cc`;
-                    if (v.power_hp) label += ` ${v.power_hp}hp`;
-                    if (v.fuel_type) label += ` (${v.fuel_type})`;
-                    if (v.transmission) label += ` ${v.transmission}`;
-                    opt.textContent = label;
+                    
+                    // Build display label with specs
+                    let displayLabel = label;
+                    if (v.engine_size_cc) displayLabel += ` ${v.engine_size_cc}cc`;
+                    if (v.power_hp) displayLabel += ` ${v.power_hp}hp`;
+                    if (v.fuel_type) displayLabel += ` (${v.fuel_type})`;
+                    if (v.transmission) displayLabel += ` ${v.transmission}`;
+                    
+                    opt.textContent = displayLabel;
                     select.appendChild(opt);
                 });
 
                 select.disabled = false;
-                setStatus('success', `✅ Loaded ${variants.length} variants`);
+                setStatus('success', `✅ Loaded ${seen.size} unique variants`);
             }
 
             // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
             function displayVehicleInfo(variant) {
-                const label = `${variant.make || ''} ${variant.model || ''} ${variant.variant || ''}`.trim();
+                // ─── USE getVehicleName() TO PREVENT DUPLICATES ───
+                const label = getVehicleName(
+                    variant.make || '',
+                    variant.model || '',
+                    variant.variant || ''
+                );
+                
                 el.vehicleLabel.textContent = label || 'Unnamed variant';
                 el.fuelPill.textContent = variant.fuel_type || '—';
                 el.transmissionPill.textContent = variant.transmission || '—';
@@ -2639,6 +2706,7 @@
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log('📸 Vehicle photo validation enabled - only real vehicle images accepted');
                     console.log('📸 Images will appear in the valuation report');
+                    console.log('🔧 getVehicleName() enabled - prevents duplicate model names');
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
