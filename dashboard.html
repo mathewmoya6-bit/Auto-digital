@@ -453,7 +453,7 @@
             gap: 8px;
         }
         .request-card .request-id {
-            font-family: var(--font-mono);
+            font-family: 'JetBrains Mono', monospace;
             font-size: 12px;
             color: var(--text-muted);
         }
@@ -468,6 +468,7 @@
         .request-card .request-status.paid { background: rgba(34, 197, 94, 0.12); color: var(--success); }
         .request-card .request-status.completed { background: rgba(59, 130, 246, 0.12); color: var(--blue); }
         .request-card .request-status.failed { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
+        .request-card .request-status.cancelled { background: rgba(100, 116, 139, 0.12); color: var(--text-muted); }
         .request-card .request-details {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
@@ -1145,11 +1146,14 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD
-        // Payment flow hardened: service page ONLY opens after the backend
-        // has confirmed the payment via /mpesa/confirm. Every other path
-        // (poll timeout, poll failure, confirm failure, modal close, retry)
-        // is guarded so it can never call redirectToService().
+        // AUTO-D KENYA - DASHBOARD (FIXED)
+        // Business Logic Fixes:
+        // 1. Service unlock ONLY after backend confirms payment success
+        // 2. Redirect to service page only after confirmation
+        // 3. Proper request creation with Supabase
+        // 4. Payment flow with polling and manual confirmation fallback
+        // 5. Stats derived from actual data
+        // 6. Vehicle management with CRUD operations
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1199,16 +1203,11 @@
             let pollTimer = null;
             let isWaitingForPayment = false;
 
-            // ⭐ Single source of truth for "is it safe to unlock/redirect".
-            // This is a per-checkout token, not a boolean, so a stale
-            // confirmation from an old/cancelled flow can never unlock a
-            // different, later checkout.
+            // ⭐ Single source of truth for "is it safe to unlock/redirect"
             let confirmedCheckoutId = null;
-            // Guards against unlockServiceAfterPayment() firing twice for
-            // the same checkout (e.g. poll success + manual retry racing).
             let unlockInFlightFor = null;
 
-            const MAX_POLLING_ATTEMPTS = 60; // 60 * 2s = 2 minutes max
+            const MAX_POLLING_ATTEMPTS = 60;
 
             // ─── DOM Refs ──────────────────────────────────────────────
             const vehicleGrid = document.getElementById('vehicleGrid');
@@ -1263,10 +1262,7 @@
                 });
             }
 
-            // ⭐ The ONLY function allowed to navigate the user to a service
-            // page. It re-checks the confirmedCheckoutId token right before
-            // navigating so nothing upstream can accidentally trigger a
-            // redirect without a confirmed payment for THIS checkout.
+            // ⭐ The ONLY function allowed to navigate to a service page
             function redirectToService(serviceId, checkoutId) {
                 if (checkoutId !== undefined && checkoutId !== confirmedCheckoutId) {
                     console.error('🚫 Blocked redirect: checkout not confirmed', { serviceId, checkoutId, confirmedCheckoutId });
@@ -1339,39 +1335,6 @@
                 } catch (error) {
                     console.error('❌ Supabase init error:', error);
                     return false;
-                }
-            }
-
-            async function supabaseRequest(table, select = '*', filters = {}, order = null) {
-                try {
-                    if (!supabaseClient) {
-                        if (!initSupabase()) {
-                            throw new Error('Supabase not initialized');
-                        }
-                    }
-                    let query = supabaseClient.from(table).select(select);
-                    Object.keys(filters).forEach(key => {
-                        query = query.eq(key, filters[key]);
-                    });
-                    if (order) {
-                        query = query.order(order.column, { ascending: order.ascending || false });
-                    }
-                    const { data, error } = await query;
-                    if (error) {
-                        if (error.code === 'PGRST205') {
-                            console.log(`ℹ️ Table "${table}" not found, using empty data`);
-                            return [];
-                        }
-                        throw error;
-                    }
-                    return data || [];
-                } catch (error) {
-                    if (error.code === 'PGRST205') {
-                        console.log(`ℹ️ Table "${table}" not found, returning empty array`);
-                        return [];
-                    }
-                    console.error(`❌ Supabase query error (${table}):`, error);
-                    return [];
                 }
             }
 
@@ -1466,10 +1429,6 @@
                     return;
                 }
 
-                // This is the ONLY place a service can be opened without a
-                // fresh payment: `purchased` here comes straight from the
-                // backend's /mpesa/user/services list fetched on page load,
-                // never from client-side state set during a payment attempt.
                 const isPurchased = service.purchased || service.status === 'purchased' || service.status === 'active';
 
                 if (isPurchased) {
@@ -1490,8 +1449,7 @@
             };
 
             // ============================================================
-            // PAYMENT STATUS POLLING - CORRECT FLOW
-            // ⭐ ONLY UNLOCKS SERVICE AFTER BACKEND CONFIRMS SUCCESS
+            // PAYMENT STATUS POLLING
             // ============================================================
 
             async function waitForPayment(checkoutId, serviceId, maxAttempts = MAX_POLLING_ATTEMPTS) {
@@ -1509,9 +1467,6 @@
                     }
 
                     pollTimer = setInterval(async () => {
-                        // If the modal/flow was cancelled out from under us
-                        // (e.g. user closed the modal), stop immediately and
-                        // never touch the unlock path.
                         if (!isWaitingForPayment || checkoutRequestId !== checkoutId) {
                             clearInterval(pollTimer);
                             pollTimer = null;
@@ -1529,7 +1484,6 @@
                                 statusDetail.textContent = `Please check your phone and enter your M-Pesa PIN. (${Math.round(attempts * 2)}s)`;
                             }
 
-                            // ─── POLL PAYMENT STATUS (read-only) ───
                             const pollToken = await getAuthToken();
                             const headers = { 'Accept': 'application/json' };
                             if (pollToken) {
@@ -1571,7 +1525,6 @@
                             const statusData = await statusResponse.json();
                             const normalized = normalizeStatus(statusData.status);
 
-                            // ─── CHECK STATUS ───
                             if (normalized === 'completed' || normalized === 'success' || normalized === 'paid' ||
                                 normalized === 'complete' || isTruthyFlag(statusData.success)) {
 
@@ -1584,10 +1537,6 @@
 
                                 showToast('✅ Payment received, confirming...', 'success');
 
-                                // ⭐ We still MUST hit /mpesa/confirm and get a
-                                // truthy result before doing anything that
-                                // looks like "unlocked". Status alone is not
-                                // sufficient authority to unlock.
                                 const confirmed = await unlockServiceAfterPayment(checkoutId, serviceId);
                                 resolve(confirmed);
                                 return;
@@ -1608,7 +1557,6 @@
                                 return;
                             }
 
-                            // ─── TIMEOUT ───
                             if (attempts >= maxAttempts) {
                                 isComplete = true;
                                 clearInterval(pollTimer);
@@ -1648,23 +1596,16 @@
                                 resolve(false);
                             }
                         }
-                    }, 2000); // Poll every 2 seconds
+                    }, 2000);
                 });
             }
 
-            // ─── ⭐ UNLOCK SERVICE - the single gate that can mark a
-            // checkout as confirmed. Manual confirm and the poller both
-            // route through here, and it's idempotent per checkoutId so
-            // it can't double-fire or race with itself.
-            // Returns true only if the backend genuinely confirmed.
+            // ⭐ Unlock service - only after backend confirms success
             async function unlockServiceAfterPayment(checkoutId, serviceId) {
                 if (unlockInFlightFor === checkoutId) {
-                    // Already confirming this exact checkout elsewhere; don't
-                    // fire a second overlapping confirm call.
                     return confirmedCheckoutId === checkoutId;
                 }
                 if (confirmedCheckoutId === checkoutId) {
-                    // Already confirmed earlier in this session.
                     return true;
                 }
                 unlockInFlightFor = checkoutId;
@@ -1676,7 +1617,7 @@
                         return false;
                     }
 
-                    // ─── CONFIRM PAYMENT WITH BACKEND (the only source of truth) ───
+                    // ⭐ CONFIRM WITH BACKEND (the only source of truth)
                     const response = await fetch(`${API_BASE}/mpesa/confirm/${encodeURIComponent(checkoutId)}`, {
                         method: 'POST',
                         headers: {
@@ -1708,10 +1649,10 @@
                         return false;
                     }
 
-                    // ⭐ Mark THIS checkout, and only this checkout, as confirmed.
+                    // ⭐ Mark THIS checkout as confirmed
                     confirmedCheckoutId = checkoutId;
 
-                    // ─── UPDATE LOCAL STATE (display only, not authority) ───
+                    // Update local state
                     if (dashboardData && dashboardData.services) {
                         const svc = dashboardData.services.find(s => s.id === serviceId);
                         if (svc) {
@@ -1736,7 +1677,7 @@
                     updateWorkflowStep(5);
                     isWaitingForPayment = false;
 
-                    // ─── CLOSE AND REDIRECT (only path that can navigate) ───
+                    // ⭐ CLOSE AND REDIRECT (only path that can navigate)
                     setTimeout(() => {
                         if (overlay) overlay.classList.remove('open');
                         closePaymentModal({ keepConfirmed: true });
@@ -1758,7 +1699,6 @@
                 }
             }
 
-            // ─── MANUAL CONFIRM (fallback, e.g. after timeout) ───
             window.manualConfirmPayment = async function(checkoutId, serviceId) {
                 const statusText = document.getElementById('paymentStatusText');
                 const statusDetail = document.getElementById('paymentStatusDetail');
@@ -1786,7 +1726,7 @@
                 }
 
                 isWaitingForPayment = true;
-                const result = await waitForPayment(checkoutId, serviceId, 20); // 20 more attempts
+                const result = await waitForPayment(checkoutId, serviceId, 20);
                 if (!result) {
                     if (statusText) statusText.textContent = '⏳ Still waiting...';
                     if (statusDetail) {
@@ -1821,22 +1761,23 @@
                         servicesGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
                     }
 
-                    // ─── 1. Use hardcoded services ───
                     let services = DEFAULT_SERVICES.map(s => ({ ...s }));
                     console.log('📋 Using hardcoded services:', services);
 
-                    // ─── 2. Fetch vehicles ───
                     let vehicles = [];
                     try {
                         if (currentUser) {
-                            const vehiclesData = await supabaseRequest('vehicles', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
-                            vehicles = vehiclesData || [];
+                            const { data, error } = await supabaseClient
+                                .from('vehicles')
+                                .select('*')
+                                .eq('user_id', currentUser.id)
+                                .order('created_at', { ascending: false });
+                            if (!error) vehicles = data || [];
                         }
                     } catch (e) {
                         console.warn('Could not fetch vehicles:', e.message);
                     }
 
-                    // ─── 3. Fetch payments from backend ───
                     let payments = [];
                     try {
                         const payToken = await getAuthToken();
@@ -1853,7 +1794,6 @@
                         console.warn('Could not fetch payments from backend:', e.message);
                     }
 
-                    // ─── 4. Fetch unlocked services from backend (source of truth) ───
                     let unlockedServiceIds = [];
                     try {
                         const svcToken = await getAuthToken();
@@ -1871,29 +1811,34 @@
                         console.warn('Could not fetch user services from backend:', e.message);
                     }
 
-                    // ─── 5. Fetch requests ───
                     let requests = [];
                     try {
                         if (currentUser) {
-                            const requestsData = await supabaseRequest('requests', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
-                            requests = requestsData || [];
+                            const { data, error } = await supabaseClient
+                                .from('requests')
+                                .select('*')
+                                .eq('user_id', currentUser.id)
+                                .order('created_at', { ascending: false });
+                            if (!error) requests = data || [];
                         }
                     } catch (e) {
                         console.warn('Could not fetch requests:', e.message);
                     }
 
-                    // ─── 6. Fetch notifications ───
                     let notifications = [];
                     try {
                         if (currentUser) {
-                            const notifsData = await supabaseRequest('notifications', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
-                            notifications = notifsData || [];
+                            const { data, error } = await supabaseClient
+                                .from('notifications')
+                                .select('*')
+                                .eq('user_id', currentUser.id)
+                                .order('created_at', { ascending: false });
+                            if (!error) notifications = data || [];
                         }
                     } catch (e) {
                         console.warn('Could not fetch notifications:', e.message);
                     }
 
-                    // ─── Apply unlocked status (backend is authority) ───
                     const unlockedSet = new Set(unlockedServiceIds);
                     services = services.map(s => ({
                         ...s,
@@ -2056,7 +2001,8 @@
                         'pending': { class: 'pending', label: '⏳ Pending Payment' },
                         'paid': { class: 'paid', label: '✅ Paid - Ready' },
                         'completed': { class: 'completed', label: '📄 Completed' },
-                        'failed': { class: 'failed', label: '❌ Failed' }
+                        'failed': { class: 'failed', label: '❌ Failed' },
+                        'cancelled': { class: 'cancelled', label: '🗑️ Cancelled' }
                     };
                     const status = statusMap[r.status] || statusMap['pending'];
                     const serviceName = SERVICE_NAMES[r.service_id] || r.service_id || r.service_name || 'Service';
@@ -2205,9 +2151,11 @@
             window.createRequest = async function() {
                 const vehicleSelect = document.getElementById('requestVehicle');
                 const serviceSelect = document.getElementById('requestService');
+                const notesEl = document.getElementById('requestNotes');
 
                 const vehicleId = vehicleSelect ? vehicleSelect.value : '';
                 const serviceId = serviceSelect ? serviceSelect.value : '';
+                const notes = notesEl ? notesEl.value.trim() : '';
 
                 if (!vehicleId) {
                     showToast('Please select a vehicle', 'error');
@@ -2242,6 +2190,7 @@
                                 service_id: serviceId,
                                 service_name: service.name || serviceId,
                                 amount: service.price || 0,
+                                notes: notes,
                                 status: 'pending',
                                 created_at: new Date().toISOString()
                             })
@@ -2324,14 +2273,11 @@
             };
 
             // ============================================================
-            // PAYMENT FUNCTIONS - CORRECT FLOW
-            // ⭐ SERVICE PAGES ONLY OPEN AFTER BACKEND CONFIRMS SUCCESS
+            // PAYMENT FUNCTIONS
             // ============================================================
 
             window.openPaymentModal = function(service) {
                 selectedService = service;
-                // Starting a fresh payment attempt: clear any previously
-                // confirmed checkout so it can't leak into this new flow.
                 confirmedCheckoutId = null;
                 checkoutRequestId = null;
                 unlockInFlightFor = null;
@@ -2367,9 +2313,6 @@
                 pendingRequestId = null;
                 isProcessingPayment = false;
                 isWaitingForPayment = false;
-                // Don't wipe confirmedCheckoutId here if we're closing the
-                // modal as *part of* a successful unlock (the redirect still
-                // needs to check it in redirectToService).
                 if (!opts.keepConfirmed) {
                     confirmedCheckoutId = null;
                 }
@@ -2432,7 +2375,7 @@
                 if (!token) return;
 
                 isProcessingPayment = true;
-                confirmedCheckoutId = null; // fresh attempt, not confirmed yet
+                confirmedCheckoutId = null;
                 if (payBtn) {
                     payBtn.disabled = true;
                     payBtn.textContent = '⏳ Processing...';
@@ -2502,13 +2445,10 @@
                     }
                     showToast('📱 STK Push sent! Check your phone.', 'info');
 
-                    // ─── ⭐ CORRECT: Wait for payment confirmation ───
                     isWaitingForPayment = true;
                     const paymentSuccess = await waitForPayment(checkoutId, targetServiceId);
 
                     if (!paymentSuccess) {
-                        // Payment failed, timed out, or was cancelled - user
-                        // stays on the dashboard, nothing is unlocked.
                         if (payBtn) {
                             payBtn.disabled = false;
                             payBtn.textContent = '💳 Pay Now';
