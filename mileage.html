@@ -1358,7 +1358,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v6.1
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v6.2
             </div>
         </footer>
     </div>
@@ -1366,7 +1366,7 @@
     <script>
         // ================================================================
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 6.1 - Improved with retry logic, caching, validation
+        // Version 6.2 - Fixed: KES 0.00 issue with improved price estimation
         // ================================================================
 
         (function() {
@@ -1395,7 +1395,6 @@
             let debounceTimer = null;
             let isUnlocked = false;
             let authCheckInterval = null;
-            let vehicleCache = null;
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1548,6 +1547,60 @@
                 if (el.progressContainer) {
                     el.progressContainer.classList.remove('show');
                 }
+            }
+
+            // ─── PRICE ESTIMATOR ─────────────────────────────────────
+            function estimateVehiclePrice(variant) {
+                const baseEstimates = {
+                    'SUV': 4500000,
+                    'Sedan': 3500000,
+                    'Hatchback': 2500000,
+                    'Pickup': 4000000,
+                    'Van': 3800000,
+                    'Truck': 6000000,
+                    'Bus': 8000000,
+                    'Motorcycle': 300000,
+                    'Crossover': 3800000,
+                    'Coupe': 5000000,
+                    'Convertible': 5500000,
+                    'Wagon': 3200000,
+                    'Minivan': 3500000
+                };
+                
+                const bodyType = variant.body_type_name || variant.model_body_type || 'Sedan';
+                let price = baseEstimates[bodyType] || baseEstimates['Sedan'];
+                
+                // Adjust for engine size
+                const engineCC = variant.engine_size_cc || 2000;
+                if (engineCC > 4000) price *= 1.5;
+                else if (engineCC > 3000) price *= 1.3;
+                else if (engineCC > 2000) price *= 1.15;
+                else if (engineCC > 1500) price *= 1.0;
+                else if (engineCC > 1200) price *= 0.85;
+                else price *= 0.7;
+                
+                // Adjust for luxury makes
+                const luxuryMakes = ['Mercedes', 'BMW', 'Audi', 'Lexus', 'Porsche', 'Range Rover', 'Jaguar', 'Volvo', 'Land Rover'];
+                const economyMakes = ['Toyota', 'Honda', 'Nissan', 'Mazda', 'Suzuki', 'Mitsubishi', 'Hyundai', 'Kia', 'Ford', 'Chevrolet'];
+                const makeName = variant.make_name || '';
+                
+                if (luxuryMakes.some(m => makeName.includes(m))) {
+                    price *= 1.4;
+                } else if (economyMakes.some(m => makeName.includes(m))) {
+                    price *= 0.9;
+                }
+                
+                // Adjust for fuel type
+                const fuelType = variant.fuel_type_name || '';
+                if (fuelType.toLowerCase() === 'electric') {
+                    price *= 1.3;
+                } else if (fuelType.toLowerCase() === 'hybrid') {
+                    price *= 1.2;
+                } else if (fuelType.toLowerCase() === 'diesel') {
+                    price *= 1.1;
+                }
+                
+                return Math.round(price);
             }
 
             // ─── RETRY LOGIC ─────────────────────────────────────────
@@ -2092,9 +2145,26 @@
                     { label: '🏷️', value: variant.category_name || '—' }
                 ];
 
-                if (tcoData) {
-                    specItems.push({ label: '💰 New Price', value: `KES ${formatCurrency(tcoData.purchase_price || 0)}` });
-                    specItems.push({ label: '📊 Cost/km', value: `KES ${formatCurrency(tcoData.cost_per_km || 0)}/km` });
+                // ─── FIXED: Show price with better fallback ──────────
+                const price = tcoData?.purchase_price || 0;
+                const costPerKm = tcoData?.cost_per_km || 0;
+                
+                if (price > 0) {
+                    specItems.push({ label: '💰 New Price', value: `KES ${formatCurrency(price)}` });
+                } else {
+                    // Use estimated price
+                    const estimatedPrice = estimateVehiclePrice(variant);
+                    specItems.push({ label: '💰 Est. Price', value: `KES ${formatCurrency(estimatedPrice)}` });
+                }
+                
+                if (costPerKm > 0) {
+                    specItems.push({ label: '📊 Cost/km', value: `KES ${formatCurrency(costPerKm)}/km` });
+                } else {
+                    // Estimate cost per km from fuel consumption
+                    const fuelPrice = num(el.fuelPriceInput.value) || 200;
+                    const consumption = variant.fuel_consumption_combined || 12.5;
+                    const estCostPerKm = fuelPrice / consumption;
+                    specItems.push({ label: '📊 Est. Cost/km', value: `KES ${formatCurrency(estCostPerKm)}/km` });
                 }
 
                 el.vehicleSpecs.innerHTML = specItems.map(item =>
@@ -2125,25 +2195,21 @@
                 const annualKm = num(el.annualKmInput.value);
                 const fuelPrice = num(el.fuelPriceInput.value);
 
-                // Clear previous errors
                 document.querySelectorAll('.error-text').forEach(el => el.classList.remove('show'));
                 document.querySelectorAll('.form-group input, .form-group select').forEach(el => el.classList.remove('error'));
 
-                // Validate distance
                 if (distance <= 0 || distance > 100000) {
                     document.getElementById('distanceError').classList.add('show');
                     document.getElementById('distanceInput').classList.add('error');
                     isValid = false;
                 }
 
-                // Validate annual mileage
                 if (annualKm < 0 || annualKm > 200000) {
                     document.getElementById('annualKmError').classList.add('show');
                     document.getElementById('annualKmInput').classList.add('error');
                     isValid = false;
                 }
 
-                // Validate fuel price
                 if (fuelPrice < 0 || fuelPrice > 500) {
                     document.getElementById('fuelPriceError').classList.add('show');
                     document.getElementById('fuelPriceInput').classList.add('error');
@@ -2171,67 +2237,44 @@
                 const vehicleYear = parseInt(year) || currentYear;
                 const vehicleAge = Math.max(0, currentYear - vehicleYear);
 
-                // ─── INITIAL COST ─────────────────────────────────────
+                // ─── INITIAL COST - IMPROVED FALLBACK ──────────────
                 let basePrice = 0;
                 
                 if (tcoData?.purchase_price && tcoData.purchase_price > 0) {
                     basePrice = tcoData.purchase_price;
+                    console.log('✅ Using TCO purchase price:', basePrice);
                 } else {
-                    // Estimate based on vehicle type
-                    const baseEstimates = {
-                        'SUV': 4500000,
-                        'Sedan': 3500000,
-                        'Hatchback': 2500000,
-                        'Pickup': 4000000,
-                        'Van': 3800000,
-                        'Truck': 6000000,
-                        'Bus': 8000000,
-                        'Motorcycle': 300000
-                    };
-                    
-                    const bodyType = variant.body_type_name || variant.model_body_type || 'Sedan';
-                    let baseEstimate = baseEstimates[bodyType] || baseEstimates['Sedan'];
-                    
-                    // Adjust for engine size
-                    const engineCC = variant.engine_size_cc || 2000;
-                    if (engineCC > 3000) baseEstimate *= 1.3;
-                    else if (engineCC > 2000) baseEstimate *= 1.15;
-                    else if (engineCC < 1500) baseEstimate *= 0.8;
-                    
-                    // Adjust for luxury makes
-                    const luxuryMakes = ['Mercedes', 'BMW', 'Audi', 'Lexus', 'Porsche', 'Range Rover', 'Jaguar', 'Volvo'];
-                    const makeName = variant.make_name || '';
-                    if (luxuryMakes.some(m => makeName.includes(m))) {
-                        baseEstimate *= 1.4;
-                    }
-                    
-                    // Adjust for fuel type
-                    const fuelType = variant.fuel_type_name || '';
-                    if (fuelType.toLowerCase() === 'electric') {
-                        baseEstimate *= 1.25;
-                    } else if (fuelType.toLowerCase() === 'hybrid') {
-                        baseEstimate *= 1.15;
-                    } else if (fuelType.toLowerCase() === 'diesel') {
-                        baseEstimate *= 1.1;
-                    }
-                    
-                    basePrice = baseEstimate;
+                    // Use intelligent estimation
+                    console.log('⚠️ No TCO data found, using estimate');
+                    basePrice = estimateVehiclePrice(variant);
+                    console.log('📊 Estimated price:', basePrice);
                 }
 
-                // ─── MILEAGE-ADJUSTED DEPRECIATION ──────────────────
-                // High mileage = faster depreciation
+                // Ensure minimum price
+                if (basePrice <= 0) {
+                    basePrice = 2500000;
+                    console.warn('⚠️ Using absolute fallback price:', basePrice);
+                }
+
+                // ─── DEPRECIATION RATE ──────────────────────────────
+                let depRate = 0.20;
+                
+                if (tcoData?.depreciation_rate_year_1 && tcoData.depreciation_rate_year_1 > 0) {
+                    depRate = tcoData.depreciation_rate_year_1;
+                }
+                
+                const ageDepAdjust = Math.min(vehicleAge * 0.01, 0.06);
+                depRate = Math.max(0.08, depRate - ageDepAdjust);
+                
                 const mileageFactor = Math.min(annual / 15000, 2.0);
-                let baseDepRate = tcoData?.depreciation_rate_year_1 || 0.20;
-                const ageFactor = Math.max(0.5, 1 - (vehicleAge * 0.05));
-                let adjustedDepRate = baseDepRate * mileageFactor * ageFactor;
-                adjustedDepRate = Math.max(0.08, Math.min(adjustedDepRate, 0.35));
+                depRate = Math.min(0.35, depRate * Math.sqrt(mileageFactor));
 
                 // ─── AGE-ADJUSTED CURRENT VALUE ────────────────────
                 let currentValue = basePrice;
                 for (let i = 0; i < vehicleAge; i++) {
-                    const yearlyDep = adjustedDepRate * (1 + i * 0.015);
-                    const yearDepAmount = currentValue * Math.min(yearlyDep, 0.25);
-                    currentValue = currentValue - yearDepAmount;
+                    const yearlyRate = depRate * (1 - i * 0.02);
+                    const yearDep = currentValue * Math.min(Math.max(yearlyRate, 0.05), 0.30);
+                    currentValue = currentValue - yearDep;
                 }
                 
                 const minResidual = basePrice * 0.15;
@@ -2273,7 +2316,7 @@
                 const insuranceTrip = insurancePerKm * d;
 
                 // ─── DEPRECIATION PER KM ────────────────────────────
-                const annualDepreciation = basePriceForCalc * adjustedDepRate;
+                const annualDepreciation = basePriceForCalc * depRate;
                 const depreciationPerKm = annualDepreciation / annual;
                 const depreciationTrip = depreciationPerKm * d;
 
@@ -2299,7 +2342,7 @@
                 let total5YearCost = 0;
 
                 for (let y = 1; y <= 5; y++) {
-                    const depRateYear = adjustedDepRate * (1 - (y - 1) * 0.015);
+                    const depRateYear = depRate * (1 - (y - 1) * 0.015);
                     const yearlyDepreciation = remainingValue * Math.min(Math.max(depRateYear, 0.06), 0.25);
                     remainingValue = remainingValue - yearlyDepreciation;
 
@@ -2359,7 +2402,7 @@
                     total5YearCost,
                     remainingValue: fiveYearData[fiveYearData.length - 1]?.value || 0,
                     variant: variant,
-                    depreciation_rate: adjustedDepRate,
+                    depreciation_rate: depRate,
                     tcoData: tcoData,
                     mileageFactor: mileageFactor
                 };
@@ -2660,7 +2703,6 @@
                     return;
                 }
 
-                // Validate inputs
                 if (!validateInputs()) {
                     return;
                 }
@@ -2674,10 +2716,8 @@
                     return;
                 }
 
-                // Show progress
                 showProgress(10, 'Loading vehicle data...');
 
-                // Try to get TCO data
                 let tcoData = null;
                 if (variant.variant_id) {
                     showProgress(30, 'Fetching ownership data...');
@@ -2903,7 +2943,6 @@
                      el.tripType, el.usageType,
                      el.yearSelect].forEach(elem => {
                         elem.addEventListener(evt, function() {
-                            // Clear error state on change
                             this.classList.remove('error');
                             const errorEl = document.getElementById(this.id + 'Error');
                             if (errorEl) errorEl.classList.remove('show');
@@ -2923,7 +2962,6 @@
                     const km = parseInt(chip.dataset.km, 10);
                     if (!isNaN(km) && km > 0) {
                         el.distanceInput.value = km;
-                        // Clear error
                         el.distanceInput.classList.remove('error');
                         document.getElementById('distanceError')?.classList.remove('show');
                         if (el.variantSelect.value && currentVariantData) {
@@ -2985,8 +3023,8 @@
                         }).catch(() => showToast('Share not available', 'error'));
                     }
                 });
+
                 el.exportBtn.addEventListener('click', function() {
-                    // Get current result from the rendered data
                     const result = currentVariantData ? {
                         tripTotal: num(el.tripTotal.textContent.replace(/,/g, '')),
                         tripCostPerKm: parseFloat(el.perkmGrid.querySelector('.highlight .value')?.textContent?.replace(/[^0-9.]/g, '') || 0),
@@ -3025,7 +3063,6 @@
                     }
                 });
 
-                // ─── CLEANUP: Remove intervals on page unload ───
                 window.addEventListener('beforeunload', function() {
                     if (authCheckInterval) {
                         clearInterval(authCheckInterval);
@@ -3037,7 +3074,6 @@
                     }
                 });
 
-                // ─── AUTH CHECK INTERVAL ────────────────────────────
                 authCheckInterval = setInterval(async () => {
                     const wasAuthenticated = isAuthenticated;
                     await checkAuth();
@@ -3086,11 +3122,10 @@
                     showProgress(100, 'Ready!');
                     setTimeout(hideProgress, 500);
 
-                    console.log('✅ Auto-D Kenya Mileage Calculator initialized (v6.1)');
+                    console.log('✅ Auto-D Kenya Mileage Calculator initialized (v6.2)');
                     console.log('📡 Using views: vehicle_master_specs + vehicle_ownership_cost_complete');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
-                    console.log('🔄 Retry logic enabled, max retries:', CONFIG.MAX_RETRIES);
-                    console.log('💾 Cache enabled, duration:', CONFIG.CACHE_DURATION / 60000, 'minutes');
+                    console.log('🔧 Fixed: KES 0.00 issue with improved price estimation');
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
