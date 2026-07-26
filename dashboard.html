@@ -953,13 +953,13 @@
             <div class="workflow-step" id="step4">
                 <span class="step-num">04</span>
                 <span class="step-icon">✅</span>
-                <span>Generate Report</span>
+                <span>Confirm Payment</span>
             </div>
             <span class="workflow-arrow">→</span>
             <div class="workflow-step" id="step5">
                 <span class="step-num">05</span>
                 <span class="step-icon">🎯</span>
-                <span>Mark Used</span>
+                <span>Access Service</span>
             </div>
         </div>
 
@@ -1146,7 +1146,7 @@
     <script>
         // ════════════════════════════════════════════════════════════════
         // AUTO-D KENYA - DASHBOARD
-        // FIX: Correct payment flow - unlock ONLY after backend confirms SUCCESS
+        // FIXED: Correct payment flow - UNLOCK ONLY after backend confirms SUCCESS
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1195,6 +1195,7 @@
             let pendingRequestId = null;
             let pollTimer = null;
             let isWaitingForPayment = false;
+            let isPaymentConfirmed = false; // ⭐ CRITICAL: Only true when backend confirms
             const MAX_POLLING_ATTEMPTS = 60; // 60 * 2s = 2 minutes max
 
             // ─── DOM Refs ──────────────────────────────────────────────
@@ -1466,6 +1467,7 @@
 
             // ============================================================
             // PAYMENT STATUS POLLING - CORRECT FLOW
+            // ⭐ ONLY UNLOCKS SERVICE AFTER BACKEND CONFIRMS SUCCESS
             // ============================================================
 
             async function waitForPayment(checkoutId, serviceId, maxAttempts = MAX_POLLING_ATTEMPTS) {
@@ -1540,8 +1542,9 @@
                             // ─── CHECK STATUS ───
                             if (normalized === 'completed' || normalized === 'success' || normalized === 'paid' || 
                                 normalized === 'complete' || isTruthyFlag(statusData.success)) {
-                                // ─── SUCCESS! ───
+                                // ─── ✅ SUCCESS! BACKEND CONFIRMED ───
                                 isComplete = true;
+                                isPaymentConfirmed = true; // ⭐ CRITICAL FLAG
                                 clearInterval(pollTimer);
                                 pollTimer = null;
 
@@ -1557,14 +1560,14 @@
 
                                 showToast('✅ Payment received successfully!', 'success');
 
-                                // ─── UNLOCK SERVICE ───
+                                // ─── ⭐ UNLOCK SERVICE - ONLY CALLED HERE ───
                                 await unlockServiceAfterPayment(checkoutId, serviceId);
                                 resolve(true);
                                 return;
 
                             } else if (normalized === 'failed' || normalized === 'error' || normalized === 'cancelled' || 
                                        normalized === 'canceled' || normalized === 'timeout') {
-                                // ─── FAILURE ───
+                                // ─── ❌ FAILURE ───
                                 isComplete = true;
                                 clearInterval(pollTimer);
                                 pollTimer = null;
@@ -1630,7 +1633,7 @@
                 });
             }
 
-            // ─── UNLOCK SERVICE - ONLY CALLED AFTER SUCCESSFUL PAYMENT ───
+            // ─── ⭐ UNLOCK SERVICE - ONLY CALLED AFTER SUCCESSFUL PAYMENT ───
             async function unlockServiceAfterPayment(checkoutId, serviceId) {
                 try {
                     const token = await getAuthToken();
@@ -1677,7 +1680,7 @@
                         }
 
                         showToast(`✅ ${selectedService?.name || 'Service'} unlocked successfully!`, 'success');
-                        updateWorkflowStep(4);
+                        updateWorkflowStep(5);
 
                         // ─── CLOSE AND REDIRECT ───
                         setTimeout(() => {
@@ -2270,10 +2273,12 @@
 
             // ============================================================
             // PAYMENT FUNCTIONS - CORRECT FLOW
+            // ⭐ SERVICE PAGES ONLY OPEN AFTER BACKEND CONFIRMS SUCCESS
             // ============================================================
 
             window.openPaymentModal = function(service) {
                 selectedService = service;
+                isPaymentConfirmed = false; // Reset confirmation flag
                 const nameEl = document.getElementById('paymentServiceName');
                 const amountEl = document.getElementById('paymentAmount');
                 const totalEl = document.getElementById('paymentTotal');
@@ -2304,6 +2309,7 @@
                 pendingRequestId = null;
                 isProcessingPayment = false;
                 isWaitingForPayment = false;
+                isPaymentConfirmed = false;
                 if (pollTimer) {
                     clearInterval(pollTimer);
                     pollTimer = null;
@@ -2319,6 +2325,7 @@
                     const spinner = document.getElementById('paymentSpinner');
                     if (spinner) spinner.style.display = 'block';
                 }
+                updateWorkflowStep(3);
             };
 
             window.processPayment = async function() {
@@ -2362,6 +2369,7 @@
                 if (!token) return;
 
                 isProcessingPayment = true;
+                isPaymentConfirmed = false; // Reset confirmation flag
                 if (payBtn) {
                     payBtn.disabled = true;
                     payBtn.textContent = '⏳ Processing...';
@@ -2425,7 +2433,7 @@
                     }
                     showToast('📱 STK Push sent! Check your phone.', 'info');
 
-                    // ─── CORRECT: Wait for payment confirmation ───
+                    // ─── ⭐ CORRECT: Wait for payment confirmation ───
                     isWaitingForPayment = true;
                     const paymentSuccess = await waitForPayment(checkoutId, targetServiceId);
 
@@ -2437,6 +2445,7 @@
                         }
                         isProcessingPayment = false;
                         isWaitingForPayment = false;
+                        updateWorkflowStep(3);
                     }
 
                 } catch (error) {
@@ -2633,7 +2642,7 @@
                 console.log('🚗 Auto-D Kenya Dashboard');
                 console.log('📋 Using hardcoded services: mileage=100, valuation=150, ownership=200');
                 console.log('🔗 API Base:', API_BASE);
-                console.log('✅ Payment flow: UNLOCK ONLY after backend confirms SUCCESS');
+                console.log('✅ ⭐ CORRECT FLOW: UNLOCK ONLY after backend confirms SUCCESS');
 
                 initSupabase();
 
