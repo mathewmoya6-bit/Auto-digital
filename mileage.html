@@ -559,6 +559,12 @@
         }
         .perkm-item .label { color: #64748b; }
         .perkm-item .value { font-weight: 600; }
+        .perkm-item.highlight {
+            background: rgba(234, 179, 8, 0.08);
+            border-color: #eab308;
+        }
+        .perkm-item.highlight .label { color: #eab308; font-weight: 700; }
+        .perkm-item.highlight .value { color: #eab308; font-weight: 700; }
 
         .commercial-grid {
             display: grid;
@@ -1290,7 +1296,6 @@
     <script>
         // ================================================================
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Data-driven - uses vehicle_ownership_cost_complete view
         // ================================================================
 
         (function() {
@@ -1925,8 +1930,8 @@
                 ];
 
                 if (tcoData) {
-                    specItems.push({ label: '💰', value: `KES ${formatCurrency(tcoData.purchase_price || 0)}` });
-                    specItems.push({ label: '📊', value: `KES ${formatCurrency(tcoData.cost_per_km || 0)}/km` });
+                    specItems.push({ label: '💰 New Price', value: `KES ${formatCurrency(tcoData.purchase_price || 0)}` });
+                    specItems.push({ label: '📊 Cost/km', value: `KES ${formatCurrency(tcoData.cost_per_km || 0)}/km` });
                 }
 
                 el.vehicleSpecs.innerHTML = specItems.map(item =>
@@ -1950,7 +1955,7 @@
                 });
             }
 
-            // ─── CALCULATION ENGINE ────────────────────────────────────
+            // ─── IMPROVED CALCULATION ENGINE ────────────────────────────
             function calculateRunningCost(variant, inputs, tcoData) {
                 if (!variant) return null;
 
@@ -1960,14 +1965,85 @@
 
                 if (d <= 0) return null;
 
-                const vehicleAge = getVehicleAge(year);
-                const basePrice = tcoData?.purchase_price || 3500000;
-                const depRate = tcoData?.depreciation_rate_year_1 || 0.25;
+                const currentYear = new Date().getFullYear();
+                const vehicleYear = parseInt(year) || currentYear;
+                const vehicleAge = Math.max(0, currentYear - vehicleYear);
 
-                const ageAdjustedCost = basePrice * Math.pow(1 - depRate, vehicleAge);
-                const basePriceForCalc = Math.max(ageAdjustedCost, basePrice * 0.15);
+                // ─── INITIAL COST ─────────────────────────────────────
+                let basePrice = 0;
+                
+                if (tcoData?.purchase_price && tcoData.purchase_price > 0) {
+                    basePrice = tcoData.purchase_price;
+                } else {
+                    // Estimate based on vehicle type
+                    const baseEstimates = {
+                        'SUV': 4500000,
+                        'Sedan': 3500000,
+                        'Hatchback': 2500000,
+                        'Pickup': 4000000,
+                        'Van': 3800000,
+                        'Truck': 6000000,
+                        'Bus': 8000000,
+                        'Motorcycle': 300000
+                    };
+                    
+                    const bodyType = variant.body_type_name || variant.model_body_type || 'Sedan';
+                    let baseEstimate = baseEstimates[bodyType] || baseEstimates['Sedan'];
+                    
+                    // Adjust for engine size
+                    const engineCC = variant.engine_size_cc || 2000;
+                    if (engineCC > 3000) baseEstimate *= 1.3;
+                    else if (engineCC > 2000) baseEstimate *= 1.15;
+                    else if (engineCC < 1500) baseEstimate *= 0.8;
+                    
+                    // Adjust for luxury makes
+                    const luxuryMakes = ['Mercedes', 'BMW', 'Audi', 'Lexus', 'Porsche', 'Range Rover', 'Jaguar', 'Volvo'];
+                    const makeName = variant.make_name || '';
+                    if (luxuryMakes.some(m => makeName.includes(m))) {
+                        baseEstimate *= 1.4;
+                    }
+                    
+                    // Adjust for fuel type
+                    const fuelType = variant.fuel_type_name || '';
+                    if (fuelType.toLowerCase() === 'electric') {
+                        baseEstimate *= 1.25;
+                    } else if (fuelType.toLowerCase() === 'hybrid') {
+                        baseEstimate *= 1.15;
+                    } else if (fuelType.toLowerCase() === 'diesel') {
+                        baseEstimate *= 1.1;
+                    }
+                    
+                    basePrice = baseEstimate;
+                }
 
-                // Fuel consumption
+                // ─── DEPRECIATION RATE ──────────────────────────────
+                let baseDepRate = tcoData?.depreciation_rate_year_1 || 0.20;
+                
+                // Adjust based on vehicle age
+                const ageAdjustment = Math.min(vehicleAge * 0.01, 0.08);
+                let adjustedDepRate = Math.max(0.10, baseDepRate - ageAdjustment);
+                
+                // Luxury cars depreciate faster
+                const luxuryMakes = ['Mercedes', 'BMW', 'Audi', 'Lexus', 'Porsche', 'Range Rover', 'Jaguar', 'Volvo'];
+                const makeName = variant.make_name || '';
+                if (luxuryMakes.some(m => makeName.includes(m)) && vehicleAge < 3) {
+                    adjustedDepRate = Math.min(0.30, adjustedDepRate * 1.3);
+                }
+
+                // ─── AGE-ADJUSTED CURRENT VALUE ────────────────────
+                let currentValue = basePrice;
+                let depSchedule = [];
+                for (let i = 0; i < vehicleAge; i++) {
+                    const yearlyDep = adjustedDepRate * (1 + i * 0.02);
+                    const yearDepAmount = currentValue * Math.min(yearlyDep, 0.25);
+                    currentValue = currentValue - yearDepAmount;
+                    depSchedule.push({ year: i + 1, value: currentValue, depAmount: yearDepAmount });
+                }
+                
+                const minResidual = basePrice * 0.15;
+                const basePriceForCalc = Math.max(currentValue, minResidual);
+
+                // ─── FUEL CONSUMPTION ──────────────────────────────
                 const fuelConsumption = variant.fuel_consumption_combined || 12.5;
                 const drivingFactors = { eco: 0.85, normal: 1.0, aggressive: 1.15 };
                 const drivingFactor = drivingFactors[drivingStyle] || 1.0;
@@ -1979,58 +2055,67 @@
                 const fuelCostPerKm = fuelPricePerUnit / finalFuelConsumption;
                 const fuelCostTrip = fuelCostPerKm * d;
 
-                // Use TCO data if available
-                const minorCost = 15000;
+                // ─── SERVICE COSTS ──────────────────────────────────
+                const ageServiceMultiplier = 1 + (vehicleAge * 0.05);
+                const minorCost = 15000 * ageServiceMultiplier;
                 const minorInterval = 10000;
-                const majorCost = 45000;
+                const majorCost = 45000 * ageServiceMultiplier;
                 const majorInterval = 40000;
                 const servicePerKm = (minorCost / minorInterval) + (majorCost / majorInterval);
                 const serviceTrip = servicePerKm * d;
 
-                const tyreCost = 80000;
+                // ─── TYRE COSTS ──────────────────────────────────────
+                const ageTyreMultiplier = 1 + (vehicleAge * 0.03);
+                const tyreCost = 80000 * ageTyreMultiplier;
                 const tyreLife = 50000;
                 const tyrePerKm = tyreCost / tyreLife;
                 const tyreTrip = tyrePerKm * d;
 
-                const insuranceAnnual = tcoData?.annual_insurance || 80000;
+                // ─── INSURANCE COSTS ──────────────────────────────────
+                const insuranceBase = 80000;
+                const ageInsuranceMultiplier = Math.max(0.5, 1 - (vehicleAge * 0.05));
+                const insuranceAnnual = insuranceBase * ageInsuranceMultiplier;
                 const insurancePerKm = insuranceAnnual / annual;
                 const insuranceTrip = insurancePerKm * d;
 
-                const depreciationPerKm = (basePriceForCalc * depRate) / annual;
+                // ─── DEPRECIATION PER KM ────────────────────────────
+                const annualDepreciation = basePriceForCalc * adjustedDepRate;
+                const depreciationPerKm = annualDepreciation / annual;
                 const depreciationTrip = depreciationPerKm * d;
 
+                // ─── TRIP TOTAL ──────────────────────────────────────
                 const tripTotal = fuelCostTrip + serviceTrip + tyreTrip + insuranceTrip + depreciationTrip;
                 const tripCostPerKm = tripTotal / d;
 
-                // Monthly and annual
+                // ─── MONTHLY & ANNUAL ─────────────────────────────────
                 const monthlyKm = annual / 12;
                 const monthlyFuel = fuelCostPerKm * monthlyKm;
                 const monthlyService = servicePerKm * monthlyKm;
                 const monthlyTyre = tyrePerKm * monthlyKm;
                 const monthlyInsurance = insuranceAnnual / 12;
-                const monthlyDepreciation = (basePriceForCalc * depRate) / 12;
+                const monthlyDepreciation = annualDepreciation / 12;
 
                 const annualFuel = fuelCostPerKm * annual;
                 const annualService = servicePerKm * annual;
                 const annualTyre = tyrePerKm * annual;
-                const annualDepreciation = basePriceForCalc * depRate;
 
-                // 5-year projection
+                // ─── 5-YEAR PROJECTION ──────────────────────────────
                 const fiveYearData = [];
                 let remainingValue = basePriceForCalc;
                 let total5YearCost = 0;
 
                 for (let y = 1; y <= 5; y++) {
-                    const depRateYear = depRate * (1 + (y - 1) * 0.08);
-                    const yearlyDepreciation = remainingValue * Math.min(depRateYear, 0.20);
+                    const depRateYear = adjustedDepRate * (1 - (y - 1) * 0.015);
+                    const yearlyDepreciation = remainingValue * Math.min(Math.max(depRateYear, 0.08), 0.25);
                     remainingValue = remainingValue - yearlyDepreciation;
 
-                    const yearlyFuel = annualFuel * (1 + (y - 1) * 0.05);
-                    const yearlyService = annualService * (1 + (y - 1) * 0.08);
+                    const inflationFactor = 1 + (y - 1) * 0.04;
+                    const yearlyFuel = annualFuel * inflationFactor;
+                    const yearlyService = annualService * (1 + (y - 1) * 0.06);
                     const yearlyInsurance = insuranceAnnual * (1 + (y - 1) * 0.03);
-                    const yearlyTyres = annualTyre * (1 + (y - 1) * 0.06);
-                    const yearlyTotal = yearlyDepreciation + yearlyFuel + yearlyService + yearlyInsurance + yearlyTyres;
+                    const yearlyTyres = annualTyre * (1 + (y - 1) * 0.05);
 
+                    const yearlyTotal = yearlyDepreciation + yearlyFuel + yearlyService + yearlyInsurance + yearlyTyres;
                     total5YearCost += yearlyTotal;
 
                     fiveYearData.push({
@@ -2041,7 +2126,7 @@
                         insurance: yearlyInsurance,
                         tyres: yearlyTyres,
                         total: yearlyTotal,
-                        value: remainingValue
+                        value: Math.max(remainingValue, basePrice * 0.10)
                     });
                 }
 
@@ -2059,7 +2144,8 @@
                     fuelTypeDisplay: variant.fuel_type_name || 'Petrol',
                     transmissionDisplay: variant.transmission_type_name || 'Automatic',
                     initialCost: basePriceForCalc,
-                    ageAdjustedCost: ageAdjustedCost,
+                    originalCost: basePrice,
+                    ageAdjustedCost: currentValue,
                     vehicleAge: vehicleAge,
                     annualKm: annual,
                     monthlyKm: monthlyKm,
@@ -2077,10 +2163,11 @@
                     annualDepreciation,
                     fiveYearData,
                     total5YearCost,
-                    remainingValue,
+                    remainingValue: fiveYearData[fiveYearData.length - 1]?.value || 0,
                     variant: variant,
-                    depreciation_rate: depRate,
-                    tcoData: tcoData
+                    depreciation_rate: adjustedDepRate,
+                    tcoData: tcoData,
+                    depSchedule: depSchedule
                 };
             }
 
@@ -2136,14 +2223,14 @@
                     `;
                 });
                 perkmHtml += `
-                    <div class="perkm-item" style="border-color:var(--amber);background:rgba(234,179,8,0.05);grid-column:1/-1;">
-                        <span class="label" style="font-weight:700;color:var(--amber);">TOTAL</span>
-                        <span class="value" style="font-weight:700;color:var(--amber);">KES ${escapeHTML(formatCurrency(tripCostPerKm))}</span>
+                    <div class="perkm-item highlight" style="grid-column:1/-1;">
+                        <span class="label">TOTAL</span>
+                        <span class="value">KES ${escapeHTML(formatCurrency(tripCostPerKm))}</span>
                     </div>
                 `;
                 el.perkmGrid.innerHTML = perkmHtml;
 
-                // 5-year stats
+                // 5-year stats with improved cost info
                 const fiveYearData = result.fiveYearData || [];
                 const total5Year = result.total5YearCost || 0;
                 const avgYearly = total5Year / 5;
@@ -2151,16 +2238,16 @@
 
                 el.fiveYearStats.innerHTML = `
                     <div class="stat-card-sm">
-                        <div class="label">5-Year Total</div>
-                        <div class="num amber">KES ${formatCurrency(total5Year)}</div>
+                        <div class="label">Original Price</div>
+                        <div class="num amber">KES ${formatCurrency(result.originalCost || result.initialCost)}</div>
                     </div>
                     <div class="stat-card-sm">
-                        <div class="label">Yearly Avg</div>
-                        <div class="num">KES ${formatCurrency(avgYearly)}</div>
+                        <div class="label">Current Value</div>
+                        <div class="num">KES ${formatCurrency(result.ageAdjustedCost || result.initialCost)}</div>
                     </div>
                     <div class="stat-card-sm">
-                        <div class="label">Monthly Avg</div>
-                        <div class="num">KES ${formatCurrency(perMonth)}</div>
+                        <div class="label">5-Yr Depreciation</div>
+                        <div class="num" style="color:var(--red);">${Math.round((1 - (result.remainingValue / (result.originalCost || result.initialCost))) * 100)}%</div>
                     </div>
                     <div class="stat-card-sm">
                         <div class="label">Est. Resale Value</div>
@@ -2168,7 +2255,7 @@
                     </div>
                     <div class="stat-card-sm">
                         <div class="label">Value Retention</div>
-                        <div class="num blue">${Math.round((result.remainingValue / result.initialCost) * 100)}%</div>
+                        <div class="num blue">${Math.round((result.remainingValue / (result.originalCost || result.initialCost)) * 100)}%</div>
                     </div>
                 `;
 
@@ -2279,6 +2366,11 @@
 
                 if (result.depreciation_rate > 0.18) {
                     recs.push({ icon: '📉', text: `High depreciation rate (${(result.depreciation_rate * 100).toFixed(0)}%). Consider vehicles with better resale value.`, type: 'warning' });
+                }
+
+                const depreciationAmount = ((result.originalCost || result.initialCost) - result.remainingValue);
+                if (depreciationAmount > 0) {
+                    recs.push({ icon: '💰', text: `5-Year depreciation: KES ${formatCurrency(depreciationAmount)}. Value retention: ${Math.round((result.remainingValue / (result.originalCost || result.initialCost)) * 100)}%`, type: 'info' });
                 }
 
                 recs.push({ icon: '📊', text: `5-Year running cost: KES ${formatCurrency(total5Year)}. Avg KES ${formatCurrency(avgYearly)}/year.`, type: 'info' });
