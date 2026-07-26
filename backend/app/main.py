@@ -29,8 +29,30 @@ from app.api.v1.admin import router as admin_router
 from app.api.v1.reports import router as reports_router
 from app.api.v1.running_cost import router as running_cost_router
 
+# ─── NEW: Price Alignment & Market Scraper Routers ────────────────
+try:
+    from app.api.v1.price_alignment import router as price_alignment_router
+    PRICE_ALIGNMENT_LOADED = True
+    logger_import = logging.getLogger(__name__)
+    logger_import.info("✅ Price Alignment router loaded successfully")
+except ImportError as e:
+    PRICE_ALIGNMENT_LOADED = False
+    logger_import = logging.getLogger(__name__)
+    logger_import.warning(f"⚠️ Price Alignment router not available: {e}")
+    price_alignment_router = None
+
+try:
+    from app.api.v1.market import router as market_router
+    MARKET_ROUTER_LOADED = True
+    logger_import = logging.getLogger(__name__)
+    logger_import.info("✅ Market router loaded successfully")
+except ImportError as e:
+    MARKET_ROUTER_LOADED = False
+    logger_import = logging.getLogger(__name__)
+    logger_import.warning(f"⚠️ Market router not available: {e}")
+    market_router = None
+
 # ─── M-Pesa Router ────────────────────────────────────────────────
-# FIX: Import M-Pesa router with error handling
 try:
     from app.api.v1.mpesa import router as mpesa_router
     MPESA_ROUTER_LOADED = True
@@ -95,16 +117,36 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ M-Pesa configuration incomplete - payment endpoints may not work")
     
-    # ─── FIX: Log CORS origins from settings ──────────────────────
+    # ─── Check Price Alignment Services ──────────────────────────
+    if PRICE_ALIGNMENT_LOADED:
+        logger.info("✅ Price Alignment services loaded")
+        logger.info("   Data Sources: Jiji, Cheki, Autochek, BeepBeep, PigiaMe")
+    else:
+        logger.warning("⚠️ Price Alignment services not loaded")
+    
+    if MARKET_ROUTER_LOADED:
+        logger.info("✅ Market services loaded")
+    else:
+        logger.warning("⚠️ Market services not loaded")
+    
+    # ─── Log CORS origins from settings ──────────────────────────
     logger.info(f"🔒 CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
     
-    # ─── FIX: Check if services table exists ──────────────────────
+    # ─── Check if services table exists ──────────────────────────
     try:
         response = supabase.table("services").select("count", count="exact").limit(1).execute()
         logger.info(f"✅ Services table found: {response.count} services")
     except Exception as e:
         logger.warning(f"⚠️ Services table not found or empty: {e}")
         logger.warning("   Please run the database migration to create the services table")
+    
+    # ─── Check if market_prices table exists ─────────────────────
+    try:
+        response = supabase.table("market_prices").select("count", count="exact").limit(1).execute()
+        logger.info(f"✅ Market prices table found: {response.count} records")
+    except Exception as e:
+        logger.warning(f"⚠️ Market prices table not found: {e}")
+        logger.warning("   Please run the database migration to create the market_prices table")
     
     logger.info("=" * 60)
     logger.info("✅ Application is ready to serve requests")
@@ -195,12 +237,42 @@ app.include_router(fuel_router, prefix=f"{api_prefix}/fuel", tags=["Fuel"])
 app.include_router(admin_router, prefix=f"{api_prefix}/admin", tags=["Admin"])
 app.include_router(reports_router, prefix=f"{api_prefix}/reports", tags=["Reports"])
 
-# ─── FIX: Include M-Pesa router with error handling ──────────────
+# ─── NEW: Include Price Alignment Router ──────────────────────────
+if PRICE_ALIGNMENT_LOADED and price_alignment_router is not None:
+    try:
+        app.include_router(
+            price_alignment_router,
+            prefix=f"{api_prefix}/price",
+            tags=["Price Alignment"]
+        )
+        logger.info("✅ Price Alignment router registered successfully")
+        logger.info("   Endpoints: /price/align, /price/analyze, /price/history, /price/trend")
+    except Exception as e:
+        logger.error(f"❌ Failed to register Price Alignment router: {e}")
+else:
+    logger.warning("⚠️ Price Alignment router not loaded - price endpoints will be unavailable")
+
+# ─── NEW: Include Market Router ────────────────────────────────────
+if MARKET_ROUTER_LOADED and market_router is not None:
+    try:
+        app.include_router(
+            market_router,
+            prefix=f"{api_prefix}/market",
+            tags=["Market Data"]
+        )
+        logger.info("✅ Market router registered successfully")
+        logger.info("   Endpoints: /market/scrape, /market/insights, /market/location/factors")
+    except Exception as e:
+        logger.error(f"❌ Failed to register Market router: {e}")
+else:
+    logger.warning("⚠️ Market router not loaded - market data endpoints will be unavailable")
+
+# ─── Include M-Pesa router ────────────────────────────────────────
 if MPESA_ROUTER_LOADED and mpesa_router is not None:
     try:
         app.include_router(
             mpesa_router,
-            prefix=api_prefix,
+            prefix=f"{api_prefix}/mpesa",
             tags=["M-Pesa"]
         )
         logger.info("✅ M-Pesa router registered successfully")
@@ -210,6 +282,7 @@ else:
     logger.warning("⚠️ M-Pesa router not loaded - payment endpoints will be unavailable")
 
 logger.info("✅ All routers registered")
+logger.info(f"📚 API Documentation available at {settings.API_DOCS_URL}")
 
 
 # ─── Health Check Endpoints ──────────────────────────────────────
@@ -238,6 +311,14 @@ async def health_check():
     except Exception:
         pass
     
+    # Check if market_prices exist
+    market_prices_exist = False
+    try:
+        response = supabase.table("market_prices").select("count", count="exact").limit(1).execute()
+        market_prices_exist = response.count > 0 if hasattr(response, 'count') else True
+    except Exception:
+        pass
+    
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
@@ -246,10 +327,14 @@ async def health_check():
         "mpesa_router_loaded": MPESA_ROUTER_LOADED,
         "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
         "services_table": "exists" if services_exist else "not_found",
+        "market_prices_table": "exists" if market_prices_exist else "not_found",
+        "price_alignment_loaded": PRICE_ALIGNMENT_LOADED,
+        "market_router_loaded": MARKET_ROUTER_LOADED,
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "version": getattr(settings, "API_VERSION", "4.0.0"),
         "docs_enabled": settings.ENABLE_DOCS,
-        "docs_url": settings.API_DOCS_URL if settings.ENABLE_DOCS else None
+        "docs_url": settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
+        "data_sources": ["Jiji", "Cheki", "Autochek", "BeepBeep", "PigiaMe"] if PRICE_ALIGNMENT_LOADED else []
     }
 
 
@@ -299,13 +384,30 @@ async def root():
         "timestamp": datetime.utcnow().isoformat(),
         "documentation": settings.API_DOCS_URL if settings.ENABLE_DOCS else "disabled",
         "api_prefix": getattr(settings, "API_V1_PREFIX", "/api/v1"),
+        "data_sources": ["Jiji", "Cheki", "Autochek", "BeepBeep", "PigiaMe"] if PRICE_ALIGNMENT_LOADED else [],
         "features": {
             "mpesa": getattr(settings, "ENABLE_MPESA", True),
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
             "mpesa_configured": mpesa_configured,
             "mpesa_router_loaded": MPESA_ROUTER_LOADED,
+            "price_alignment": PRICE_ALIGNMENT_LOADED,
+            "market_data": MARKET_ROUTER_LOADED,
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
             "docs": settings.ENABLE_DOCS
+        },
+        "endpoints": {
+            "auth": f"{api_prefix}/auth",
+            "vehicles": f"{api_prefix}/vehicles",
+            "valuation": f"{api_prefix}/valuation",
+            "mileage": f"{api_prefix}/mileage",
+            "ownership": f"{api_prefix}/ownership",
+            "running_cost": f"{api_prefix}/running-cost",
+            "price_align": f"{api_prefix}/price/align" if PRICE_ALIGNMENT_LOADED else "unavailable",
+            "price_analyze": f"{api_prefix}/price/analyze" if PRICE_ALIGNMENT_LOADED else "unavailable",
+            "price_history": f"{api_prefix}/price/history" if PRICE_ALIGNMENT_LOADED else "unavailable",
+            "market_insights": f"{api_prefix}/market/insights" if MARKET_ROUTER_LOADED else "unavailable",
+            "scrape": f"{api_prefix}/market/scrape" if MARKET_ROUTER_LOADED else "unavailable",
+            "location_factors": f"{api_prefix}/market/location/factors" if MARKET_ROUTER_LOADED else "unavailable"
         }
     }
 
@@ -325,12 +427,15 @@ async def info():
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "docs_enabled": settings.ENABLE_DOCS,
         "docs_url": settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
+        "data_sources": ["Jiji", "Cheki", "Autochek", "BeepBeep", "PigiaMe"] if PRICE_ALIGNMENT_LOADED else [],
         "features": {
             "mpesa": getattr(settings, "ENABLE_MPESA", True),
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
             "mpesa_environment": getattr(settings, "MPESA_ENV", "sandbox"),
             "mpesa_configured": mpesa_configured,
             "mpesa_router_loaded": MPESA_ROUTER_LOADED,
+            "price_alignment": PRICE_ALIGNMENT_LOADED,
+            "market_data": MARKET_ROUTER_LOADED,
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
             "analytics": getattr(settings, "ENABLE_ANALYTICS", True),
             "caching": getattr(settings, "ENABLE_CACHING", True),
@@ -356,6 +461,8 @@ if __name__ == "__main__":
     logger.info(f"🐛 Debug mode: {debug}")
     logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
     logger.info(f"📱 M-Pesa Router Loaded: {MPESA_ROUTER_LOADED}")
+    logger.info(f"📊 Price Alignment Loaded: {PRICE_ALIGNMENT_LOADED}")
+    logger.info(f"📊 Market Router Loaded: {MARKET_ROUTER_LOADED}")
     logger.info(f"📡 API Base URL: {getattr(settings, 'API_BASE_URL', 'http://localhost:' + str(port))}")
     logger.info(f"📚 Docs enabled: {settings.ENABLE_DOCS}")
     if settings.ENABLE_DOCS:
