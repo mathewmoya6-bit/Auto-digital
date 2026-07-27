@@ -1,95 +1,92 @@
 """
-Auto-D Market Scraper Worker
+worker.py
+=========
+Executes scraper jobs one at a time. Deliberately queue-agnostic: `run_job()`
+takes a plain dict, so this same function can be driven by
+    - the CLI (`python -m scrapers.worker '{"scraper": "jiji", ...}'`)
+    - scrapers/scheduler.py (in-process APScheduler jobs)
+    - a real task queue later (Celery/RQ/Supabase Edge Function trigger) by
+      just calling `run_job(payload)` from that queue's task handler.
 
-Runs all scrapers and stores results.
+Job payload shape:
+    {
+        "scraper": "autochek" | "jiji" | "carapi",
+        "max_listings": 200,             # ignored by carapi
+        "kwargs": { ... constructor args for the scraper class ... }
+    }
+
+Examples:
+    {"scraper": "autochek", "max_listings": 100, "kwargs": {"country": "ke"}}
+    {"scraper": "jiji", "max_listings": 150, "kwargs": {"category_path": "/cars/toyota"}}
+    {"scraper": "carapi", "kwargs": {"years": [2022, 2023], "makes": ["Toyota", "Mazda"]}}
 """
 
-import logging
-from datetime import datetime
+from __future__ import annotations
 
-from scrapers.autochek_scraper import AutoChekScraper
+import json
+import sys
+import traceback
+from typing import Any
+
+from scrapers.autochek_scraper import AutochekScraper
 from scrapers.jiji_scraper import JijiScraper
 from scrapers.carapi_scraper import CarApiScraper
+from services.scraper_logger import get_logger
 
-from services.market_pricing import (
-    save_market_listing,
-    update_market_prices
-)
+logger = get_logger(__name__)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s"
-)
-
-logger = logging.getLogger("worker")
+SCRAPER_REGISTRY = {
+    "autochek": AutochekScraper,
+    "jiji": JijiScraper,
+    "carapi": CarApiScraper,
+}
 
 
-SCRAPERS = [
-    AutoChekScraper(),
-    JijiScraper(),
+def run_job(payload: dict[str, Any]) -> dict:
+    """Instantiate the right scraper for `payload` and execute it.
+    Never raises - failures are caught, logged, and returned as part of the result
+    dict so a queue worker loop can keep processing subsequent jobs."""
+    scraper_name = payload.get("scraper")
+    scraper_cls = SCRAPER_REGISTRY.get(scraper_name)
+    if scraper_cls is None:
+        msg = f"Unknown scraper '{scraper_name}'. Known: {list(SCRAPER_REGISTRY)}"
+        logger.error(msg)
+        return {"ok": False, "error": msg}
 
-    # CarAPI is optional if you have an API key
-    # CarApiScraper(api_key="YOUR_API_KEY")
-]
-
-
-def run_scraper(scraper):
-
-    logger.info(f"Starting {scraper.source}")
+    kwargs = payload.get("kwargs", {})
+    max_listings = payload.get("max_listings", 100)
 
     try:
-
-        listings = scraper.scrape()
-
-        saved = 0
-
-        for listing in listings:
-
-            if save_market_listing(listing):
-                saved += 1
-
-        logger.info(
-            f"{scraper.source}: {saved} listings processed."
-        )
-
-        return saved
-
-    except Exception as e:
-
-        logger.exception(
-            f"{scraper.source} failed: {e}"
-        )
-
-        return 0
+        scraper = scraper_cls(**kwargs)
+        if scraper_name == "carapi":
+            summary = scraper.sync_reference_data()
+        else:
+            summary = scraper.run(max_listings=max_listings)
+        logger.info("Job finished (%s): %s", scraper_name, summary)
+        return {"ok": True, "scraper": scraper_name, "summary": summary}
+    except Exception as exc:  # noqa: BLE001 - worker must never crash the process
+        logger.error("Job crashed (%s): %s\n%s", scraper_name, exc, traceback.format_exc())
+        return {"ok": False, "scraper": scraper_name, "error": str(exc)}
 
 
-def run():
-
-    logger.info("=" * 60)
-    logger.info("AUTO-D MARKET SCRAPER STARTED")
-    logger.info("=" * 60)
-
-    start = datetime.utcnow()
-
-    total = 0
-
-    for scraper in SCRAPERS:
-
-        total += run_scraper(scraper)
-
-    logger.info("Updating market prices...")
-
-    update_market_prices()
-
-    end = datetime.utcnow()
-
-    logger.info("=" * 60)
-    logger.info("Completed")
-    logger.info(f"Listings processed : {total}")
-    logger.info(f"Started            : {start}")
-    logger.info(f"Finished           : {end}")
-    logger.info("=" * 60)
+def process_jobs(jobs: list[dict]) -> list[dict]:
+    """Run a batch of jobs sequentially, returning each result. Sequential (not
+    concurrent) on purpose - these scrapers already rate-limit themselves per
+    target site, and running two jobs against the *same* site concurrently would
+    defeat that. Different-site jobs are cheap enough sequentially for typical
+    batch sizes; swap to a ThreadPoolExecutor keyed by `scraper` name if you need
+    true parallelism across sites."""
+    results = []
+    for job in jobs:
+        results.append(run_job(job))
+    return results
 
 
 if __name__ == "__main__":
-    run()
+    # CLI usage: python -m scrapers.worker '{"scraper": "jiji", "max_listings": 20, "kwargs": {}}'
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+    job_payload = json.loads(sys.argv[1])
+    result = run_job(job_payload)
+    print(json.dumps(result, indent=2, default=str))
