@@ -12,9 +12,8 @@ that text to catalog IDs so `requests` / `reports` / whatever consumes the
 scraped data can store a real `variant_id` (or `model_id` if trim can't be
 resolved) instead of a loose string.
 
-ASSUMPTION (flag if wrong): imports the service-role Supabase client from
-`services.supabase_client.get_supabase_client()`. Swap that import if your
-client lives elsewhere.
+Uses the shared Supabase client instance from `app.core.database`, matching
+main.py's own `from app.core.database import supabase` pattern.
 
 Usage:
     from services.vehicle_matcher import VehicleMatcher
@@ -48,8 +47,9 @@ from dataclasses import dataclass
 from difflib import get_close_matches
 from typing import Any
 
+from app.core.database import supabase
+
 from services.scraper_logger import get_logger
-from services.supabase_client import get_supabase_client
 
 logger = get_logger(__name__)
 
@@ -81,7 +81,7 @@ class MatchResult:
 
 class VehicleMatcher:
     def __init__(self) -> None:
-        self.supabase = get_supabase_client()
+        self.supabase = supabase
         self._makes: list[dict] = []
         self._models: list[dict] = []
         self._variants: list[dict] = []
