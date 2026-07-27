@@ -15,7 +15,6 @@
     </script>
     
     <style>
-        /* ─── Same CSS as before ──────────────────────────────────────── */
         :root {
             --bg: #0a0c15;
             --surface: #111827;
@@ -1019,7 +1018,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - ADMIN DASHBOARD (FIXED VERSION)
+        // AUTO-D KENYA - ADMIN DASHBOARD (FIXED VERSION - USES 'user' COLUMN)
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -2125,7 +2124,7 @@
                 }
             }
 
-            // ─── Admin Check ────────────────────────────────────────────
+            // ─── Admin Check (Uses 'user' column instead of 'role') ──
             async function isAdmin(userId) {
                 const uid = userId || currentUser?.id;
                 const client = getSupabaseClient();
@@ -2135,12 +2134,13 @@
                 try {
                     const { data, error } = await client
                         .from('users')
-                        .select('role, account_type')
+                        .select('user, account_type')
                         .eq('auth_user_id', uid)
                         .single();
                     if (!error && data) {
-                        const role = data.role || data.account_type;
-                        return role === 'admin' || role === 'staff' || role === 'super_admin';
+                        // Check both 'user' and 'account_type' columns
+                        const userType = data.user || data.account_type;
+                        return userType === 'admin' || userType === 'staff' || userType === 'super_admin';
                     }
                 } catch (error) {
                     console.warn('⚠️ Admin check via auth_user_id failed:', error.message);
@@ -2150,12 +2150,12 @@
                 try {
                     const { data, error } = await client
                         .from('users')
-                        .select('role, account_type')
+                        .select('user, account_type')
                         .eq('id', uid)
                         .single();
                     if (!error && data) {
-                        const role = data.role || data.account_type;
-                        return role === 'admin' || role === 'staff' || role === 'super_admin';
+                        const userType = data.user || data.account_type;
+                        return userType === 'admin' || userType === 'staff' || userType === 'super_admin';
                     }
                 } catch (error) {
                     console.warn('⚠️ Admin check via id failed:', error.message);
@@ -2438,7 +2438,7 @@
 
             // ─── Init ──────────────────────────────────────────────────
             async function init() {
-                console.log('🚗 Auto-D Kenya Admin Dashboard v5.0 (Fixed)');
+                console.log('🚗 Auto-D Kenya Admin Dashboard v5.0 (Fixed - Uses "user" column)');
                 console.log('📡 Backend API:', API_BASE);
                 console.log('🏥 Health Check:', HEALTH_CHECK_URL);
                 console.log('🔐 Supabase:', SUPABASE_URL);
