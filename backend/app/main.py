@@ -52,6 +52,18 @@ except ImportError as e:
     logger_import.warning(f"⚠️ Market router not available: {e}")
     market_router = None
 
+# ─── Market Scraper Router ───────────────────────────────────────
+try:
+    from app.api.v1.scraper import router as scraper_router
+    SCRAPER_ROUTER_LOADED = True
+    logger_import = logging.getLogger(__name__)
+    logger_import.info("✅ Market Scraper router loaded successfully")
+except ImportError as e:
+    SCRAPER_ROUTER_LOADED = False
+    logger_import = logging.getLogger(__name__)
+    logger_import.warning(f"⚠️ Market Scraper router not available: {e}")
+    scraper_router = None
+
 # ─── M-Pesa Router ────────────────────────────────────────────────
 try:
     from app.api.v1.mpesa import router as mpesa_router
@@ -128,6 +140,11 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Market services loaded")
     else:
         logger.warning("⚠️ Market services not loaded")
+    
+    if SCRAPER_ROUTER_LOADED:
+        logger.info("✅ Market Scraper loaded")
+    else:
+        logger.warning("⚠️ Market Scraper not loaded")
     
     # ─── Log CORS origins from settings ──────────────────────────
     logger.info(f"🔒 CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
@@ -267,6 +284,29 @@ if MARKET_ROUTER_LOADED and market_router is not None:
 else:
     logger.warning("⚠️ Market router not loaded - market data endpoints will be unavailable")
 
+# ─── Include Market Scraper Router ───────────────────────────────
+if SCRAPER_ROUTER_LOADED and scraper_router is not None:
+    try:
+        app.include_router(
+            scraper_router,
+            prefix=f"{api_prefix}/scraper",
+            tags=["Market Scraper"]
+        )
+
+        logger.info("✅ Market Scraper router registered successfully")
+        logger.info("   Endpoints:")
+        logger.info("      POST /scraper/run")
+        logger.info("      POST /scraper/autochek")
+        logger.info("      POST /scraper/jiji")
+        logger.info("      POST /scraper/carapi")
+        logger.info("      GET  /scraper/status")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to register Market Scraper router: {e}")
+
+else:
+    logger.warning("⚠️ Market Scraper router not loaded")
+
 # ─── Include M-Pesa router ────────────────────────────────────────
 if MPESA_ROUTER_LOADED and mpesa_router is not None:
     try:
@@ -330,6 +370,7 @@ async def health_check():
         "market_prices_table": "exists" if market_prices_exist else "not_found",
         "price_alignment_loaded": PRICE_ALIGNMENT_LOADED,
         "market_router_loaded": MARKET_ROUTER_LOADED,
+        "scraper_loaded": SCRAPER_ROUTER_LOADED,
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "version": getattr(settings, "API_VERSION", "4.0.0"),
         "docs_enabled": settings.ENABLE_DOCS,
@@ -392,6 +433,7 @@ async def root():
             "mpesa_router_loaded": MPESA_ROUTER_LOADED,
             "price_alignment": PRICE_ALIGNMENT_LOADED,
             "market_data": MARKET_ROUTER_LOADED,
+            "market_scraper": SCRAPER_ROUTER_LOADED,
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
             "docs": settings.ENABLE_DOCS
         },
@@ -407,7 +449,9 @@ async def root():
             "price_history": f"{api_prefix}/price/history" if PRICE_ALIGNMENT_LOADED else "unavailable",
             "market_insights": f"{api_prefix}/market/insights" if MARKET_ROUTER_LOADED else "unavailable",
             "scrape": f"{api_prefix}/market/scrape" if MARKET_ROUTER_LOADED else "unavailable",
-            "location_factors": f"{api_prefix}/market/location/factors" if MARKET_ROUTER_LOADED else "unavailable"
+            "location_factors": f"{api_prefix}/market/location/factors" if MARKET_ROUTER_LOADED else "unavailable",
+            "scraper_run": f"{api_prefix}/scraper/run" if SCRAPER_ROUTER_LOADED else "unavailable",
+            "scraper_status": f"{api_prefix}/scraper/status" if SCRAPER_ROUTER_LOADED else "unavailable"
         }
     }
 
@@ -436,6 +480,7 @@ async def info():
             "mpesa_router_loaded": MPESA_ROUTER_LOADED,
             "price_alignment": PRICE_ALIGNMENT_LOADED,
             "market_data": MARKET_ROUTER_LOADED,
+            "market_scraper": SCRAPER_ROUTER_LOADED,
             "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
             "analytics": getattr(settings, "ENABLE_ANALYTICS", True),
             "caching": getattr(settings, "ENABLE_CACHING", True),
@@ -463,6 +508,7 @@ if __name__ == "__main__":
     logger.info(f"📱 M-Pesa Router Loaded: {MPESA_ROUTER_LOADED}")
     logger.info(f"📊 Price Alignment Loaded: {PRICE_ALIGNMENT_LOADED}")
     logger.info(f"📊 Market Router Loaded: {MARKET_ROUTER_LOADED}")
+    logger.info(f"📊 Market Scraper Loaded: {SCRAPER_ROUTER_LOADED}")
     logger.info(f"📡 API Base URL: {getattr(settings, 'API_BASE_URL', 'http://localhost:' + str(port))}")
     logger.info(f"📚 Docs enabled: {settings.ENABLE_DOCS}")
     if settings.ENABLE_DOCS:
