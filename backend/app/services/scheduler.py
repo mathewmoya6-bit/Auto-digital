@@ -1,87 +1,89 @@
-# app/services/scheduler.py
-import schedule
-import asyncio
-import logging
-from datetime import datetime
-from app.services.market_scraper import MarketScraper
-from app.services.price_analyzer import PriceAnalyzer
-from app.services.supabase_service import SupabaseService
-from app.config import settings
+"""
+scheduler.py
+============
+Periodic scheduler for scraper jobs, built on APScheduler's BlockingScheduler.
 
-logger = logging.getLogger(__name__)
+Run it as a long-lived process (e.g. its own Docker container / systemd unit):
+    python -m scrapers.scheduler
 
-class PriceScheduler:
-    def __init__(self):
-        self.supabase = SupabaseService()
-        self.scraper = MarketScraper(self.supabase)
-        self.analyzer = PriceAnalyzer(self.supabase)
-        self.running = False
+Each job below calls scrapers.worker.run_job(), so the exact same job payload
+shape is shared between "run this once by hand" (worker.py CLI) and
+"run this every N hours forever" (this file).
 
-    async def run_full_update(self):
-        """Run complete price update cycle"""
-        logger.info("🔄 Starting full market price update...")
-        start_time = datetime.now()
-        
-        try:
-            # Step 1: Scrape all sources
-            scraped_count = await self.scraper.scrape_all_sources()
-            logger.info(f"📊 Scraped {scraped_count} new prices")
-            
-            # Step 2: Analyze and update vehicle values
-            # Get all active variants
-            variants = await self.supabase.get_all_variants()
-            updated_count = 0
-            
-            for variant in variants:
-                # Get the most recent year available
-                year = datetime.now().year
-                analysis = await self.analyzer.analyze_prices(variant['id'], year)
-                
-                if analysis and analysis.confidence_score > 0.5:
-                    # Update vehicle's current market value
-                    await self.supabase.update_vehicle_value(
-                        variant['id'], 
-                        analysis.median_price
-                    )
-                    updated_count += 1
-            
-            # Step 3: Log the update
-            duration = (datetime.now() - start_time).seconds
-            await self.supabase.save_scrape_log({
-                'scraped_at': datetime.now().isoformat(),
-                'records_updated': scraped_count,
-                'vehicles_updated': updated_count,
-                'duration_seconds': duration,
-                'status': 'success'
-            })
-            
-            logger.info(f"✅ Price update complete: {scraped_count} prices, {updated_count} vehicles")
-            
-        except Exception as e:
-            logger.error(f"❌ Price update failed: {e}")
-            await self.supabase.save_scrape_log({
-                'scraped_at': datetime.now().isoformat(),
-                'status': 'failed',
-                'error': str(e)
-            })
+Adjust SCHEDULE to fit your rate-limit/coverage tradeoff - scraping too
+aggressively is both rude to the target sites and more likely to get you
+blocked, so intervals here default to a conservative multi-hour cadence.
+"""
 
-    def schedule_updates(self):
-        """Schedule regular price updates"""
-        # Run every 24 hours
-        schedule.every(settings.SCRAPE_INTERVAL_HOURS).hours.do(
-            lambda: asyncio.create_task(self.run_full_update())
+from __future__ import annotations
+
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+
+from scrapers.worker import run_job
+from services.scraper_logger import get_logger
+
+logger = get_logger(__name__)
+
+# Each entry: (job_id, trigger, payload)
+SCHEDULE = [
+    (
+        "autochek_ke_hourly",
+        IntervalTrigger(hours=4),
+        {"scraper": "autochek", "max_listings": 200, "kwargs": {"country": "ke"}},
+    ),
+    (
+        "jiji_ke_cars_hourly",
+        IntervalTrigger(hours=4),
+        {"scraper": "jiji", "max_listings": 300, "kwargs": {"category_path": "/cars"}},
+    ),
+    (
+        # Reference data changes rarely - once a week is plenty.
+        "carapi_reference_weekly",
+        CronTrigger(day_of_week="sun", hour=3, minute=0),
+        {
+            "scraper": "carapi",
+            "kwargs": {"years": list(range(2015, 2026))},
+        },
+    ),
+]
+
+
+def _make_job_fn(payload: dict):
+    def _job():
+        logger.info("Scheduler triggering job: %s", payload)
+        result = run_job(payload)
+        if not result.get("ok"):
+            logger.error("Scheduled job failed: %s", result)
+
+    return _job
+
+
+def build_scheduler() -> BlockingScheduler:
+    scheduler = BlockingScheduler(timezone="UTC")
+    for job_id, trigger, payload in SCHEDULE:
+        scheduler.add_job(
+            _make_job_fn(payload),
+            trigger=trigger,
+            id=job_id,
+            name=job_id,
+            replace_existing=True,
+            max_instances=1,  # never let a slow run overlap with the next tick
+            misfire_grace_time=3600,
         )
-        
-        # Run immediately on startup
-        asyncio.create_task(self.run_full_update())
-        
-        logger.info(f"⏰ Scheduled price updates every {settings.SCRAPE_INTERVAL_HOURS} hours")
+        logger.info("Registered job '%s' (trigger=%s)", job_id, trigger)
+    return scheduler
 
-    def run(self):
-        """Run the scheduler loop"""
-        self.schedule_updates()
-        self.running = True
-        
-        while self.running:
-            schedule.run_pending()
-            asyncio.sleep(60)
+
+def main():
+    scheduler = build_scheduler()
+    logger.info("Scheduler starting with %d job(s). Ctrl+C to stop.", len(SCHEDULE))
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Scheduler stopped.")
+
+
+if __name__ == "__main__":
+    main()
