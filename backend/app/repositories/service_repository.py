@@ -27,7 +27,7 @@ class ServiceRepository:
             query = supabase.table(self.table).select("*")
             
             if not include_inactive:
-                query = query.eq("is_active", True)
+                query = query.eq("active", True)
             
             response = query.order("service_name").execute()
             return response.data if response.data else []
@@ -36,8 +36,8 @@ class ServiceRepository:
             logger.error(f"Error getting all services: {e}")
             return []
 
-    def get_service_by_id(self, service_id: int) -> Optional[Dict[str, Any]]:
-        """Get service by ID"""
+    def get_service_by_id(self, service_id: str) -> Optional[Dict[str, Any]]:
+        """Get service by ID (UUID)"""
         try:
             response = (
                 supabase
@@ -62,7 +62,7 @@ class ServiceRepository:
                 .table(self.table)
                 .select("*")
                 .ilike("service_name", service_name)
-                .eq("is_active", True)
+                .eq("active", True)
                 .limit(1)
                 .execute()
             )
@@ -73,64 +73,78 @@ class ServiceRepository:
             logger.error(f"Error getting service by name {service_name}: {e}")
             return None
 
+    def get_services_by_type(self, service_type: str) -> List[Dict[str, Any]]:
+        """Get all services for a specific service type"""
+        try:
+            response = (
+                supabase
+                .table(self.table)
+                .select("*")
+                .eq("service_type", service_type)
+                .eq("active", True)
+                .order("price")
+                .execute()
+            )
+            
+            return response.data if response.data else []
+            
+        except Exception as e:
+            logger.error(f"Error getting services by type {service_type}: {e}")
+            return []
+
     def create_service(
         self,
         service_name: str,
         price: float,
-        service_id: Optional[int] = None,
+        service_type: str = "basic",
         currency: str = "KES",
-        billing_cycle: str = "monthly",
-        tier: Optional[str] = None,
-        description: Optional[str] = None,
-        metadata: Optional[Dict] = None
+        description: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """Create a new service price"""
+        """
+        Create a new service price
+        
+        Args:
+            service_name: Name of the service (required)
+            price: Price amount (required)
+            service_type: Type of service (basic, premium, etc.)
+            currency: Currency code (default: KES)
+            description: Service description
+        """
         try:
             # Validate required fields
-            if not service_name:
-                raise ValueError("service_name is required")
+            if not service_name or not service_name.strip():
+                raise ValueError("service_name is required and cannot be empty")
             
             if price is None or price <= 0:
                 raise ValueError("Price must be greater than 0")
             
-            # Check if service already exists with same name and tier
+            # Check if service already exists with same name and type
             existing = (
                 supabase
                 .table(self.table)
                 .select("id")
-                .ilike("service_name", service_name)
-                .eq("tier", tier)
-                .eq("billing_cycle", billing_cycle)
-                .eq("is_active", True)
+                .ilike("service_name", service_name.strip())
+                .eq("service_type", service_type)
+                .eq("active", True)
                 .execute()
             )
             
             if existing.data:
                 raise ValueError(
-                    f"Service '{service_name}' with tier '{tier}' and "
-                    f"cycle '{billing_cycle}' already exists"
+                    f"Service '{service_name}' with type '{service_type}' already exists"
                 )
             
             # Prepare data
             data = {
                 "service_name": service_name.strip(),
+                "service_type": service_type,
                 "price": float(price),
                 "currency": currency,
-                "billing_cycle": billing_cycle,
-                "is_active": True,
+                "description": description,
+                "active": True,
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
             }
-            
-            # Add optional fields
-            if service_id:
-                data["service_id"] = service_id
-            if tier:
-                data["tier"] = tier
-            if description:
-                data["description"] = description
-            if metadata:
-                data["metadata"] = metadata
             
             # Insert
             response = (
@@ -152,10 +166,16 @@ class ServiceRepository:
 
     def update_service(
         self,
-        service_id: int,
+        service_id: str,
         updates: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """Update a service price"""
+        """
+        Update a service price
+        
+        Args:
+            service_id: UUID of the service
+            updates: Dictionary of fields to update
+        """
         try:
             # Validate service exists
             existing = self.get_service_by_id(service_id)
@@ -163,8 +183,10 @@ class ServiceRepository:
                 raise ValueError(f"Service with ID {service_id} not found")
             
             # Validate required fields if being updated
-            if "service_name" in updates and not updates["service_name"]:
-                raise ValueError("service_name cannot be empty")
+            if "service_name" in updates:
+                if not updates["service_name"] or not updates["service_name"].strip():
+                    raise ValueError("service_name cannot be empty")
+                updates["service_name"] = updates["service_name"].strip()
             
             if "price" in updates and updates["price"] <= 0:
                 raise ValueError("Price must be greater than 0")
@@ -197,8 +219,14 @@ class ServiceRepository:
             logger.error(f"Error updating service {service_id}: {e}")
             raise
 
-    def delete_service(self, service_id: int, hard_delete: bool = False) -> bool:
-        """Delete or deactivate a service"""
+    def delete_service(self, service_id: str, hard_delete: bool = False) -> bool:
+        """
+        Delete or deactivate a service
+        
+        Args:
+            service_id: UUID of the service
+            hard_delete: If True, permanently delete; if False, soft delete
+        """
         try:
             if hard_delete:
                 # Permanent delete
@@ -215,7 +243,7 @@ class ServiceRepository:
                     supabase
                     .table(self.table)
                     .update({
-                        "is_active": False,
+                        "active": False,
                         "updated_at": datetime.now().isoformat()
                     })
                     .eq("id", service_id)
@@ -232,42 +260,47 @@ class ServiceRepository:
     # Query Methods
     # ---------------------------------------------------------
 
-    def get_services_by_tier(self, tier: str) -> List[Dict[str, Any]]:
-        """Get all services for a specific tier"""
+    def get_service_types(self) -> List[str]:
+        """Get all unique service types"""
         try:
             response = (
                 supabase
                 .table(self.table)
-                .select("*")
-                .eq("tier", tier)
-                .eq("is_active", True)
-                .order("price")
+                .select("service_type")
+                .eq("active", True)
                 .execute()
             )
             
-            return response.data if response.data else []
+            if not response.data:
+                return []
+            
+            types = list(set([item["service_type"] for item in response.data if item.get("service_type")]))
+            return sorted(types)
             
         except Exception as e:
-            logger.error(f"Error getting services by tier {tier}: {e}")
+            logger.error(f"Error getting service types: {e}")
             return []
 
-    def get_services_by_cycle(self, billing_cycle: str) -> List[Dict[str, Any]]:
-        """Get all services by billing cycle"""
+    def get_active_services(self) -> List[Dict[str, Any]]:
+        """Get all active services"""
+        return self.get_all_services(include_inactive=False)
+
+    def get_inactive_services(self) -> List[Dict[str, Any]]:
+        """Get all inactive services"""
         try:
             response = (
                 supabase
                 .table(self.table)
                 .select("*")
-                .eq("billing_cycle", billing_cycle)
-                .eq("is_active", True)
-                .order("price")
+                .eq("active", False)
+                .order("service_name")
                 .execute()
             )
             
             return response.data if response.data else []
             
         except Exception as e:
-            logger.error(f"Error getting services by cycle {billing_cycle}: {e}")
+            logger.error(f"Error getting inactive services: {e}")
             return []
 
     def get_service_pricing_summary(self) -> Dict[str, Any]:
@@ -277,7 +310,7 @@ class ServiceRepository:
                 supabase
                 .table(self.table)
                 .select("*")
-                .eq("is_active", True)
+                .eq("active", True)
                 .execute()
             )
             
@@ -289,59 +322,43 @@ class ServiceRepository:
                     "unique_names": 0,
                     "price_range": {"min": 0, "max": 0},
                     "average_price": 0,
-                    "tiers": {},
-                    "billing_cycles": {}
+                    "service_types": {}
                 }
             
             # Calculate statistics
             prices = [s["price"] for s in services]
             
-            # Group by tier
-            tier_summary = {}
+            # Group by service_type
+            type_summary = {}
             for s in services:
-                tier = s.get("tier", "default")
-                if tier not in tier_summary:
-                    tier_summary[tier] = {
+                service_type = s.get("service_type", "default")
+                if service_type not in type_summary:
+                    type_summary[service_type] = {
                         "count": 0,
                         "min_price": float("inf"),
                         "max_price": 0,
-                        "total_price": 0
+                        "total_price": 0,
+                        "services": []
                     }
-                tier_summary[tier]["count"] += 1
-                tier_summary[tier]["min_price"] = min(
-                    tier_summary[tier]["min_price"], 
+                type_summary[service_type]["count"] += 1
+                type_summary[service_type]["min_price"] = min(
+                    type_summary[service_type]["min_price"], 
                     s["price"]
                 )
-                tier_summary[tier]["max_price"] = max(
-                    tier_summary[tier]["max_price"], 
+                type_summary[service_type]["max_price"] = max(
+                    type_summary[service_type]["max_price"], 
                     s["price"]
                 )
-                tier_summary[tier]["total_price"] += s["price"]
+                type_summary[service_type]["total_price"] += s["price"]
+                type_summary[service_type]["services"].append(s["service_name"])
             
             # Calculate averages
-            for tier, data in tier_summary.items():
+            for service_type, data in type_summary.items():
                 data["avg_price"] = round(
                     data["total_price"] / data["count"], 
                     2
                 )
-            
-            # Group by billing cycle
-            cycle_summary = {}
-            for s in services:
-                cycle = s.get("billing_cycle", "monthly")
-                if cycle not in cycle_summary:
-                    cycle_summary[cycle] = {
-                        "count": 0,
-                        "total_price": 0
-                    }
-                cycle_summary[cycle]["count"] += 1
-                cycle_summary[cycle]["total_price"] += s["price"]
-            
-            for cycle, data in cycle_summary.items():
-                data["avg_price"] = round(
-                    data["total_price"] / data["count"], 
-                    2
-                )
+                data["services"] = sorted(data["services"])
             
             return {
                 "total_services": len(services),
@@ -351,8 +368,7 @@ class ServiceRepository:
                     "max": max(prices) if prices else 0
                 },
                 "average_price": round(sum(prices) / len(prices), 2) if prices else 0,
-                "tiers": tier_summary,
-                "billing_cycles": cycle_summary
+                "service_types": type_summary
             }
             
         except Exception as e:
@@ -377,29 +393,26 @@ class ServiceRepository:
                 service_name = service_data.get("service_name")
                 price = service_data.get("price")
                 
-                if not service_name:
+                if not service_name or not service_name.strip():
                     results["failed"].append({
                         "data": service_data,
-                        "error": "Missing service_name"
+                        "error": "Missing or empty service_name"
                     })
                     continue
                 
                 if not price or price <= 0:
                     results["failed"].append({
                         "data": service_data,
-                        "error": "Invalid price"
+                        "error": "Invalid price (must be > 0)"
                     })
                     continue
                 
                 result = self.create_service(
-                    service_name=service_name,
+                    service_name=service_name.strip(),
                     price=price,
-                    service_id=service_data.get("service_id"),
+                    service_type=service_data.get("service_type", "basic"),
                     currency=service_data.get("currency", "KES"),
-                    billing_cycle=service_data.get("billing_cycle", "monthly"),
-                    tier=service_data.get("tier"),
-                    description=service_data.get("description"),
-                    metadata=service_data.get("metadata")
+                    description=service_data.get("description")
                 )
                 
                 if result:
@@ -407,7 +420,7 @@ class ServiceRepository:
                 else:
                     results["failed"].append({
                         "data": service_data,
-                        "error": "Failed to create"
+                        "error": "Failed to create service"
                     })
                     
             except Exception as e:
@@ -417,3 +430,53 @@ class ServiceRepository:
                 })
         
         return results
+
+    # ---------------------------------------------------------
+    # Search and Filter
+    # ---------------------------------------------------------
+
+    def search_services(self, search_term: str) -> List[Dict[str, Any]]:
+        """Search services by name or description"""
+        try:
+            response = (
+                supabase
+                .table(self.table)
+                .select("*")
+                .eq("active", True)
+                .or_(
+                    f"service_name.ilike.%{search_term}%,"
+                    f"description.ilike.%{search_term}%"
+                )
+                .order("service_name")
+                .execute()
+            )
+            
+            return response.data if response.data else []
+            
+        except Exception as e:
+            logger.error(f"Error searching services: {e}")
+            return []
+
+    def get_services_by_price_range(
+        self, 
+        min_price: float, 
+        max_price: float
+    ) -> List[Dict[str, Any]]:
+        """Get services within a price range"""
+        try:
+            response = (
+                supabase
+                .table(self.table)
+                .select("*")
+                .eq("active", True)
+                .gte("price", min_price)
+                .lte("price", max_price)
+                .order("price")
+                .execute()
+            )
+            
+            return response.data if response.data else []
+            
+        except Exception as e:
+            logger.error(f"Error getting services by price range: {e}")
+            return []
