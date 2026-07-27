@@ -955,7 +955,7 @@
         </div>
     </div>
 
-    <!-- ─── ADD/EDIT SERVICE MODAL ─────────────────────────────────── -->
+    <!-- ─── ADD/EDIT SERVICE MODAL ─────────────────────────────────────── -->
     <div class="modal-overlay" id="serviceModal">
         <div class="modal-content">
             <button class="close-modal" onclick="closeServiceModal()">✕</button>
@@ -963,16 +963,16 @@
             <p class="sub" id="serviceModalSub">Enter the service details to add it to the system.</p>
             <form id="serviceForm">
                 <div class="form-group">
-                    <label>Service Type <span style="color:var(--danger);">*</span></label>
-                    <input type="text" id="serviceType" placeholder="e.g., valuation" required />
+                    <label>Service Code</label>
+                    <input type="text" id="serviceCode" placeholder="e.g., valuation" required />
                     <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Unique identifier used in API calls (lowercase, no spaces)</div>
                 </div>
                 <div class="form-group">
-                    <label>Service Name <span style="color:var(--danger);">*</span></label>
+                    <label>Service Name</label>
                     <input type="text" id="serviceName" placeholder="e.g., Instant Vehicle Value" required />
                 </div>
                 <div class="form-group">
-                    <label>Price (KES) <span style="color:var(--danger);">*</span></label>
+                    <label>Price (KES)</label>
                     <input type="number" id="servicePrice" placeholder="e.g., 150" step="0.01" required />
                 </div>
                 <div class="form-group">
@@ -1018,7 +1018,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - ADMIN DASHBOARD (FIXED VERSION - USES 'user' COLUMN)
+        // AUTO-D KENYA - ADMIN DASHBOARD (FIXED VERSION)
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1028,7 +1028,6 @@
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
             
-            // ─── FastAPI Endpoints ─────────────────────────────────────
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
             const HEALTH_CHECK_URL = 'https://auto-digital.onrender.com/health';
 
@@ -1040,7 +1039,7 @@
             let healthCheckInterval = null;
             let clockInterval = null;
             let healthCheckInFlight = false;
-            let editingServiceType = null;
+            let editingServiceId = null;
 
             // ─── DOM Elements ──────────────────────────────────────────
             const loginScreen = document.getElementById('loginScreen');
@@ -1106,7 +1105,7 @@
                 }
             }
 
-            // ─── INSERT (not UPSERT) for fuel prices ──────────────────
+            // ─── INSERT with versioning for fuel prices ───────────────
             async function insertFuelPrice(data) {
                 try {
                     const client = getSupabaseClient();
@@ -1119,11 +1118,10 @@
                     }
                     
                     const fuel_type_id = typeResult.data[0].id;
-                    
-                    // Close previous active price (set effective_to to yesterday)
                     const today = new Date().toISOString().split('T')[0];
                     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
                     
+                    // Close previous active price
                     const { error: updateError } = await client
                         .from('fuel_prices')
                         .update({ effective_to: yesterday })
@@ -1184,10 +1182,8 @@
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
                     
-                    // First check if service exists
                     const existing = await querySupabase('service_prices', 'id', { service_type: serviceType });
                     if (existing.success && existing.data && existing.data.length > 0) {
-                        // Update existing
                         const { data, error } = await client
                             .from('service_prices')
                             .update({
@@ -1200,7 +1196,6 @@
                         if (error) throw error;
                         return { success: true, data };
                     } else {
-                        // Create new
                         return await createService({
                             service_type: serviceType,
                             service_name: serviceType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
@@ -1219,7 +1214,6 @@
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
                     
-                    // Ensure service_name is provided
                     if (!serviceData.service_name) {
                         serviceData.service_name = serviceData.service_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     }
@@ -1237,7 +1231,6 @@
                             is_active: serviceData.is_active !== false
                         })
                         .select();
-                    
                     if (error) throw error;
                     return { success: true, data: data[0] };
                 } catch (error) {
@@ -1278,156 +1271,8 @@
                 }, 4000);
             }
 
-            // ─── Fetch Fuel Prices ────────────────────────────────────
-            async function fetchFuelPricesFromDB() {
-                try {
-                    // Get fuel types
-                    const typesResult = await querySupabase('fuel_types', '*', {}, { column: 'name', ascending: true });
-                    if (!typesResult.success) throw new Error(typesResult.error);
-                    
-                    const fuelTypes = typesResult.data;
-                    const prices = {};
-                    
-                    // Get latest price for each fuel type
-                    for (const type of fuelTypes) {
-                        const result = await querySupabase(
-                            'fuel_prices',
-                            '*',
-                            { fuel_type_id: type.id },
-                            { column: 'effective_from', ascending: false },
-                            1
-                        );
-                        if (result.success && result.data && result.data.length > 0) {
-                            prices[type.name] = {
-                                price: result.data[0].price_per_unit,
-                                date: result.data[0].effective_from,
-                                currency: 'KES',
-                                region: result.data[0].region || 'Nairobi',
-                                source: result.data[0].source || 'api'
-                            };
-                        } else {
-                            // Fallback price
-                            prices[type.name] = {
-                                price: type.default_price || 0,
-                                date: new Date().toISOString().split('T')[0],
-                                currency: 'KES',
-                                region: 'Nairobi',
-                                source: 'default'
-                            };
-                        }
-                    }
-                    
-                    return { success: true, data: prices };
-                } catch (error) {
-                    console.error('❌ Fetch fuel prices error:', error);
-                    return { success: false, error: error.message };
-                }
-            }
+            // ─── Service Management ─────────────────────────────────────
 
-            window.fetchFuelPrices = async function() {
-                try {
-                    const result = await fetchFuelPricesFromDB();
-                    if (result.success && result.data) {
-                        renderFuelPrices(result.data);
-                        document.getElementById('fuelStatus').textContent = '● Connected';
-                        document.getElementById('fuelStatus').className = 'badge badge-success';
-                    } else {
-                        renderFallbackFuelPrices();
-                        document.getElementById('fuelStatus').textContent = '● Offline';
-                        document.getElementById('fuelStatus').className = 'badge badge-danger';
-                    }
-                } catch (error) {
-                    console.warn('⚠️ Fuel fetch error:', error.message);
-                    renderFallbackFuelPrices();
-                    document.getElementById('fuelStatus').textContent = '● Error';
-                    document.getElementById('fuelStatus').className = 'badge badge-danger';
-                }
-            };
-
-            function renderFallbackFuelPrices() {
-                const fallback = {
-                    petrol: { price: 214.03, date: new Date().toISOString().split('T')[0] },
-                    diesel: { price: 222.86, date: new Date().toISOString().split('T')[0] },
-                    electric: { price: 30.00, date: new Date().toISOString().split('T')[0] },
-                    lpg: { price: 120.00, date: new Date().toISOString().split('T')[0] }
-                };
-                renderFuelPrices(fallback);
-                document.getElementById('fuelStatus').textContent = '● Fallback';
-                document.getElementById('fuelStatus').className = 'badge badge-warning';
-            }
-
-            function renderFuelPrices(fuels) {
-                const fuelTypes = [
-                    { key: 'petrol', label: '⛽ Petrol', icon: '⛽' },
-                    { key: 'diesel', label: '⛽ Diesel', icon: '⛽' },
-                    { key: 'electric', label: '⚡ Electric', icon: '⚡' },
-                    { key: 'lpg', label: '🔥 LPG', icon: '🔥' }
-                ];
-
-                fuelGrid.innerHTML = fuelTypes.map(f => {
-                    const data = fuels[f.key] || { price: 0, date: '—' };
-                    const price = data.price || 0;
-                    const date = data.date ? new Date(data.date).toLocaleDateString() : '—';
-                    const statusClass = price > 0 ? 'synced' : 'pending';
-                    const statusText = price > 0 ? '✓ Synced' : '⟳ Pending';
-                    
-                    return `
-                        <div class="fuel-item">
-                            <div class="fuel-name">
-                                ${f.icon} ${f.label}
-                                <span class="status-badge ${statusClass}" id="${f.key}Status">${statusText}</span>
-                            </div>
-                            <div class="fuel-price">
-                                <span class="currency">KES</span> 
-                                <span id="fuel${f.key.charAt(0).toUpperCase() + f.key.slice(1)}">${price.toFixed(2)}</span>
-                            </div>
-                            <div class="fuel-date">Updated: <span id="fuel${f.key.charAt(0).toUpperCase() + f.key.slice(1)}Date">${date}</span></div>
-                            <div class="fuel-edit">
-                                <input type="number" id="edit${f.key.charAt(0).toUpperCase() + f.key.slice(1)}" step="0.5" placeholder="Price" value="${price}" />
-                                <button class="update-btn" onclick="window.updateFuel('${f.key}')">Update</button>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            }
-
-            // ─── Update Fuel (Uses INSERT, not UPSERT) ──────────────
-            window.updateFuel = async function(type) {
-                const input = document.getElementById('edit' + type.charAt(0).toUpperCase() + type.slice(1));
-                const price = parseFloat(input.value);
-                if (isNaN(price) || price < 0) {
-                    showToast('❌ Invalid price value', 'error');
-                    return;
-                }
-
-                const statusEl = document.getElementById(type + 'Status');
-                statusEl.className = 'status-badge pending';
-                statusEl.textContent = '⟳ Updating...';
-
-                try {
-                    const result = await insertFuelPrice({
-                        fuel_type: type,
-                        price: price,
-                        region: 'Nairobi',
-                        source: 'admin'
-                    });
-                    
-                    if (!result.success) throw new Error(result.error);
-
-                    statusEl.className = 'status-badge synced';
-                    statusEl.textContent = '✓ Synced';
-                    await window.fetchFuelPrices();
-                    await addAdminLog(`⛽ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated to KES ${price.toFixed(2)}`, 'admin');
-                    showToast(`✅ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated!`, 'success');
-                } catch (error) {
-                    statusEl.className = 'status-badge error';
-                    statusEl.textContent = '✗ Error';
-                    showToast(`❌ Failed to update ${type}: ${error.message}`, 'error');
-                    console.error('Update fuel error:', error);
-                }
-            };
-
-            // ─── Service Price Functions ──────────────────────────────
             window.fetchServicePrices = async function() {
                 try {
                     const result = await getServicePrices();
@@ -1512,7 +1357,6 @@
                 return String(str).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
             }
 
-            // ─── Update Service ─────────────────────────────────────────
             window.updateService = async function(type) {
                 const input = document.getElementById('edit' + type);
                 const price = parseFloat(input.value);
@@ -1543,7 +1387,6 @@
                 }
             };
 
-            // ─── Toggle Service ─────────────────────────────────────────
             window.toggleService = async function(type) {
                 try {
                     const result = await getServicePrices();
@@ -1579,12 +1422,12 @@
 
             // ─── Modal Functions ────────────────────────────────────────
             window.openAddServiceModal = function() {
-                editingServiceType = null;
+                editingServiceId = null;
                 document.getElementById('serviceModalTitle').textContent = 'Add New Service';
                 document.getElementById('serviceModalSub').textContent = 'Enter the service details to add it to the system.';
                 document.getElementById('serviceForm').reset();
-                document.getElementById('serviceType').disabled = false;
-                document.getElementById('serviceType').value = '';
+                document.getElementById('serviceCode').disabled = false;
+                document.getElementById('serviceCode').value = '';
                 document.getElementById('serviceName').value = '';
                 document.getElementById('servicePrice').value = '';
                 document.getElementById('serviceCurrency').value = 'KES';
@@ -1606,11 +1449,11 @@
                     const service = services[type];
                     if (!service) throw new Error('Service not found');
                     
-                    editingServiceType = type;
+                    editingServiceId = type;
                     document.getElementById('serviceModalTitle').textContent = 'Edit Service';
                     document.getElementById('serviceModalSub').textContent = 'Update the service details.';
-                    document.getElementById('serviceType').value = type;
-                    document.getElementById('serviceType').disabled = true;
+                    document.getElementById('serviceCode').value = type;
+                    document.getElementById('serviceCode').disabled = true;
                     document.getElementById('serviceName').value = service.service_name || service.name || type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     document.getElementById('servicePrice').value = service.price || 0;
                     document.getElementById('serviceCurrency').value = service.currency || 'KES';
@@ -1629,19 +1472,19 @@
 
             window.closeServiceModal = function() {
                 document.getElementById('serviceModal').classList.remove('open');
-                editingServiceType = null;
+                editingServiceId = null;
             };
 
             window.deleteService = async function() {
-                if (!editingServiceType) return;
-                if (!confirm(`Are you sure you want to delete service "${editingServiceType}"? This cannot be undone.`)) return;
+                if (!editingServiceId) return;
+                if (!confirm(`Are you sure you want to delete service "${editingServiceId}"? This cannot be undone.`)) return;
 
                 try {
-                    const result = await deleteServiceByType(editingServiceType);
+                    const result = await deleteServiceByType(editingServiceId);
                     if (!result.success) throw new Error(result.error);
                     
                     await window.fetchServicePrices();
-                    const name = editingServiceType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    const name = editingServiceId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     await addAdminLog(`🗑️ ${name} service deleted`, 'admin');
                     showToast(`✅ ${name} deleted!`, 'success');
                     closeServiceModal();
@@ -1651,12 +1494,11 @@
                 }
             };
 
-            // ─── Service Form Submit ────────────────────────────────────
             document.getElementById('serviceForm').addEventListener('submit', async function(e) {
                 e.preventDefault();
                 
-                const service_type = document.getElementById('serviceType').value.trim().toLowerCase();
-                const service_name = document.getElementById('serviceName').value.trim();
+                const code = document.getElementById('serviceCode').value.trim().toLowerCase();
+                const name = document.getElementById('serviceName').value.trim();
                 const price = parseFloat(document.getElementById('servicePrice').value);
                 const currency = document.getElementById('serviceCurrency').value;
                 const description = document.getElementById('serviceDescription').value.trim();
@@ -1664,7 +1506,7 @@
                 const display_order = parseInt(document.getElementById('serviceDisplayOrder').value) || 0;
                 const is_active = document.getElementById('serviceActive').value === 'true';
 
-                if (!service_type || !service_name || isNaN(price) || price < 0) {
+                if (!code || !name || isNaN(price) || price < 0) {
                     showToast('❌ Please fill in all required fields', 'error');
                     return;
                 }
@@ -1678,8 +1520,8 @@
                     if (!client) throw new Error('Supabase not initialized');
                     
                     const payload = {
-                        service_type: service_type,
-                        service_name: service_name,
+                        service_type: code,
+                        service_name: name,
                         price: price,
                         currency: currency,
                         description: description,
@@ -1689,17 +1531,15 @@
                         updated_at: new Date().toISOString()
                     };
                     
-                    let result;
-                    if (editingServiceType) {
+                    if (editingServiceId) {
                         const { data, error } = await client
                             .from('service_prices')
                             .update(payload)
-                            .eq('service_type', service_type)
+                            .eq('service_type', code)
                             .select();
                         if (error) throw error;
-                        result = { success: true, data };
-                        await addAdminLog(`💳 ${service_name} service updated (${price} ${currency})`, 'admin');
-                        showToast(`✅ ${service_name} updated!`, 'success');
+                        await addAdminLog(`💳 ${name} service updated (${price} ${currency})`, 'admin');
+                        showToast(`✅ ${name} updated!`, 'success');
                     } else {
                         payload.created_at = new Date().toISOString();
                         const { data, error } = await client
@@ -1707,9 +1547,8 @@
                             .insert(payload)
                             .select();
                         if (error) throw error;
-                        result = { success: true, data };
-                        await addAdminLog(`➕ ${service_name} service created (${price} ${currency})`, 'admin');
-                        showToast(`✅ ${service_name} created!`, 'success');
+                        await addAdminLog(`➕ ${name} service created (${price} ${currency})`, 'admin');
+                        showToast(`✅ ${name} created!`, 'success');
                     }
                     
                     closeServiceModal();
@@ -1718,17 +1557,150 @@
                     console.error('Save service error:', error);
                     showToast(`❌ Failed to save service: ${error.message}`, 'error');
                 } finally {
-                    btn.textContent = editingServiceType ? '💾 Update Service' : '💾 Save Service';
+                    btn.textContent = editingServiceId ? '💾 Update Service' : '💾 Save Service';
                     btn.disabled = false;
                 }
             });
 
-            // ─── Close modal on outside click ──────────────────────────
             document.getElementById('serviceModal').addEventListener('click', function(e) {
                 if (e.target === this) {
                     closeServiceModal();
                 }
             });
+
+            // ─── Fuel Prices (Fixed - uses new schema) ────────────────
+            window.fetchFuelPrices = async function() {
+                try {
+                    const typesResult = await querySupabase('fuel_types', '*', {}, { column: 'name', ascending: true });
+                    if (!typesResult.success) throw new Error(typesResult.error);
+                    
+                    const fuelTypes = typesResult.data;
+                    const prices = {};
+                    
+                    for (const type of fuelTypes) {
+                        const result = await querySupabase(
+                            'fuel_prices',
+                            '*',
+                            { fuel_type_id: type.id },
+                            { column: 'effective_from', ascending: false },
+                            1
+                        );
+                        if (result.success && result.data && result.data.length > 0) {
+                            prices[type.name] = {
+                                price: result.data[0].price_per_unit,
+                                date: result.data[0].effective_from,
+                                currency: 'KES',
+                                region: result.data[0].region || 'Nairobi',
+                                source: result.data[0].source || 'api'
+                            };
+                        } else {
+                            prices[type.name] = {
+                                price: type.default_price || 0,
+                                date: new Date().toISOString().split('T')[0],
+                                currency: 'KES',
+                                region: 'Nairobi',
+                                source: 'default'
+                            };
+                        }
+                    }
+                    
+                    if (prices && Object.keys(prices).length > 0) {
+                        renderFuelPrices(prices);
+                        document.getElementById('fuelStatus').textContent = '● Connected';
+                        document.getElementById('fuelStatus').className = 'badge badge-success';
+                    } else {
+                        renderFallbackFuelPrices();
+                    }
+                } catch (error) {
+                    console.warn('⚠️ Fuel fetch error:', error.message);
+                    renderFallbackFuelPrices();
+                    document.getElementById('fuelStatus').textContent = '● Offline';
+                    document.getElementById('fuelStatus').className = 'badge badge-danger';
+                }
+            };
+
+            function renderFallbackFuelPrices() {
+                const fallback = {
+                    petrol: { price: 214.03, date: new Date().toISOString().split('T')[0] },
+                    diesel: { price: 222.86, date: new Date().toISOString().split('T')[0] },
+                    electric: { price: 30.00, date: new Date().toISOString().split('T')[0] },
+                    lpg: { price: 120.00, date: new Date().toISOString().split('T')[0] }
+                };
+                renderFuelPrices(fallback);
+                document.getElementById('fuelStatus').textContent = '● Fallback';
+                document.getElementById('fuelStatus').className = 'badge badge-warning';
+            }
+
+            function renderFuelPrices(fuels) {
+                const fuelTypes = [
+                    { key: 'petrol', label: '⛽ Petrol', icon: '⛽' },
+                    { key: 'diesel', label: '⛽ Diesel', icon: '⛽' },
+                    { key: 'electric', label: '⚡ Electric', icon: '⚡' },
+                    { key: 'lpg', label: '🔥 LPG', icon: '🔥' }
+                ];
+
+                fuelGrid.innerHTML = fuelTypes.map(f => {
+                    const data = fuels[f.key] || { price: 0, date: '—' };
+                    const price = data.price || 0;
+                    const date = data.date ? new Date(data.date).toLocaleDateString() : '—';
+                    const statusClass = price > 0 ? 'synced' : 'pending';
+                    const statusText = price > 0 ? '✓ Synced' : '⟳ Pending';
+                    
+                    return `
+                        <div class="fuel-item">
+                            <div class="fuel-name">
+                                ${f.icon} ${f.label}
+                                <span class="status-badge ${statusClass}" id="${f.key}Status">${statusText}</span>
+                            </div>
+                            <div class="fuel-price">
+                                <span class="currency">KES</span> 
+                                <span id="fuel${f.key.charAt(0).toUpperCase() + f.key.slice(1)}">${price.toFixed(2)}</span>
+                            </div>
+                            <div class="fuel-date">Updated: <span id="fuel${f.key.charAt(0).toUpperCase() + f.key.slice(1)}Date">${date}</span></div>
+                            <div class="fuel-edit">
+                                <input type="number" id="edit${f.key.charAt(0).toUpperCase() + f.key.slice(1)}" step="0.5" placeholder="Price" value="${price}" />
+                                <button class="update-btn" onclick="window.updateFuel('${f.key}')">Update</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // ─── Update Fuel (Fixed - uses INSERT with versioning) ────
+            window.updateFuel = async function(type) {
+                const input = document.getElementById('edit' + type.charAt(0).toUpperCase() + type.slice(1));
+                const price = parseFloat(input.value);
+                if (isNaN(price) || price < 0) {
+                    showToast('❌ Invalid price value', 'error');
+                    return;
+                }
+
+                const statusEl = document.getElementById(type + 'Status');
+                statusEl.className = 'status-badge pending';
+                statusEl.textContent = '⟳ Updating...';
+
+                try {
+                    const result = await insertFuelPrice({
+                        fuel_type: type,
+                        price: price,
+                        region: 'Nairobi',
+                        source: 'admin'
+                    });
+                    
+                    if (!result.success) throw new Error(result.error);
+
+                    statusEl.className = 'status-badge synced';
+                    statusEl.textContent = '✓ Synced';
+                    await window.fetchFuelPrices();
+                    await addAdminLog(`⛽ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated to KES ${price.toFixed(2)}`, 'admin');
+                    showToast(`✅ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated!`, 'success');
+                } catch (error) {
+                    statusEl.className = 'status-badge error';
+                    statusEl.textContent = '✗ Error';
+                    showToast(`❌ Failed to update ${type}: ${error.message}`, 'error');
+                    console.error('Update fuel error:', error);
+                }
+            };
 
             // ─── Engine Settings ────────────────────────────────────────
             async function getEngineSettings() {
@@ -1877,7 +1849,6 @@
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
                     
-                    // Get counts from available tables
                     let vehicles = 0, reports = 0, users = 0, apiCalls = 0, revenue = 0;
                     
                     try {
@@ -2047,7 +2018,6 @@
                 }
             }
 
-            // ─── Wire up health bar ─────────────────────────────────────
             if (healthBar) {
                 healthBar.addEventListener('click', function() {
                     checkHealth(true);
@@ -2124,38 +2094,33 @@
                 }
             }
 
-            // ─── Admin Check (Uses 'user' column instead of 'role') ──
+            // ─── Admin Check (Uses 'account_type' column) ─────────────
             async function isAdmin(userId) {
                 const uid = userId || currentUser?.id;
                 const client = getSupabaseClient();
                 if (!client || !uid) return false;
 
-                // Check auth_user_id first
                 try {
                     const { data, error } = await client
                         .from('users')
-                        .select('user, account_type')
+                        .select('account_type')
                         .eq('auth_user_id', uid)
                         .single();
                     if (!error && data) {
-                        // Check both 'user' and 'account_type' columns
-                        const userType = data.user || data.account_type;
-                        return userType === 'admin' || userType === 'staff' || userType === 'super_admin';
+                        return data.account_type === 'admin' || data.account_type === 'staff' || data.account_type === 'super_admin';
                     }
                 } catch (error) {
                     console.warn('⚠️ Admin check via auth_user_id failed:', error.message);
                 }
 
-                // Fallback to id column
                 try {
                     const { data, error } = await client
                         .from('users')
-                        .select('user, account_type')
+                        .select('account_type')
                         .eq('id', uid)
                         .single();
                     if (!error && data) {
-                        const userType = data.user || data.account_type;
-                        return userType === 'admin' || userType === 'staff' || userType === 'super_admin';
+                        return data.account_type === 'admin' || data.account_type === 'staff' || data.account_type === 'super_admin';
                     }
                 } catch (error) {
                     console.warn('⚠️ Admin check via id failed:', error.message);
@@ -2438,7 +2403,7 @@
 
             // ─── Init ──────────────────────────────────────────────────
             async function init() {
-                console.log('🚗 Auto-D Kenya Admin Dashboard v5.0 (Fixed - Uses "user" column)');
+                console.log('🚗 Auto-D Kenya Admin Dashboard v5.0 (Fixed)');
                 console.log('📡 Backend API:', API_BASE);
                 console.log('🏥 Health Check:', HEALTH_CHECK_URL);
                 console.log('🔐 Supabase:', SUPABASE_URL);
@@ -2457,7 +2422,6 @@
                     dashboardScreen.classList.add('hidden');
                 }
 
-                // Listen for auth changes
                 if (supabaseClient) {
                     supabaseClient.auth.onAuthStateChange((event, session) => {
                         if (event === 'SIGNED_OUT') {
