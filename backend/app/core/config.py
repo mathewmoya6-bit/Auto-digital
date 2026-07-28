@@ -4,7 +4,7 @@ Configuration - Application settings
 
 import os
 import json
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict, Any
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
 
@@ -55,7 +55,6 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@auto-d.ke"
     
     # ─── CORS Configuration ──────────────────────────────────────────
-    # ─── FIX: Use Union to handle both list and string ──────────────
     BACKEND_CORS_ORIGINS: Union[List[str], str] = Field(
         default=[
             "https://auto-digital.onrender.com",
@@ -201,6 +200,117 @@ class Settings(BaseSettings):
     DEPRECIATION_RATE_LUXURY_B: float = 0.25
     DEPRECIATION_RATE_LUXURY_C: float = 0.30
     
+    # ─── Scraper Configuration ──────────────────────────────────────
+    SCRAPER_ENABLED: bool = Field(
+        default=True,
+        env="SCRAPER_ENABLED"
+    )
+    SCRAPER_CONCURRENT_WORKERS: int = Field(
+        default=3,
+        env="SCRAPER_CONCURRENT_WORKERS"
+    )
+    SCRAPER_REQUEST_TIMEOUT: int = Field(
+        default=30,
+        env="SCRAPER_REQUEST_TIMEOUT"
+    )
+    SCRAPER_RETRY_ATTEMPTS: int = Field(
+        default=3,
+        env="SCRAPER_RETRY_ATTEMPTS"
+    )
+    SCRAPER_RATE_LIMIT: int = Field(
+        default=10,
+        env="SCRAPER_RATE_LIMIT"
+    )
+    SCRAPER_MAX_PAGES: int = Field(
+        default=10,
+        env="SCRAPER_MAX_PAGES"
+    )
+    SCRAPER_MAX_RESULTS: int = Field(
+        default=100,
+        env="SCRAPER_MAX_RESULTS"
+    )
+    SCRAPER_USER_AGENT: str = Field(
+        default="Mozilla/5.0 (compatible; Auto-D-Kenya/1.0; +https://auto-digital.onrender.com)",
+        env="SCRAPER_USER_AGENT"
+    )
+    
+    # ─── Scraper Source Configuration ──────────────────────────────
+    SCRAPER_SOURCES: Dict[str, Dict] = Field(
+        default={
+            "autochek": {
+                "name": "Autochek Kenya",
+                "enabled": True,
+                "frequency_hours": 24,
+                "max_pages": 10,
+                "base_url": "https://www.autochek.co.ke",
+                "api_url": "https://api.autochek.co.ke/v1",
+                "search_path": "/listings",
+                "parser": "json"
+            },
+            "jiji": {
+                "name": "Jiji Kenya",
+                "enabled": True,
+                "frequency_hours": 24,
+                "max_pages": 15,
+                "base_url": "https://jiji.co.ke",
+                "api_url": None,
+                "search_path": "/cars",
+                "parser": "html"
+            },
+            "carapi": {
+                "name": "CarAPI",
+                "enabled": True,
+                "frequency_hours": 48,
+                "max_pages": 5,
+                "base_url": "https://carapi.com",
+                "api_url": "https://carapi.com/api",
+                "search_path": "/vehicles",
+                "parser": "json"
+            },
+            "beepbeep": {
+                "name": "BeepBeep Kenya",
+                "enabled": False,
+                "frequency_hours": 48,
+                "max_pages": 10,
+                "base_url": "https://beepbeep.co.ke",
+                "api_url": None,
+                "search_path": "/cars",
+                "parser": "html"
+            },
+            "pigiama": {
+                "name": "PigiaMe",
+                "enabled": False,
+                "frequency_hours": 24,
+                "max_pages": 10,
+                "base_url": "https://pigiama.co.ke",
+                "api_url": None,
+                "search_path": "/cars",
+                "parser": "html"
+            }
+        },
+        env="SCRAPER_SOURCES"
+    )
+    
+    # ─── Scraper Cache ──────────────────────────────────────────────
+    SCRAPER_CACHE_ENABLED: bool = Field(
+        default=True,
+        env="SCRAPER_CACHE_ENABLED"
+    )
+    SCRAPER_CACHE_TTL_HOURS: int = Field(
+        default=1,
+        env="SCRAPER_CACHE_TTL_HOURS"
+    )
+    SCRAPER_CACHE_MAX_ITEMS: int = Field(
+        default=10000,
+        env="SCRAPER_CACHE_MAX_ITEMS"
+    )
+    
+    # ─── Scraper Database Tables ────────────────────────────────────
+    TABLE_MARKET_PRICES: str = "market_prices"
+    TABLE_SCRAPER_STATUS: str = "scraper_status"
+    TABLE_SCRAPER_LOGS: str = "scraper_logs"
+    TABLE_SCRAPER_CONFIG: str = "scraper_config"
+    
     # ─── Logging ──────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "auto-d.log"
@@ -322,23 +432,33 @@ class Settings(BaseSettings):
         case_sensitive = True
         extra = "ignore"
     
-    # ─── FIX: Add field validator for CORS origins ──────────────────
+    # ─── Field Validators ─────────────────────────────────────────────
     @field_validator('BACKEND_CORS_ORIGINS', mode='before')
     @classmethod
     def parse_cors_origins(cls, v):
         """Parse CORS origins from environment variable"""
         if isinstance(v, str):
             try:
-                # Try to parse as JSON
                 parsed = json.loads(v)
                 if isinstance(parsed, list):
                     return parsed
                 return [parsed] if parsed else []
             except json.JSONDecodeError:
-                # Parse as comma-separated string
                 return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
     
+    @field_validator('SCRAPER_SOURCES', mode='before')
+    @classmethod
+    def parse_scraper_sources(cls, v):
+        """Parse scraper sources from environment variable"""
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return v
+        return v
+    
+    # ─── Helper Methods ──────────────────────────────────────────────
     def get_cors_origins(self) -> List[str]:
         """Get parsed CORS origins as a list"""
         if isinstance(self.BACKEND_CORS_ORIGINS, list):
@@ -390,6 +510,38 @@ class Settings(BaseSettings):
             "contact_email": self.SWAGGER_CONTACT_EMAIL,
             "license_name": self.SWAGGER_LICENSE_NAME
         }
+    
+    def get_scraper_config(self) -> dict:
+        """Get scraper configuration"""
+        return {
+            "enabled": self.SCRAPER_ENABLED,
+            "concurrent_workers": self.SCRAPER_CONCURRENT_WORKERS,
+            "request_timeout": self.SCRAPER_REQUEST_TIMEOUT,
+            "retry_attempts": self.SCRAPER_RETRY_ATTEMPTS,
+            "rate_limit": self.SCRAPER_RATE_LIMIT,
+            "max_pages": self.SCRAPER_MAX_PAGES,
+            "max_results": self.SCRAPER_MAX_RESULTS,
+            "user_agent": self.SCRAPER_USER_AGENT,
+            "cache_enabled": self.SCRAPER_CACHE_ENABLED,
+            "cache_ttl_hours": self.SCRAPER_CACHE_TTL_HOURS,
+            "cache_max_items": self.SCRAPER_CACHE_MAX_ITEMS,
+            "sources": self.SCRAPER_SOURCES
+        }
+    
+    def is_scraper_enabled(self) -> bool:
+        """Check if scraper is enabled"""
+        return self.SCRAPER_ENABLED
+    
+    def get_enabled_scraper_sources(self) -> List[str]:
+        """Get list of enabled scraper sources"""
+        return [
+            key for key, config in self.SCRAPER_SOURCES.items()
+            if config.get("enabled", False)
+        ]
+    
+    def get_scraper_source(self, source_id: str) -> Optional[Dict]:
+        """Get scraper source configuration"""
+        return self.SCRAPER_SOURCES.get(source_id)
 
 
 # Create settings instance
@@ -408,6 +560,13 @@ if isinstance(settings.BACKEND_CORS_ORIGINS, str):
             if origin.strip()
         ]
 
+# ─── Ensure scraper sources is a dict ──────────────────────────────
+if isinstance(settings.SCRAPER_SOURCES, str):
+    try:
+        settings.SCRAPER_SOURCES = json.loads(settings.SCRAPER_SOURCES)
+    except json.JSONDecodeError:
+        settings.SCRAPER_SOURCES = {}
+
 # ─── Log configuration on startup (only in debug mode) ──────────────
 if settings.DEBUG:
     print(f"🔗 API Base URL: {settings.API_BASE_URL}")
@@ -419,3 +578,5 @@ if settings.DEBUG:
     print(f"📱 M-Pesa Configured: {settings.is_mpesa_configured()}")
     print(f"📚 Docs Enabled: {settings.ENABLE_DOCS}")
     print(f"📚 Docs URL: {settings.API_DOCS_URL}")
+    print(f"🔄 Scraper Enabled: {settings.is_scraper_enabled()}")
+    print(f"🔄 Scraper Sources: {settings.get_enabled_scraper_sources()}")
