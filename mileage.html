@@ -11,6 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
+        /* ─── CSS Variables ────────────────────────────────────────── */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -1183,9 +1184,10 @@
                 <div class="form-group">
                     <label>Trip Type</label>
                     <select id="tripType">
-                        <option value="city">City</option>
+                        <option value="urban">Urban</option>
                         <option value="highway" selected>Highway</option>
                         <option value="mixed">Mixed</option>
+                        <option value="offroad">Offroad</option>
                     </select>
                 </div>
 
@@ -1193,8 +1195,7 @@
                     <label>Usage Type</label>
                     <select id="usageType">
                         <option value="private" selected>Private</option>
-                        <option value="commercial_passenger">Commercial - Passenger</option>
-                        <option value="commercial_freight">Commercial - Freight</option>
+                        <option value="commercial">Commercial</option>
                         <option value="fleet">Fleet</option>
                         <option value="taxi">Taxi / Uber / Bolt</option>
                     </select>
@@ -1357,7 +1358,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 6.3 - Connected to Backend API
+        // Version 6.3 - Connected to Backend API with Fixed Payload
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1512,6 +1513,19 @@
             }
             function hideProgress() {
                 el.progressContainer.classList.remove('show');
+            }
+
+            // ─── DEBUG HELPER ──────────────────────────────────────────
+            function debugPayload(payload) {
+                console.log('🔍 Payload Validation:');
+                const required = ['variant_id', 'distance', 'annual_mileage', 'fuel_price', 'trip_type', 'driving_style'];
+                required.forEach(field => {
+                    if (payload[field] === undefined || payload[field] === null) {
+                        console.warn(`⚠️ Missing field: ${field}`);
+                    } else {
+                        console.log(`✅ ${field}: ${payload[field]}`);
+                    }
+                });
             }
 
             // ─── SUPABASE ──────────────────────────────────────────────
@@ -2034,21 +2048,27 @@
 
             // ─── RUNNING COST API CALL ─────────────────────────────────
             async function calculateRunningCostFromAPI(formData) {
+                // ─── Build payload matching RunningCostRequest schema ──
                 const payload = {
                     variant_id: formData.variant_id,
-                    year: formData.year,
-                    mileage: formData.mileage,
-                    annual_km: formData.annual_km,
-                    fuel_price: formData.fuel_price,
-                    driving_style: formData.driving_style,
-                    trip_type: formData.trip_type,
-                    usage_type: formData.usage_type,
-                    location: formData.location,
-                    distance: formData.distance,
+                    distance: formData.distance || 150,
+                    annual_mileage: formData.annual_km || 20000,
+                    fuel_price: formData.fuel_price || 200,
+                    trip_type: formData.trip_type || 'mixed',
+                    driving_style: formData.driving_style || 'normal',
+                    usage_type: formData.usage_type || 'private',
+                    location: formData.location || 'nairobi',
+                    condition: 'good',
+                    year: formData.year || 2024,
                     financed: formData.financed || false,
-                    down_payment_percent: formData.down_payment_percent || 30,
+                    down_payment: formData.down_payment_percent || 30,
                     interest_rate: formData.interest_rate || 16,
-                    loan_term: formData.loan_term || 4
+                    loan_term: formData.loan_term || 4,
+                    years: 5,
+                    include_insurance: true,
+                    include_maintenance: true,
+                    include_tyres: true,
+                    include_depreciation: true
                 };
 
                 const token = localStorage.getItem('access_token') || '';
@@ -2058,8 +2078,10 @@
                 };
                 if (token) headers['Authorization'] = `Bearer ${token}`;
 
+                // ─── DEBUG LOGGING ──────────────────────────────────────
                 console.log('📤 Sending running cost request to:', `${CONFIG.API_BASE}/running-cost/calculate`);
-                console.log('📦 Payload:', payload);
+                console.log('📦 Payload:', JSON.stringify(payload, null, 2));
+                debugPayload(payload);
 
                 const response = await fetch(`${CONFIG.API_BASE}/running-cost/calculate`, {
                     method: 'POST',
@@ -2068,17 +2090,25 @@
                     signal: AbortSignal.timeout(15000)
                 });
 
+                console.log('📥 Response status:', response.status);
+
                 if (!response.ok) {
                     let errorData;
                     try {
                         errorData = await response.json();
+                        if (errorData.detail) {
+                            console.error('❌ Validation errors:', JSON.stringify(errorData.detail, null, 2));
+                            throw new Error(JSON.stringify(errorData.detail, null, 2));
+                        }
                     } catch (e) {
                         errorData = { message: `HTTP ${response.status}` };
                     }
                     throw new Error(errorData.message || errorData.detail || `HTTP ${response.status}`);
                 }
 
-                return await response.json();
+                const result = await response.json();
+                console.log('📥 Response data:', result);
+                return result;
             }
 
             // ─── MAIN CALCULATION ──────────────────────────────────────
@@ -2113,15 +2143,14 @@
 
                 const inputs = {
                     variant_id: variant.variant_id,
-                    year: parseInt(el.yearSelect.value) || 2020,
-                    mileage: parseInt(el.mileageInput?.value) || 50000,
+                    distance: distance,
                     annual_km: annualKm,
                     fuel_price: fuelPrice,
                     driving_style: el.drivingStyle.value,
-                    trip_type: el.tripType.value,
+                    trip_type: el.tripType.value === 'city' ? 'urban' : el.tripType.value,
                     usage_type: el.usageType.value,
                     location: el.locationSelect?.value || 'nairobi',
-                    distance: distance,
+                    year: parseInt(el.yearSelect.value) || 2024,
                     financed: isFinanced,
                     down_payment_percent: parseInt(el.downPct.value) || 30,
                     interest_rate: parseFloat(el.rate.value) || 16,
@@ -2157,8 +2186,6 @@
             function renderResults(result, variant, tcoData) {
                 if (!result) return;
 
-                // ─── FALLBACK: Use local calculation if API doesn't return data ───
-                // This ensures the UI always shows something even if API is down
                 const tripTotal = result.tripTotal || result.total_cost || 0;
                 const tripCostPerKm = result.tripCostPerKm || result.cost_per_km || 0;
                 el.tripTotal.textContent = formatCurrency(tripTotal);
