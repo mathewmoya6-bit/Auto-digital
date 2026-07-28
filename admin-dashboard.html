@@ -365,23 +365,6 @@
         .status-badge.pending { background: rgba(245,158,11,0.15); color: var(--warning); }
         .status-badge.error { background: rgba(239,68,68,0.15); color: var(--danger); }
 
-        /* ─── Realtime Indicator ────────────────────────────────────── */
-        .realtime-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 11px;
-            color: var(--text-muted);
-        }
-        .realtime-indicator .live-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--success);
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-        .realtime-indicator .live-dot.disconnected { background: var(--danger); animation: none; }
-
         /* ─── Service List ──────────────────────────────────────────── */
         .service-list { display: flex; flex-direction: column; gap: 10px; }
         .service-item {
@@ -402,7 +385,7 @@
             font-family: var(--font-heading);
             color: var(--text);
         }
-        .service-item .service-edit { display: flex; gap: 8px; align-items: center; }
+        .service-item .service-edit { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         .service-item .service-edit input {
             padding: 6px 10px;
             background: var(--bg);
@@ -449,7 +432,6 @@
         }
         .service-item .service-toggle:hover { border-color: var(--primary); color: var(--primary); }
 
-        /* ─── Add Service Button ────────────────────────────────────── */
         .add-service-btn {
             padding: 10px 20px;
             background: var(--primary);
@@ -537,6 +519,7 @@
             display: flex;
             gap: 12px;
             margin-top: 20px;
+            flex-wrap: wrap;
         }
         .modal-actions .btn {
             padding: 10px 24px;
@@ -577,7 +560,7 @@
             letter-spacing: 0.5px;
             margin-bottom: 6px;
         }
-        .setting-group .setting-value { display: flex; gap: 12px; align-items: center; }
+        .setting-group .setting-value { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
         .setting-group .setting-value input {
             flex: 1;
             padding: 8px 12px;
@@ -617,6 +600,8 @@
             border-bottom: 1px solid var(--border);
             font-size: 13px;
             color: var(--text-secondary);
+            flex-wrap: wrap;
+            gap: 4px;
         }
         .log-item .log-time { color: var(--text-muted); font-size: 11px; font-family: monospace; }
         .log-item .log-action { color: var(--text); }
@@ -692,7 +677,35 @@
         .welcome-banner p { color: var(--text-muted); font-size: 14px; }
         .welcome-banner .time { color: var(--text-secondary); font-size: 13px; font-family: monospace; }
 
-        /* ─── Utility ────────────────────────────────────────────────── */
+        /* ─── Scraper Log ───────────────────────────────────────────── */
+        .scraper-log {
+            max-height: 120px;
+            overflow-y: auto;
+            background: var(--bg);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-family: monospace;
+            font-size: 11px;
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+        .scraper-log::-webkit-scrollbar { width: 4px; }
+        .scraper-log::-webkit-scrollbar-track { background: transparent; }
+        .scraper-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        .scraper-log .log-entry {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .scraper-log .log-entry:last-child { border-bottom: none; }
+        .scraper-log .log-entry.success { color: var(--success); }
+        .scraper-log .log-entry.error { color: var(--danger); }
+        .scraper-log .log-entry.warning { color: var(--warning); }
+        .scraper-log .log-entry.info { color: var(--text-secondary); }
+        .scraper-log .log-time { color: var(--text-muted); font-size: 10px; }
+
+        /* ─── Utilities ─────────────────────────────────────────────── */
         .hidden { display: none !important; }
         .flex { display: flex; align-items: center; }
         .flex-wrap { flex-wrap: wrap; }
@@ -710,12 +723,19 @@
             .card { padding: 18px; }
             .health-bar { flex-direction: column; align-items: flex-start; }
             .health-bar .health-details { width: 100%; }
+            .admin-grid { grid-template-columns: 1fr; }
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .service-item { flex-direction: column; align-items: stretch; }
+            .service-item .service-edit { flex-wrap: wrap; }
         }
         @media (max-width: 480px) {
             .login-card { padding: 24px 16px; }
             .stat-value { font-size: 22px; }
             .fuel-grid { grid-template-columns: 1fr; }
             .modal-content { padding: 20px; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .action-bar { flex-direction: column; }
+            .action-btn { justify-content: center; }
         }
     </style>
 </head>
@@ -760,7 +780,7 @@
                 </div>
             </div>
 
-            <!-- ─── Health Status Bar ─────────────────────────────────── -->
+            <!-- Health Status Bar -->
             <div class="health-bar" id="healthBar" title="Click to check now">
                 <div class="health-status">
                     <div class="health-dot checking" id="healthDot"></div>
@@ -836,9 +856,7 @@
                         <h3>⛽ Fuel Prices</h3>
                         <span class="badge badge-success" id="fuelStatus">● Connected</span>
                     </div>
-                    <div class="fuel-grid" id="fuelGrid">
-                        <!-- Dynamic content from JS -->
-                    </div>
+                    <div class="fuel-grid" id="fuelGrid"></div>
                     <div class="action-bar" style="margin-top:12px;">
                         <button class="action-btn success" onclick="fetchFuelPrices()" style="width:100%;justify-content:center;">
                             🔄 Refresh Fuel Prices
@@ -855,9 +873,7 @@
                     <div style="margin-bottom: 12px;">
                         <button class="add-service-btn" onclick="openAddServiceModal()">➕ Add New Service</button>
                     </div>
-                    <div class="service-list" id="serviceList">
-                        <!-- Dynamic content from JS -->
-                    </div>
+                    <div class="service-list" id="serviceList"></div>
                     <div class="action-bar" style="margin-top:12px;">
                         <button class="action-btn success" onclick="fetchServicePrices()" style="width:100%;justify-content:center;">
                             🔄 Refresh Service Prices
@@ -867,6 +883,60 @@
             </div>
 
             <div class="admin-grid">
+                <!-- Scraper Management -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>🔄 Web Scraper</h3>
+                        <span class="badge badge-info" id="scraperStatus">● Idle</span>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
+                        <div class="stat-card" style="padding: 12px;">
+                            <div class="stat-value" id="scraperTotalListings" style="font-size: 20px;">0</div>
+                            <div class="stat-label" style="font-size: 11px;">Total Listings</div>
+                        </div>
+                        <div class="stat-card" style="padding: 12px;">
+                            <div class="stat-value" id="scraperLastRun" style="font-size: 14px; font-family: monospace;">Never</div>
+                            <div class="stat-label" style="font-size: 11px;">Last Run</div>
+                        </div>
+                        <div class="stat-card" style="padding: 12px;">
+                            <div class="stat-value" id="scraperSourcesCount" style="font-size: 20px;">0</div>
+                            <div class="stat-label" style="font-size: 11px;">Active Sources</div>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                        <button class="action-btn success" onclick="runScraper()" style="justify-content:center; width:100%;">
+                            🚀 Run All Scrapers
+                        </button>
+                        <button class="action-btn" onclick="getScraperStatus()" style="justify-content:center; width:100%;">
+                            📊 Refresh Status
+                        </button>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 12px;">
+                        <button class="action-btn" onclick="scrapeSource('autochek')" style="justify-content:center; font-size: 11px; padding: 6px 10px;">
+                            🏢 Autochek
+                        </button>
+                        <button class="action-btn" onclick="scrapeSource('jiji')" style="justify-content:center; font-size: 11px; padding: 6px 10px;">
+                            📱 Jiji
+                        </button>
+                        <button class="action-btn" onclick="scrapeSource('carapi')" style="justify-content:center; font-size: 11px; padding: 6px 10px;">
+                            🚗 CarAPI
+                        </button>
+                    </div>
+
+                    <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-size: 12px; color: var(--text-muted);">📋 Scraper Log</span>
+                            <button class="action-btn" onclick="clearScraperLog()" style="font-size: 10px; padding: 2px 10px;">Clear</button>
+                        </div>
+                        <div class="scraper-log" id="scraperLog">
+                            <div style="color: var(--text-muted);">Ready to scrape...</div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Engine Settings -->
                 <div class="card">
                     <div class="card-header">
@@ -911,24 +981,24 @@
                         </button>
                     </div>
                 </div>
+            </div>
 
-                <!-- Activity Log -->
-                <div class="card">
-                    <div class="card-header">
-                        <h3>📋 Activity Log</h3>
-                        <span class="badge badge-info">Real-time</span>
+            <!-- Activity Log -->
+            <div class="card" style="margin-bottom:28px;">
+                <div class="card-header">
+                    <h3>📋 Activity Log</h3>
+                    <span class="badge badge-info">Real-time</span>
+                </div>
+                <div class="log-list" id="activityLog">
+                    <div class="log-item">
+                        <span class="log-action">🔄 Loading activity...</span>
+                        <span class="log-user">system</span>
+                        <span class="log-time">—</span>
                     </div>
-                    <div class="log-list" id="activityLog">
-                        <div class="log-item">
-                            <span class="log-action">🔄 Loading activity...</span>
-                            <span class="log-user">system</span>
-                            <span class="log-time">—</span>
-                        </div>
-                    </div>
-                    <div class="action-bar">
-                        <button class="action-btn" onclick="refreshLogs()">🔄 Refresh Logs</button>
-                        <button class="action-btn" onclick="clearLogs()">🗑️ Clear Logs</button>
-                    </div>
+                </div>
+                <div class="action-bar">
+                    <button class="action-btn" onclick="refreshLogs()">🔄 Refresh Logs</button>
+                    <button class="action-btn" onclick="clearLogs()">🗑️ Clear Logs</button>
                 </div>
             </div>
 
@@ -1018,7 +1088,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - ADMIN DASHBOARD (FIXED VERSION)
+        // AUTO-D KENYA - ADMIN DASHBOARD (COMPLETE VERSION)
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1036,8 +1106,10 @@
             let currentUser = null;
             let isLoggedIn = false;
             let activityLogs = [];
+            let scraperLogs = [];
             let healthCheckInterval = null;
             let clockInterval = null;
+            let scraperRefreshInterval = null;
             let healthCheckInFlight = false;
             let editingServiceId = null;
 
@@ -1052,6 +1124,7 @@
             const fuelGrid = document.getElementById('fuelGrid');
             const serviceList = document.getElementById('serviceList');
             const healthBar = document.getElementById('healthBar');
+            const scraperLog = document.getElementById('scraperLog');
 
             // ─── Initialize Supabase ────────────────────────────────────
             function initSupabase() {
@@ -1111,7 +1184,6 @@
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
                     
-                    // Get fuel_type_id from fuel_types table
                     const typeResult = await querySupabase('fuel_types', 'id', { name: data.fuel_type });
                     if (!typeResult.success || !typeResult.data || typeResult.data.length === 0) {
                         throw new Error(`Fuel type '${data.fuel_type}' not found`);
@@ -1121,7 +1193,6 @@
                     const today = new Date().toISOString().split('T')[0];
                     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
                     
-                    // Close previous active price
                     const { error: updateError } = await client
                         .from('fuel_prices')
                         .update({ effective_to: yesterday })
@@ -1133,7 +1204,6 @@
                         console.warn('⚠️ Could not close previous price:', updateError);
                     }
                     
-                    // Insert new price
                     const payload = {
                         fuel_type_id: fuel_type_id,
                         price_per_unit: data.price,
@@ -1272,7 +1342,6 @@
             }
 
             // ─── Service Management ─────────────────────────────────────
-
             window.fetchServicePrices = async function() {
                 try {
                     const result = await getServicePrices();
@@ -1568,7 +1637,7 @@
                 }
             });
 
-            // ─── Fuel Prices (Fixed - uses new schema) ────────────────
+            // ─── Fuel Prices ───────────────────────────────────────────────
             window.fetchFuelPrices = async function() {
                 try {
                     const typesResult = await querySupabase('fuel_types', '*', {}, { column: 'name', ascending: true });
@@ -1666,7 +1735,6 @@
                 }).join('');
             }
 
-            // ─── Update Fuel (Fixed - uses INSERT with versioning) ────
             window.updateFuel = async function(type) {
                 const input = document.getElementById('edit' + type.charAt(0).toUpperCase() + type.slice(1));
                 const price = parseFloat(input.value);
@@ -2094,7 +2162,6 @@
                 }
             }
 
-            // ─── Admin Check (Uses 'account_type' column) ─────────────
             async function isAdmin(userId) {
                 const uid = userId || currentUser?.id;
                 const client = getSupabaseClient();
@@ -2129,7 +2196,6 @@
                 return false;
             }
 
-            // ─── Check Auth ────────────────────────────────────────────
             async function checkAuth() {
                 try {
                     const user = await getCurrentUser();
@@ -2217,6 +2283,11 @@
                 clockInterval = setInterval(tickClock, 1000);
                 checkHealth(false);
                 healthCheckInterval = setInterval(() => checkHealth(false), 60000);
+                // Scraper auto-refresh
+                getScraperStatus();
+                scraperRefreshInterval = setInterval(() => {
+                    if (isLoggedIn) getScraperStatus();
+                }, 60000);
             }
 
             function stopBackgroundTimers() {
@@ -2228,6 +2299,10 @@
                     clearInterval(healthCheckInterval);
                     healthCheckInterval = null;
                 }
+                if (scraperRefreshInterval) {
+                    clearInterval(scraperRefreshInterval);
+                    scraperRefreshInterval = null;
+                }
             }
 
             // ─── Load Dashboard Data ──────────────────────────────────
@@ -2237,7 +2312,9 @@
                     window.fetchFuelPrices(),
                     window.fetchServicePrices(),
                     window.fetchEngineSettings(),
-                    fetchLogs()
+                    fetchLogs(),
+                    getScraperSources(),
+                    checkHealth(true)
                 ]);
                 showToast('✅ Dashboard loaded', 'success');
             }
@@ -2278,6 +2355,186 @@
                 `).join('');
             }
 
+            // ─── SCRAPER MANAGEMENT ──────────────────────────────────────
+
+            window.runScraper = async function() {
+                const token = localStorage.getItem('access_token') || '';
+                const btn = document.querySelector('button[onclick="runScraper()"]');
+                const originalText = btn.textContent;
+                
+                btn.textContent = '⏳ Running...';
+                btn.disabled = true;
+                
+                try {
+                    const response = await fetch(`${API_BASE}/scraper/run`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': token ? `Bearer ${token}` : ''
+                        },
+                        body: JSON.stringify({
+                            sources: ['autochek', 'jiji', 'carapi']
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.message || `HTTP ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    addScraperLog('✅ All scrapers started successfully!', 'success');
+                    addScraperLog(`📊 Task ID: ${data.task_id || 'N/A'}`, 'info');
+                    showToast('✅ All scrapers started!', 'success');
+                    await getScraperStatus();
+                    await addAdminLog('🔄 All scrapers run triggered', 'admin');
+                    
+                } catch (error) {
+                    console.error('Scraper error:', error);
+                    addScraperLog(`❌ Error: ${error.message}`, 'error');
+                    showToast(`❌ Scraper failed: ${error.message}`, 'error');
+                }
+                
+                btn.textContent = originalText;
+                btn.disabled = false;
+            };
+
+            window.scrapeSource = async function(source) {
+                const token = localStorage.getItem('access_token') || '';
+                const btn = document.querySelector(`button[onclick="scrapeSource('${source}')"]`);
+                const originalText = btn.textContent;
+                
+                btn.textContent = '⏳...';
+                btn.disabled = true;
+                
+                try {
+                    const response = await fetch(`${API_BASE}/scraper/${source}`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': token ? `Bearer ${token}` : ''
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.message || `HTTP ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    const sourceName = source.charAt(0).toUpperCase() + source.slice(1);
+                    addScraperLog(`✅ ${sourceName} scraping started!`, 'success');
+                    showToast(`✅ ${sourceName} scraping started!`, 'success');
+                    await getScraperStatus();
+                    await addAdminLog(`🔄 ${sourceName} scraper triggered`, 'admin');
+                    
+                } catch (error) {
+                    console.error('Scraper error:', error);
+                    const sourceName = source.charAt(0).toUpperCase() + source.slice(1);
+                    addScraperLog(`❌ ${sourceName} failed: ${error.message}`, 'error');
+                    showToast(`❌ ${sourceName} failed: ${error.message}`, 'error');
+                }
+                
+                btn.textContent = originalText;
+                btn.disabled = false;
+            };
+
+            window.getScraperStatus = async function() {
+                const token = localStorage.getItem('access_token') || '';
+                
+                try {
+                    const response = await fetch(`${API_BASE}/scraper/status`, {
+                        headers: {
+                            'Authorization': token ? `Bearer ${token}` : ''
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    const statusBadge = document.getElementById('scraperStatus');
+                    const status = data.data?.status || 'idle';
+                    statusBadge.textContent = status === 'idle' ? '● Idle' : status === 'running' ? '● Running' : '● ' + status;
+                    statusBadge.className = `badge ${status === 'idle' ? 'badge-success' : 'badge-warning'}`;
+                    
+                    document.getElementById('scraperTotalListings').textContent = data.data?.total_listings || 0;
+                    document.getElementById('scraperLastRun').textContent = data.data?.last_run 
+                        ? new Date(data.data.last_run).toLocaleString() 
+                        : 'Never';
+                    document.getElementById('scraperSourcesCount').textContent = data.data?.sources?.length || 0;
+                    
+                    addScraperLog(`📊 Status updated: ${status} (${data.data?.total_listings || 0} listings)`, 'info');
+                    
+                } catch (error) {
+                    console.error('Status error:', error);
+                    document.getElementById('scraperStatus').textContent = '● Offline';
+                    document.getElementById('scraperStatus').className = 'badge badge-danger';
+                    addScraperLog(`❌ Status check failed: ${error.message}`, 'error');
+                }
+            };
+
+            window.getScraperSources = async function() {
+                const token = localStorage.getItem('access_token') || '';
+                
+                try {
+                    const response = await fetch(`${API_BASE}/scraper/sources`, {
+                        headers: {
+                            'Authorization': token ? `Bearer ${token}` : ''
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    const sources = data.data?.sources || [];
+                    const count = sources.filter(s => s.enabled).length;
+                    document.getElementById('scraperSourcesCount').textContent = count;
+                    
+                    return sources;
+                } catch (error) {
+                    console.error('Sources error:', error);
+                    return [];
+                }
+            };
+
+            // ─── Scraper Log ─────────────────────────────────────────────
+            function addScraperLog(message, type = 'info') {
+                const container = document.getElementById('scraperLog');
+                const timestamp = new Date().toLocaleTimeString();
+                
+                scraperLogs.unshift({ timestamp, message, type });
+                if (scraperLogs.length > 50) scraperLogs.pop();
+                
+                renderScraperLogs();
+                
+                addAdminLog(`🔄 ${message}`, 'scraper');
+            }
+
+            function renderScraperLogs() {
+                const container = document.getElementById('scraperLog');
+                if (scraperLogs.length === 0) {
+                    container.innerHTML = '<div style="color: var(--text-muted);">No scraper activity...</div>';
+                    return;
+                }
+                
+                container.innerHTML = scraperLogs.slice(0, 10).map(log => `
+                    <div class="log-entry ${log.type}">
+                        <span>${log.message}</span>
+                        <span class="log-time">${log.timestamp}</span>
+                    </div>
+                `).join('');
+            }
+
+            window.clearScraperLog = function() {
+                scraperLogs = [];
+                renderScraperLogs();
+                showToast('🧹 Scraper log cleared', 'info');
+            };
+
             // ─── Other Functions ────────────────────────────────────────
             window.refreshLogs = function() {
                 fetchLogs();
@@ -2303,6 +2560,7 @@
                         window.fetchServicePrices(),
                         window.fetchEngineSettings(),
                         fetchLogs(),
+                        getScraperStatus(),
                         checkHealth(true)
                     ]);
                     await addAdminLog('🔄 All data synced successfully', 'admin');
@@ -2403,10 +2661,9 @@
 
             // ─── Init ──────────────────────────────────────────────────
             async function init() {
-                console.log('🚗 Auto-D Kenya Admin Dashboard v5.0 (Fixed)');
+                console.log('🚗 Auto-D Kenya Admin Dashboard v5.0');
                 console.log('📡 Backend API:', API_BASE);
                 console.log('🏥 Health Check:', HEALTH_CHECK_URL);
-                console.log('🔐 Supabase:', SUPABASE_URL);
 
                 initSupabase();
 
