@@ -1,8 +1,8 @@
 """
-Valuation API
+Valuation API - Vehicle valuation endpoints
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 import logging
@@ -13,32 +13,28 @@ from app.engines.valuation_engine import ValuationEngine
 from app.core.database import supabase
 from app.core.dependencies import get_current_user
 
+# ─── Router ──────────────────────────────────────────────────────────
+router = APIRouter()
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
-
+# ─── Engine ──────────────────────────────────────────────────────────
 valuation_engine = ValuationEngine()
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────
+# ─── Test Endpoint ──────────────────────────────────────────────────
+@router.get("/ping")
+async def valuation_ping():
+    """Test endpoint to verify valuation router is working"""
+    return {
+        "status": "ok",
+        "message": "Valuation router is active",
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
+# ─── Helpers ──────────────────────────────────────────────────────
 async def get_variant_from_supabase(variant_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Fetch a vehicle variant from Supabase.
-    
-    Uses the CURRENT schema:
-    vehicle_variants
-        id
-        generation_id
-        name
-        fuel_type_id
-        transmission_type_id
-        engine_size_cc
-        power_hp
-        torque_nm
-        ...
-    """
+    """Fetch a vehicle variant from Supabase."""
     try:
         response = (
             supabase
@@ -54,7 +50,6 @@ async def get_variant_from_supabase(variant_id: int) -> Optional[Dict[str, Any]]
 
         row = response.data
 
-        # Fuel type lookup
         fuel_lookup = {
             1: "diesel",
             2: "petrol",
@@ -62,7 +57,6 @@ async def get_variant_from_supabase(variant_id: int) -> Optional[Dict[str, Any]]
             4: "electric",
         }
 
-        # Transmission lookup
         transmission_lookup = {
             1: "manual",
             2: "automatic",
@@ -91,9 +85,7 @@ async def get_variant_from_supabase(variant_id: int) -> Optional[Dict[str, Any]]
         return None
 
 
-# ─── Calculate Valuation ─────────────────────────────────────────────
-
-
+# ─── Calculate Valuation ──────────────────────────────────────────
 @router.post("/calculate")
 async def calculate_valuation(
     request: ValuationRequest,
@@ -105,7 +97,7 @@ async def calculate_valuation(
     Uses scraped market data and database values for accurate pricing.
     """
     try:
-        logger.info(f"Valuation request for variant {request.variant_id} by user {current_user.get('id') if current_user else 'anonymous'}")
+        logger.info(f"Valuation request for variant {request.variant_id}")
 
         # Get variant from database
         variant = await get_variant_from_supabase(request.variant_id)
@@ -118,7 +110,7 @@ async def calculate_valuation(
 
         logger.info(f"Variant found: {variant.get('name', 'Unknown')}")
 
-        # ─── Extract modifications safely ──────────────────────────────
+        # ─── Extract modifications safely ──────────────────────────
         modifications = []
         if hasattr(request, 'modifications') and request.modifications:
             modifications = request.modifications
@@ -127,7 +119,7 @@ async def calculate_valuation(
         if hasattr(request, 'custom_adjustments') and request.custom_adjustments:
             custom_adjustments = request.custom_adjustments
 
-        # ─── Calculate valuation ──────────────────────────────────────
+        # ─── Calculate valuation ──────────────────────────────────
         result = valuation_engine.calculate_valuation(
             variant=variant,
             year=request.year,
@@ -141,7 +133,7 @@ async def calculate_valuation(
             custom_adjustments=custom_adjustments
         )
 
-        # ─── Build response ────────────────────────────────────────────
+        # ─── Build response ────────────────────────────────────────
         return {
             "status": "success",
             "message": "Valuation calculated successfully",
@@ -158,8 +150,6 @@ async def calculate_valuation(
 
 
 # ─── Variant Lookup ──────────────────────────────────────────────────
-
-
 @router.get("/variant/{variant_id}")
 async def get_variant(variant_id: int):
     """Get vehicle variant details"""
@@ -184,82 +174,10 @@ async def get_variant(variant_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── Bulk Valuation ──────────────────────────────────────────────────
-
-
-@router.post("/calculate/bulk")
-async def calculate_bulk_valuation(
-    requests: List[ValuationRequest],
-    current_user: dict = Depends(get_current_user)
-):
-    """Calculate valuations for multiple vehicles"""
-    try:
-        results = []
-        errors = []
-
-        for request in requests:
-            try:
-                variant = await get_variant_from_supabase(request.variant_id)
-                if variant is None:
-                    errors.append({
-                        "variant_id": request.variant_id,
-                        "error": "Variant not found"
-                    })
-                    continue
-
-                modifications = []
-                if hasattr(request, 'modifications') and request.modifications:
-                    modifications = request.modifications
-                
-                custom_adjustments = {}
-                if hasattr(request, 'custom_adjustments') and request.custom_adjustments:
-                    custom_adjustments = request.custom_adjustments
-
-                result = valuation_engine.calculate_valuation(
-                    variant=variant,
-                    year=request.year,
-                    mileage=request.mileage,
-                    condition=request.condition,
-                    accident_history=request.accident_history,
-                    previous_owners=request.previous_owners,
-                    location=request.location,
-                    service_history=request.service_history,
-                    modifications=modifications,
-                    custom_adjustments=custom_adjustments
-                )
-
-                results.append({
-                    "variant_id": request.variant_id,
-                    "result": result
-                })
-
-            except Exception as e:
-                errors.append({
-                    "variant_id": request.variant_id,
-                    "error": str(e)
-                })
-
-        return {
-            "status": "success" if results else "partial",
-            "timestamp": datetime.utcnow().isoformat(),
-            "total": len(requests),
-            "successful": len(results),
-            "failed": len(errors),
-            "results": results,
-            "errors": errors
-        }
-
-    except Exception as e:
-        logger.error(f"Bulk valuation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 # ─── Valuation History ──────────────────────────────────────────────
-
-
 @router.get("/history")
 async def get_valuation_history(
-    limit: int = 10,
+    limit: int = Query(10, ge=1, le=100),
     current_user: dict = Depends(get_current_user)
 ):
     """Get valuation history for current user"""
@@ -286,8 +204,6 @@ async def get_valuation_history(
 
 
 # ─── Market Comparison ──────────────────────────────────────────────
-
-
 @router.get("/compare/{variant_id}")
 async def get_market_comparison(
     variant_id: int,
