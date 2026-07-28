@@ -11,16 +11,13 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     
-    <!-- ─── FAVICON ──────────────────────────────────────────────── -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E" />
     
-    <!-- ─── FONTS ────────────────────────────────────────────────── -->
     <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
     <noscript>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet" />
     </noscript>
     
-    <!-- ─── SUPABASE SDK ────────────────────────────────────────── -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
     <style>
@@ -1147,7 +1144,8 @@
     <script>
         // ════════════════════════════════════════════════════════════════
         // AUTO-D KENYA - DASHBOARD (FIXED)
-        // FIXED: M-Pesa endpoint paths - using /mpesa/ (not /mpesa/mpesa/)
+        // FIXED: confirmedCheckoutId variable scope
+        // FIXED: M-Pesa endpoint paths
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1159,11 +1157,21 @@
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-            // ─── Numeric coercion helper ────────────────────────────────
-            function num(v, fallback = 0) {
-                const n = Number(v);
-                return Number.isFinite(n) ? n : fallback;
-            }
+            // ─── State ──────────────────────────────────────────────────
+            let currentUser = null;
+            let supabaseClient = null;
+            let dashboardData = null;
+            let selectedService = null;
+            let isProcessingPayment = false;
+            let checkoutRequestId = null;
+            let pendingServiceRedirect = null;
+            let pendingRequestId = null;
+            let pollTimer = null;
+            let isWaitingForPayment = false;
+            let confirmedCheckoutId = null;  // ✅ FIXED: Declared at top level
+            let unlockInFlightFor = null;
+
+            const MAX_POLLING_ATTEMPTS = 60;
 
             // ─── Service Routes ──────────────────────────────────────
             const SERVICE_ROUTES = {
@@ -1184,24 +1192,11 @@
                 'ownership': '📊'
             };
 
-            // ─── Hardcoded services ───────────────────────────────────
             const DEFAULT_SERVICES = [
                 { id: 'mileage', code: 'mileage', name: 'Mileage Calculator', price: 100, icon: '📈', route: '/mileage.html', purchased: false, status: 'locked' },
                 { id: 'valuation', code: 'valuation', name: 'Instant Vehicle Value', price: 150, icon: '💰', route: '/instant-value.html', purchased: false, status: 'locked' },
                 { id: 'ownership', code: 'ownership', name: 'Ownership Cost Report', price: 200, icon: '📊', route: '/ownership-cost.html', purchased: false, status: 'locked' }
             ];
-
-            // ─── State ──────────────────────────────────────────────────
-            let currentUser = null;
-            let supabaseClient = null;
-            let dashboardData = null;
-            let selectedService = null;
-            let isProcessingPayment = false;
-            let checkoutRequestId = null;
-            let pendingServiceRedirect = null;
-            let pendingRequestId = null;
-            let pollTimer = null;
-            let isWaitingForPayment = false;
 
             // ─── DOM Refs ──────────────────────────────────────────────
             const vehicleGrid = document.getElementById('vehicleGrid');
@@ -1210,9 +1205,11 @@
             const paymentsList = document.getElementById('paymentsList');
             const notificationsList = document.getElementById('notificationsList');
 
-            // ============================================================
-            // HELPERS
-            // ============================================================
+            // ─── Helpers ──────────────────────────────────────────────
+            function num(v, fallback = 0) {
+                const n = Number(v);
+                return Number.isFinite(n) ? n : fallback;
+            }
 
             function showToast(message, type) {
                 type = type || 'info';
@@ -1272,10 +1269,19 @@
                 }
             }
 
-            // ============================================================
-            // SUPABASE
-            // ============================================================
+            async function requireAuthToken() {
+                const token = await getAuthToken();
+                if (!token) {
+                    showToast('⚠️ Your session has expired. Please log in again.', 'error');
+                    setTimeout(() => {
+                        window.location.href = 'https://auto-d.meipressgroup.com/';
+                    }, 1500);
+                    return null;
+                }
+                return token;
+            }
 
+            // ─── Supabase ─────────────────────────────────────────────
             function initSupabase() {
                 try {
                     if (typeof supabase === 'undefined') {
@@ -1292,10 +1298,7 @@
                 }
             }
 
-            // ============================================================
-            // AUTH
-            // ============================================================
-
+            // ─── Auth ──────────────────────────────────────────────────
             async function checkAuth() {
                 try {
                     if (!supabaseClient) {
@@ -1356,10 +1359,7 @@
                 if (greetingTextEl) greetingTextEl.textContent = `👋 Welcome back, ${name}!`;
             }
 
-            // ============================================================
-            // NAVIGATION
-            // ============================================================
-
+            // ─── Navigation ────────────────────────────────────────────
             window.navigateTo = function(section) {
                 showToast(`📂 Navigating to ${section}...`, 'info');
             };
@@ -1402,10 +1402,7 @@
                 window.navigateToService(serviceId);
             };
 
-            // ============================================================
-            // LOAD DASHBOARD
-            // ============================================================
-
+            // ─── Load Dashboard ──────────────────────────────────────
             async function loadDashboard() {
                 try {
                     if (vehicleGrid) {
@@ -1415,7 +1412,6 @@
                         servicesGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
                     }
 
-                    // Pull the live service catalog from the backend
                     let services;
                     try {
                         const svcResp = await fetch(`${API_BASE}/services?active_only=true`);
@@ -1552,10 +1548,7 @@
                 }
             }
 
-            // ============================================================
-            // RENDER FUNCTIONS
-            // ============================================================
-
+            // ─── Render Functions ────────────────────────────────────
             function renderDashboard(data) {
                 const stats = data.stats || {};
                 
@@ -1781,10 +1774,7 @@
                 }).join('');
             }
 
-            // ============================================================
-            // REQUESTS
-            // ============================================================
-
+            // ─── Requests ─────────────────────────────────────────────
             window.openNewRequestModal = function() {
                 const vehicleSelect = document.getElementById('requestVehicle');
                 if (vehicleSelect) {
@@ -1954,10 +1944,7 @@
                 }
             };
 
-            // ============================================================
-            // PAYMENT FUNCTIONS
-            // ============================================================
-
+            // ─── Payment Functions ────────────────────────────────────
             window.openPaymentModal = function(service) {
                 selectedService = service;
                 confirmedCheckoutId = null;
@@ -2084,7 +2071,6 @@
                 };
 
                 try {
-                    // ─── FIXED: Use /mpesa/stkpush (not /mpesa/mpesa/stkpush) ───
                     const response = await fetch(`${API_BASE}/mpesa/stkpush`, {
                         method: 'POST',
                         headers: {
@@ -2162,7 +2148,6 @@
                 }
             };
 
-            // ─── Payment Status Polling ──────────────────────────────
             async function waitForPayment(checkoutId, serviceId, maxAttempts = 60) {
                 const statusText = document.getElementById('paymentStatusText');
                 const statusDetail = document.getElementById('paymentStatusDetail');
@@ -2201,7 +2186,6 @@
                                 headers['Authorization'] = `Bearer ${pollToken}`;
                             }
 
-                            // ─── FIXED: Use /mpesa/status/ (not /mpesa/mpesa/status/) ───
                             const statusResponse = await fetch(`${API_BASE}/mpesa/status/${encodeURIComponent(checkoutId)}`, {
                                 headers: headers
                             });
@@ -2328,7 +2312,6 @@
                         return false;
                     }
 
-                    // ─── FIXED: Use /mpesa/confirm/ (not /mpesa/mpesa/confirm/) ───
                     const response = await fetch(`${API_BASE}/mpesa/confirm/${encodeURIComponent(checkoutId)}`, {
                         method: 'POST',
                         headers: {
@@ -2459,10 +2442,7 @@
                 }
             };
 
-            // ============================================================
-            // VEHICLES
-            // ============================================================
-
+            // ─── Vehicles ─────────────────────────────────────────────
             window.openAddVehicleModal = function() {
                 const yearSelect = document.getElementById('vehicleYear');
                 if (yearSelect) {
@@ -2555,10 +2535,7 @@
                 }
             };
 
-            // ============================================================
-            // STUB FUNCTIONS
-            // ============================================================
-
+            // ─── Stub Functions ──────────────────────────────────────
             window.viewVehicle = function(id) { showToast(`📊 Viewing vehicle ${id}`, 'info'); };
             window.viewReport = function(id) { showToast(`📄 Viewing report ${id}`, 'info'); };
             window.viewNotification = function(id) { showToast(`🔔 Viewing notification ${id}`, 'info'); };
@@ -2567,10 +2544,7 @@
             window.downloadReportForRequest = function(id) { showToast(`⬇️ Downloading report for request ${id}`, 'info'); };
             window.generateReportForRequest = function(id) { showToast(`📄 Generating report for request ${id}`, 'info'); };
 
-            // ============================================================
-            // SIDEBAR & LOGOUT
-            // ============================================================
-
+            // ─── Sidebar & Logout ──────────────────────────────────
             window.toggleSidebar = function() {
                 const sidebar = document.getElementById('sidebar');
                 if (sidebar) sidebar.classList.toggle('open');
@@ -2624,15 +2598,10 @@
                 }
             });
 
-            // ============================================================
-            // INIT
-            // ============================================================
-
+            // ─── Init ──────────────────────────────────────────────────
             (async function() {
                 console.log('🚗 Auto-D Kenya Dashboard');
-                console.log('📋 Using hardcoded services: mileage=100, valuation=150, ownership=200');
                 console.log('🔗 API Base:', API_BASE);
-                console.log('✅ ⭐ CORRECT FLOW: UNLOCK ONLY after backend confirms SUCCESS');
 
                 initSupabase();
 
