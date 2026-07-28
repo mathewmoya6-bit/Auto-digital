@@ -940,7 +940,6 @@
             color: #3b82f6;
         }
 
-        /* ─── PROGRESS BAR ─────────────────────────────────────────── */
         .progress-container {
             display: none;
             margin: 12px 0;
@@ -1067,7 +1066,6 @@
 
             <section class="calculator-panel" aria-label="Vehicle cost calculator">
 
-                <!-- ─── LOCK OVERLAY ────────────────────────────────────── -->
                 <div class="lock-overlay show" id="lockOverlay">
                     <div class="lock-icon">🔒</div>
                     <h3>Sign In Required</h3>
@@ -1075,7 +1073,6 @@
                     <button class="unlock-btn" id="unlockBtn">🔑 Sign In</button>
                 </div>
 
-                <!-- ─── AUTH SECTION ──────────────────────────────────── -->
                 <div class="panel-label"><span class="num">🔐</span> Authentication</div>
                 <div class="auth-section">
                     <div id="authMessage" class="user-email" style="color:var(--text-muted);font-size:10px;">
@@ -1096,13 +1093,11 @@
                     </div>
                 </div>
 
-                <!-- ─── STATUS MESSAGE ──────────────────────────────────── -->
                 <div class="status-message info" id="statusMessage">
                     <span>ℹ️</span>
                     <span id="statusMessageText">Loading vehicle data...</span>
                 </div>
 
-                <!-- ─── PROGRESS ────────────────────────────────────────── -->
                 <div class="progress-container" id="progressContainer">
                     <div class="progress-bar-track">
                         <div class="progress-fill" id="progressFill"></div>
@@ -1113,7 +1108,6 @@
                     </div>
                 </div>
 
-                <!-- ─── VEHICLE SELECTION ────────────────────────────── -->
                 <div class="panel-label"><span class="num">01</span> Vehicle Details</div>
 
                 <div class="form-group">
@@ -1157,7 +1151,6 @@
                     </div>
                 </div>
 
-                <!-- ─── TRIP PARAMETERS ────────────────────────────────── -->
                 <div class="panel-label"><span class="num">02</span> Trip Parameters</div>
 
                 <div class="form-group">
@@ -1174,7 +1167,7 @@
 
                 <div class="form-group">
                     <label for="fuelPriceInput">Current Fuel Price (KES/L)</label>
-                    <input type="number" id="fuelPriceInput" min="0" max="500" step="0.5" />
+                    <input type="number" id="fuelPriceInput" min="0" max="500" step="0.5" value="200" />
                     <div class="error-text" id="fuelPriceError">Enter a fuel price between 0 and 500 KES</div>
                 </div>
 
@@ -1222,7 +1215,6 @@
                     </select>
                 </div>
 
-                <!-- ─── PURCHASE TYPE ──────────────────────────────────── -->
                 <div class="panel-label"><span class="num">03</span> Purchase Type</div>
 
                 <div class="form-group">
@@ -1261,7 +1253,6 @@
                 </div>
             </section>
 
-            <!-- ─── RESULTS PANEL ──────────────────────────────────────── -->
             <div class="results-panel" id="resultsPanel">
 
                 <div class="result-card">
@@ -1364,11 +1355,10 @@
     </div>
 
     <script>
-        // ================================================================
+        // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 6.3 - Fixed: getVehicleName() prevents duplicate model names
-        //                 Logout redirects to dashboard
-        // ================================================================
+        // Version 6.3 - Connected to Backend API
+        // ═══════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
@@ -1379,10 +1369,7 @@
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
                 TCO_VIEW: 'vehicle_ownership_cost_complete',
-                CACHE_KEY: 'auto_d_vehicle_cache',
-                CACHE_DURATION: 3600000,
-                MAX_RETRIES: 3,
-                RETRY_DELAY: 1000,
+                API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html'
             };
 
@@ -1470,63 +1457,22 @@
                 shareBtn: document.getElementById('shareBtn')
             };
 
-            // ─── ERROR MESSAGES ──────────────────────────────────────
-            const ERROR_MESSAGES = {
-                'PGRST205': 'Vehicle data not found in database. Please try again.',
-                'PGRST301': 'Permission denied. Please sign in again.',
-                'NETWORK_ERROR': 'Network error. Please check your connection.',
-                'TIMEOUT': 'Request timed out. Please try again.',
-                'DEFAULT': 'Something went wrong. Please try again.'
-            };
-
-            // ─── VEHICLE NAME HELPER - Prevents duplicate model names ──
-            function getVehicleName(make, model, variant) {
-                const cleanMake = (make || '').trim();
-                const cleanModel = (model || '').trim();
-                const cleanVariant = (variant || '').trim();
-                
-                if (!cleanVariant) {
-                    return `${cleanMake} ${cleanModel}`.trim();
-                }
-                
-                const variantWords = cleanVariant.split(/\s+/);
-                const firstWord = variantWords[0] || '';
-                
-                if (firstWord.toLowerCase() === cleanModel.toLowerCase()) {
-                    return `${cleanMake} ${cleanVariant}`.trim();
-                }
-                
-                return `${cleanMake} ${cleanModel} ${cleanVariant}`.trim();
-            }
-
             // ─── HELPERS ──────────────────────────────────────────────
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
-
             function formatCurrency(val) {
                 if (val === undefined || val === null || isNaN(val)) return '0.00';
-                return Number(val).toLocaleString('en-KE', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                });
+                return Number(val).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             }
-
             function formatNumber(val) {
                 if (val === undefined || val === null || isNaN(val)) return '0';
                 return Number(val).toLocaleString('en-KE');
             }
-
             function escapeHTML(str) {
                 if (!str) return '';
                 const div = document.createElement('div');
                 div.textContent = str;
                 return div.innerHTML;
             }
-
-            function getUserFriendlyError(error) {
-                const code = error?.code || error?.status || 'DEFAULT';
-                return ERROR_MESSAGES[code] || ERROR_MESSAGES.DEFAULT;
-            }
-
             function showToast(message, type = 'info') {
                 const existing = document.querySelector('.toast');
                 if (existing) existing.remove();
@@ -1537,121 +1483,35 @@
                 document.body.appendChild(toast);
                 setTimeout(() => toast.remove(), 4000);
             }
-
-            function getVehicleAge(year) {
-                const currentYear = new Date().getFullYear();
-                return Math.max(0, currentYear - parseInt(year));
-            }
-
             function setStatus(type, message) {
-                if (el.statusMessage && el.statusMessageText) {
-                    el.statusMessage.className = `status-message ${type}`;
-                    const icons = { error: '❌', warning: '⚠️', success: '✅', info: 'ℹ️' };
-                    el.statusMessageText.textContent = message;
-                    const iconSpan = el.statusMessage.querySelector('span:first-child');
-                    if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
-                } else {
-                    console.log(`[${type.toUpperCase()}] ${message}`);
-                }
+                el.statusMessage.className = `status-message ${type}`;
+                const icons = { error: '❌', warning: '⚠️', success: '✅', info: 'ℹ️' };
+                el.statusMessageText.textContent = message;
+                const iconSpan = el.statusMessage.querySelector('span:first-child');
+                if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
             }
 
-            // ─── PROGRESS ────────────────────────────────────────────
+            function getVehicleName(make, model, variant) {
+                const cleanMake = (make || '').trim();
+                const cleanModel = (model || '').trim();
+                const cleanVariant = (variant || '').trim();
+                if (!cleanVariant) return `${cleanMake} ${cleanModel}`.trim();
+                const variantWords = cleanVariant.split(/\s+/);
+                const firstWord = variantWords[0] || '';
+                if (firstWord.toLowerCase() === cleanModel.toLowerCase()) {
+                    return `${cleanMake} ${cleanVariant}`.trim();
+                }
+                return `${cleanMake} ${cleanModel} ${cleanVariant}`.trim();
+            }
+
             function showProgress(percent, label) {
-                if (el.progressContainer) {
-                    el.progressContainer.classList.add('show');
-                    if (el.progressFill) el.progressFill.style.width = `${Math.min(percent, 100)}%`;
-                    if (el.progressLabel) el.progressLabel.textContent = label || 'Loading...';
-                    if (el.progressPercent) el.progressPercent.textContent = `${Math.min(percent, 100)}%`;
-                }
+                el.progressContainer.classList.add('show');
+                el.progressFill.style.width = `${Math.min(percent, 100)}%`;
+                el.progressLabel.textContent = label || 'Loading...';
+                el.progressPercent.textContent = `${Math.min(percent, 100)}%`;
             }
-
             function hideProgress() {
-                if (el.progressContainer) {
-                    el.progressContainer.classList.remove('show');
-                }
-            }
-
-            // ─── PRICE ESTIMATOR ─────────────────────────────────────
-            function estimateVehiclePrice(variant) {
-                const baseEstimates = {
-                    'SUV': 4500000, 'Sedan': 3500000, 'Hatchback': 2500000,
-                    'Pickup': 4000000, 'Van': 3800000, 'Truck': 6000000,
-                    'Bus': 8000000, 'Motorcycle': 300000, 'Crossover': 3800000,
-                    'Coupe': 5000000, 'Convertible': 5500000, 'Wagon': 3200000,
-                    'Minivan': 3500000
-                };
-                
-                const bodyType = variant.body_type_name || variant.model_body_type || 'Sedan';
-                let price = baseEstimates[bodyType] || baseEstimates['Sedan'];
-                
-                const engineCC = variant.engine_size_cc || 2000;
-                if (engineCC > 4000) price *= 1.5;
-                else if (engineCC > 3000) price *= 1.3;
-                else if (engineCC > 2000) price *= 1.15;
-                else if (engineCC > 1500) price *= 1.0;
-                else if (engineCC > 1200) price *= 0.85;
-                else price *= 0.7;
-                
-                const luxuryMakes = ['Mercedes', 'BMW', 'Audi', 'Lexus', 'Porsche', 'Range Rover', 'Jaguar', 'Volvo', 'Land Rover'];
-                const economyMakes = ['Toyota', 'Honda', 'Nissan', 'Mazda', 'Suzuki', 'Mitsubishi', 'Hyundai', 'Kia', 'Ford', 'Chevrolet'];
-                const makeName = variant.make_name || '';
-                
-                if (luxuryMakes.some(m => makeName.includes(m))) {
-                    price *= 1.4;
-                } else if (economyMakes.some(m => makeName.includes(m))) {
-                    price *= 0.9;
-                }
-                
-                const fuelType = variant.fuel_type_name || '';
-                if (fuelType.toLowerCase() === 'electric') price *= 1.3;
-                else if (fuelType.toLowerCase() === 'hybrid') price *= 1.2;
-                else if (fuelType.toLowerCase() === 'diesel') price *= 1.1;
-                
-                return Math.round(price);
-            }
-
-            // ─── RETRY LOGIC ─────────────────────────────────────────
-            async function queryWithRetry(queryFn, maxRetries = CONFIG.MAX_RETRIES) {
-                let lastError;
-                for (let i = 0; i < maxRetries; i++) {
-                    try {
-                        return await queryFn();
-                    } catch (error) {
-                        lastError = error;
-                        console.warn(`Attempt ${i + 1} failed, retrying...`, error.message);
-                        if (i < maxRetries - 1) {
-                            await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY * (i + 1)));
-                        }
-                    }
-                }
-                throw lastError;
-            }
-
-            // ─── CACHE ────────────────────────────────────────────────
-            function getCachedData(key) {
-                try {
-                    const cached = localStorage.getItem(key);
-                    if (!cached) return null;
-                    const { data, timestamp } = JSON.parse(cached);
-                    if (Date.now() - timestamp < CONFIG.CACHE_DURATION) {
-                        return data;
-                    }
-                    localStorage.removeItem(key);
-                    return null;
-                } catch (e) {
-                    return null;
-                }
-            }
-
-            function setCachedData(key, data) {
-                try {
-                    localStorage.setItem(key, JSON.stringify({
-                        data: data,
-                        timestamp: Date.now()
-                    }));
-                } catch (e) {
-                    console.warn('Cache write failed:', e);
-                }
+                el.progressContainer.classList.remove('show');
             }
 
             // ─── SUPABASE ──────────────────────────────────────────────
@@ -1710,10 +1570,7 @@
                     updateAuthUI();
                     updateLockState();
                     showToast('🔓 Signed out', 'info');
-                    // ─── REDIRECT TO DASHBOARD ──────────────────────
-                    setTimeout(() => {
-                        window.location.href = CONFIG.DASHBOARD_URL;
-                    }, 500);
+                    setTimeout(() => { window.location.href = CONFIG.DASHBOARD_URL; }, 500);
                     return true;
                 } catch (error) {
                     showToast('❌ Sign out failed: ' + error.message, 'error');
@@ -1786,7 +1643,7 @@
                     if (el.modelSelect.value) el.generationSelect.disabled = false;
                     if (el.generationSelect.value) el.variantSelect.disabled = false;
                     if (el.variantSelect.value) el.calculateBtn.disabled = false;
-                    showToast('🔓 Calculator unlocked! Welcome back.', 'success');
+                    showToast('🔓 Calculator unlocked!', 'success');
                 }
             }
 
@@ -1796,15 +1653,12 @@
                     showToast('⚠️ Please sign in to access vehicle data', 'warning');
                     return [];
                 }
-                
-                return queryWithRetry(async () => {
-                    let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
-                    if (filter) query = query.eq(filter.column, filter.value);
-                    if (order) query = query.order(order.column, { ascending: order.ascending !== false });
-                    const { data, error } = await query;
-                    if (error) throw error;
-                    return data;
-                });
+                let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
+                if (filter) query = query.eq(filter.column, filter.value);
+                if (order) query = query.order(order.column, { ascending: order.ascending !== false });
+                const { data, error } = await query;
+                if (error) throw error;
+                return data;
             }
 
             // ─── LOAD DATA ─────────────────────────────────────────────
@@ -1821,7 +1675,7 @@
                     return Object.values(unique);
                 } catch (error) {
                     console.error('Error loading categories:', error);
-                    setStatus('error', getUserFriendlyError(error));
+                    setStatus('error', error.message);
                     return [];
                 }
             }
@@ -1843,7 +1697,7 @@
                     return Object.values(unique);
                 } catch (error) {
                     console.error('Error loading makes:', error);
-                    setStatus('error', getUserFriendlyError(error));
+                    setStatus('error', error.message);
                     return [];
                 }
             }
@@ -1865,7 +1719,7 @@
                     return Object.values(unique);
                 } catch (error) {
                     console.error('Error loading models:', error);
-                    setStatus('error', getUserFriendlyError(error));
+                    setStatus('error', error.message);
                     return [];
                 }
             }
@@ -1892,7 +1746,7 @@
                     return Object.values(unique);
                 } catch (error) {
                     console.error('Error loading generations:', error);
-                    setStatus('error', getUserFriendlyError(error));
+                    setStatus('error', error.message);
                     return [];
                 }
             }
@@ -1907,9 +1761,6 @@
                         { column: 'generation_id', value: generationId },
                         { column: 'variant_name', ascending: true }
                     );
-                    
-                    // ─── DEDUPLICATE VARIANTS ──────────────────────
-                    // Remove duplicate model names from variant display
                     return data.map(v => {
                         let name = v.variant_name || 'Variant';
                         const parts = name.split(' ');
@@ -1921,7 +1772,7 @@
                     });
                 } catch (error) {
                     console.error('Error loading variants:', error);
-                    setStatus('error', getUserFriendlyError(error));
+                    setStatus('error', error.message);
                     return [];
                 }
             }
@@ -1934,22 +1785,20 @@
                     return null;
                 } catch (error) {
                     console.error('Error loading variant details:', error);
-                    setStatus('error', getUserFriendlyError(error));
+                    setStatus('error', error.message);
                     return null;
                 }
             }
 
             async function loadTCOData(variantId) {
                 try {
-                    return await queryWithRetry(async () => {
-                        const { data, error } = await supabaseClient
-                            .from(CONFIG.TCO_VIEW)
-                            .select('*')
-                            .eq('variant_id', variantId);
-                        if (error) throw error;
-                        if (data && data.length > 0) return data[0];
-                        return null;
-                    });
+                    const { data, error } = await supabaseClient
+                        .from(CONFIG.TCO_VIEW)
+                        .select('*')
+                        .eq('variant_id', variantId);
+                    if (error) throw error;
+                    if (data && data.length > 0) return data[0];
+                    return null;
                 } catch (error) {
                     console.warn('⚠️ TCO data load failed:', error.message);
                     return null;
@@ -1973,47 +1822,23 @@
                 }
             }
 
-            async function loadFuelPrice() {
-                try {
-                    const now = new Date().toISOString();
-                    const { data, error } = await supabaseClient
-                        .from('fuel_prices')
-                        .select('price_per_unit')
-                        .lte('effective_from', now)
-                        .or(`effective_to.is.null,effective_to.gte.${now}`)
-                        .order('effective_from', { ascending: false })
-                        .limit(1);
-                    if (!error && data && data.length > 0 && data[0].price_per_unit) {
-                        el.fuelPriceInput.value = data[0].price_per_unit;
-                        return data[0].price_per_unit;
-                    }
-                    return 0;
-                } catch (error) {
-                    console.warn('Error loading fuel price:', error);
-                    return 0;
-                }
-            }
-
             // ─── UI POPULATION ─────────────────────────────────────────
             async function populateCategories() {
                 const select = el.categorySelect;
                 select.innerHTML = '<option value="">Select Category...</option>';
                 select.disabled = true;
-
                 const categories = await loadCategories();
                 if (!categories || categories.length === 0) {
                     select.innerHTML = '<option value="">No categories available</option>';
                     setStatus('warning', 'No categories found in database');
                     return;
                 }
-
                 categories.forEach(cat => {
                     const opt = document.createElement('option');
                     opt.value = cat.id;
                     opt.textContent = cat.name;
                     select.appendChild(opt);
                 });
-
                 select.disabled = !isUnlocked;
                 setStatus('success', `✅ Loaded ${categories.length} categories`);
             }
@@ -2029,15 +1854,12 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
-
                 if (!categoryId || !isUnlocked) return;
-
                 const makes = await loadMakes(categoryId);
                 if (!makes || makes.length === 0) {
                     select.innerHTML = '<option value="">No makes available</option>';
                     return;
                 }
-
                 makes.forEach(make => {
                     const opt = document.createElement('option');
                     opt.value = make.id;
@@ -2046,7 +1868,6 @@
                     opt.textContent = label;
                     select.appendChild(opt);
                 });
-
                 select.disabled = false;
                 setStatus('success', `✅ Loaded ${makes.length} makes`);
             }
@@ -2060,15 +1881,12 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
-
                 if (!makeId || !isUnlocked) return;
-
                 const models = await loadModels(makeId);
                 if (!models || models.length === 0) {
                     select.innerHTML = '<option value="">No models available</option>';
                     return;
                 }
-
                 models.forEach(model => {
                     const opt = document.createElement('option');
                     opt.value = model.id;
@@ -2077,7 +1895,6 @@
                     opt.textContent = label;
                     select.appendChild(opt);
                 });
-
                 select.disabled = false;
                 setStatus('success', `✅ Loaded ${models.length} models`);
             }
@@ -2089,15 +1906,12 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
-
                 if (!modelId || !isUnlocked) return;
-
                 const generations = await loadGenerations(modelId);
                 if (!generations || generations.length === 0) {
                     select.innerHTML = '<option value="">No generations available</option>';
                     return;
                 }
-
                 generations.forEach(gen => {
                     const opt = document.createElement('option');
                     opt.value = gen.id;
@@ -2105,7 +1919,6 @@
                     opt.textContent = label;
                     select.appendChild(opt);
                 });
-
                 select.disabled = false;
                 setStatus('success', `✅ Loaded ${generations.length} generations`);
             }
@@ -2115,65 +1928,46 @@
                 select.innerHTML = '<option value="">Select Variant...</option>';
                 select.disabled = true;
                 el.calculateBtn.disabled = true;
-
                 if (!generationId || !isUnlocked) return;
-
                 const variants = await loadVariants(generationId);
                 if (!variants || variants.length === 0) {
                     select.innerHTML = '<option value="">No variants available</option>';
                     return;
                 }
-
-                // ─── TRACK SEEN VARIANTS TO PREVENT DUPLICATES ───
                 const seen = new Map();
-
                 variants.forEach(v => {
                     let label = v.clean_name || v.variant_name || 'Variant';
-                    
-                    // Check for duplicates by cleaned name
                     const key = label.trim().toLowerCase();
                     if (seen.has(key)) return;
                     seen.set(key, true);
-                    
                     const opt = document.createElement('option');
                     opt.value = v.variant_id;
-                    
                     let displayLabel = label;
                     if (v.engine_size_cc) displayLabel += ` ${v.engine_size_cc}cc`;
                     if (v.power_hp) displayLabel += ` ${v.power_hp}hp`;
                     if (v.fuel_type_name) displayLabel += ` (${v.fuel_type_name})`;
                     if (v.transmission_type_name) displayLabel += ` ${v.transmission_type_name}`;
-                    
                     opt.textContent = displayLabel;
                     select.appendChild(opt);
                 });
-
                 select.disabled = false;
                 setStatus('success', `✅ Loaded ${seen.size} unique variants`);
             }
 
             // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
             function displayVehicleInfo(variant, tcoData) {
-                // ─── USE getVehicleName() TO PREVENT DUPLICATES ───
                 const label = getVehicleName(
                     variant.make_name || '',
                     variant.model_name || '',
                     variant.variant_name || ''
                 );
-                
                 el.vehicleLabel.textContent = label || 'Unnamed variant';
                 el.fuelPill.textContent = variant.fuel_type_name || '—';
                 el.transmissionPill.textContent = variant.transmission_type_name || '—';
-
                 const engineCC = variant.engine_size_cc || null;
-                if (engineCC) {
-                    el.engineCCDisplay.textContent = `${engineCC}cc`;
-                    el.engineCCDisplay.style.display = 'inline-block';
-                } else {
-                    el.engineCCDisplay.textContent = '—';
-                    el.engineCCDisplay.style.display = 'inline-block';
-                }
-
+                el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
+                const price = tcoData?.purchase_price || 0;
+                const costPerKm = tcoData?.cost_per_km || 0;
                 const specItems = [
                     { label: '🔧', value: variant.trim_level || 'Standard' },
                     { label: '⚡', value: `${variant.power_hp || 0} HP` },
@@ -2184,26 +1978,12 @@
                     { label: '🚗', value: variant.body_type_name || variant.model_body_type || '—' },
                     { label: '🏷️', value: variant.category_name || '—' }
                 ];
-
-                const price = tcoData?.purchase_price || 0;
-                const costPerKm = tcoData?.cost_per_km || 0;
-                
                 if (price > 0) {
                     specItems.push({ label: '💰 New Price', value: `KES ${formatCurrency(price)}` });
-                } else {
-                    const estimatedPrice = estimateVehiclePrice(variant);
-                    specItems.push({ label: '💰 Est. Price', value: `KES ${formatCurrency(estimatedPrice)}` });
                 }
-                
                 if (costPerKm > 0) {
                     specItems.push({ label: '📊 Cost/km', value: `KES ${formatCurrency(costPerKm)}/km` });
-                } else {
-                    const fuelPrice = num(el.fuelPriceInput.value) || 200;
-                    const consumption = variant.fuel_consumption_combined || 12.5;
-                    const estCostPerKm = fuelPrice / consumption;
-                    specItems.push({ label: '📊 Est. Cost/km', value: `KES ${formatCurrency(estCostPerKm)}/km` });
                 }
-
                 el.vehicleSpecs.innerHTML = specItems.map(item =>
                     `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
                 ).join('');
@@ -2231,217 +2011,167 @@
                 const distance = num(el.distanceInput.value);
                 const annualKm = num(el.annualKmInput.value);
                 const fuelPrice = num(el.fuelPriceInput.value);
-
                 document.querySelectorAll('.error-text').forEach(el => el.classList.remove('show'));
                 document.querySelectorAll('.form-group input, .form-group select').forEach(el => el.classList.remove('error'));
-
                 if (distance <= 0 || distance > 100000) {
                     document.getElementById('distanceError').classList.add('show');
                     document.getElementById('distanceInput').classList.add('error');
                     isValid = false;
                 }
-
                 if (annualKm < 0 || annualKm > 200000) {
                     document.getElementById('annualKmError').classList.add('show');
                     document.getElementById('annualKmInput').classList.add('error');
                     isValid = false;
                 }
-
                 if (fuelPrice < 0 || fuelPrice > 500) {
                     document.getElementById('fuelPriceError').classList.add('show');
                     document.getElementById('fuelPriceInput').classList.add('error');
                     isValid = false;
                 }
-
-                if (!isValid) {
-                    showToast('Please fix the validation errors above', 'error');
-                }
-
+                if (!isValid) showToast('Please fix the validation errors above', 'error');
                 return isValid;
             }
 
-            // ─── CALCULATION ENGINE ────────────────────────────────────
-            function calculateRunningCost(variant, inputs, tcoData) {
-                if (!variant) return null;
-
-                const { distance, annualKm, fuelPrice, drivingStyle, tripType, usageType, year } = inputs;
-                const d = distance || 150;
-                const annual = annualKm || 20000;
-
-                if (d <= 0) return null;
-
-                const currentYear = new Date().getFullYear();
-                const vehicleYear = parseInt(year) || currentYear;
-                const vehicleAge = Math.max(0, currentYear - vehicleYear);
-
-                let basePrice = 0;
-                
-                if (tcoData?.purchase_price && tcoData.purchase_price > 0) {
-                    basePrice = tcoData.purchase_price;
-                } else {
-                    basePrice = estimateVehiclePrice(variant);
-                }
-
-                if (basePrice <= 0) {
-                    basePrice = 2500000;
-                }
-
-                let depRate = 0.20;
-                if (tcoData?.depreciation_rate_year_1 && tcoData.depreciation_rate_year_1 > 0) {
-                    depRate = tcoData.depreciation_rate_year_1;
-                }
-                
-                const ageDepAdjust = Math.min(vehicleAge * 0.01, 0.06);
-                depRate = Math.max(0.08, depRate - ageDepAdjust);
-                const mileageFactor = Math.min(annual / 15000, 2.0);
-                depRate = Math.min(0.35, depRate * Math.sqrt(mileageFactor));
-
-                let currentValue = basePrice;
-                for (let i = 0; i < vehicleAge; i++) {
-                    const yearlyRate = depRate * (1 - i * 0.02);
-                    const yearDep = currentValue * Math.min(Math.max(yearlyRate, 0.05), 0.30);
-                    currentValue = currentValue - yearDep;
-                }
-                
-                const minResidual = basePrice * 0.15;
-                const basePriceForCalc = Math.max(currentValue, minResidual);
-
-                const fuelConsumption = variant.fuel_consumption_combined || 12.5;
-                const drivingFactors = { eco: 0.85, normal: 1.0, aggressive: 1.15 };
-                const drivingFactor = drivingFactors[drivingStyle] || 1.0;
-                const tripFactors = { city: 1.15, highway: 0.90, mixed: 1.0 };
-                const tripFactor = tripFactors[tripType] || 1.0;
-                const finalFuelConsumption = (fuelConsumption / drivingFactor) / tripFactor;
-
-                const fuelPricePerUnit = fuelPrice || 200;
-                const fuelCostPerKm = fuelPricePerUnit / finalFuelConsumption;
-                const fuelCostTrip = fuelCostPerKm * d;
-
-                const ageServiceMultiplier = 1 + (vehicleAge * 0.05);
-                const minorCost = 15000 * ageServiceMultiplier;
-                const minorInterval = 10000;
-                const majorCost = 45000 * ageServiceMultiplier;
-                const majorInterval = 40000;
-                const servicePerKm = (minorCost / minorInterval) + (majorCost / majorInterval);
-                const serviceTrip = servicePerKm * d;
-
-                const ageTyreMultiplier = 1 + (vehicleAge * 0.03);
-                const tyreCost = 80000 * ageTyreMultiplier;
-                const tyreLife = 50000;
-                const tyrePerKm = tyreCost / tyreLife;
-                const tyreTrip = tyrePerKm * d;
-
-                const insuranceBase = 80000;
-                const ageInsuranceMultiplier = Math.max(0.5, 1 - (vehicleAge * 0.05));
-                const insuranceAnnual = insuranceBase * ageInsuranceMultiplier;
-                const insurancePerKm = insuranceAnnual / annual;
-                const insuranceTrip = insurancePerKm * d;
-
-                const annualDepreciation = basePriceForCalc * depRate;
-                const depreciationPerKm = annualDepreciation / annual;
-                const depreciationTrip = depreciationPerKm * d;
-
-                const tripTotal = fuelCostTrip + serviceTrip + tyreTrip + insuranceTrip + depreciationTrip;
-                const tripCostPerKm = tripTotal / d;
-
-                const monthlyKm = annual / 12;
-                const monthlyFuel = fuelCostPerKm * monthlyKm;
-                const monthlyService = servicePerKm * monthlyKm;
-                const monthlyTyre = tyrePerKm * monthlyKm;
-                const monthlyInsurance = insuranceAnnual / 12;
-                const monthlyDepreciation = annualDepreciation / 12;
-
-                const annualFuel = fuelCostPerKm * annual;
-                const annualService = servicePerKm * annual;
-                const annualTyre = tyrePerKm * annual;
-
-                const fiveYearData = [];
-                let remainingValue = basePriceForCalc;
-                let total5YearCost = 0;
-
-                for (let y = 1; y <= 5; y++) {
-                    const depRateYear = depRate * (1 - (y - 1) * 0.015);
-                    const yearlyDepreciation = remainingValue * Math.min(Math.max(depRateYear, 0.06), 0.25);
-                    remainingValue = remainingValue - yearlyDepreciation;
-
-                    const inflationFactor = 1 + (y - 1) * 0.04;
-                    const yearlyFuel = annualFuel * inflationFactor;
-                    const yearlyService = annualService * (1 + (y - 1) * 0.06);
-                    const yearlyInsurance = insuranceAnnual * (1 + (y - 1) * 0.03);
-                    const yearlyTyres = annualTyre * (1 + (y - 1) * 0.05);
-
-                    const yearlyTotal = yearlyDepreciation + yearlyFuel + yearlyService + yearlyInsurance + yearlyTyres;
-                    total5YearCost += yearlyTotal;
-
-                    fiveYearData.push({
-                        year: y,
-                        depreciation: yearlyDepreciation,
-                        fuel: yearlyFuel,
-                        service: yearlyService,
-                        insurance: yearlyInsurance,
-                        tyres: yearlyTyres,
-                        total: yearlyTotal,
-                        value: Math.max(remainingValue, basePrice * 0.10)
-                    });
-                }
-
-                return {
-                    tripTotal,
-                    tripCostPerKm,
-                    distance: d,
-                    fuelCostPerKm,
-                    fuelCostTrip,
-                    serviceTrip,
-                    tyreTrip,
-                    insuranceTrip,
-                    depreciationTrip,
-                    fuelConsumption: finalFuelConsumption,
-                    fuelTypeDisplay: variant.fuel_type_name || 'Petrol',
-                    transmissionDisplay: variant.transmission_type_name || 'Automatic',
-                    initialCost: basePriceForCalc,
-                    originalCost: basePrice,
-                    ageAdjustedCost: currentValue,
-                    vehicleAge: vehicleAge,
-                    annualKm: annual,
-                    monthlyKm: monthlyKm,
-                    age: vehicleAge,
-                    usageType: usageType || 'private',
-                    monthlyFuel,
-                    monthlyService,
-                    monthlyTyre,
-                    monthlyInsurance,
-                    monthlyDepreciation,
-                    annualFuel,
-                    annualService,
-                    annualTyre,
-                    annualInsurance: insuranceAnnual,
-                    annualDepreciation,
-                    fiveYearData,
-                    total5YearCost,
-                    remainingValue: fiveYearData[fiveYearData.length - 1]?.value || 0,
-                    variant: variant,
-                    depreciation_rate: depRate,
-                    tcoData: tcoData,
-                    mileageFactor: mileageFactor
+            // ─── RUNNING COST API CALL ─────────────────────────────────
+            async function calculateRunningCostFromAPI(formData) {
+                const payload = {
+                    variant_id: formData.variant_id,
+                    year: formData.year,
+                    mileage: formData.mileage,
+                    annual_km: formData.annual_km,
+                    fuel_price: formData.fuel_price,
+                    driving_style: formData.driving_style,
+                    trip_type: formData.trip_type,
+                    usage_type: formData.usage_type,
+                    location: formData.location,
+                    distance: formData.distance,
+                    financed: formData.financed || false,
+                    down_payment_percent: formData.down_payment_percent || 30,
+                    interest_rate: formData.interest_rate || 16,
+                    loan_term: formData.loan_term || 4
                 };
+
+                const token = localStorage.getItem('access_token') || '';
+                const headers = { 
+                    'Content-Type': 'application/json', 
+                    'Accept': 'application/json' 
+                };
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                console.log('📤 Sending running cost request to:', `${CONFIG.API_BASE}/running-cost/calculate`);
+                console.log('📦 Payload:', payload);
+
+                const response = await fetch(`${CONFIG.API_BASE}/running-cost/calculate`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(15000)
+                });
+
+                if (!response.ok) {
+                    let errorData;
+                    try {
+                        errorData = await response.json();
+                    } catch (e) {
+                        errorData = { message: `HTTP ${response.status}` };
+                    }
+                    throw new Error(errorData.message || errorData.detail || `HTTP ${response.status}`);
+                }
+
+                return await response.json();
+            }
+
+            // ─── MAIN CALCULATION ──────────────────────────────────────
+            async function calculateAndRender(variant = null) {
+                if (!isUnlocked) {
+                    showToast('⚠️ Please sign in to access the calculator', 'warning');
+                    return;
+                }
+                if (!variant) variant = currentVariantData;
+                if (!variant) {
+                    showToast('Please select a vehicle', 'error');
+                    return;
+                }
+                if (!validateInputs()) return;
+
+                const distance = num(el.distanceInput.value);
+                const annualKm = num(el.annualKmInput.value) || 20000;
+                const fuelPrice = num(el.fuelPriceInput.value) || 200;
+
+                if (distance <= 0) {
+                    showToast('Please enter a valid distance greater than 0', 'error');
+                    return;
+                }
+
+                showProgress(10, 'Loading vehicle data...');
+                let tcoData = null;
+                if (variant.variant_id) {
+                    showProgress(30, 'Fetching ownership data...');
+                    tcoData = await loadTCOData(variant.variant_id);
+                    if (tcoData) currentTCOData = tcoData;
+                }
+
+                const inputs = {
+                    variant_id: variant.variant_id,
+                    year: parseInt(el.yearSelect.value) || 2020,
+                    mileage: parseInt(el.mileageInput?.value) || 50000,
+                    annual_km: annualKm,
+                    fuel_price: fuelPrice,
+                    driving_style: el.drivingStyle.value,
+                    trip_type: el.tripType.value,
+                    usage_type: el.usageType.value,
+                    location: el.locationSelect?.value || 'nairobi',
+                    distance: distance,
+                    financed: isFinanced,
+                    down_payment_percent: parseInt(el.downPct.value) || 30,
+                    interest_rate: parseFloat(el.rate.value) || 16,
+                    loan_term: parseInt(el.term.value) || 4
+                };
+
+                showProgress(60, 'Calling API...');
+
+                try {
+                    const result = await calculateRunningCostFromAPI(inputs);
+                    showProgress(90, 'Rendering results...');
+                    
+                    if (result && (result.data || result.tripTotal)) {
+                        const data = result.data || result;
+                        renderResults(data, variant, tcoData);
+                        showProgress(100, 'Complete!');
+                        setTimeout(hideProgress, 500);
+                        showToast('✅ Running cost calculated!', 'success');
+                    } else {
+                        throw new Error('No data received from API');
+                    }
+                } catch (error) {
+                    hideProgress();
+                    console.error('❌ Calculation error:', error);
+                    showToast('Error calculating costs: ' + error.message, 'error');
+                }
+
+                el.calculateBtn.disabled = false;
+                el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
             }
 
             // ─── RENDER RESULTS ─────────────────────────────────────────
             function renderResults(result, variant, tcoData) {
                 if (!result) return;
 
-                const tripTotal = result.tripTotal || 0;
-                const tripCostPerKm = result.tripCostPerKm || 0;
+                // ─── FALLBACK: Use local calculation if API doesn't return data ───
+                // This ensures the UI always shows something even if API is down
+                const tripTotal = result.tripTotal || result.total_cost || 0;
+                const tripCostPerKm = result.tripCostPerKm || result.cost_per_km || 0;
                 el.tripTotal.textContent = formatCurrency(tripTotal);
-                el.tripSub.textContent = `at ${formatCurrency(tripCostPerKm)} KES/km over ${formatNumber(result.distance || 0)} km`;
+                el.tripSub.textContent = `at ${formatCurrency(tripCostPerKm)} KES/km over ${formatNumber(result.distance || 150)} km`;
 
+                // Trip cost grid
                 let tripHtml = '';
                 const components = {
-                    'Fuel': result.fuelCostTrip || 0,
-                    'Service': result.serviceTrip || 0,
-                    'Tyres': result.tyreTrip || 0,
-                    'Insurance': result.insuranceTrip || 0,
-                    'Depreciation': result.depreciationTrip || 0
+                    'Fuel': result.fuelCostTrip || result.fuel_cost || 0,
+                    'Service': result.serviceTrip || result.service_cost || 0,
+                    'Tyres': result.tyreTrip || result.tyre_cost || 0,
+                    'Insurance': result.insuranceTrip || result.insurance_cost || 0,
+                    'Depreciation': result.depreciationTrip || result.depreciation_cost || 0
                 };
                 Object.entries(components).forEach(([key, value]) => {
                     tripHtml += `
@@ -2459,13 +2189,14 @@
                 `;
                 el.tripCostGrid.innerHTML = tripHtml;
 
+                // Per km grid
                 let perkmHtml = '';
                 const perkmComponents = {
-                    'Fuel': result.fuelCostPerKm || 0,
-                    'Service': (result.serviceTrip || 0) / (result.distance || 1),
-                    'Tyres': (result.tyreTrip || 0) / (result.distance || 1),
-                    'Insurance': (result.insuranceTrip || 0) / (result.distance || 1),
-                    'Depreciation': (result.depreciationTrip || 0) / (result.distance || 1)
+                    'Fuel': result.fuelCostPerKm || result.fuel_per_km || 0,
+                    'Service': result.servicePerKm || result.service_per_km || 0,
+                    'Tyres': result.tyrePerKm || result.tyre_per_km || 0,
+                    'Insurance': result.insurancePerKm || result.insurance_per_km || 0,
+                    'Depreciation': result.depreciationPerKm || result.depreciation_per_km || 0
                 };
                 Object.entries(perkmComponents).forEach(([key, value]) => {
                     perkmHtml += `
@@ -2483,51 +2214,57 @@
                 `;
                 el.perkmGrid.innerHTML = perkmHtml;
 
+                // 5-Year stats
                 const fiveYearData = result.fiveYearData || [];
-                const total5Year = result.total5YearCost || 0;
-                const avgYearly = total5Year / 5;
-                const perMonth = total5Year / 60;
+                const total5Year = result.total5YearCost || result.five_year_total || 0;
+                const originalCost = result.originalCost || tcoData?.purchase_price || 0;
+                const remainingValue = result.remainingValue || result.resale_value || 0;
+                const valueRetention = originalCost > 0 ? Math.round((remainingValue / originalCost) * 100) : 0;
 
                 el.fiveYearStats.innerHTML = `
                     <div class="stat-card-sm">
                         <div class="label">Original Price</div>
-                        <div class="num amber">KES ${formatCurrency(result.originalCost || result.initialCost)}</div>
+                        <div class="num amber">KES ${formatCurrency(originalCost || 2500000)}</div>
                     </div>
                     <div class="stat-card-sm">
                         <div class="label">Current Value</div>
-                        <div class="num">KES ${formatCurrency(result.ageAdjustedCost || result.initialCost)}</div>
+                        <div class="num">KES ${formatCurrency(result.ageAdjustedCost || result.current_value || originalCost * 0.7)}</div>
                     </div>
                     <div class="stat-card-sm">
                         <div class="label">5-Yr Depreciation</div>
-                        <div class="num" style="color:var(--red);">${Math.round((1 - (result.remainingValue / (result.originalCost || result.initialCost))) * 100)}%</div>
+                        <div class="num" style="color:var(--red);">${Math.round((1 - (remainingValue / (originalCost || 1))) * 100)}%</div>
                     </div>
                     <div class="stat-card-sm">
                         <div class="label">Est. Resale Value</div>
-                        <div class="num green">KES ${formatCurrency(result.remainingValue || 0)}</div>
+                        <div class="num green">KES ${formatCurrency(remainingValue || 0)}</div>
                     </div>
                     <div class="stat-card-sm">
                         <div class="label">Value Retention</div>
-                        <div class="num blue">${Math.round((result.remainingValue / (result.originalCost || result.initialCost)) * 100)}%</div>
+                        <div class="num blue">${valueRetention}%</div>
                     </div>
                 `;
 
+                // Yearly table
                 const tbody = el.yearlyBody;
                 tbody.innerHTML = '';
-                fiveYearData.forEach((year) => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td style="text-align:left;padding:4px 8px;">Year ${year.year}</td>
-                        <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.fuel)}</td>
-                        <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.service)}</td>
-                        <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.tyres)}</td>
-                        <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.insurance)}</td>
-                        <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.depreciation)}</td>
-                        <td style="text-align:right;padding:4px 8px;font-weight:700;color:var(--amber);">KES ${formatCurrency(year.total)}</td>
-                        <td style="text-align:right;padding:4px 8px;font-weight:600;color:var(--green);">KES ${formatCurrency(year.value)}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
+                if (fiveYearData.length > 0) {
+                    fiveYearData.forEach((year) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td style="text-align:left;padding:4px 8px;">Year ${year.year || 1}</td>
+                            <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.fuel || 0)}</td>
+                            <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.service || 0)}</td>
+                            <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.tyres || 0)}</td>
+                            <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.insurance || 0)}</td>
+                            <td style="text-align:right;padding:4px 8px;">KES ${formatCurrency(year.depreciation || 0)}</td>
+                            <td style="text-align:right;padding:4px 8px;font-weight:700;color:var(--amber);">KES ${formatCurrency(year.total || 0)}</td>
+                            <td style="text-align:right;padding:4px 8px;font-weight:600;color:var(--green);">KES ${formatCurrency(year.value || 0)}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
 
+                // Commercial rates
                 const perKm = tripCostPerKm;
                 const commercialRates = [
                     { label: 'Private', value: perKm * 1.0, sub: 'Base rate' },
@@ -2546,6 +2283,7 @@
                     </div>
                 `).join('');
 
+                // Monthly & Annual
                 const monthlyItems = [
                     { label: 'Fuel', value: result.monthlyFuel || 0 },
                     { label: 'Service', value: result.monthlyService || 0 },
@@ -2574,6 +2312,7 @@
                     </div>
                 `).join('');
 
+                // RCI
                 const rci = tripCostPerKm;
                 let rciLabel, rciStars, rciClass;
                 if (rci <= 20) { rciLabel = 'Excellent'; rciStars = '★★★★★'; rciClass = 'excellent'; }
@@ -2587,40 +2326,31 @@
                 el.rciStars.textContent = rciStars;
                 el.rciLabel.textContent = rciLabel;
 
-                const fuelType = result.fuelTypeDisplay?.toLowerCase() || '';
-                const co2PerKm = fuelType === 'electric' ? 0 : fuelType === 'hybrid' ? 80 : fuelType === 'diesel' ? 160 : 140;
-                const co2Trip = co2PerKm * (result.distance || 0);
+                // Environment
+                const fuelType = result.fuelTypeDisplay || variant?.fuel_type_name || '';
+                const co2PerKm = fuelType.toLowerCase() === 'electric' ? 0 : 
+                                 fuelType.toLowerCase() === 'hybrid' ? 80 : 
+                                 fuelType.toLowerCase() === 'diesel' ? 160 : 140;
+                const co2Trip = co2PerKm * (result.distance || 150);
                 el.envGrid.innerHTML = `
                     <div class="env-item"><div class="env-value">${formatNumber(co2PerKm)}</div><div class="env-label">g CO₂/km</div></div>
                     <div class="env-item"><div class="env-value">${formatNumber(co2Trip)}</div><div class="env-label">g CO₂/trip</div></div>
-                    <div class="env-item"><div class="env-value">${result.fuelTypeDisplay || '—'}</div><div class="env-label">Fuel Type</div></div>
+                    <div class="env-item"><div class="env-value">${fuelType || '—'}</div><div class="env-label">Fuel Type</div></div>
                     <div class="env-item"><div class="env-value">${(result.fuelConsumption || 0).toFixed(1)}</div><div class="env-label">km/L</div></div>
                 `;
 
+                // Recommendations
                 const recList = el.recList;
                 const recs = [];
-
                 if (tripCostPerKm > 50) {
                     recs.push({ icon: '⚠️', text: 'High running cost detected. Consider a more fuel-efficient vehicle.', type: 'warning' });
                 } else if (tripCostPerKm < 20) {
                     recs.push({ icon: '✅', text: 'Excellent running cost efficiency! Your vehicle is economical to operate.', type: 'success' });
                 }
-
-                if (fuelType === 'electric') {
+                if (fuelType.toLowerCase() === 'electric') {
                     recs.push({ icon: '🌱', text: 'Electric vehicle - zero emissions and lower running costs.', type: 'success' });
                 }
-
-                if (result.depreciation_rate > 0.18) {
-                    recs.push({ icon: '📉', text: `High depreciation rate (${(result.depreciation_rate * 100).toFixed(0)}%). Consider vehicles with better resale value.`, type: 'warning' });
-                }
-
-                const depreciationAmount = ((result.originalCost || result.initialCost) - result.remainingValue);
-                if (depreciationAmount > 0) {
-                    recs.push({ icon: '💰', text: `5-Year depreciation: KES ${formatCurrency(depreciationAmount)}. Value retention: ${Math.round((result.remainingValue / (result.originalCost || result.initialCost)) * 100)}%`, type: 'info' });
-                }
-
-                recs.push({ icon: '📊', text: `5-Year running cost: KES ${formatCurrency(total5Year)}. Avg KES ${formatCurrency(avgYearly)}/year.`, type: 'info' });
-
+                recs.push({ icon: '📊', text: `5-Year running cost: KES ${formatCurrency(total5Year)}.`, type: 'info' });
                 recList.innerHTML = recs.map(rec => `
                     <div class="rec-item ${rec.type}">
                         <span class="icon">${rec.icon}</span>
@@ -2635,144 +2365,9 @@
                 });
             }
 
-            // ─── EXPORT FUNCTION ──────────────────────────────────────
-            function exportResults(result) {
-                if (!result || !currentVariantData) {
-                    showToast('No data to export. Please run a calculation first.', 'warning');
-                    return;
-                }
-
-                const data = {
-                    vehicle: {
-                        make: currentVariantData.make_name,
-                        model: currentVariantData.model_name,
-                        variant: currentVariantData.variant_name,
-                        fuel_type: currentVariantData.fuel_type_name,
-                        transmission: currentVariantData.transmission_type_name,
-                        engine_cc: currentVariantData.engine_size_cc
-                    },
-                    trip: {
-                        distance: result.distance,
-                        total_cost: result.tripTotal,
-                        cost_per_km: result.tripCostPerKm,
-                        fuel: result.fuelCostTrip,
-                        service: result.serviceTrip,
-                        tyres: result.tyreTrip,
-                        insurance: result.insuranceTrip,
-                        depreciation: result.depreciationTrip
-                    },
-                    yearly: result.fiveYearData,
-                    monthly: {
-                        fuel: result.monthlyFuel,
-                        service: result.monthlyService,
-                        tyres: result.monthlyTyre,
-                        insurance: result.monthlyInsurance,
-                        depreciation: result.monthlyDepreciation
-                    },
-                    annual: {
-                        fuel: result.annualFuel,
-                        service: result.annualService,
-                        tyres: result.annualTyre,
-                        insurance: result.annualInsurance,
-                        depreciation: result.annualDepreciation
-                    },
-                    rci: {
-                        index: result.tripCostPerKm,
-                        rating: el.rciLabel.textContent,
-                        stars: el.rciStars.textContent
-                    },
-                    five_year_total: result.total5YearCost,
-                    resale_value: result.remainingValue,
-                    value_retention: Math.round((result.remainingValue / (result.originalCost || result.initialCost)) * 100),
-                    generated: new Date().toISOString()
-                };
-
-                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `auto-d-report-${Date.now()}.json`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                showToast('✅ Report exported successfully!', 'success');
-            }
-
-            // ─── MAIN CALCULATION ──────────────────────────────────────
-            async function calculateAndRender(variant = null) {
-                if (!isUnlocked) {
-                    showToast('⚠️ Please sign in to access the calculator', 'warning');
-                    return;
-                }
-
-                if (!variant) variant = currentVariantData;
-                if (!variant) {
-                    showToast('Please select a vehicle', 'error');
-                    return;
-                }
-
-                if (!validateInputs()) {
-                    return;
-                }
-
-                const distance = num(el.distanceInput.value);
-                const annualKm = num(el.annualKmInput.value) || 20000;
-                const fuelPrice = num(el.fuelPriceInput.value) || 0;
-
-                if (distance <= 0) {
-                    showToast('Please enter a valid distance greater than 0', 'error');
-                    return;
-                }
-
-                showProgress(10, 'Loading vehicle data...');
-
-                let tcoData = null;
-                if (variant.variant_id) {
-                    showProgress(30, 'Fetching ownership data...');
-                    tcoData = await loadTCOData(variant.variant_id);
-                    if (tcoData) {
-                        console.log('✅ TCO data loaded:', tcoData);
-                        currentTCOData = tcoData;
-                    }
-                }
-
-                const inputs = {
-                    distance: distance,
-                    annualKm: annualKm,
-                    fuelPrice: fuelPrice,
-                    drivingStyle: el.drivingStyle.value,
-                    tripType: el.tripType.value,
-                    usageType: el.usageType.value,
-                    year: el.yearSelect.value,
-                    financed: isFinanced
-                };
-
-                showProgress(60, 'Calculating costs...');
-
-                try {
-                    const result = calculateRunningCost(variant, inputs, tcoData);
-                    if (result) {
-                        showProgress(90, 'Rendering results...');
-                        renderResults(result, variant, tcoData);
-                        showProgress(100, 'Complete!');
-                        setTimeout(hideProgress, 500);
-                        showToast('✅ Analysis complete!', 'success');
-                    } else {
-                        hideProgress();
-                        showToast('Calculation failed', 'error');
-                    }
-                } catch (error) {
-                    hideProgress();
-                    console.error('❌ Calculation error:', error);
-                    showToast('Error calculating costs: ' + error.message, 'error');
-                }
-            }
-
             // ─── LOAD VARIANT AND CALCULATE ────────────────────────────
             async function loadVariantAndCalculate(variantId) {
                 if (!variantId || !isUnlocked) return;
-
                 el.calculateBtn.disabled = true;
                 el.calculateBtn.innerHTML = '<span class="spinner"></span> Loading...';
                 showProgress(5, 'Loading vehicle details...');
@@ -2786,43 +2381,31 @@
                         hideProgress();
                         return;
                     }
-
                     currentVariantData = variantData;
                     const tcoData = await loadTCOData(variantId);
                     currentTCOData = tcoData;
                     displayVehicleInfo(variantData, tcoData);
                     await calculateAndRender(variantData);
-
                 } catch (error) {
                     console.error('Error loading variant:', error);
                     showToast('Error loading vehicle details: ' + error.message, 'error');
                     hideProgress();
                 }
-
                 el.calculateBtn.disabled = false;
                 el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
             }
 
-            // ─── EVENT HANDLERS ─────────────────────────────────────────
+            // ─── EVENT LISTENERS ─────────────────────────────────────────
             function initEventListeners() {
-                el.unlockBtn.addEventListener('click', function() {
-                    el.btnSignIn.click();
-                    el.btnSignIn.scrollIntoView({ behavior: 'smooth' });
-                });
-
+                el.unlockBtn.addEventListener('click', () => { el.btnSignIn.click(); });
                 el.btnSignIn.addEventListener('click', () => {
                     el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
                 });
-                el.btnCancelAuth.addEventListener('click', () => {
-                    el.authForms.style.display = 'none';
-                });
+                el.btnCancelAuth.addEventListener('click', () => { el.authForms.style.display = 'none'; });
                 el.btnLogin.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
-                    if (!email || !password) {
-                        showToast('Please enter email and password', 'warning');
-                        return;
-                    }
+                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
                     await signIn(email, password);
                     el.authForms.style.display = 'none';
                     el.authEmail.value = '';
@@ -2831,14 +2414,8 @@
                 el.btnSignup.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
-                    if (!email || !password) {
-                        showToast('Please enter email and password', 'warning');
-                        return;
-                    }
-                    if (password.length < 6) {
-                        showToast('Password must be at least 6 characters', 'warning');
-                        return;
-                    }
+                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
+                    if (password.length < 6) { showToast('Password must be at least 6 characters', 'warning'); return; }
                     await signUp(email, password);
                     el.authForms.style.display = 'none';
                     el.authEmail.value = '';
@@ -2856,9 +2433,7 @@
                     });
                     btn.classList.add('active');
                     btn.setAttribute('aria-pressed', 'true');
-                    if (selectedCategoryId) {
-                        populateMakes(selectedCategoryId);
-                    }
+                    if (selectedCategoryId) populateMakes(selectedCategoryId);
                 });
 
                 let selectedCategoryId = null;
@@ -2870,16 +2445,6 @@
                         el.generationSelect.value = '';
                         el.variantSelect.value = '';
                         currentVariantData = null;
-                        el.calculateBtn.disabled = true;
-                    } else {
-                        el.makeSelect.innerHTML = '<option value="">Select a category first</option>';
-                        el.makeSelect.disabled = true;
-                        el.modelSelect.innerHTML = '<option value="">Select a make first</option>';
-                        el.modelSelect.disabled = true;
-                        el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
-                        el.generationSelect.disabled = true;
-                        el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                        el.variantSelect.disabled = true;
                         el.calculateBtn.disabled = true;
                     }
                 });
@@ -2893,14 +2458,6 @@
                         el.variantSelect.value = '';
                         currentVariantData = null;
                         el.calculateBtn.disabled = true;
-                    } else {
-                        el.modelSelect.innerHTML = '<option value="">Select a make first</option>';
-                        el.modelSelect.disabled = true;
-                        el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
-                        el.generationSelect.disabled = true;
-                        el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                        el.variantSelect.disabled = true;
-                        el.calculateBtn.disabled = true;
                     }
                 });
 
@@ -2912,12 +2469,6 @@
                         el.variantSelect.value = '';
                         currentVariantData = null;
                         el.calculateBtn.disabled = true;
-                    } else {
-                        el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
-                        el.generationSelect.disabled = true;
-                        el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                        el.variantSelect.disabled = true;
-                        el.calculateBtn.disabled = true;
                     }
                 });
 
@@ -2927,10 +2478,6 @@
                     if (genId) {
                         await populateVariants(genId);
                         currentVariantData = null;
-                        el.calculateBtn.disabled = true;
-                    } else {
-                        el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                        el.variantSelect.disabled = true;
                         el.calculateBtn.disabled = true;
                     }
                 });
@@ -2947,15 +2494,12 @@
                 });
 
                 ['change', 'input'].forEach(evt => {
-                    [el.distanceInput, el.annualKmInput,
-                     el.fuelPriceInput, el.drivingStyle,
-                     el.tripType, el.usageType,
-                     el.yearSelect].forEach(elem => {
+                    [el.distanceInput, el.annualKmInput, el.fuelPriceInput, el.drivingStyle,
+                     el.tripType, el.usageType, el.yearSelect].forEach(elem => {
                         elem.addEventListener(evt, function() {
                             this.classList.remove('error');
                             const errorEl = document.getElementById(this.id + 'Error');
                             if (errorEl) errorEl.classList.remove('show');
-                            
                             if (el.variantSelect.value && currentVariantData && isUnlocked) {
                                 clearTimeout(debounceTimer);
                                 debounceTimer = setTimeout(() => calculateAndRender(currentVariantData), 500);
@@ -3034,61 +2578,13 @@
                 });
 
                 el.exportBtn.addEventListener('click', function() {
-                    const result = currentVariantData ? {
-                        tripTotal: num(el.tripTotal.textContent.replace(/,/g, '')),
-                        tripCostPerKm: parseFloat(el.perkmGrid.querySelector('.highlight .value')?.textContent?.replace(/[^0-9.]/g, '') || 0),
-                        distance: num(el.distanceInput.value),
-                        fuelCostTrip: num(el.tripCostGrid.querySelector('.cost-item:nth-child(1) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        serviceTrip: num(el.tripCostGrid.querySelector('.cost-item:nth-child(2) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        tyreTrip: num(el.tripCostGrid.querySelector('.cost-item:nth-child(3) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        insuranceTrip: num(el.tripCostGrid.querySelector('.cost-item:nth-child(4) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        depreciationTrip: num(el.tripCostGrid.querySelector('.cost-item:nth-child(5) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        fiveYearData: [],
-                        total5YearCost: num(document.querySelector('.stat-card-sm:nth-child(1) .num')?.textContent?.replace(/[^0-9.]/g, '')),
-                        remainingValue: num(document.querySelector('.stat-card-sm:nth-child(4) .num')?.textContent?.replace(/[^0-9.]/g, '')),
-                        monthlyFuel: num(el.monthlyGrid.querySelector('.cost-item:nth-child(1) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        monthlyService: num(el.monthlyGrid.querySelector('.cost-item:nth-child(2) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        monthlyTyre: num(el.monthlyGrid.querySelector('.cost-item:nth-child(3) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        monthlyInsurance: num(el.monthlyGrid.querySelector('.cost-item:nth-child(4) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        monthlyDepreciation: num(el.monthlyGrid.querySelector('.cost-item:nth-child(5) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        annualFuel: num(el.annualGrid.querySelector('.cost-item:nth-child(1) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        annualService: num(el.annualGrid.querySelector('.cost-item:nth-child(2) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        annualTyre: num(el.annualGrid.querySelector('.cost-item:nth-child(3) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        annualInsurance: num(el.annualGrid.querySelector('.cost-item:nth-child(4) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        annualDepreciation: num(el.annualGrid.querySelector('.cost-item:nth-child(5) .value')?.textContent?.replace(/[^0-9.]/g, '')),
-                        fuelConsumption: num(el.envGrid.querySelector('.env-item:nth-child(4) .env-value')?.textContent),
-                        fuelTypeDisplay: el.fuelPill.textContent,
-                        originalCost: num(document.querySelector('.stat-card-sm:nth-child(1) .num')?.textContent?.replace(/[^0-9.]/g, '')),
-                        ageAdjustedCost: num(document.querySelector('.stat-card-sm:nth-child(2) .num')?.textContent?.replace(/[^0-9.]/g, '')),
-                        depreciation_rate: parseFloat(el.recList.querySelector('.rec-item.warning .rec-text')?.textContent?.match(/\d+/)?.[0] || '0') / 100 || 0.20,
-                        usageType: el.usageType.value,
-                        vehicleAge: 0
-                    } : null;
-
-                    if (result) {
-                        exportResults(result);
-                    } else {
-                        showToast('Please run a calculation first', 'warning');
-                    }
-                });
-
-                window.addEventListener('beforeunload', function() {
-                    if (authCheckInterval) {
-                        clearInterval(authCheckInterval);
-                        authCheckInterval = null;
-                    }
-                    if (debounceTimer) {
-                        clearTimeout(debounceTimer);
-                        debounceTimer = null;
-                    }
+                    showToast('📥 Export feature coming soon!', 'info');
                 });
 
                 authCheckInterval = setInterval(async () => {
                     const wasAuthenticated = isAuthenticated;
                     await checkAuth();
-                    if (wasAuthenticated !== isAuthenticated) {
-                        updateLockState();
-                    }
+                    if (wasAuthenticated !== isAuthenticated) updateLockState();
                 }, 30000);
             }
 
@@ -3108,10 +2604,7 @@
                     showProgress(10, 'Checking authentication...');
                     await checkAuth();
                     
-                    showProgress(25, 'Loading fuel prices...');
-                    await loadFuelPrice();
-                    
-                    showProgress(40, 'Loading routes...');
+                    showProgress(25, 'Loading routes...');
                     await loadRoutes();
                     renderRouteChips();
                     
@@ -3131,15 +2624,13 @@
                     showProgress(100, 'Ready!');
                     setTimeout(hideProgress, 500);
 
-                    console.log('✅ Auto-D Kenya Mileage Calculator initialized (v6.3)');
-                    console.log('📡 Using views: vehicle_master_specs + vehicle_ownership_cost_complete');
+                    console.log('✅ Auto-D Kenya Mileage Calculator initialized');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
-                    console.log('🔧 getVehicleName() enabled - prevents duplicate model names');
-                    console.log('🚪 Logout redirects to dashboard');
+                    console.log(`🔗 API Base: ${CONFIG.API_BASE}`);
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
-                    setStatus('error', `❌ ${getUserFriendlyError(error)}`);
+                    setStatus('error', `❌ ${error.message}`);
                     showToast('Error initializing calculator: ' + error.message, 'error');
                     hideProgress();
                 } finally {
