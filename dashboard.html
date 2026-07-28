@@ -1154,6 +1154,18 @@
         // 4. Payment flow with polling and manual confirmation fallback
         // 5. Stats derived from actual data
         // 6. Vehicle management with CRUD operations
+        //
+        // BUGFIX PASS (this version):
+        // - Added num() helper: Postgres numeric/decimal columns come back
+        //   as JSON strings from PostgREST. Using them directly in arithmetic
+        //   silently string-concatenates instead of summing, and calling
+        //   .toFixed()/.toLocaleString() on a string throws. Every place that
+        //   used to do `(x.field || 0)` for a numeric-type column now goes
+        //   through num(x.field).
+        // - Fixed falsy-zero bug in payForRequest: `request.amount || 100`
+        //   incorrectly overrides a legitimate 0 amount with 100.
+        // - Guarded r.id.slice(...) with String() in case the requests
+        //   table's primary key isn't a uuid/string type.
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -1164,6 +1176,16 @@
             
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+
+            // ─── Numeric coercion helper ────────────────────────────────
+            // PostgREST returns Postgres numeric/decimal columns as strings
+            // to avoid float precision loss. Route every numeric field
+            // through this before doing arithmetic or calling
+            // .toFixed()/.toLocaleString().
+            function num(v, fallback = 0) {
+                const n = Number(v);
+                return Number.isFinite(n) ? n : fallback;
+            }
 
             // ─── Service Routes ──────────────────────────────────────
             const SERVICE_ROUTES = {
@@ -1761,8 +1783,37 @@
                         servicesGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
                     }
 
-                    let services = DEFAULT_SERVICES.map(s => ({ ...s }));
-                    console.log('📋 Using hardcoded services:', services);
+                    // Pull the live service catalog from the backend (now that
+                    // GET /api/v1/services is deployed) instead of the
+                    // hardcoded DEFAULT_SERVICES array. Falls back to
+                    // DEFAULT_SERVICES if the API call fails or returns
+                    // nothing, so the dashboard still renders something
+                    // usable during a backend outage rather than an empty grid.
+                    let services;
+                    try {
+                        const svcResp = await fetch(`${API_BASE}/services?active_only=true`);
+                        if (!svcResp.ok) throw new Error(`HTTP ${svcResp.status}`);
+                        const svcJson = await svcResp.json();
+                        const liveServices = (svcJson.services || []).map(s => ({
+                            id: s.service_type,
+                            code: s.service_type,
+                            name: s.service_name,
+                            price: s.price,
+                            icon: s.icon || SERVICE_ICONS[s.service_type] || '📦',
+                            route: SERVICE_ROUTES[s.service_type] || null,
+                            purchased: false,
+                            status: 'locked'
+                        }));
+                        if (liveServices.length > 0) {
+                            services = liveServices;
+                            console.log('📋 Loaded services from API:', services);
+                        } else {
+                            throw new Error('API returned zero active services');
+                        }
+                    } catch (e) {
+                        console.warn('⚠️ Could not load services from /api/v1/services, using hardcoded defaults:', e.message);
+                        services = DEFAULT_SERVICES.map(s => ({ ...s }));
+                    }
 
                     let vehicles = [];
                     try {
@@ -1855,8 +1906,8 @@
                             vehicles: vehicles ? vehicles.length : 0,
                             requests: pendingRequests,
                             active_services: unlockedServiceIds.length || 0,
-                            amount_spent: payments ? payments.reduce((sum, p) => sum + (p.amount || 0), 0) : 0,
-                            fleet_value: vehicles ? vehicles.reduce((sum, v) => sum + (v.value || 0), 0) : 0,
+                            amount_spent: payments ? payments.reduce((sum, p) => sum + num(p.amount), 0) : 0,
+                            fleet_value: vehicles ? vehicles.reduce((sum, v) => sum + num(v.value), 0) : 0,
                             monthly_running_cost: 45000
                         },
                         services: services,
@@ -1889,9 +1940,9 @@
                 setText('statVehicles', stats.vehicles || 0);
                 setText('statRequests', stats.requests || 0);
                 setText('statServices', stats.active_services || 0);
-                setText('statSpent', 'KES ' + (stats.amount_spent || 0).toLocaleString());
-                setText('statFleetValue', 'KES ' + (stats.fleet_value || 0).toLocaleString());
-                setText('statMonthlyCost', 'KES ' + (stats.monthly_running_cost || 0).toLocaleString());
+                setText('statSpent', 'KES ' + num(stats.amount_spent).toLocaleString());
+                setText('statFleetValue', 'KES ' + num(stats.fleet_value).toLocaleString());
+                setText('statMonthlyCost', 'KES ' + num(stats.monthly_running_cost).toLocaleString());
 
                 setText('vehicleBadge', stats.vehicles || 0);
                 setText('reportBadge', 0);
@@ -1933,10 +1984,10 @@
                         <div class="make-model">${escapeHtml(v.make_model || 'Unknown Vehicle')}</div>
                         <div style="font-size:12px;color:var(--text-muted);">${v.year ? `Year: ${v.year}` : ''} ${v.vin ? `· VIN: ${v.vin}` : ''}</div>
                         <div class="details-grid">
-                            <div class="item">📏 Mileage: <strong>${(v.mileage || 0).toLocaleString()} km</strong></div>
-                            <div class="item">💰 Value: <strong>KES ${(v.value || 0).toLocaleString()}</strong></div>
-                            <div class="item">⛽ Running Cost: <strong>KES ${(v.running_cost || 0).toFixed(2)}/km</strong></div>
-                            <div class="item">📊 TCO: <strong>KES ${(v.tco || 0).toLocaleString()}</strong></div>
+                            <div class="item">📏 Mileage: <strong>${num(v.mileage).toLocaleString()} km</strong></div>
+                            <div class="item">💰 Value: <strong>KES ${num(v.value).toLocaleString()}</strong></div>
+                            <div class="item">⛽ Running Cost: <strong>KES ${num(v.running_cost).toFixed(2)}/km</strong></div>
+                            <div class="item">📊 TCO: <strong>KES ${num(v.tco).toLocaleString()}</strong></div>
                         </div>
                         <div class="actions">
                             <button class="btn-sm-primary" onclick="viewVehicle('${v.id}')">View</button>
@@ -1965,7 +2016,7 @@
                     const isPurchased = s.purchased || s.status === 'purchased' || s.status === 'active';
                     const statusClass = isPurchased ? 'purchased' : 'locked';
                     const statusText = isPurchased ? '✅ Active' : '🔒 Locked';
-                    const btnText = isPurchased ? '🚀 Open Service' : `💰 Purchase ${(s.price || 0)} KES`;
+                    const btnText = isPurchased ? '🚀 Open Service' : `💰 Purchase ${num(s.price)} KES`;
                     const btnClass = isPurchased ? 'purchased' : 'locked';
 
                     return `
@@ -1973,7 +2024,7 @@
                             <div class="service-icon">${s.icon || '📦'}</div>
                             <div class="service-name">${escapeHtml(s.name)}</div>
                             <span class="service-status ${statusClass}">${statusText}</span>
-                            <div class="service-price">${isPurchased ? 'Active' : 'KES ' + (s.price || 0).toLocaleString()}</div>
+                            <div class="service-price">${isPurchased ? 'Active' : 'KES ' + num(s.price).toLocaleString()}</div>
                             <button class="btn-access ${btnClass}" onclick="handleServiceAction('${s.id}')">
                                 ${btnText}
                             </button>
@@ -2027,13 +2078,13 @@
                     return `
                         <div class="request-card">
                             <div class="request-header">
-                                <span class="request-id"><strong>#${r.id.slice(0, 8)}</strong> - ${escapeHtml(serviceName)}</span>
+                                <span class="request-id"><strong>#${String(r.id).slice(0, 8)}</strong> - ${escapeHtml(serviceName)}</span>
                                 <span class="request-status ${status.class}">${status.label}</span>
                             </div>
                             <div class="request-details">
                                 <div class="detail-item"><strong>Vehicle:</strong> ${escapeHtml(r.vehicle_plate || r.vehicle_id || 'N/A')}</div>
                                 <div class="detail-item"><strong>Created:</strong> ${new Date(r.created_at).toLocaleDateString()}</div>
-                                <div class="detail-item"><strong>Amount:</strong> KES ${(r.amount || 0).toLocaleString()}</div>
+                                <div class="detail-item"><strong>Amount:</strong> KES ${num(r.amount).toLocaleString()}</div>
                             </div>
                             ${r.notes ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">📝 ${escapeHtml(r.notes)}</div>` : ''}
                             <div class="request-actions">
@@ -2068,7 +2119,7 @@
                             </span>
                         </div>
                         <div style="display:flex;align-items:center;gap:12px;">
-                            <span class="amount">KES ${(p.amount || 0).toLocaleString()}</span>
+                            <span class="amount">KES ${num(p.amount).toLocaleString()}</span>
                             <span class="status-badge ${p.status || 'completed'}">${p.status === 'pending' ? '⏳ Pending' : '✅ Complete'}</span>
                         </div>
                     </div>
@@ -2128,7 +2179,7 @@
                         dashboardData.services.forEach(s => {
                             const opt = document.createElement('option');
                             opt.value = s.id;
-                            opt.textContent = `${s.icon || '📦'} ${s.name} (KES ${s.price || 0})`;
+                            opt.textContent = `${s.icon || '📦'} ${s.name} (KES ${num(s.price)})`;
                             serviceSelect.appendChild(opt);
                         });
                     }
@@ -2189,7 +2240,7 @@
                                 vehicle_plate: vehicle?.plate || 'N/A',
                                 service_id: serviceId,
                                 service_name: service.name || serviceId,
-                                amount: service.price || 0,
+                                amount: num(service.price),
                                 notes: notes,
                                 status: 'pending',
                                 created_at: new Date().toISOString()
@@ -2229,10 +2280,18 @@
                         return;
                     }
 
+                    // NOTE: was `request.amount || 100` — that turns a legitimate
+                    // amount of 0 into 100 because 0 is falsy in JS. Use an
+                    // explicit null/undefined check instead, and coerce through
+                    // num() since request.amount may come back as a numeric string.
+                    const requestAmount = (request.amount !== null && request.amount !== undefined)
+                        ? num(request.amount)
+                        : 100;
+
                     selectedService = {
                         id: request.service_id,
                         name: request.service_name || SERVICE_NAMES[request.service_id] || request.service_id,
-                        price: request.amount || 100
+                        price: requestAmount
                     };
                     pendingServiceRedirect = request.service_id;
                     pendingRequestId = requestId;
@@ -2289,8 +2348,8 @@
                 const phoneWrapper = document.getElementById('phoneInputWrapper');
                 
                 if (nameEl) nameEl.textContent = service.name || 'Service';
-                if (amountEl) amountEl.textContent = 'KES ' + (service.price || 0).toLocaleString();
-                if (totalEl) totalEl.textContent = 'KES ' + (service.price || 0).toLocaleString();
+                if (amountEl) amountEl.textContent = 'KES ' + num(service.price).toLocaleString();
+                if (totalEl) totalEl.textContent = 'KES ' + num(service.price).toLocaleString();
                 
                 if (phoneEl) {
                     phoneEl.value = '';
