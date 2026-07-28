@@ -11,7 +11,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
-        /* ─── CSS Variables ────────────────────────────────────────── */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -842,6 +841,37 @@
             color: #3b82f6;
         }
 
+        .progress-container {
+            display: none;
+            margin: 12px 0;
+            padding: 8px 12px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .progress-container.show { display: block; }
+        .progress-bar-track {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-bar-track .progress-fill {
+            height: 100%;
+            background: var(--amber);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+            width: 0%;
+        }
+        .progress-text {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
             .report-header { padding: 20px 18px; flex-direction: column; }
@@ -935,7 +965,6 @@
 
             <section class="calculator-panel" aria-label="Vehicle cost calculator">
 
-                <!-- ─── LOCK OVERLAY ────────────────────────────────────── -->
                 <div class="lock-overlay show" id="lockOverlay">
                     <div class="lock-icon">🔒</div>
                     <h3>Sign In Required</h3>
@@ -943,7 +972,6 @@
                     <button class="unlock-btn" id="unlockBtn">🔑 Sign In</button>
                 </div>
 
-                <!-- ─── AUTH SECTION ──────────────────────────────────── -->
                 <div class="panel-label"><span class="num">🔐</span> Authentication</div>
                 <div class="auth-section">
                     <div id="authMessage" class="user-email" style="color:var(--text-muted);font-size:10px;">
@@ -964,13 +992,21 @@
                     </div>
                 </div>
 
-                <!-- ─── VEHICLE SELECTION ────────────────────────────── -->
                 <div class="panel-label"><span class="num">01</span> Vehicle Details</div>
 
-                <!-- ─── Status Message ───────────────────────────────── -->
                 <div id="statusMessage" class="status-message info">
                     <span>⏳</span>
                     <span id="statusMessageText">Loading categories...</span>
+                </div>
+
+                <div class="progress-container" id="progressContainer">
+                    <div class="progress-bar-track">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progressLabel">Loading...</span>
+                        <span id="progressPercent">0%</span>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -1049,9 +1085,6 @@
                     </div>
                 </div>
 
-                <div class="divider"></div>
-
-                <!-- ─── USAGE PROFILE ──────────────────────────────────── -->
                 <div class="panel-label"><span class="num">02</span> Usage Profile</div>
 
                 <div class="form-group">
@@ -1084,9 +1117,6 @@
                     </select>
                 </div>
 
-                <div class="divider"></div>
-
-                <!-- ─── INSURANCE ────────────────────────────────────── -->
                 <div class="panel-label"><span class="num">03</span> Insurance</div>
 
                 <div class="form-group">
@@ -1103,9 +1133,6 @@
                     </select>
                 </div>
 
-                <div class="divider"></div>
-
-                <!-- ─── FINANCING ────────────────────────────────────── -->
                 <div class="panel-label"><span class="num">04</span> Financing (optional)</div>
 
                 <div class="form-group">
@@ -1138,7 +1165,6 @@
                 </div>
             </section>
 
-            <!-- ─── RESULTS PANEL ──────────────────────────────────────── -->
             <div class="results-panel" id="resultsPanel">
 
                 <div class="result-card">
@@ -1294,8 +1320,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - COST OF OWNERSHIP CALCULATOR
-        // Version 4.4 - Fixed: getVehicleName() prevents duplicate model names
-        //                 Logout redirects to dashboard
+        // Version 4.4 - Connected to Backend API
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1307,6 +1332,7 @@
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
                 TCO_VIEW: 'vehicle_ownership_cost_complete',
+                API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 INSURANCE_TYPES: {
                     comprehensive: { rateMultiplier: 1.0 },
                     third_party: { flatFee: 7000 },
@@ -1329,6 +1355,7 @@
             let currentVariantData = null;
             let currentTCOData = null;
             let debounceTimer = null;
+            let authCheckInterval = null;
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1397,7 +1424,11 @@
                 btnCancelAuth: document.getElementById('btnCancelAuth'),
                 lockOverlay: document.getElementById('lockOverlay'),
                 unlockBtn: document.getElementById('unlockBtn'),
-                lastUpdated: document.getElementById('lastUpdated')
+                lastUpdated: document.getElementById('lastUpdated'),
+                progressContainer: document.getElementById('progressContainer'),
+                progressFill: document.getElementById('progressFill'),
+                progressLabel: document.getElementById('progressLabel'),
+                progressPercent: document.getElementById('progressPercent')
             };
 
             // ─── HELPERS ──────────────────────────────────────────────
@@ -1435,42 +1466,26 @@
                 if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
             }
 
-            // ─── VEHICLE NAME HELPER - Prevents duplicate model names ──
-            /**
-             * Get a clean vehicle display name without duplicate model names
-             * 
-             * Examples:
-             *   getVehicleName("Toyota", "RAV4", "RAV4 XA40 Base") → "Toyota RAV4 XA40 Base"
-             *   getVehicleName("Honda", "Civic", "Civic FB Base") → "Honda Civic FB Base"
-             *   getVehicleName("Mazda", "Demio", "Sport") → "Mazda Demio Sport"
-             * 
-             * @param {string} make - Vehicle make (e.g., "Toyota")
-             * @param {string} model - Vehicle model (e.g., "RAV4")
-             * @param {string} variant - Vehicle variant/trim (e.g., "RAV4 XA40 Base")
-             * @returns {string} Clean vehicle name
-             */
+            function showProgress(percent, label) {
+                el.progressContainer.classList.add('show');
+                el.progressFill.style.width = `${Math.min(percent, 100)}%`;
+                el.progressLabel.textContent = label || 'Loading...';
+                el.progressPercent.textContent = `${Math.min(percent, 100)}%`;
+            }
+            function hideProgress() {
+                el.progressContainer.classList.remove('show');
+            }
+
             function getVehicleName(make, model, variant) {
-                // Clean up inputs
                 const cleanMake = (make || '').trim();
                 const cleanModel = (model || '').trim();
                 const cleanVariant = (variant || '').trim();
-                
-                // If no variant, just return make + model
-                if (!cleanVariant) {
-                    return `${cleanMake} ${cleanModel}`.trim();
-                }
-                
-                // Check if variant starts with the model name (case insensitive)
-                // This handles: "RAV4 XA40 Base" → starts with "RAV4"
+                if (!cleanVariant) return `${cleanMake} ${cleanModel}`.trim();
                 const variantWords = cleanVariant.split(/\s+/);
                 const firstWord = variantWords[0] || '';
-                
                 if (firstWord.toLowerCase() === cleanModel.toLowerCase()) {
-                    // Variant already includes model name → don't duplicate it
                     return `${cleanMake} ${cleanVariant}`.trim();
                 }
-                
-                // Variant doesn't include model name → include it
                 return `${cleanMake} ${cleanModel} ${cleanVariant}`.trim();
             }
 
@@ -1483,10 +1498,8 @@
                     'Coupe': 5000000, 'Convertible': 5500000, 'Wagon': 3200000,
                     'Minivan': 3500000
                 };
-                
                 const bodyType = variant.body_type_name || variant.model_body_type || 'Sedan';
                 let price = baseEstimates[bodyType] || baseEstimates['Sedan'];
-                
                 const engineCC = variant.engine_size_cc || 2000;
                 if (engineCC > 4000) price *= 1.5;
                 else if (engineCC > 3000) price *= 1.3;
@@ -1494,18 +1507,13 @@
                 else if (engineCC > 1500) price *= 1.0;
                 else if (engineCC > 1200) price *= 0.85;
                 else price *= 0.7;
-                
                 const luxuryMakes = ['Mercedes', 'BMW', 'Audi', 'Lexus', 'Porsche', 'Range Rover', 'Jaguar', 'Volvo', 'Land Rover'];
                 const makeName = variant.make_name || '';
-                if (luxuryMakes.some(m => makeName.includes(m))) {
-                    price *= 1.4;
-                }
-                
+                if (luxuryMakes.some(m => makeName.includes(m))) price *= 1.4;
                 const fuelType = variant.fuel_type_name || '';
                 if (fuelType.toLowerCase() === 'electric') price *= 1.3;
                 else if (fuelType.toLowerCase() === 'hybrid') price *= 1.2;
                 else if (fuelType.toLowerCase() === 'diesel') price *= 1.1;
-                
                 return Math.round(price);
             }
 
@@ -1565,10 +1573,7 @@
                     updateAuthUI();
                     updateLockState();
                     showToast('🔓 Signed out', 'info');
-                    // ─── REDIRECT TO DASHBOARD ──────────────────────
-                    setTimeout(() => {
-                        window.location.href = CONFIG.DASHBOARD_URL;
-                    }, 500);
+                    setTimeout(() => { window.location.href = CONFIG.DASHBOARD_URL; }, 500);
                     return true;
                 } catch (error) {
                     showToast('❌ Sign out failed: ' + error.message, 'error');
@@ -1801,21 +1806,18 @@
                 const select = el.categorySelect;
                 select.innerHTML = '<option value="">Select Category...</option>';
                 select.disabled = true;
-
                 const categories = await loadCategories();
                 if (!categories || categories.length === 0) {
                     select.innerHTML = '<option value="">No categories available</option>';
                     setStatus('warning', 'No categories found in database');
                     return;
                 }
-
                 categories.forEach(cat => {
                     const opt = document.createElement('option');
                     opt.value = cat.id;
                     opt.textContent = cat.name;
                     select.appendChild(opt);
                 });
-
                 select.disabled = !isUnlocked;
                 setStatus('success', `✅ Loaded ${categories.length} categories`);
             }
@@ -1831,15 +1833,12 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
-
                 if (!categoryId || !isUnlocked) return;
-
                 const makes = await loadMakes(categoryId);
                 if (!makes || makes.length === 0) {
                     select.innerHTML = '<option value="">No makes available</option>';
                     return;
                 }
-
                 makes.forEach(make => {
                     const opt = document.createElement('option');
                     opt.value = make.id;
@@ -1848,7 +1847,6 @@
                     opt.textContent = label;
                     select.appendChild(opt);
                 });
-
                 select.disabled = false;
                 setStatus('success', `✅ Loaded ${makes.length} makes`);
             }
@@ -1862,15 +1860,12 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
-
                 if (!makeId || !isUnlocked) return;
-
                 const models = await loadModels(makeId);
                 if (!models || models.length === 0) {
                     select.innerHTML = '<option value="">No models available</option>';
                     return;
                 }
-
                 models.forEach(model => {
                     const opt = document.createElement('option');
                     opt.value = model.id;
@@ -1879,7 +1874,6 @@
                     opt.textContent = label;
                     select.appendChild(opt);
                 });
-
                 select.disabled = false;
                 setStatus('success', `✅ Loaded ${models.length} models`);
             }
@@ -1891,15 +1885,12 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
-
                 if (!modelId || !isUnlocked) return;
-
                 const generations = await loadGenerations(modelId);
                 if (!generations || generations.length === 0) {
                     select.innerHTML = '<option value="">No generations available</option>';
                     return;
                 }
-
                 generations.forEach(gen => {
                     const opt = document.createElement('option');
                     opt.value = gen.id;
@@ -1907,7 +1898,6 @@
                     opt.textContent = label;
                     select.appendChild(opt);
                 });
-
                 select.disabled = false;
                 setStatus('success', `✅ Loaded ${generations.length} generations`);
             }
@@ -1917,74 +1907,51 @@
                 select.innerHTML = '<option value="">Select Variant...</option>';
                 select.disabled = true;
                 el.calculateBtn.disabled = true;
-
                 if (!generationId || !isUnlocked) return;
-
                 const variants = await loadVariants(generationId);
                 if (!variants || variants.length === 0) {
                     select.innerHTML = '<option value="">No variants available</option>';
                     return;
                 }
-
-                // Track seen variants to prevent duplicates
                 const seen = new Map();
-
                 variants.forEach(v => {
                     let label = v.variant_name || 'Variant';
-                    
-                    // Clean: Remove duplicate model names
-                    // "RAV4 RAV4 XA40 Base" → "RAV4 XA40 Base"
                     const parts = label.split(' ');
                     if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
                         parts.splice(0, 1);
                         label = parts.join(' ');
                     }
-                    
-                    // Check for duplicates by cleaned name
                     const key = label.trim().toLowerCase();
                     if (seen.has(key)) return;
                     seen.set(key, true);
-                    
                     const opt = document.createElement('option');
                     opt.value = v.variant_id;
-                    
-                    // Build display label with specs
                     let displayLabel = label;
                     if (v.engine_size_cc) displayLabel += ` ${v.engine_size_cc}cc`;
                     if (v.power_hp) displayLabel += ` ${v.power_hp}hp`;
                     if (v.fuel_type_name) displayLabel += ` (${v.fuel_type_name})`;
                     if (v.transmission_type_name) displayLabel += ` ${v.transmission_type_name}`;
-                    
                     opt.textContent = displayLabel;
                     select.appendChild(opt);
                 });
-
                 select.disabled = false;
                 setStatus('success', `✅ Loaded ${seen.size} unique variants`);
             }
 
             // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
             function displayVehicleInfo(variant, tcoData) {
-                // ─── USE getVehicleName() TO PREVENT DUPLICATES ───
                 const label = getVehicleName(
                     variant.make_name || '',
                     variant.model_name || '',
                     variant.variant_name || ''
                 );
-                
                 el.vehicleLabel.textContent = label || 'Unnamed variant';
                 el.fuelPill.textContent = variant.fuel_type_name || '—';
                 el.transmissionPill.textContent = variant.transmission_type_name || '—';
-
                 const engineCC = variant.engine_size_cc || null;
-                if (engineCC) {
-                    el.engineCCDisplay.textContent = `${engineCC}cc`;
-                    el.engineCCDisplay.style.display = 'inline-block';
-                } else {
-                    el.engineCCDisplay.textContent = '—';
-                    el.engineCCDisplay.style.display = 'inline-block';
-                }
-
+                el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
+                const price = tcoData?.purchase_price || estimateVehiclePrice(variant);
+                const costPerKm = tcoData?.cost_per_km || 0;
                 const specItems = [
                     { label: '🔧', value: variant.trim_level || 'Standard' },
                     { label: '⚡', value: `${variant.power_hp || 0} HP` },
@@ -1995,221 +1962,225 @@
                     { label: '🚗', value: variant.body_type_name || variant.model_body_type || '—' },
                     { label: '🏷️', value: variant.category_name || '—' }
                 ];
-
-                const price = tcoData?.purchase_price || estimateVehiclePrice(variant);
-                const costPerKm = tcoData?.cost_per_km || 0;
-                
                 if (price > 0) {
                     specItems.push({ label: '💰 New Price', value: `KES ${formatCurrency(price)}` });
                 }
                 if (costPerKm > 0) {
                     specItems.push({ label: '📊 Cost/km', value: `KES ${formatCurrency(costPerKm)}/km` });
                 }
-
                 el.vehicleSpecs.innerHTML = specItems.map(item =>
                     `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
                 ).join('');
             }
 
-            // ─── CALCULATION ENGINE ────────────────────────────────────
-            function calculateTCO(variant, inputs, tcoData) {
-                if (!variant) return null;
-
-                const {
-                    initialValue = 5000000,
-                    currentValue = 3500000,
-                    annualMileage = 20000,
-                    ownershipYears = 5,
-                    insuranceRate = 0.045,
-                    insuranceType = 'comprehensive',
-                    locationFactor = 1.0,
-                    fuelConsumption = 12,
-                    fuelPrice = 200,
-                    isNew = true,
-                    isFinanced = false,
-                    downPct = 0.3,
-                    interestRate = 0.16,
-                    loanTerm = 4
-                } = inputs;
-
-                let depRate = isNew ? 0.25 : 0.15;
-                if (tcoData?.depreciation_rate_year_1) {
-                    depRate = tcoData.depreciation_rate_year_1;
-                }
-
-                // ─── FUEL COST ─────────────────────────────────────────
-                let fuelConsumptionLPer100km;
-                if (fuelConsumption < 5 && fuelConsumption > 0) {
-                    fuelConsumptionLPer100km = fuelConsumption;
-                } else if (fuelConsumption > 10 && fuelConsumption < 50) {
-                    fuelConsumptionLPer100km = 100 / fuelConsumption;
-                } else {
-                    fuelConsumptionLPer100km = 8;
-                }
-
-                const annualFuelCost = (annualMileage / 100) * fuelConsumptionLPer100km * fuelPrice;
-
-                // ─── OTHER COSTS ──────────────────────────────────────
-                const annualMaintenanceCost = annualMileage * 5 * locationFactor;
-                const annualTyreCost = (annualMileage / 50000) * 48000;
-                const licensingCost = initialValue * 0.01;
-
-                const insuranceCfg = CONFIG.INSURANCE_TYPES[insuranceType] || CONFIG.INSURANCE_TYPES.comprehensive;
-
-                let financingCost = 0;
-                if (isFinanced) {
-                    const loanAmount = initialValue * (1 - downPct);
-                    financingCost = loanAmount * interestRate * loanTerm;
-                }
-
-                // ─── YEARLY BREAKDOWN ──────────────────────────────────
-                const yearsData = [];
-                let totalCost = 0;
-                let totalMileage = 0;
-
-                for (let i = 0; i < ownershipYears; i++) {
-                    const yearNumber = i + 1;
-                    const currentYearValue = initialValue * Math.pow(1 - depRate, i + 1);
-                    
-                    const depreciationYear = initialValue * depRate * Math.pow(1 - depRate, i);
-                    const fuelYear = annualFuelCost;
-                    const maintenanceYear = annualMaintenanceCost;
-                    const tyresYear = annualTyreCost;
-                    const licensingYear = licensingCost;
-                    const insuranceYear = insuranceCfg.flatFee
-                        ? insuranceCfg.flatFee
-                        : currentYearValue * insuranceRate * insuranceCfg.rateMultiplier * locationFactor;
-                    const financingYear = isFinanced ? financingCost / ownershipYears : 0;
-                    
-                    const yearTotal = depreciationYear + financingYear + insuranceYear +
-                        fuelYear + maintenanceYear + tyresYear + licensingYear;
-                    
-                    yearsData.push({
-                        year: yearNumber,
-                        depreciation: depreciationYear,
-                        financing: financingYear,
-                        insurance: insuranceYear,
-                        fuel: fuelYear,
-                        maintenance: maintenanceYear,
-                        tyres: tyresYear,
-                        licensing: licensingYear,
-                        total: yearTotal,
-                        value: currentYearValue
-                    });
-                    
-                    totalCost += yearTotal;
-                    totalMileage += annualMileage;
-                }
-
-                // ─── SUMMARY ──────────────────────────────────────────
-                const averageMonthly = totalCost / (ownershipYears * 12);
-                const costPerKm = totalMileage > 0 ? totalCost / totalMileage : 0;
-                const resaleValue = yearsData.length > 0 ? yearsData[yearsData.length - 1].value : 0;
-                const averageAnnualCost = totalCost / ownershipYears;
-                const rciValue = (averageAnnualCost / initialValue) * 100;
-
-                let rciRating, rciStars, rciClass;
-                if (rciValue < 15) { rciRating = 'Excellent'; rciStars = '⭐⭐⭐⭐⭐'; rciClass = 'excellent'; }
-                else if (rciValue < 20) { rciRating = 'Good'; rciStars = '⭐⭐⭐⭐'; rciClass = 'good'; }
-                else if (rciValue < 25) { rciRating = 'Average'; rciStars = '⭐⭐⭐'; rciClass = 'average'; }
-                else if (rciValue < 30) { rciRating = 'Expensive'; rciStars = '⭐⭐'; rciClass = 'expensive'; }
-                else { rciRating = 'Very Expensive'; rciStars = '⭐'; rciClass = 'very-expensive'; }
-
-                const healthScore = Math.max(0, 100 - (rciValue * 2));
-                const healthPercentage = Math.min(100, healthScore);
-                const healthLabel = healthPercentage >= 80 ? 'Excellent Condition' :
-                    healthPercentage >= 60 ? 'Good Condition' :
-                    healthPercentage >= 40 ? 'Fair Condition' : 'Needs Attention';
-
-                return {
-                    yearsData,
-                    totalCost,
-                    averageMonthly,
-                    costPerKm,
-                    resaleValue,
-                    rciValue,
-                    rciRating,
-                    rciStars,
-                    rciClass,
-                    healthPercentage,
-                    healthLabel,
-                    annualMileage,
-                    ownershipYears,
-                    initialValue,
-                    fuelConsumption: fuelConsumptionLPer100km,
-                    fuelPrice
+            // ─── TCO API CALL ──────────────────────────────────────────
+            async function calculateTCOFromAPI(formData) {
+                const payload = {
+                    variant_id: formData.variant_id,
+                    year: formData.year,
+                    initial_value: formData.initial_value,
+                    current_value: formData.current_value,
+                    annual_mileage: formData.annual_mileage,
+                    ownership_years: formData.ownership_years,
+                    insurance_rate: formData.insurance_rate,
+                    insurance_type: formData.insurance_type,
+                    fuel_price: formData.fuel_price,
+                    location: formData.location,
+                    is_new: formData.is_new,
+                    is_financed: formData.is_financed,
+                    down_payment_percent: formData.down_payment_percent,
+                    interest_rate: formData.interest_rate,
+                    loan_term: formData.loan_term
                 };
+
+                const token = localStorage.getItem('access_token') || '';
+                const headers = { 
+                    'Content-Type': 'application/json', 
+                    'Accept': 'application/json' 
+                };
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                console.log('📤 Sending TCO request to:', `${CONFIG.API_BASE}/ownership/calculate`);
+                console.log('📦 Payload:', payload);
+
+                const response = await fetch(`${CONFIG.API_BASE}/ownership/calculate`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(15000)
+                });
+
+                if (!response.ok) {
+                    let errorData;
+                    try {
+                        errorData = await response.json();
+                    } catch (e) {
+                        errorData = { message: `HTTP ${response.status}` };
+                    }
+                    throw new Error(errorData.message || errorData.detail || `HTTP ${response.status}`);
+                }
+
+                return await response.json();
+            }
+
+            // ─── MAIN CALCULATION ──────────────────────────────────────
+            async function calculate() {
+                if (!isUnlocked) {
+                    showToast('⚠️ Please sign in to access the calculator', 'warning');
+                    return;
+                }
+
+                const variantId = el.variantSelect.value;
+                if (!variantId) {
+                    showToast('Please select a vehicle variant', 'error');
+                    return;
+                }
+
+                showProgress(10, 'Loading vehicle details...');
+                const variant = await loadVariantDetails(variantId);
+                if (!variant) {
+                    showToast('Failed to load vehicle details', 'error');
+                    hideProgress();
+                    return;
+                }
+
+                currentVariantData = variant;
+                const tcoData = await loadTCOData(variantId);
+                currentTCOData = tcoData;
+                displayVehicleInfo(variant, tcoData);
+
+                let initialValue = num(el.initialValue.value);
+                if (!initialValue || initialValue <= 0) {
+                    initialValue = tcoData?.purchase_price || estimateVehiclePrice(variant);
+                    el.initialValue.value = initialValue;
+                }
+
+                let currentValue = num(el.currentValue.value);
+                if (!currentValue || currentValue <= 0) {
+                    currentValue = initialValue * 0.7;
+                    el.currentValue.value = currentValue;
+                }
+
+                const formData = {
+                    variant_id: variantId,
+                    year: parseInt(el.yearSelect.value) || 2020,
+                    initial_value: initialValue,
+                    current_value: currentValue,
+                    annual_mileage: num(el.mileageRange.value) || 20000,
+                    ownership_years: num(el.yearsRange.value) || 5,
+                    insurance_rate: num(el.insuranceRange.value) / 100 || 0.045,
+                    insurance_type: el.insuranceType.value || 'comprehensive',
+                    fuel_price: num(el.fuelPriceInput.value) || 200,
+                    location: el.locationSelect.value || 'nairobi',
+                    is_new: isNewPurchase,
+                    is_financed: isFinanced,
+                    down_payment_percent: num(el.downRange.value) || 30,
+                    interest_rate: num(el.rateRange.value) / 100 || 0.16,
+                    loan_term: num(el.termRange.value) || 4
+                };
+
+                el.calculateBtn.disabled = true;
+                el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
+                showProgress(50, 'Calling TCO API...');
+
+                try {
+                    const result = await calculateTCOFromAPI(formData);
+                    showProgress(90, 'Rendering results...');
+                    
+                    if (result && (result.data || result.totalCost)) {
+                        const data = result.data || result;
+                        renderResults(data, variant);
+                        showProgress(100, 'Complete!');
+                        setTimeout(hideProgress, 500);
+                        showToast('✅ TCO calculated successfully!', 'success');
+                    } else {
+                        throw new Error('No data received from API');
+                    }
+                } catch (error) {
+                    hideProgress();
+                    console.error('❌ Calculation error:', error);
+                    showToast('Error calculating TCO: ' + error.message, 'error');
+                }
+
+                el.calculateBtn.disabled = false;
+                el.calculateBtn.innerHTML = '🚀 Calculate Ownership Cost';
             }
 
             // ─── RENDER RESULTS ─────────────────────────────────────────
             function renderResults(result, variant) {
                 if (!result) return;
 
-                el.outTotal.textContent = fmt(result.totalCost);
-                el.outMonthly.textContent = fmt(result.averageMonthly);
-                el.outPerKm.textContent = `KES ${result.costPerKm.toFixed(2)}`;
-                el.outResale.textContent = fmt(result.resaleValue);
+                const totalCost = result.totalCost || result.total_cost || 0;
+                const averageMonthly = result.averageMonthly || result.monthly_cost || 0;
+                const costPerKm = result.costPerKm || result.cost_per_km || 0;
+                const resaleValue = result.resaleValue || result.resale_value || 0;
 
+                el.outTotal.textContent = fmt(totalCost);
+                el.outMonthly.textContent = fmt(averageMonthly);
+                el.outPerKm.textContent = `KES ${costPerKm.toFixed(2)}`;
+                el.outResale.textContent = fmt(resaleValue);
+
+                // Stacked bars
+                const yearsData = result.yearsData || [];
                 const stackedBars = el.stackedBars;
                 stackedBars.innerHTML = '';
-                const maxTotal = Math.max(...result.yearsData.map(y => y.total), 1);
+                const maxTotal = Math.max(...yearsData.map(y => y.total || 0), 1);
 
-                result.yearsData.forEach((year) => {
+                yearsData.forEach((year) => {
                     const row = document.createElement('div');
                     row.className = 'year-row';
-                    
-                    const depreciationPct = (year.depreciation / maxTotal) * 100;
-                    const financingPct = (year.financing / maxTotal) * 100;
-                    const insurancePct = (year.insurance / maxTotal) * 100;
-                    const fuelPct = (year.fuel / maxTotal) * 100;
-                    const maintenancePct = (year.maintenance / maxTotal) * 100;
-                    const tyresPct = (year.tyres / maxTotal) * 100;
-                    const licensingPct = (year.licensing / maxTotal) * 100;
+                    const depreciationPct = ((year.depreciation || 0) / maxTotal) * 100;
+                    const financingPct = ((year.financing || 0) / maxTotal) * 100;
+                    const insurancePct = ((year.insurance || 0) / maxTotal) * 100;
+                    const fuelPct = ((year.fuel || 0) / maxTotal) * 100;
+                    const maintenancePct = ((year.maintenance || 0) / maxTotal) * 100;
+                    const tyresPct = ((year.tyres || 0) / maxTotal) * 100;
+                    const licensingPct = ((year.licensing || 0) / maxTotal) * 100;
                     
                     row.innerHTML = `
-                        <div class="yr-label">Year ${year.year}</div>
+                        <div class="yr-label">Year ${year.year || 1}</div>
                         <div class="bar-track">
-                            <div class="bar-seg" style="width:${depreciationPct}%;background:var(--c-depreciation);" title="Depreciation: ${fmt(year.depreciation)}"></div>
-                            <div class="bar-seg" style="width:${financingPct}%;background:var(--c-financing);" title="Financing: ${fmt(year.financing)}"></div>
-                            <div class="bar-seg" style="width:${insurancePct}%;background:var(--c-insurance);" title="Insurance: ${fmt(year.insurance)}"></div>
-                            <div class="bar-seg" style="width:${fuelPct}%;background:var(--c-fuel);" title="Fuel: ${fmt(year.fuel)}"></div>
-                            <div class="bar-seg" style="width:${maintenancePct}%;background:var(--c-maintenance);" title="Maintenance: ${fmt(year.maintenance)}"></div>
-                            <div class="bar-seg" style="width:${tyresPct}%;background:var(--c-tyres);" title="Tyres: ${fmt(year.tyres)}"></div>
-                            <div class="bar-seg" style="width:${licensingPct}%;background:var(--c-licensing);" title="Licensing: ${fmt(year.licensing)}"></div>
+                            <div class="bar-seg" style="width:${depreciationPct}%;background:var(--c-depreciation);" title="Depreciation: ${fmt(year.depreciation || 0)}"></div>
+                            <div class="bar-seg" style="width:${financingPct}%;background:var(--c-financing);" title="Financing: ${fmt(year.financing || 0)}"></div>
+                            <div class="bar-seg" style="width:${insurancePct}%;background:var(--c-insurance);" title="Insurance: ${fmt(year.insurance || 0)}"></div>
+                            <div class="bar-seg" style="width:${fuelPct}%;background:var(--c-fuel);" title="Fuel: ${fmt(year.fuel || 0)}"></div>
+                            <div class="bar-seg" style="width:${maintenancePct}%;background:var(--c-maintenance);" title="Maintenance: ${fmt(year.maintenance || 0)}"></div>
+                            <div class="bar-seg" style="width:${tyresPct}%;background:var(--c-tyres);" title="Tyres: ${fmt(year.tyres || 0)}"></div>
+                            <div class="bar-seg" style="width:${licensingPct}%;background:var(--c-licensing);" title="Licensing: ${fmt(year.licensing || 0)}"></div>
                         </div>
-                        <div class="yr-total">${fmt(year.total)}</div>
+                        <div class="yr-total">${fmt(year.total || 0)}</div>
                     `;
                     stackedBars.appendChild(row);
                 });
 
+                // Table
                 const tbody = el.resultsBody;
                 tbody.innerHTML = '';
-
-                result.yearsData.forEach((year) => {
+                yearsData.forEach((year) => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td>Year ${year.year}</td>
-                        <td>${fmt(year.depreciation)}</td>
-                        <td>${fmt(year.financing)}</td>
-                        <td>${fmt(year.insurance)}</td>
-                        <td>${fmt(year.fuel)}</td>
-                        <td>${fmt(year.maintenance)}</td>
-                        <td>${fmt(year.tyres)}</td>
-                        <td>${fmt(year.licensing)}</td>
-                        <td>${fmt(year.total)}</td>
+                        <td>Year ${year.year || 1}</td>
+                        <td>${fmt(year.depreciation || 0)}</td>
+                        <td>${fmt(year.financing || 0)}</td>
+                        <td>${fmt(year.insurance || 0)}</td>
+                        <td>${fmt(year.fuel || 0)}</td>
+                        <td>${fmt(year.maintenance || 0)}</td>
+                        <td>${fmt(year.tyres || 0)}</td>
+                        <td>${fmt(year.licensing || 0)}</td>
+                        <td>${fmt(year.total || 0)}</td>
                     `;
                     tbody.appendChild(tr);
                 });
 
-                const totals = result.yearsData.reduce((acc, year) => {
-                    acc.depreciation += year.depreciation;
-                    acc.financing += year.financing;
-                    acc.insurance += year.insurance;
-                    acc.fuel += year.fuel;
-                    acc.maintenance += year.maintenance;
-                    acc.tyres += year.tyres;
-                    acc.licensing += year.licensing;
-                    acc.total += year.total;
+                const totals = yearsData.reduce((acc, year) => {
+                    acc.depreciation += year.depreciation || 0;
+                    acc.financing += year.financing || 0;
+                    acc.insurance += year.insurance || 0;
+                    acc.fuel += year.fuel || 0;
+                    acc.maintenance += year.maintenance || 0;
+                    acc.tyres += year.tyres || 0;
+                    acc.licensing += year.licensing || 0;
+                    acc.total += year.total || 0;
                     return acc;
                 }, { depreciation: 0, financing: 0, insurance: 0, fuel: 0, maintenance: 0, tyres: 0, licensing: 0, total: 0 });
 
@@ -2228,84 +2199,101 @@
                 `;
                 tbody.appendChild(totalTr);
 
-                el.rciValue.textContent = result.rciValue.toFixed(1) + '%';
-                el.rciValue.className = `rci-value ${result.rciClass}`;
-                el.rciStars.textContent = result.rciStars;
-                el.rciLabel.textContent = result.rciRating;
+                // RCI
+                const rciValue = result.rciValue || (totalCost / (result.initial_value || 1) * 100);
+                let rciRating, rciStars, rciClass;
+                if (rciValue < 15) { rciRating = 'Excellent'; rciStars = '⭐⭐⭐⭐⭐'; rciClass = 'excellent'; }
+                else if (rciValue < 20) { rciRating = 'Good'; rciStars = '⭐⭐⭐⭐'; rciClass = 'good'; }
+                else if (rciValue < 25) { rciRating = 'Average'; rciStars = '⭐⭐⭐'; rciClass = 'average'; }
+                else if (rciValue < 30) { rciRating = 'Expensive'; rciStars = '⭐⭐'; rciClass = 'expensive'; }
+                else { rciRating = 'Very Expensive'; rciStars = '⭐'; rciClass = 'very-expensive'; }
 
-                el.healthRing.style.setProperty('--pct', `${result.healthPercentage}%`);
-                el.healthScore.textContent = Math.round(result.healthPercentage);
-                el.healthLabel.textContent = result.healthLabel;
+                el.rciValue.textContent = rciValue.toFixed(1) + '%';
+                el.rciValue.className = `rci-value ${rciClass}`;
+                el.rciStars.textContent = rciStars;
+                el.rciLabel.textContent = rciRating;
 
+                // Health
+                const healthPercentage = result.healthPercentage || Math.min(100, 100 - (rciValue * 2));
+                el.healthRing.style.setProperty('--pct', `${healthPercentage}%`);
+                el.healthScore.textContent = Math.round(healthPercentage);
+                el.healthLabel.textContent = result.healthLabel || 
+                    (healthPercentage >= 80 ? 'Excellent Condition' :
+                     healthPercentage >= 60 ? 'Good Condition' :
+                     healthPercentage >= 40 ? 'Fair Condition' : 'Needs Attention');
+
+                // Environment
+                const fuelConsumption = result.fuelConsumption || variant?.fuel_consumption_combined || 8;
                 el.envGrid.innerHTML = `
                     <div class="env-item">
-                        <div class="env-value">${(result.fuelConsumption || 0).toFixed(1)}</div>
+                        <div class="env-value">${(fuelConsumption).toFixed(1)}</div>
                         <div class="env-label">L/100km</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${result.annualMileage || 0}</div>
+                        <div class="env-value">${result.annual_mileage || 20000}</div>
                         <div class="env-label">km/year</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${Math.round(result.totalCost / 1000)}k</div>
+                        <div class="env-value">${Math.round(totalCost / 1000)}k</div>
                         <div class="env-label">Total Cost (KES)</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${Math.round(result.averageMonthly / 1000)}k</div>
+                        <div class="env-value">${Math.round(averageMonthly / 1000)}k</div>
                         <div class="env-label">Monthly (KES)</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${result.costPerKm.toFixed(2)}</div>
+                        <div class="env-value">${costPerKm.toFixed(2)}</div>
                         <div class="env-label">KES/km</div>
                     </div>
                     <div class="env-item">
-                        <div class="env-value">${Math.round(result.resaleValue / 1000)}k</div>
+                        <div class="env-value">${Math.round(resaleValue / 1000)}k</div>
                         <div class="env-label">Resale Value</div>
                     </div>
                 `;
 
+                // Recommendations
                 const recList = el.recList;
                 recList.innerHTML = '';
                 const recommendations = [];
 
-                if (result.fuelConsumption && result.fuelConsumption > 10) {
+                if (fuelConsumption > 10) {
                     recommendations.push({
                         icon: '⛽',
-                        text: `Fuel consumption is ${result.fuelConsumption.toFixed(1)} L/100km. Consider a more fuel-efficient vehicle.`,
+                        text: `Fuel consumption is ${fuelConsumption.toFixed(1)} L/100km. Consider a more fuel-efficient vehicle.`,
                         type: 'warning'
                     });
-                } else if (result.fuelConsumption) {
+                } else if (fuelConsumption > 0) {
                     recommendations.push({
                         icon: '✅',
-                        text: `Good fuel efficiency at ${result.fuelConsumption.toFixed(1)} L/100km.`,
+                        text: `Good fuel efficiency at ${fuelConsumption.toFixed(1)} L/100km.`,
                         type: 'success'
                     });
                 }
 
-                if (result.totalCost / result.initialValue > 0.5) {
+                if (totalCost / (result.initial_value || 1) > 0.5) {
                     recommendations.push({
                         icon: '💰',
-                        text: `Total ownership cost is ${Math.round(result.totalCost / result.initialValue * 100)}% of purchase price.`,
+                        text: `Total ownership cost is ${Math.round(totalCost / (result.initial_value || 1) * 100)}% of purchase price.`,
                         type: 'warning'
                     });
                 } else {
                     recommendations.push({
                         icon: '💡',
-                        text: `Total ownership cost is ${Math.round(result.totalCost / result.initialValue * 100)}% of purchase price.`,
+                        text: `Total ownership cost is ${Math.round(totalCost / (result.initial_value || 1) * 100)}% of purchase price.`,
                         type: 'info'
                     });
                 }
 
-                if (result.healthPercentage < 60) {
+                if (healthPercentage < 60) {
                     recommendations.push({
                         icon: '🔧',
-                        text: `Vehicle health score is ${Math.round(result.healthPercentage)}%. Consider regular maintenance.`,
+                        text: `Vehicle health score is ${Math.round(healthPercentage)}%. Consider regular maintenance.`,
                         type: 'warning'
                     });
                 } else {
                     recommendations.push({
                         icon: '✅',
-                        text: `Vehicle health score is ${Math.round(result.healthPercentage)}%. Good condition!`,
+                        text: `Vehicle health score is ${Math.round(healthPercentage)}%. Good condition!`,
                         type: 'success'
                     });
                 }
@@ -2337,103 +2325,17 @@
                 });
             }
 
-            // ─── MAIN CALCULATION ──────────────────────────────────────
-            async function calculate() {
-                if (!isUnlocked) {
-                    showToast('⚠️ Please sign in to access the calculator', 'warning');
-                    return;
-                }
-
-                const variantId = el.variantSelect.value;
-                if (!variantId) {
-                    showToast('Please select a vehicle variant', 'error');
-                    return;
-                }
-
-                const variant = await loadVariantDetails(variantId);
-                if (!variant) {
-                    showToast('Failed to load vehicle details', 'error');
-                    return;
-                }
-
-                currentVariantData = variant;
-                const tcoData = await loadTCOData(variantId);
-                currentTCOData = tcoData;
-                displayVehicleInfo(variant, tcoData);
-
-                let initialValue = num(el.initialValue.value);
-                if (!initialValue || initialValue <= 0) {
-                    if (tcoData?.purchase_price) {
-                        initialValue = tcoData.purchase_price;
-                    } else {
-                        initialValue = estimateVehiclePrice(variant);
-                    }
-                    el.initialValue.value = initialValue;
-                }
-
-                let currentValue = num(el.currentValue.value);
-                if (!currentValue || currentValue <= 0) {
-                    currentValue = initialValue * 0.7;
-                    el.currentValue.value = currentValue;
-                }
-
-                const inputs = {
-                    initialValue: initialValue,
-                    currentValue: currentValue,
-                    annualMileage: num(el.mileageRange.value) || 20000,
-                    ownershipYears: num(el.yearsRange.value) || 5,
-                    insuranceRate: num(el.insuranceRange.value) / 100 || 0.045,
-                    insuranceType: el.insuranceType.value || 'comprehensive',
-                    locationFactor: CONFIG.LOCATION_FACTORS[el.locationSelect.value] || 1.0,
-                    fuelConsumption: variant.fuel_consumption_combined || 12,
-                    fuelPrice: num(el.fuelPriceInput.value) || 200,
-                    isNew: isNewPurchase,
-                    isFinanced: isFinanced,
-                    downPct: num(el.downRange.value) / 100 || 0.3,
-                    interestRate: num(el.rateRange.value) / 100 || 0.16,
-                    loanTerm: num(el.termRange.value) || 4
-                };
-
-                el.calculateBtn.disabled = true;
-                el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
-
-                try {
-                    const result = calculateTCO(variant, inputs, tcoData);
-                    if (result) {
-                        renderResults(result, variant);
-                        showToast('✅ TCO calculated successfully!', 'success');
-                    } else {
-                        showToast('Calculation failed', 'error');
-                    }
-                } catch (error) {
-                    console.error('❌ Calculation error:', error);
-                    showToast('Error calculating TCO', 'error');
-                }
-
-                el.calculateBtn.disabled = false;
-                el.calculateBtn.innerHTML = '🚀 Calculate Ownership Cost';
-            }
-
-            // ─── EVENT HANDLERS ─────────────────────────────────────────
+            // ─── EVENT LISTENERS ─────────────────────────────────────────
             function initEventListeners() {
-                el.unlockBtn.addEventListener('click', function() {
-                    el.btnSignIn.click();
-                    el.btnSignIn.scrollIntoView({ behavior: 'smooth' });
-                });
-
+                el.unlockBtn.addEventListener('click', () => { el.btnSignIn.click(); });
                 el.btnSignIn.addEventListener('click', () => {
                     el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
                 });
-                el.btnCancelAuth.addEventListener('click', () => {
-                    el.authForms.style.display = 'none';
-                });
+                el.btnCancelAuth.addEventListener('click', () => { el.authForms.style.display = 'none'; });
                 el.btnLogin.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
-                    if (!email || !password) {
-                        showToast('Please enter email and password', 'warning');
-                        return;
-                    }
+                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
                     await signIn(email, password);
                     el.authForms.style.display = 'none';
                     el.authEmail.value = '';
@@ -2442,14 +2344,8 @@
                 el.btnSignup.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
-                    if (!email || !password) {
-                        showToast('Please enter email and password', 'warning');
-                        return;
-                    }
-                    if (password.length < 6) {
-                        showToast('Password must be at least 6 characters', 'warning');
-                        return;
-                    }
+                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
+                    if (password.length < 6) { showToast('Password must be at least 6 characters', 'warning'); return; }
                     await signUp(email, password);
                     el.authForms.style.display = 'none';
                     el.authEmail.value = '';
@@ -2550,10 +2446,7 @@
                     el.financedFields.classList.add('show');
                 });
 
-                el.printBtn.addEventListener('click', function() {
-                    window.print();
-                });
-
+                el.printBtn.addEventListener('click', function() { window.print(); });
                 el.shareBtn.addEventListener('click', async function() {
                     const url = window.location.href;
                     try {
@@ -2569,71 +2462,68 @@
                         }
                     } catch (e) {
                         if (e.name !== 'AbortError') {
-                            try {
-                                await navigator.clipboard.writeText(url);
-                                showToast('🔗 Link copied to clipboard!', 'success');
-                            } catch (clipError) {
-                                showToast('📋 Share not supported on this device', 'warning');
-                            }
+                            showToast('📋 Share not supported on this device', 'warning');
                         }
                     }
                 });
 
-                // ─── KEYBOARD SHORTCUT: Ctrl+Enter to calculate ─────
-                document.addEventListener('keydown', function(e) {
-                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                        e.preventDefault();
-                        if (!el.calculateBtn.disabled) {
-                            el.calculateBtn.click();
-                        }
-                    }
-                });
+                authCheckInterval = setInterval(async () => {
+                    const wasAuthenticated = isAuthenticated;
+                    await checkAuth();
+                    if (wasAuthenticated !== isAuthenticated) updateLockState();
+                }, 30000);
             }
 
             // ─── INIT ──────────────────────────────────────────────────
             async function init() {
-                try {
-                    el.loadingOverlay.classList.add('active');
-                    el.loadingStatus.textContent = 'Initializing Supabase...';
+                el.loadingOverlay.classList.add('active');
 
-                    if (!initSupabase()) {
-                        showToast('❌ Failed to initialize Supabase. Check console for details.', 'error');
+                try {
+                    const supabaseOk = initSupabase();
+                    if (!supabaseOk) {
+                        setStatus('error', '❌ Failed to initialize Supabase');
+                        showToast('Failed to initialize Supabase', 'error');
                         el.loadingOverlay.classList.remove('active');
                         return;
                     }
 
-                    el.loadingStatus.textContent = 'Checking authentication...';
+                    showProgress(10, 'Checking authentication...');
                     await checkAuth();
 
-                    el.loadingStatus.textContent = 'Loading vehicle categories...';
+                    showProgress(60, 'Loading vehicle data...');
                     await populateCategories();
 
                     if (isUnlocked) {
-                        el.loadingStatus.textContent = 'Ready!';
                         showToast('✅ Calculator ready! Select a vehicle to begin.', 'success');
                     } else {
-                        el.loadingStatus.textContent = 'Please sign in to use the calculator';
+                        showProgress(100, 'Please sign in to use the calculator');
+                        setTimeout(hideProgress, 500);
                     }
 
                     initEventListeners();
-
                     el.loadingOverlay.classList.remove('active');
                     el.lastUpdated.textContent = new Date().toLocaleString('en-KE', {
                         year: 'numeric', month: 'short', day: 'numeric',
                         hour: '2-digit', minute: '2-digit'
                     });
 
+                    console.log('✅ Auto-D Kenya TCO Calculator initialized');
+                    console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
+                    console.log(`🔗 API Base: ${CONFIG.API_BASE}`);
+
                 } catch (error) {
                     console.error('❌ Initialization error:', error);
                     el.loadingStatus.textContent = 'Error: ' + error.message;
                     showToast('❌ Failed to initialize: ' + error.message, 'error');
                     el.loadingOverlay.classList.remove('active');
+                    hideProgress();
                 }
             }
 
-            // ─── START ──────────────────────────────────────────────────
             document.addEventListener('DOMContentLoaded', init);
+
         })();
     </script>
+
 </body>
 </html>
