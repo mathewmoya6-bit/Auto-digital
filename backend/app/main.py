@@ -14,81 +14,12 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.core.database import supabase
 
-# Import routers directly from their modules
-from app.api.v1.auth import router as auth_router
-from app.api.v1.vehicles import router as vehicles_router
-from app.api.v1.valuation import router as valuation_router
-from app.api.v1.mileage import router as mileage_router
-from app.api.v1.ownership import router as ownership_router
-from app.api.v1.fuel import router as fuel_router
-from app.api.v1.admin import router as admin_router
-from app.api.v1.reports import router as reports_router
-from app.api.v1.running_cost import router as running_cost_router
-
-# ─── NEW: Service Prices Router ────────────────────────────────────
-try:
-    from app.api.v1.services import router as services_router
-    SERVICES_ROUTER_LOADED = True
-    logger_import = logging.getLogger(__name__)
-    logger_import.info("✅ Service Prices router loaded successfully")
-except ImportError as e:
-    SERVICES_ROUTER_LOADED = False
-    logger_import = logging.getLogger(__name__)
-    logger_import.warning(f"⚠️ Service Prices router not available: {e}")
-    services_router = None
-
-# ─── NEW: Price Alignment & Market Scraper Routers ────────────────
-try:
-    from app.api.v1.price_alignment import router as price_alignment_router
-    PRICE_ALIGNMENT_LOADED = True
-    logger_import = logging.getLogger(__name__)
-    logger_import.info("✅ Price Alignment router loaded successfully")
-except ImportError as e:
-    PRICE_ALIGNMENT_LOADED = False
-    logger_import = logging.getLogger(__name__)
-    logger_import.warning(f"⚠️ Price Alignment router not available: {e}")
-    price_alignment_router = None
-
-try:
-    from app.api.v1.market import router as market_router
-    MARKET_ROUTER_LOADED = True
-    logger_import = logging.getLogger(__name__)
-    logger_import.info("✅ Market router loaded successfully")
-except ImportError as e:
-    MARKET_ROUTER_LOADED = False
-    logger_import = logging.getLogger(__name__)
-    logger_import.warning(f"⚠️ Market router not available: {e}")
-    market_router = None
-
-# ─── Market Scraper Router ───────────────────────────────────────
-try:
-    from app.api.v1.scraper import router as scraper_router
-    SCRAPER_ROUTER_LOADED = True
-    logger_import = logging.getLogger(__name__)
-    logger_import.info("✅ Market Scraper router loaded successfully")
-except ImportError as e:
-    SCRAPER_ROUTER_LOADED = False
-    logger_import = logging.getLogger(__name__)
-    logger_import.warning(f"⚠️ Market Scraper router not available: {e}")
-    scraper_router = None
-
-# ─── M-Pesa Router ────────────────────────────────────────────────
-try:
-    from app.api.v1.mpesa import router as mpesa_router
-    MPESA_ROUTER_LOADED = True
-    logger_import = logging.getLogger(__name__)
-    logger_import.info("✅ M-Pesa router loaded successfully")
-except ImportError as e:
-    MPESA_ROUTER_LOADED = False
-    logger_import = logging.getLogger(__name__)
-    logger_import.warning(f"⚠️ M-Pesa router not available: {e}")
-    mpesa_router = None
-
-# ─── Configure Logging ─────────────────────────────────────────────
+# ─── Configure Logging FIRST ─────────────────────────────────────────
 try:
     log_level_name = getattr(settings, "LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_name, logging.INFO)
@@ -110,6 +41,185 @@ logger.info("=" * 60)
 logger.info("🚀 Auto-D Kenya API Starting...")
 logger.info(f"📋 Log Level: {logging.getLevelName(log_level)}")
 logger.info("=" * 60)
+
+
+# ─── Import Routers ──────────────────────────────────────────────────
+logger.info("📦 Loading routers...")
+
+# Auth Router
+try:
+    from app.api.v1.auth import router as auth_router
+    AUTH_ROUTER_LOADED = True
+    logger.info("✅ Auth router loaded successfully")
+except ImportError as e:
+    AUTH_ROUTER_LOADED = False
+    logger.error(f"❌ Auth router not available: {e}")
+    auth_router = None
+
+# Vehicles Router
+try:
+    from app.api.v1.vehicles import router as vehicles_router
+    VEHICLES_ROUTER_LOADED = True
+    logger.info("✅ Vehicles router loaded successfully")
+except ImportError as e:
+    VEHICLES_ROUTER_LOADED = False
+    logger.error(f"❌ Vehicles router not available: {e}")
+    vehicles_router = None
+
+# Valuation Router
+try:
+    from app.api.v1.valuation import router as valuation_router
+    VALUATION_ROUTER_LOADED = True
+    logger.info("✅ Valuation router loaded successfully")
+except ImportError as e:
+    VALUATION_ROUTER_LOADED = False
+    logger.error(f"❌ Valuation router not available: {e}")
+    valuation_router = None
+
+# Mileage Router
+try:
+    from app.api.v1.mileage import router as mileage_router
+    MILEAGE_ROUTER_LOADED = True
+    logger.info("✅ Mileage router loaded successfully")
+except ImportError as e:
+    MILEAGE_ROUTER_LOADED = False
+    logger.error(f"❌ Mileage router not available: {e}")
+    mileage_router = None
+
+# Ownership Router
+try:
+    from app.api.v1.ownership import router as ownership_router
+    OWNERSHIP_ROUTER_LOADED = True
+    logger.info("✅ Ownership router loaded successfully")
+except ImportError as e:
+    OWNERSHIP_ROUTER_LOADED = False
+    logger.error(f"❌ Ownership router not available: {e}")
+    ownership_router = None
+
+# Fuel Router
+try:
+    from app.api.v1.fuel import router as fuel_router
+    FUEL_ROUTER_LOADED = True
+    logger.info("✅ Fuel router loaded successfully")
+except ImportError as e:
+    FUEL_ROUTER_LOADED = False
+    logger.error(f"❌ Fuel router not available: {e}")
+    fuel_router = None
+
+# Running Cost Router
+try:
+    from app.api.v1.running_cost import router as running_cost_router
+    RUNNING_COST_ROUTER_LOADED = True
+    logger.info("✅ Running Cost router loaded successfully")
+except ImportError as e:
+    RUNNING_COST_ROUTER_LOADED = False
+    logger.error(f"❌ Running Cost router not available: {e}")
+    running_cost_router = None
+
+# Admin Router
+try:
+    from app.api.v1.admin import router as admin_router
+    ADMIN_ROUTER_LOADED = True
+    logger.info("✅ Admin router loaded successfully")
+except ImportError as e:
+    ADMIN_ROUTER_LOADED = False
+    logger.error(f"❌ Admin router not available: {e}")
+    admin_router = None
+
+# Reports Router
+try:
+    from app.api.v1.reports import router as reports_router
+    REPORTS_ROUTER_LOADED = True
+    logger.info("✅ Reports router loaded successfully")
+except ImportError as e:
+    REPORTS_ROUTER_LOADED = False
+    logger.error(f"❌ Reports router not available: {e}")
+    reports_router = None
+
+# Service Prices Router
+try:
+    from app.api.v1.services import router as services_router
+    SERVICES_ROUTER_LOADED = True
+    logger.info("✅ Service Prices router loaded successfully")
+except ImportError as e:
+    SERVICES_ROUTER_LOADED = False
+    logger.warning(f"⚠️ Service Prices router not available: {e}")
+    services_router = None
+
+# Price Alignment Router
+try:
+    from app.api.v1.price_alignment import router as price_alignment_router
+    PRICE_ALIGNMENT_LOADED = True
+    logger.info("✅ Price Alignment router loaded successfully")
+except ImportError as e:
+    PRICE_ALIGNMENT_LOADED = False
+    logger.warning(f"⚠️ Price Alignment router not available: {e}")
+    price_alignment_router = None
+
+# Market Router
+try:
+    from app.api.v1.market import router as market_router
+    MARKET_ROUTER_LOADED = True
+    logger.info("✅ Market router loaded successfully")
+except ImportError as e:
+    MARKET_ROUTER_LOADED = False
+    logger.warning(f"⚠️ Market router not available: {e}")
+    market_router = None
+
+# Scraper Router
+try:
+    from app.api.v1.scraper import router as scraper_router
+    SCRAPER_ROUTER_LOADED = True
+    logger.info("✅ Scraper router loaded successfully")
+except ImportError as e:
+    SCRAPER_ROUTER_LOADED = False
+    logger.warning(f"⚠️ Scraper router not available: {e}")
+    scraper_router = None
+
+# M-Pesa Router
+try:
+    from app.api.v1.mpesa import router as mpesa_router
+    MPESA_ROUTER_LOADED = True
+    logger.info("✅ M-Pesa router loaded successfully")
+except ImportError as e:
+    MPESA_ROUTER_LOADED = False
+    logger.warning(f"⚠️ M-Pesa router not available: {e}")
+    mpesa_router = None
+
+logger.info("📦 All routers loaded")
+logger.info("=" * 60)
+
+
+# ─── Custom CORS Middleware ────────────────────────────────────────
+class CORSHeaderMiddleware(BaseHTTPMiddleware):
+    """Custom middleware to ensure CORS headers are always present"""
+    
+    async def dispatch(self, request: Request, call_next):
+        # Handle preflight OPTIONS requests
+        if request.method == "OPTIONS":
+            response = JSONResponse(
+                status_code=200,
+                content={},
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+                    "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Origin, X-Requested-With",
+                    "Access-Control-Allow-Credentials": "true",
+                    "Access-Control-Max-Age": "86400",
+                }
+            )
+            return response
+        
+        # Process the request
+        response = await call_next(request)
+        
+        # Ensure CORS headers are present
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
+        
+        return response
 
 
 # ─── Lifespan Context Manager ──────────────────────────────────────
@@ -141,57 +251,27 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ M-Pesa configuration incomplete - payment endpoints may not work")
     
-    # ─── NEW: Check Service Prices Table ──────────────────────────
+    # Check tables
     try:
         response = supabase.table("service_prices").select("count", count="exact").limit(1).execute()
         count = response.count if hasattr(response, 'count') else 0
         logger.info(f"✅ Service prices table found: {count} services")
     except Exception as e:
         logger.warning(f"⚠️ Service prices table not found: {e}")
-        logger.warning("   Please run the database migration to create the service_prices table")
     
-    # ─── Check Price Alignment Services ──────────────────────────
-    if PRICE_ALIGNMENT_LOADED:
-        logger.info("✅ Price Alignment services loaded")
-        logger.info("   Data Sources: Jiji, Cheki, Autochek, BeepBeep, PigiaMe")
-    else:
-        logger.warning("⚠️ Price Alignment services not loaded")
-    
-    if MARKET_ROUTER_LOADED:
-        logger.info("✅ Market services loaded")
-    else:
-        logger.warning("⚠️ Market services not loaded")
-    
-    if SCRAPER_ROUTER_LOADED:
-        logger.info("✅ Market Scraper loaded")
-    else:
-        logger.warning("⚠️ Market Scraper not loaded")
-    
-    if SERVICES_ROUTER_LOADED:
-        logger.info("✅ Service Prices router loaded")
-    else:
-        logger.warning("⚠️ Service Prices router not loaded")
-    
-    # ─── Log CORS origins from settings ──────────────────────────
-    logger.info(f"🔒 CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
-    
-    # ─── Check if market_prices table exists ─────────────────────
     try:
         response = supabase.table("market_prices").select("count", count="exact").limit(1).execute()
         count = response.count if hasattr(response, 'count') else 0
         logger.info(f"✅ Market prices table found: {count} records")
     except Exception as e:
         logger.warning(f"⚠️ Market prices table not found: {e}")
-        logger.warning("   Please run the database migration to create the market_prices table")
     
-    # ─── Check if fuel_prices table exists ───────────────────────
     try:
         response = supabase.table("fuel_prices").select("count", count="exact").limit(1).execute()
         count = response.count if hasattr(response, 'count') else 0
         logger.info(f"✅ Fuel prices table found: {count} records")
     except Exception as e:
         logger.warning(f"⚠️ Fuel prices table not found: {e}")
-        logger.warning("   Please run the database migration to create the fuel_prices table")
     
     logger.info("=" * 60)
     logger.info("✅ Application is ready to serve requests")
@@ -222,19 +302,24 @@ app = FastAPI(
 
 
 # ─── CORS Configuration ────────────────────────────────────────────
-cors_origins = settings.BACKEND_CORS_ORIGINS
+# Get CORS origins from settings
+cors_origins = settings.get_cors_origins() if hasattr(settings, 'get_cors_origins') else settings.BACKEND_CORS_ORIGINS
 
 logger.info(f"🔒 Configuring CORS with origins: {cors_origins}")
 
+# 1. Add CORSMiddleware from FastAPI
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
     expose_headers=["*"],
     max_age=settings.CORS_MAX_AGE,
 )
+
+# 2. Add custom middleware to ensure CORS headers
+app.add_middleware(CORSHeaderMiddleware)
 
 logger.info("✅ CORS configured successfully")
 
@@ -272,107 +357,62 @@ async def general_exception_handler(request: Request, exc: Exception):
 # ─── Include Routers ───────────────────────────────────────────────
 api_prefix = getattr(settings, "API_V1_PREFIX", "/api/v1")
 
-app.include_router(auth_router, prefix=f"{api_prefix}/auth", tags=["Authentication"])
-app.include_router(vehicles_router, prefix=f"{api_prefix}/vehicles", tags=["Vehicles"])
-app.include_router(valuation_router, prefix=f"{api_prefix}/valuation", tags=["Valuation"])
-app.include_router(mileage_router, prefix=f"{api_prefix}/mileage", tags=["Mileage"])
-app.include_router(running_cost_router, prefix=f"{api_prefix}/running-cost", tags=["Running Cost"])
-app.include_router(ownership_router, prefix=f"{api_prefix}/ownership", tags=["Ownership"])
-app.include_router(fuel_router, prefix=f"{api_prefix}/fuel", tags=["Fuel"])
-app.include_router(admin_router, prefix=f"{api_prefix}/admin", tags=["Admin"])
-app.include_router(reports_router, prefix=f"{api_prefix}/reports", tags=["Reports"])
+# Only include routers that loaded successfully
+if AUTH_ROUTER_LOADED and auth_router is not None:
+    app.include_router(auth_router, prefix=f"{api_prefix}/auth", tags=["Authentication"])
+    logger.info("✅ Auth router registered")
 
-# ─── NEW: Include Service Prices Router ──────────────────────────
+if VEHICLES_ROUTER_LOADED and vehicles_router is not None:
+    app.include_router(vehicles_router, prefix=f"{api_prefix}/vehicles", tags=["Vehicles"])
+    logger.info("✅ Vehicles router registered")
+
+if VALUATION_ROUTER_LOADED and valuation_router is not None:
+    app.include_router(valuation_router, prefix=f"{api_prefix}/valuation", tags=["Valuation"])
+    logger.info("✅ Valuation router registered")
+
+if MILEAGE_ROUTER_LOADED and mileage_router is not None:
+    app.include_router(mileage_router, prefix=f"{api_prefix}/mileage", tags=["Mileage"])
+    logger.info("✅ Mileage router registered")
+
+if RUNNING_COST_ROUTER_LOADED and running_cost_router is not None:
+    app.include_router(running_cost_router, prefix=f"{api_prefix}/running-cost", tags=["Running Cost"])
+    logger.info("✅ Running Cost router registered")
+
+if OWNERSHIP_ROUTER_LOADED and ownership_router is not None:
+    app.include_router(ownership_router, prefix=f"{api_prefix}/ownership", tags=["Ownership"])
+    logger.info("✅ Ownership router registered")
+
+if FUEL_ROUTER_LOADED and fuel_router is not None:
+    app.include_router(fuel_router, prefix=f"{api_prefix}/fuel", tags=["Fuel"])
+    logger.info("✅ Fuel router registered")
+
+if ADMIN_ROUTER_LOADED and admin_router is not None:
+    app.include_router(admin_router, prefix=f"{api_prefix}/admin", tags=["Admin"])
+    logger.info("✅ Admin router registered")
+
+if REPORTS_ROUTER_LOADED and reports_router is not None:
+    app.include_router(reports_router, prefix=f"{api_prefix}/reports", tags=["Reports"])
+    logger.info("✅ Reports router registered")
+
 if SERVICES_ROUTER_LOADED and services_router is not None:
-    try:
-        app.include_router(
-            services_router,
-            prefix=f"{api_prefix}/services",
-            tags=["Service Prices"]
-        )
-        logger.info("✅ Service Prices router registered successfully")
-        logger.info("   Endpoints:")
-        logger.info("      GET    /services - List all services")
-        logger.info("      GET    /services/{id} - Get service by ID")
-        logger.info("      POST   /services - Create service")
-        logger.info("      PUT    /services/{id} - Update service")
-        logger.info("      DELETE /services/{id} - Delete service")
-        logger.info("      GET    /services/types - Get service types")
-        logger.info("      GET    /services/summary/pricing - Pricing summary")
-        logger.info("      GET    /services/comparison/types - Compare by type")
-        logger.info("      POST   /services/bulk - Bulk create services")
-        logger.info("      GET    /services/price-range - Filter by price range")
-    except Exception as e:
-        logger.error(f"❌ Failed to register Service Prices router: {e}")
-else:
-    logger.warning("⚠️ Service Prices router not loaded - service endpoints will be unavailable")
+    app.include_router(services_router, prefix=f"{api_prefix}/services", tags=["Service Prices"])
+    logger.info("✅ Service Prices router registered")
 
-# ─── NEW: Include Price Alignment Router ──────────────────────────
 if PRICE_ALIGNMENT_LOADED and price_alignment_router is not None:
-    try:
-        app.include_router(
-            price_alignment_router,
-            prefix=f"{api_prefix}/price",
-            tags=["Price Alignment"]
-        )
-        logger.info("✅ Price Alignment router registered successfully")
-        logger.info("   Endpoints: /price/align, /price/analyze, /price/history, /price/trend")
-    except Exception as e:
-        logger.error(f"❌ Failed to register Price Alignment router: {e}")
-else:
-    logger.warning("⚠️ Price Alignment router not loaded - price endpoints will be unavailable")
+    app.include_router(price_alignment_router, prefix=f"{api_prefix}/price", tags=["Price Alignment"])
+    logger.info("✅ Price Alignment router registered")
 
-# ─── NEW: Include Market Router ────────────────────────────────────
 if MARKET_ROUTER_LOADED and market_router is not None:
-    try:
-        app.include_router(
-            market_router,
-            prefix=f"{api_prefix}/market",
-            tags=["Market Data"]
-        )
-        logger.info("✅ Market router registered successfully")
-        logger.info("   Endpoints: /market/scrape, /market/insights, /market/location/factors")
-    except Exception as e:
-        logger.error(f"❌ Failed to register Market router: {e}")
-else:
-    logger.warning("⚠️ Market router not loaded - market data endpoints will be unavailable")
+    app.include_router(market_router, prefix=f"{api_prefix}/market", tags=["Market Data"])
+    logger.info("✅ Market router registered")
 
-# ─── Include Market Scraper Router ───────────────────────────────
 if SCRAPER_ROUTER_LOADED and scraper_router is not None:
-    try:
-        app.include_router(
-            scraper_router,
-            prefix=f"{api_prefix}/scraper",
-            tags=["Market Scraper"]
-        )
+    app.include_router(scraper_router, prefix=f"{api_prefix}/scraper", tags=["Market Scraper"])
+    logger.info("✅ Scraper router registered")
 
-        logger.info("✅ Market Scraper router registered successfully")
-        logger.info("   Endpoints:")
-        logger.info("      POST /scraper/run")
-        logger.info("      POST /scraper/autochek")
-        logger.info("      POST /scraper/jiji")
-        logger.info("      POST /scraper/carapi")
-        logger.info("      GET  /scraper/status")
-
-    except Exception as e:
-        logger.error(f"❌ Failed to register Market Scraper router: {e}")
-
-else:
-    logger.warning("⚠️ Market Scraper router not loaded")
-
-# ─── Include M-Pesa router ────────────────────────────────────────
 if MPESA_ROUTER_LOADED and mpesa_router is not None:
-    try:
-        app.include_router(
-            mpesa_router,
-            prefix=f"{api_prefix}/mpesa",
-            tags=["M-Pesa"]
-        )
-        logger.info("✅ M-Pesa router registered successfully")
-    except Exception as e:
-        logger.error(f"❌ Failed to register M-Pesa router: {e}")
-else:
-    logger.warning("⚠️ M-Pesa router not loaded - payment endpoints will be unavailable")
+    app.include_router(mpesa_router, prefix=f"{api_prefix}/mpesa", tags=["M-Pesa"])
+    logger.info("✅ M-Pesa router registered")
 
 logger.info("✅ All routers registered")
 logger.info(f"📚 API Documentation available at {settings.API_DOCS_URL}")
@@ -382,7 +422,7 @@ logger.info(f"📚 API Documentation available at {settings.API_DOCS_URL}")
 @app.get("/health")
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint - Supports both /health and /api/health"""
+    """Health check endpoint"""
     supabase_status = "connected"
     try:
         response = supabase.table("vehicle_makes").select("count", count="exact").limit(1).execute()
@@ -396,32 +436,6 @@ async def health_check():
         getattr(settings, "MPESA_PASSKEY", "")
     ])
     
-    # Check if service_prices exist
-    service_prices_exist = False
-    service_count = 0
-    try:
-        response = supabase.table("service_prices").select("count", count="exact").limit(1).execute()
-        service_prices_exist = True
-        service_count = response.count if hasattr(response, 'count') else 0
-    except Exception:
-        pass
-    
-    # Check if market_prices exist
-    market_prices_exist = False
-    try:
-        response = supabase.table("market_prices").select("count", count="exact").limit(1).execute()
-        market_prices_exist = True
-    except Exception:
-        pass
-    
-    # Check if fuel_prices exist
-    fuel_prices_exist = False
-    try:
-        response = supabase.table("fuel_prices").select("count", count="exact").limit(1).execute()
-        fuel_prices_exist = True
-    except Exception:
-        pass
-    
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
@@ -429,10 +443,6 @@ async def health_check():
         "mpesa": "configured" if mpesa_configured else "not_configured",
         "mpesa_router_loaded": MPESA_ROUTER_LOADED,
         "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
-        "service_prices_table": "exists" if service_prices_exist else "not_found",
-        "service_count": service_count,
-        "market_prices_table": "exists" if market_prices_exist else "not_found",
-        "fuel_prices_table": "exists" if fuel_prices_exist else "not_found",
         "price_alignment_loaded": PRICE_ALIGNMENT_LOADED,
         "market_router_loaded": MARKET_ROUTER_LOADED,
         "scraper_loaded": SCRAPER_ROUTER_LOADED,
@@ -467,7 +477,7 @@ async def liveness_check():
 
 @app.get("/ping")
 async def ping():
-    """Simple ping endpoint for testing connectivity"""
+    """Simple ping endpoint"""
     return {
         "pong": datetime.utcnow().isoformat(),
         "status": "alive"
@@ -505,13 +515,13 @@ async def root():
             "docs": settings.ENABLE_DOCS
         },
         "endpoints": {
-            "auth": f"{api_prefix}/auth",
-            "vehicles": f"{api_prefix}/vehicles",
-            "valuation": f"{api_prefix}/valuation",
-            "mileage": f"{api_prefix}/mileage",
-            "ownership": f"{api_prefix}/ownership",
-            "running_cost": f"{api_prefix}/running-cost",
-            "fuel": f"{api_prefix}/fuel",
+            "auth": f"{api_prefix}/auth" if AUTH_ROUTER_LOADED else "unavailable",
+            "vehicles": f"{api_prefix}/vehicles" if VEHICLES_ROUTER_LOADED else "unavailable",
+            "valuation": f"{api_prefix}/valuation" if VALUATION_ROUTER_LOADED else "unavailable",
+            "mileage": f"{api_prefix}/mileage" if MILEAGE_ROUTER_LOADED else "unavailable",
+            "ownership": f"{api_prefix}/ownership" if OWNERSHIP_ROUTER_LOADED else "unavailable",
+            "running_cost": f"{api_prefix}/running-cost" if RUNNING_COST_ROUTER_LOADED else "unavailable",
+            "fuel": f"{api_prefix}/fuel" if FUEL_ROUTER_LOADED else "unavailable",
             "services": f"{api_prefix}/services" if SERVICES_ROUTER_LOADED else "unavailable",
             "services_types": f"{api_prefix}/services/types" if SERVICES_ROUTER_LOADED else "unavailable",
             "services_summary": f"{api_prefix}/services/summary/pricing" if SERVICES_ROUTER_LOADED else "unavailable",
@@ -577,16 +587,11 @@ if __name__ == "__main__":
     logger.info(f"🚀 Starting server on {host}:{port}")
     logger.info(f"🐛 Debug mode: {debug}")
     logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
-    logger.info(f"📱 M-Pesa Router Loaded: {MPESA_ROUTER_LOADED}")
-    logger.info(f"📊 Price Alignment Loaded: {PRICE_ALIGNMENT_LOADED}")
-    logger.info(f"📊 Market Router Loaded: {MARKET_ROUTER_LOADED}")
-    logger.info(f"📊 Market Scraper Loaded: {SCRAPER_ROUTER_LOADED}")
-    logger.info(f"📊 Service Prices Router Loaded: {SERVICES_ROUTER_LOADED}")
     logger.info(f"📡 API Base URL: {getattr(settings, 'API_BASE_URL', 'http://localhost:' + str(port))}")
     logger.info(f"📚 Docs enabled: {settings.ENABLE_DOCS}")
 
     uvicorn.run(
-        "main:app",
+        "app.main:app",
         host=host,
         port=port,
         reload=debug,
