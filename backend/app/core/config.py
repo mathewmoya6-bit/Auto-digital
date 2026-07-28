@@ -67,13 +67,17 @@ class Settings(BaseSettings):
             "http://localhost:8000",
             "http://127.0.0.1:5500",
             "https://auto-d-kenya.github.io",
+            # Add wildcard for development
+            "http://*.meipressgroup.com",
+            "https://*.meipressgroup.com",
         ],
         env="BACKEND_CORS_ORIGINS"
     )
     CORS_ALLOW_CREDENTIALS: bool = True
     CORS_MAX_AGE: int = 86400
     CORS_ALLOW_METHODS: str = "GET,POST,PUT,DELETE,OPTIONS,PATCH"
-    CORS_ALLOW_HEADERS: str = "Authorization,Content-Type,Accept,Origin,X-Requested-With"
+    CORS_ALLOW_HEADERS: str = "Authorization,Content-Type,Accept,Origin,X-Requested-With,Access-Control-Allow-Origin"
+    CORS_EXPOSE_HEADERS: str = "Authorization,Content-Type"
     
     # ─── M-PESA Configuration ──────────────────────────────────────
     MPESA_ENV: str = Field(
@@ -444,7 +448,9 @@ class Settings(BaseSettings):
                     return parsed
                 return [parsed] if parsed else []
             except json.JSONDecodeError:
-                return [origin.strip() for origin in v.split(",") if origin.strip()]
+                # Parse as comma-separated string
+                origins = [origin.strip() for origin in v.split(",") if origin.strip()]
+                return origins
         return v
     
     @field_validator('SCRAPER_SOURCES', mode='before')
@@ -464,6 +470,18 @@ class Settings(BaseSettings):
         if isinstance(self.BACKEND_CORS_ORIGINS, list):
             return self.BACKEND_CORS_ORIGINS
         return self.parse_cors_origins(self.BACKEND_CORS_ORIGINS)
+    
+    def get_cors_allow_methods(self) -> str:
+        """Get CORS allowed methods"""
+        return self.CORS_ALLOW_METHODS
+    
+    def get_cors_allow_headers(self) -> str:
+        """Get CORS allowed headers"""
+        return self.CORS_ALLOW_HEADERS
+    
+    def get_cors_expose_headers(self) -> str:
+        """Get CORS exposed headers"""
+        return self.CORS_EXPOSE_HEADERS
     
     def get_api_url(self) -> str:
         """Get the full API base URL"""
@@ -567,16 +585,20 @@ if isinstance(settings.SCRAPER_SOURCES, str):
     except json.JSONDecodeError:
         settings.SCRAPER_SOURCES = {}
 
-# ─── Log configuration on startup (only in debug mode) ──────────────
-if settings.DEBUG:
-    print(f"🔗 API Base URL: {settings.API_BASE_URL}")
-    print(f"🌐 Frontend URL: {settings.FRONTEND_URL}")
-    print(f"📡 Supabase URL: {settings.SUPABASE_URL}")
-    print(f"🔒 CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
-    print(f"📱 M-Pesa Shortcode: {settings.MPESA_SHORTCODE}")
-    print(f"📱 M-Pesa Environment: {settings.MPESA_ENV}")
-    print(f"📱 M-Pesa Configured: {settings.is_mpesa_configured()}")
-    print(f"📚 Docs Enabled: {settings.ENABLE_DOCS}")
-    print(f"📚 Docs URL: {settings.API_DOCS_URL}")
-    print(f"🔄 Scraper Enabled: {settings.is_scraper_enabled()}")
-    print(f"🔄 Scraper Sources: {settings.get_enabled_scraper_sources()}")
+# ─── Log configuration on startup ──────────────────────────────────
+print("=" * 60)
+print("🚗 Auto-D Kenya API Configuration")
+print("=" * 60)
+print(f"🔗 API Base URL: {settings.API_BASE_URL}")
+print(f"🌐 Frontend URL: {settings.FRONTEND_URL}")
+print(f"📡 Supabase URL: {settings.SUPABASE_URL}")
+print(f"🔒 CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
+print(f"🔒 CORS Allow Credentials: {settings.CORS_ALLOW_CREDENTIALS}")
+print(f"📱 M-Pesa Shortcode: {settings.MPESA_SHORTCODE}")
+print(f"📱 M-Pesa Environment: {settings.MPESA_ENV}")
+print(f"📱 M-Pesa Configured: {settings.is_mpesa_configured()}")
+print(f"📚 Docs Enabled: {settings.ENABLE_DOCS}")
+print(f"📚 Docs URL: {settings.API_DOCS_URL}")
+print(f"🔄 Scraper Enabled: {settings.is_scraper_enabled()}")
+print(f"🔄 Scraper Sources: {settings.get_enabled_scraper_sources()}")
+print("=" * 60)
