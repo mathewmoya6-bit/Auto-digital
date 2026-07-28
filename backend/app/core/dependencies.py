@@ -1,85 +1,89 @@
 """
-Core Dependencies - Authentication and authorization dependencies for FastAPI
+Authentication Dependencies
 """
 
 from typing import Optional
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.core.database import supabase
-from app.core.config import settings
 
-security = HTTPBearer()
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from app.core.database import supabase
+
+# Required authentication
+required_security = HTTPBearer(auto_error=True)
+
+# Optional authentication
+optional_security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(required_security),
 ) -> dict:
     """
-    Get the current user from the JWT token.
-    Raises 401 if invalid or expired.
+    Authenticate a user using a Supabase JWT.
     """
+
     token = credentials.credentials
-    
+
     try:
-        # Verify the token with Supabase
         response = supabase.auth.get_user(token)
-        if not response.user:
+
+        if response is None or response.user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
+                detail="Invalid or expired token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
+
         user = response.user
+
         return {
             "id": user.id,
             "email": user.email,
-            "user_metadata": user.user_metadata,
-            "app_metadata": user.app_metadata,
+            "user_metadata": user.user_metadata or {},
+            "app_metadata": user.app_metadata or {},
         }
-        
-    except Exception as e:
+
+    except HTTPException:
+        raise
+
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Authentication failed: {str(e)}",
+            detail="Authentication failed",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
 
 async def get_current_user_optional(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
 ) -> Optional[dict]:
     """
-    Get the current user from the JWT token, or None if not authenticated.
+    Returns None if no Authorization header is supplied.
     """
-    if not credentials:
+
+    if credentials is None:
         return None
-    
-    try:
-        return await get_current_user(credentials)
-    except HTTPException:
-        return None
+
+    return await get_current_user(credentials)
 
 
 async def get_current_admin_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    current_user: dict = Depends(get_current_user),
 ) -> dict:
     """
-    Get the current admin user.
-    Raises 401 if not authenticated or not an admin.
+    Require an authenticated administrator.
     """
-    user = await get_current_user(credentials)
-    
-    # Check if user has admin role
-    is_admin = user.get("app_metadata", {}).get("role") in ["admin", "super_admin"]
-    if not is_admin:
-        # Also check user_metadata
-        is_admin = user.get("user_metadata", {}).get("role") in ["admin", "super_admin"]
-    
-    if not is_admin:
+
+    role = (
+        current_user.get("app_metadata", {}).get("role")
+        or current_user.get("user_metadata", {}).get("role")
+    )
+
+    if role not in ["admin", "super_admin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
+            detail="Administrator access required",
         )
-    
-    return user
+
+    return current_user
