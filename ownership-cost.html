@@ -11,7 +11,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
-        /* ─── All CSS from your original file ─────────────────── */
+        /* ─── All CSS from original file ────────────────────────── */
+        /* (Keep all your existing styles - they work fine) */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -1321,7 +1322,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - COST OF OWNERSHIP CALCULATOR
-        // Version 4.5 - Fixed Timeout Issues
+        // Version 4.6 - FIXED API ENDPOINTS
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1332,20 +1333,10 @@
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
-                TCO_VIEW: 'vehicle_ownership_cost_complete',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
-                TIMEOUT_MS: 60000,  // Increased to 60 seconds
+                TIMEOUT_MS: 30000,
                 MAX_RETRIES: 2,
-                RETRY_DELAY_MS: 2000,
-                INSURANCE_TYPES: {
-                    comprehensive: { rateMultiplier: 1.0 },
-                    third_party: { flatFee: 7000 },
-                    third_party_fire: { flatFee: 15000 }
-                },
-                LOCATION_FACTORS: {
-                    nairobi: 1.05, mombasa: 1.02, kisumu: 1.0, nakuru: 1.0,
-                    eldoret: 1.0, kiambu: 1.02, kajiado: 1.0, machakos: 1.0, other: 1.0
-                },
+                RETRY_DELAY_MS: 1000,
                 DASHBOARD_URL: '/dashboard.html'
             };
 
@@ -1357,7 +1348,6 @@
             let isNewPurchase = true;
             let isUnlocked = false;
             let currentVariantData = null;
-            let currentTCOData = null;
             let authCheckInterval = null;
             let abortController = null;
 
@@ -1652,7 +1642,6 @@
                     if (el.modelSelect.value) el.generationSelect.disabled = false;
                     if (el.generationSelect.value) el.variantSelect.disabled = false;
                     if (el.variantSelect.value) el.calculateBtn.disabled = false;
-                    showToast('🔓 Calculator unlocked! Welcome back.', 'success');
                 }
             }
 
@@ -1668,22 +1657,6 @@
                 const { data, error } = await query;
                 if (error) throw error;
                 return data;
-            }
-
-            // ─── LOAD TCO DATA ─────────────────────────────────────────
-            async function loadTCOData(variantId) {
-                try {
-                    const { data, error } = await supabaseClient
-                        .from(CONFIG.TCO_VIEW)
-                        .select('*')
-                        .eq('variant_id', variantId);
-                    if (error) throw error;
-                    if (data && data.length > 0) return data[0];
-                    return null;
-                } catch (error) {
-                    console.warn('⚠️ TCO data load failed:', error.message);
-                    return null;
-                }
             }
 
             // ─── LOAD DATA ─────────────────────────────────────────────
@@ -1945,7 +1918,7 @@
             }
 
             // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
-            function displayVehicleInfo(variant, tcoData) {
+            function displayVehicleInfo(variant) {
                 const label = getVehicleName(
                     variant.make_name || '',
                     variant.model_name || '',
@@ -1956,8 +1929,7 @@
                 el.transmissionPill.textContent = variant.transmission_type_name || '—';
                 const engineCC = variant.engine_size_cc || null;
                 el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
-                const price = tcoData?.purchase_price || estimateVehiclePrice(variant);
-                const costPerKm = tcoData?.cost_per_km || 0;
+                const price = estimateVehiclePrice(variant);
                 const specItems = [
                     { label: '🔧', value: variant.trim_level || 'Standard' },
                     { label: '⚡', value: `${variant.power_hp || 0} HP` },
@@ -1971,15 +1943,12 @@
                 if (price > 0) {
                     specItems.push({ label: '💰 New Price', value: `KES ${formatCurrency(price)}` });
                 }
-                if (costPerKm > 0) {
-                    specItems.push({ label: '📊 Cost/km', value: `KES ${formatCurrency(costPerKm)}/km` });
-                }
                 el.vehicleSpecs.innerHTML = specItems.map(item =>
                     `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
                 ).join('');
             }
 
-            // ─── TCO API CALL WITH RETRY AND TIMEOUT ──────────────────
+            // ─── TCO API CALL ──────────────────────────────────────────
             async function calculateTCOFromAPI(formData) {
                 const payload = {
                     variant_id: formData.variant_id,
@@ -2012,17 +1981,18 @@
                     'Authorization': `Bearer ${token}`
                 };
 
-                console.log('📤 Sending TCO request to:', `${CONFIG.API_BASE}/ownership/calculate`);
+                // ✅ CORRECT ENDPOINT: /api/v1/ownership/calculate
+                const url = `${CONFIG.API_BASE}/ownership/calculate`;
+                console.log('📤 Sending TCO request to:', url);
                 console.log('📦 Payload:', payload);
 
-                // Create abort controller for timeout
                 abortController = new AbortController();
                 const timeoutId = setTimeout(() => {
                     abortController.abort();
                 }, CONFIG.TIMEOUT_MS);
 
                 try {
-                    const response = await fetch(`${CONFIG.API_BASE}/ownership/calculate`, {
+                    const response = await fetch(url, {
                         method: 'POST',
                         headers: headers,
                         body: JSON.stringify(payload),
@@ -2053,7 +2023,7 @@
                 }
             }
 
-            // ─── MAIN CALCULATION WITH RETRY ──────────────────────────
+            // ─── MAIN CALCULATION ──────────────────────────────────────
             async function calculate() {
                 if (!isUnlocked) {
                     showToast('⚠️ Please sign in to access the calculator', 'warning');
@@ -2075,13 +2045,11 @@
                 }
 
                 currentVariantData = variant;
-                const tcoData = await loadTCOData(variantId);
-                currentTCOData = tcoData;
-                displayVehicleInfo(variant, tcoData);
+                displayVehicleInfo(variant);
 
                 let initialValue = num(el.initialValue.value);
                 if (!initialValue || initialValue <= 0) {
-                    initialValue = tcoData?.purchase_price || estimateVehiclePrice(variant);
+                    initialValue = estimateVehiclePrice(variant);
                     el.initialValue.value = initialValue;
                 }
 
@@ -2111,7 +2079,7 @@
 
                 el.calculateBtn.disabled = true;
                 el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
-                showProgress(50, 'Calling TCO API...');
+                showProgress(50, 'Calculating ownership costs...');
 
                 let attempts = 0;
                 let lastError = null;
@@ -2126,8 +2094,8 @@
                         const result = await calculateTCOFromAPI(formData);
                         showProgress(90, 'Rendering results...');
                         
-                        if (result && (result.data || result.totalCost)) {
-                            const data = result.data || result;
+                        if (result && result.data) {
+                            const data = result.data;
                             renderResults(data, variant);
                             showProgress(100, 'Complete!');
                             setTimeout(hideProgress, 500);
@@ -2144,9 +2112,7 @@
                         
                         if (attempts <= CONFIG.MAX_RETRIES) {
                             console.warn(`⚠️ Attempt ${attempts} failed, retrying...`, error.message);
-                            showToast(`⏳ Retrying (${attempts}/${CONFIG.MAX_RETRIES})...`, 'warning');
                         } else {
-                            // All retries failed
                             hideProgress();
                             console.error('❌ Calculation error:', error);
                             
@@ -2157,6 +2123,9 @@
                                 errorMessage = 'Vehicle not found. Please try a different variant.';
                             } else if (error.message.includes('HTTP 500')) {
                                 errorMessage = 'Server error. Please try again later.';
+                            } else if (error.message.includes('session has expired')) {
+                                errorMessage = 'Your session has expired. Please sign in again.';
+                                await checkAuth();
                             }
                             
                             showToast('❌ ' + errorMessage, 'error');
