@@ -1,157 +1,125 @@
 """
 app/api/v1/scraper.py
-======================
-Admin-only endpoints for triggering scraper jobs (autochek/jiji/carapi via
-scrapers/worker.py) and checking which scrapers are available.
+========================
+Endpoints (mounted by main.py at {api_prefix}/scraper):
+    POST /run       - generic dispatch: body picks the source
+    POST /autochek  - dedicated trigger for the AutoChek scraper
+    POST /jiji      - dedicated trigger for the Jiji scraper
+    POST /carapi    - dedicated trigger for the CarAPI reference-data sync
+    GET  /status    - recent run history from the scraper_logs table
 
-NOTE: This is a *separate* namespace from whatever app/api/v1/market.py's
-existing /market/scrape endpoint does (that one lists Jiji/Cheki/Autochek/
-BeepBeep/PigiaMe as sources - a different registry than worker.py's three).
-The two haven't been reconciled - if they're duplicating effort, that's a
-decision for you to make once you can compare both side by side.
-
-Registration in app/main.py (matching your existing router pattern, e.g.
-the mpesa/price_alignment/market try/except blocks):
-
-    try:
-        from app.api.v1.scraper import router as scraper_router
-        SCRAPER_ROUTER_LOADED = True
-    except ImportError as e:
-        SCRAPER_ROUTER_LOADED = False
-        scraper_router = None
-
-    if SCRAPER_ROUTER_LOADED and scraper_router is not None:
-        app.include_router(scraper_router, prefix=f"{api_prefix}/scraper", tags=["Scraper Jobs"])
-
-ASSUMPTION (flag if wrong): admin auth delegates to
-`supabase.auth.get_user(token)` then checks `app_metadata.role == "admin"`
-/ `app_metadata.is_admin`. Swap `require_admin()` below if admin access is
-actually gated differently elsewhere in the app (e.g. a DB table, or
-whatever app/api/v1/auth.py already does - I don't have that file's
-content, so I couldn't match it directly).
-
-Jobs run via FastAPI BackgroundTasks (fire-and-forget) rather than a real
-queue. There's no `scraper_jobs` table in your schema yet, so this can't
-report status after acceptance - only server logs show the outcome. Say
-the word if you want a status-polling table added.
-
-Endpoints:
-    GET  /available   -> list known scraper names (from worker.py's registry)
-    POST /run          -> trigger a scraper job (background)
+All triggers run as FastAPI BackgroundTasks (fire-and-forget from the
+caller's perspective) since scraping 100-300 listings can take minutes -
+far past any reasonable HTTP timeout. Swap for a real task queue
+(Celery/RQ) if traffic grows past what one Render web dyno can handle;
+scrapers/worker.py's run_job() was written queue-agnostic for exactly
+that migration path.
 """
+
 from __future__ import annotations
 
-from typing import Any
+import uuid
+from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, BackgroundTasks, Query
+from pydantic import BaseModel
 
 from app.core.database import supabase
-from scrapers.worker import SCRAPER_REGISTRY, run_job
+from scrapers.worker import run_job
 from services.scraper_logger import get_logger
 
 logger = get_logger(__name__)
 
-# No prefix/tags baked in here - main.py applies
-# prefix=f"{api_prefix}/scraper" and tags=["Scraper Jobs"] at include_router,
-# matching how auth/vehicles/valuation/etc. routers are wired.
 router = APIRouter()
 
-security = HTTPBearer()
 
-
-# ---------------------------------------------------------------------------
-# Auth - swap this out for however admin access is actually checked elsewhere
-# in the app. This mirrors the "delegate to supabase.auth.get_user()" pattern
-# rather than doing local JWT decoding, per your existing auth fix.
-# ---------------------------------------------------------------------------
-async def require_admin(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> dict:
-    token = credentials.credentials
-    try:
-        user_response = supabase.auth.get_user(token)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        ) from exc
-
-    user = getattr(user_response, "user", None)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
-
-    app_metadata = getattr(user, "app_metadata", None) or {}
-    is_admin = app_metadata.get("role") == "admin" or app_metadata.get("is_admin") is True
-    if not is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
-
-    return {"id": user.id, "email": getattr(user, "email", None)}
-
-
-# ---------------------------------------------------------------------------
-# Schemas
-# ---------------------------------------------------------------------------
 class ScraperRunRequest(BaseModel):
-    scraper: str = Field(..., description="One of: " + ", ".join(SCRAPER_REGISTRY))
-    max_listings: int = Field(100, ge=1, le=1000, description="Ignored by carapi")
-    kwargs: dict[str, Any] = Field(default_factory=dict, description="Scraper constructor args")
+    scraper: str  # "autochek" | "jiji" | "carapi"
+    max_listings: int = 100
+    kwargs: dict = {}
 
 
-class ScraperRunResponse(BaseModel):
-    accepted: bool
-    scraper: str
-    message: str
+class AutochekRunRequest(BaseModel):
+    country: str = "ke"
+    max_listings: int = 100
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-@router.get("/available")
-async def list_available_scrapers(admin: dict = Depends(require_admin)) -> dict:
-    return {"scrapers": list(SCRAPER_REGISTRY)}
+class JijiRunRequest(BaseModel):
+    category_path: str = "/cars"
+    location: Optional[str] = None
+    max_listings: int = 150
 
 
-def _run_job_and_log(payload: dict) -> None:
-    """Runs in the background; run_job() itself never raises, so this is
-    just here to keep the background-task call site simple."""
-    result = run_job(payload)
-    if result.get("ok"):
-        logger.info("Background scraper job succeeded: %s", result)
-    else:
-        logger.error("Background scraper job failed: %s", result)
+class CarApiRunRequest(BaseModel):
+    years: list[int] = []
+    makes: Optional[list[str]] = None
 
 
-@router.post("/run", response_model=ScraperRunResponse, status_code=status.HTTP_202_ACCEPTED)
-async def trigger_scraper_run(
-    body: ScraperRunRequest,
-    background_tasks: BackgroundTasks,
-    admin: dict = Depends(require_admin),
-) -> ScraperRunResponse:
-    if body.scraper not in SCRAPER_REGISTRY:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown scraper '{body.scraper}'. Known: {list(SCRAPER_REGISTRY)}",
-        )
+def _run_in_background(background_tasks: BackgroundTasks, job: dict) -> str:
+    run_id = str(uuid.uuid4())
 
-    payload = {
-        "scraper": body.scraper,
-        "max_listings": body.max_listings,
-        "kwargs": body.kwargs,
+    def _run():
+        logger.info("Background scraper run %s starting: %s", run_id, job)
+        result = run_job(job)
+        logger.info("Background scraper run %s finished: %s", run_id, result)
+
+    background_tasks.add_task(_run)
+    return run_id
+
+
+@router.post("/run")
+def trigger_run(payload: ScraperRunRequest, background_tasks: BackgroundTasks):
+    """Generic dispatch - equivalent to calling one of the dedicated
+    /autochek, /jiji, /carapi endpoints below, but source-agnostic for
+    callers that just want to pass a source string (e.g. a scheduler)."""
+    job = {"scraper": payload.scraper, "max_listings": payload.max_listings, "kwargs": payload.kwargs}
+    run_id = _run_in_background(background_tasks, job)
+    return {"run_id": run_id, "status": "started", "job": job}
+
+
+@router.post("/autochek")
+def trigger_autochek(payload: AutochekRunRequest, background_tasks: BackgroundTasks):
+    job = {
+        "scraper": "autochek",
+        "max_listings": payload.max_listings,
+        "kwargs": {"country": payload.country},
     }
+    run_id = _run_in_background(background_tasks, job)
+    return {"run_id": run_id, "status": "started", "job": job}
 
-    background_tasks.add_task(_run_job_and_log, payload)
-    logger.info("Scraper job accepted by admin %s: %s", admin.get("email"), payload)
 
-    return ScraperRunResponse(
-        accepted=True,
-        scraper=body.scraper,
-        message="Job accepted and running in the background. Check server logs for the result.",
-    )
+@router.post("/jiji")
+def trigger_jiji(payload: JijiRunRequest, background_tasks: BackgroundTasks):
+    kwargs = {"category_path": payload.category_path}
+    if payload.location:
+        kwargs["location"] = payload.location
+    job = {"scraper": "jiji", "max_listings": payload.max_listings, "kwargs": kwargs}
+    run_id = _run_in_background(background_tasks, job)
+    return {"run_id": run_id, "status": "started", "job": job}
+
+
+@router.post("/carapi")
+def trigger_carapi(payload: CarApiRunRequest, background_tasks: BackgroundTasks):
+    kwargs = {"years": payload.years} if payload.years else {}
+    if payload.makes:
+        kwargs["makes"] = payload.makes
+    job = {"scraper": "carapi", "kwargs": kwargs}
+    run_id = _run_in_background(background_tasks, job)
+    return {"run_id": run_id, "status": "started", "job": job}
+
+
+@router.get("/status")
+def scraper_status(
+    source: Optional[str] = Query(None, description="Filter by scraper source, e.g. 'jiji'"),
+    limit: int = Query(20, le=100),
+):
+    """Recent run history from scraper_logs (see services/scraper_logger.py
+    for the schema). Note this reports by source + start time, not by the
+    run_id returned from the trigger endpoints above - scraper_logs doesn't
+    have a run_id column yet. Add one and thread it through
+    ScraperRunLogger.start() if you need per-run_id lookups."""
+    query = supabase.table("scraper_logs").select("*").order("started_at", desc=True).limit(limit)
+    if source:
+        query = query.eq("source", source)
+    resp = query.execute()
+    return {"runs": resp.data or []}
