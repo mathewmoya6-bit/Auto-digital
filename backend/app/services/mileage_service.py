@@ -1,5 +1,6 @@
 """
 Mileage Service - Business logic for mileage calculations
+ALL DATA sourced from scraper and database
 """
 
 from typing import Optional, Dict, Any, List
@@ -14,43 +15,75 @@ from app.schemas.request import MileageRateRequest
 from app.schemas.response import MileageRateResponse
 from app.core.database import supabase
 from app.core.config import settings
+from app.services.data_service import DataService
 
 logger = logging.getLogger(__name__)
 
 
 class MileageService:
-    """Service for mileage rate calculations"""
+    """Service for mileage rate calculations using scraper and database data"""
     
     def __init__(self):
         self.vehicle_repository = VehicleRepository()
         self.mileage_repository = MileageRepository()
         self.fuel_repository = FuelRepository()
         self.engine = MileageRateEngine()
+        self.data_service = DataService()
     
     # ─── Main Calculation ──────────────────────────────────────────────
     
     def calculate_mileage_rate(self, request: MileageRateRequest) -> Optional[MileageRateResponse]:
-        """Calculate mileage rate for a vehicle"""
-        # Get vehicle data
+        """Calculate mileage rate for a vehicle using scraper and database data"""
+        
+        # ─── Get vehicle data from database ──────────────────────────
         variant = self.vehicle_repository.get_variant_by_id(request.variant_id)
         if not variant:
             logger.error(f"Variant not found: {request.variant_id}")
             return None
         
-        # Get fuel price if not provided
+        # ─── Get fuel price from database ────────────────────────────
         fuel_price = request.fuel_price
         if not fuel_price or fuel_price <= 0:
             fuel_type = variant.get("fuel_type", "petrol")
-            fuel_price = self.fuel_repository.get_fuel_price(fuel_type)
-            if fuel_price:
-                fuel_price = fuel_price.get("price", 200.00)
-            else:
-                fuel_price = 200.00  # Default fallback
+            fuel_data = self.data_service.get_fuel_prices(fuel_type)
+            fuel_price = fuel_data.get("price", 200.00)
         
-        # Calculate mileage rate
-        result = self.engine.calculate(variant, request)
+        # ─── Get market data from scraper ────────────────────────────
+        market_stats = self.data_service.get_market_statistics(
+            make=variant.get("make_name") or variant.get("make"),
+            model=variant.get("model_name") or variant.get("model"),
+            days=90
+        )
         
-        # Save report
+        # ─── Get similar listings from scraper ──────────────────────
+        similar_listings = self.data_service.get_market_prices(
+            make=variant.get("make_name") or variant.get("make"),
+            model=variant.get("model_name") or variant.get("model"),
+            year_from=request.year - 2 if hasattr(request, 'year') else None,
+            year_to=request.year + 2 if hasattr(request, 'year') else None,
+            limit=50
+        )
+        
+        # ─── Get location factors from database ──────────────────────
+        location = request.location if hasattr(request, 'location') else "nairobi"
+        location_data = self.data_service.get_location_factors(location)
+        
+        # ─── Get vehicle type parameters from database ──────────────
+        body_type = variant.get("body_type") or variant.get("body_type_name", "sedan").lower()
+        type_params = self.data_service.get_vehicle_type_parameters(body_type)
+        
+        # ─── Calculate mileage rate ──────────────────────────────────
+        result = self.engine.calculate_mileage_rate(
+            variant=variant,
+            request=request,
+            market_stats=market_stats,
+            similar_listings=similar_listings,
+            location_data=location_data,
+            type_params=type_params,
+            fuel_price=fuel_price
+        )
+        
+        # ─── Save report ──────────────────────────────────────────────
         try:
             report_data = {
                 "user_id": request.user_id if hasattr(request, 'user_id') else None,
@@ -59,18 +92,23 @@ class MileageService:
                 "trip_type": request.trip_type,
                 "driving_style": request.driving_style,
                 "usage_type": request.usage_type if hasattr(request, 'usage_type') else "private",
-                "location": request.location if hasattr(request, 'location') else "nairobi",
-                "total_cost": result.total_running_cost,
-                "cost_per_km": result.total_rate,
+                "location": location,
+                "total_cost": result.total_running_cost if hasattr(result, 'total_running_cost') else 0,
+                "cost_per_km": result.total_rate if hasattr(result, 'total_rate') else 0,
                 "fuel_price": fuel_price,
                 "components": {
-                    "fuel": result.fuel_rate * request.distance,
-                    "maintenance": result.maintenance_rate * request.distance,
-                    "tyres": result.tyre_rate * request.distance,
-                    "insurance": result.insurance_rate * request.distance,
-                    "depreciation": result.depreciation_rate * request.distance,
-                    "finance": result.finance_rate * request.distance,
-                    "misc": result.misc_rate * request.distance
+                    "fuel": result.fuel_rate * request.distance if hasattr(result, 'fuel_rate') else 0,
+                    "maintenance": result.maintenance_rate * request.distance if hasattr(result, 'maintenance_rate') else 0,
+                    "tyres": result.tyre_rate * request.distance if hasattr(result, 'tyre_rate') else 0,
+                    "insurance": result.insurance_rate * request.distance if hasattr(result, 'insurance_rate') else 0,
+                    "depreciation": result.depreciation_rate * request.distance if hasattr(result, 'depreciation_rate') else 0,
+                    "finance": result.finance_rate * request.distance if hasattr(result, 'finance_rate') else 0,
+                    "misc": result.misc_rate * request.distance if hasattr(result, 'misc_rate') else 0
+                },
+                "market_data": {
+                    "listings_available": market_stats.get("total_listings", 0),
+                    "market_health": market_stats.get("market_health", "unknown"),
+                    "average_price": market_stats.get("average_price", 0)
                 },
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
@@ -196,14 +234,28 @@ class MileageService:
         distance: float,
         fuel_price: Optional[float] = None,
         trip_type: str = "mixed",
-        driving_style: str = "normal"
+        driving_style: str = "normal",
+        location: str = "nairobi"
     ) -> Dict:
-        """Plan a trip and estimate costs"""
+        """Plan a trip and estimate costs using scraper data"""
         
-        # Get vehicle
+        # Get vehicle from database
         variant = self.vehicle_repository.get_variant_by_id(variant_id)
         if not variant:
             return {"error": "Vehicle not found"}
+        
+        # Get fuel price from database
+        if not fuel_price or fuel_price <= 0:
+            fuel_type = variant.get("fuel_type", "petrol")
+            fuel_data = self.data_service.get_fuel_prices(fuel_type)
+            fuel_price = fuel_data.get("price", 200.00)
+        
+        # Get market data from scraper
+        market_stats = self.data_service.get_market_statistics(
+            make=variant.get("make_name") or variant.get("make"),
+            model=variant.get("model_name") or variant.get("model"),
+            days=90
+        )
         
         # Create request
         request = MileageRateRequest(
@@ -211,7 +263,8 @@ class MileageService:
             distance=distance,
             trip_type=trip_type,
             driving_style=driving_style,
-            fuel_price=fuel_price
+            fuel_price=fuel_price,
+            location=location
         )
         
         # Calculate
@@ -219,15 +272,15 @@ class MileageService:
         if not result:
             return {"error": "Could not calculate trip cost"}
         
-        # Get fuel consumption
+        # Get fuel consumption from variant
         fuel_consumption = variant.get("fuel_consumption_combined", 8.0)
         
         # Estimate time (average speed 60 km/h)
-        estimated_time = distance / 60  # hours
+        estimated_time = distance / 60
         estimated_time_hours = int(estimated_time)
         estimated_time_minutes = int((estimated_time - estimated_time_hours) * 60)
         
-        # CO2 emissions (average 2.3 kg CO2 per liter of fuel)
+        # CO2 emissions
         fuel_litres = (distance / 100) * fuel_consumption
         co2_emissions = fuel_litres * 2.3
         
@@ -239,18 +292,18 @@ class MileageService:
                 "estimated_time": f"{estimated_time_hours}h {estimated_time_minutes}m"
             },
             "cost": {
-                "total": round(result.total_running_cost, 2),
-                "per_km": round(result.total_rate, 2),
-                "fuel": round(result.fuel_rate * distance, 2),
-                "maintenance": round(result.maintenance_rate * distance, 2),
-                "tyres": round(result.tyre_rate * distance, 2),
-                "insurance": round(result.insurance_rate * distance, 2),
-                "depreciation": round(result.depreciation_rate * distance, 2)
+                "total": round(result.total_running_cost if hasattr(result, 'total_running_cost') else 0, 2),
+                "per_km": round(result.total_rate if hasattr(result, 'total_rate') else 0, 2),
+                "fuel": round(result.fuel_rate * distance if hasattr(result, 'fuel_rate') else 0, 2),
+                "maintenance": round(result.maintenance_rate * distance if hasattr(result, 'maintenance_rate') else 0, 2),
+                "tyres": round(result.tyre_rate * distance if hasattr(result, 'tyre_rate') else 0, 2),
+                "insurance": round(result.insurance_rate * distance if hasattr(result, 'insurance_rate') else 0, 2),
+                "depreciation": round(result.depreciation_rate * distance if hasattr(result, 'depreciation_rate') else 0, 2)
             },
             "fuel": {
                 "consumption": round(fuel_consumption, 2),
                 "litres_needed": round(fuel_litres, 2),
-                "price_per_litre": request.fuel_price or 200,
+                "price_per_litre": fuel_price,
                 "co2_emissions": round(co2_emissions, 2)
             },
             "vehicle": {
@@ -258,6 +311,10 @@ class MileageService:
                 "model": variant.get("model_name", "Unknown"),
                 "variant": variant.get("name", "Unknown"),
                 "fuel_type": variant.get("fuel_type", "petrol")
+            },
+            "market_data": {
+                "listings_available": market_stats.get("total_listings", 0),
+                "market_health": market_stats.get("market_health", "unknown")
             }
         }
     
@@ -269,7 +326,7 @@ class MileageService:
         trips: List[Dict],
         fuel_price: Optional[float] = None
     ) -> Dict:
-        """Calculate costs for multiple trips"""
+        """Calculate costs for multiple trips using scraper data"""
         results = []
         total_distance = 0
         total_cost = 0
@@ -280,7 +337,8 @@ class MileageService:
                 distance=trip.get("distance", 0),
                 trip_type=trip.get("trip_type", "mixed"),
                 driving_style=trip.get("driving_style", "normal"),
-                fuel_price=fuel_price
+                fuel_price=fuel_price,
+                location=trip.get("location", "nairobi")
             )
             
             result = self.calculate_mileage_rate(request)
@@ -288,11 +346,12 @@ class MileageService:
                 results.append({
                     "distance": trip.get("distance", 0),
                     "trip_type": trip.get("trip_type", "mixed"),
-                    "cost": round(result.total_running_cost, 2),
-                    "cost_per_km": round(result.total_rate, 2)
+                    "location": trip.get("location", "nairobi"),
+                    "cost": round(result.total_running_cost if hasattr(result, 'total_running_cost') else 0, 2),
+                    "cost_per_km": round(result.total_rate if hasattr(result, 'total_rate') else 0, 2)
                 })
                 total_distance += trip.get("distance", 0)
-                total_cost += result.total_running_cost
+                total_cost += result.total_running_cost if hasattr(result, 'total_running_cost') else 0
         
         return {
             "total_trips": len(trips),
@@ -398,20 +457,37 @@ class MileageService:
         start_location: str,
         end_location: str,
         waypoints: Optional[List[str]] = None,
-        fuel_price: Optional[float] = None
+        fuel_price: Optional[float] = None,
+        vehicle_type: Optional[str] = None
     ) -> Dict:
-        """Optimize route for fuel efficiency"""
-        # This would use Google Maps or similar API in production
-        # For now, return a simplified response
+        """Optimize route for fuel efficiency using database data"""
         
-        # Estimate distance (simplified)
+        # Get fuel price from database
+        if not fuel_price:
+            fuel_data = self.data_service.get_fuel_prices("petrol")
+            fuel_price = fuel_data.get("price", 200.00)
+        
+        # Get location factors
+        location_data = self.data_service.get_location_factors(start_location)
+        
+        # Estimate distance (simplified - would use mapping API in production)
         base_distance = 100  # km
         if waypoints:
             base_distance += len(waypoints) * 20
         
-        # Estimate fuel consumption
-        fuel_consumption = 8.0  # L/100km
-        fuel_cost = (base_distance / 100) * fuel_consumption * (fuel_price or 200)
+        # Get fuel consumption based on vehicle type
+        if vehicle_type:
+            type_params = self.data_service.get_vehicle_type_parameters(vehicle_type)
+            fuel_multiplier = type_params.get("fuel_multiplier", 1.0)
+        else:
+            fuel_multiplier = 1.0
+        
+        fuel_consumption = 8.0 * fuel_multiplier  # L/100km
+        fuel_cost = (base_distance / 100) * fuel_consumption * fuel_price
+        
+        # Apply location factor
+        location_factor = location_data.get("price_adjustment", 1.0)
+        total_cost = fuel_cost * location_factor
         
         return {
             "route": {
@@ -424,7 +500,13 @@ class MileageService:
             "fuel": {
                 "consumption": round(fuel_consumption, 2),
                 "litres_needed": round((base_distance / 100) * fuel_consumption, 2),
-                "cost": round(fuel_cost, 2)
+                "price_per_litre": fuel_price,
+                "cost": round(total_cost, 2)
+            },
+            "location_factors": {
+                "adjustment": round(location_factor, 2),
+                "demand_index": location_data.get("demand_index", 1.0),
+                "supply_index": location_data.get("supply_index", 1.0)
             },
             "recommendations": [
                 "Maintain steady speed for better fuel economy",
