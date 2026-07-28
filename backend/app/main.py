@@ -584,4 +584,11 @@ if __name__ == "__main__":
     logger.info(f"📊 Service Prices Router Loaded: {SERVICES_ROUTER_LOADED}")
     logger.info(f"📡 API Base URL: {getattr(settings, 'API_BASE_URL', 'http://localhost:' + str(port))}")
     logger.info(f"📚 Docs enabled: {settings.ENABLE_DOCS}")
-   
+
+    uvicorn.run(
+        "main:app",
+        host=host,
+        port=port,
+        reload=debug,
+        log_level=log_level_name.lower() if isinstance(log_level_name, str) else "info",
+    )
