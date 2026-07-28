@@ -1321,6 +1321,14 @@
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - COST OF OWNERSHIP CALCULATOR
         // Version 4.4 - Connected to Backend API
+        //
+        // BUGFIX PASS: calculateTCOFromAPI() used to read
+        // localStorage.getItem('access_token'), a key nothing in this file
+        // (or the Supabase SDK) ever sets - so the Authorization header was
+        // always empty and the backend correctly rejected it with 403
+        // "Not authenticated". Fixed by pulling the real token from the
+        // active Supabase session instead, same as the working pattern in
+        // dashboard.html.
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1530,6 +1538,23 @@
                 } catch (error) {
                     console.warn('⚠️ Supabase init failed:', error.message);
                     return false;
+                }
+            }
+
+            // ─── AUTH TOKEN ──────────────────────────────────────────
+            // Pulls the real access token from the active Supabase session.
+            // (Previously this file read a nonexistent localStorage key,
+            // 'access_token', which nothing ever set - every API call went
+            // out with no Authorization header at all.)
+            async function getAuthToken() {
+                try {
+                    if (!supabaseClient) return null;
+                    const { data: { session }, error } = await supabaseClient.auth.getSession();
+                    if (error) throw error;
+                    return session?.access_token || null;
+                } catch (error) {
+                    console.warn('⚠️ Auth token error:', error.message);
+                    return null;
                 }
             }
 
@@ -1993,12 +2018,17 @@
                     loan_term: formData.loan_term
                 };
 
-                const token = localStorage.getItem('access_token') || '';
+                // Real Supabase session token - was previously
+                // localStorage.getItem('access_token'), a key nothing sets.
+                const token = await getAuthToken();
+                if (!token) {
+                    throw new Error('Your session has expired. Please sign in again.');
+                }
                 const headers = { 
                     'Content-Type': 'application/json', 
-                    'Accept': 'application/json' 
+                    'Accept': 'application/json',
+                    'Authorization': `Bearer ${token}`
                 };
-                if (token) headers['Authorization'] = `Bearer ${token}`;
 
                 console.log('📤 Sending TCO request to:', `${CONFIG.API_BASE}/ownership/calculate`);
                 console.log('📦 Payload:', payload);
