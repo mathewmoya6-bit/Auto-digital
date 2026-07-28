@@ -10,6 +10,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
+        /* ─── All styles from your original file ─────────────────── */
+        /* (Keep your existing CSS - it works fine) */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -1234,7 +1236,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> TCO · 7 Components · Fleet-grade<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.0
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.1
             </div>
         </footer>
     </div>
@@ -1242,7 +1244,7 @@
     <script>
     // ═══════════════════════════════════════════════════════════════
     // AUTO-D KENYA - COST OF OWNERSHIP CALCULATOR
-    // Version 5.0 - FINAL FIXED VERSION
+    // Version 5.1 - FINAL FIXED VERSION
     // ═══════════════════════════════════════════════════════════════
 
     (function() {
@@ -1865,7 +1867,7 @@
         }
 
         // ─── TCO CALCULATION ──────────────────────────────────────
-        // This is the FIXED payload format matching your backend
+        // EXACT PAYLOAD MATCHING YOUR BACKEND EXPECTATIONS
         function buildTCOPayload(formData) {
             return {
                 vehicle_id: formData.variant_id,
@@ -1878,8 +1880,8 @@
                 insurance_type: formData.insurance_type,
                 fuel_price: parseFloat(formData.fuel_price),
                 location: formData.location,
-                is_new: Boolean(formData.is_new),
-                is_financed: Boolean(formData.is_financed),
+                is_new: formData.is_new === true,
+                is_financed: formData.is_financed === true,
                 down_payment_percent: parseFloat(formData.down_payment_percent),
                 interest_rate: parseFloat(formData.interest_rate),
                 loan_term: parseInt(formData.loan_term)
@@ -1902,8 +1904,10 @@
             };
 
             const url = `${CONFIG.API_BASE}/ownership/calculate`;
-            console.log('📤 Sending TCO request to:', url);
-            console.log('📦 Payload:', payload);
+            
+            // DEBUG: Log the exact payload being sent
+            console.log('📤 TCO Request URL:', url);
+            console.log('📦 TCO Payload:', JSON.stringify(payload, null, 2));
 
             const response = await fetch(url, {
                 method: 'POST',
@@ -1919,7 +1923,7 @@
                 } catch (e) {
                     errorData = { message: `HTTP ${response.status}` };
                 }
-                console.error('❌ API Error:', errorData);
+                console.error('❌ API Error Response:', errorData);
                 throw new Error(errorData.message || errorData.detail || `HTTP ${response.status}`);
             }
 
@@ -1988,20 +1992,12 @@
                 const result = await calculateTCO(formData);
                 showProgress(90, 'Rendering results...');
                 
-                if (result && result.data) {
-                    renderResults(result.data, variant);
-                    showProgress(100, 'Complete!');
-                    setTimeout(hideProgress, 500);
-                    showToast('✅ TCO calculated successfully!', 'success');
-                } else if (result && !result.data) {
-                    // If the API returns the data directly (not wrapped in .data)
-                    renderResults(result, variant);
-                    showProgress(100, 'Complete!');
-                    setTimeout(hideProgress, 500);
-                    showToast('✅ TCO calculated successfully!', 'success');
-                } else {
-                    throw new Error('No data received from API');
-                }
+                // Handle both response formats
+                const data = result.data || result;
+                renderResults(data, variant);
+                showProgress(100, 'Complete!');
+                setTimeout(hideProgress, 500);
+                showToast('✅ TCO calculated successfully!', 'success');
             } catch (error) {
                 hideProgress();
                 console.error('❌ Calculation error:', error);
@@ -2016,6 +2012,8 @@
                 } else if (error.message.includes('session has expired')) {
                     errorMessage = 'Your session has expired. Please sign in again.';
                     await checkAuth();
+                } else if (error.message.includes('Validation error')) {
+                    errorMessage = 'Invalid data. Please check all fields and try again.';
                 }
                 
                 showToast('❌ ' + errorMessage, 'error');
@@ -2430,7 +2428,7 @@
                     hour: '2-digit', minute: '2-digit'
                 });
 
-                console.log('✅ Auto-D Kenya TCO Calculator initialized v5.0');
+                console.log('✅ Auto-D Kenya TCO Calculator initialized v5.1');
                 console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                 console.log(`🔗 API Base: ${CONFIG.API_BASE}`);
 
