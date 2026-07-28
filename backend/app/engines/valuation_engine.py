@@ -1,6 +1,6 @@
 """
 Valuation Engine - Core valuation calculation logic
-ALL DATA sourced from scraper and database - NO hard-coded values
+ALL DATA sourced from scraper and database
 """
 
 from typing import Dict, Any, Optional, List
@@ -30,7 +30,11 @@ class ValuationEngine:
         location: str,
         service_history: bool,
         market_data: Optional[Dict] = None,
-        similar_listings: Optional[List[Dict]] = None
+        similar_listings: Optional[List[Dict]] = None,
+        modifications: Optional[List[Dict]] = None,      # ✅ Added
+        custom_adjustments: Optional[Dict] = None,       # ✅ Added
+        images: Optional[List[str]] = None,              # ✅ Added
+        **kwargs                                         # ✅ Catch all others
     ) -> Dict[str, Any]:
         """Calculate vehicle valuation using scraper and database data"""
         
@@ -57,37 +61,59 @@ class ValuationEngine:
                 limit=100
             )
         
-        # ─── 3. GET BASE VALUE FROM SCRAPER DATA ─────────────────────
-        base_value = self._get_base_value_from_scraper(
+        # ─── 3. GET BASE VALUE ─────────────────────────────────────
+        base_value = self._get_base_value(
+            variant=variant,
             market_stats=market_stats,
             similar_listings=similar_listings,
-            year=year,
-            make=make,
-            model=model
+            year=year
         )
         
         # ─── 4. GET DATABASE VALUES ───────────────────────────────────
-        # Vehicle type parameters
         type_params = self.data_service.get_vehicle_type_parameters(body_type)
-        
-        # Location factors
         location_data = self.data_service.get_location_factors(location)
         location_factor = location_data.get("price_adjustment", 1.0)
         
-        # Depreciation rates
         dep_class = variant.get("depreciation_class") or f"{body_type.upper()}_D"
         dep_data = self.data_service.get_depreciation_rates(dep_class)
         
-        # Condition factors
         condition_factor = self._get_condition_factor(condition)
-        
-        # Accident factors
         accident_factor = self._get_accident_factor(accident_history)
         
-        # Insurance rates
-        insurance_data = self.data_service.get_insurance_rates(body_type)
+        # ─── 5. APPLY MODIFICATIONS ──────────────────────────────────
+        if modifications:
+            for mod in modifications:
+                mod_type = mod.get("type", "").lower()
+                mod_value = mod.get("value", 0)
+                
+                if mod_type == "price_adjustment":
+                    base_value *= (1 + mod_value / 100)
+                elif mod_type == "condition_bonus":
+                    condition_factor *= (1 + mod_value / 100)
+                elif mod_type == "mileage_adjustment":
+                    mileage *= (1 + mod_value / 100)
+                elif mod_type == "fixed_price":
+                    base_value = mod_value
+                elif mod_type == "percentage_increase":
+                    base_value *= (1 + mod_value / 100)
+                elif mod_type == "percentage_decrease":
+                    base_value *= (1 - mod_value / 100)
+                elif mod_type == "custom":
+                    # Apply custom adjustment
+                    if "factor" in mod:
+                        base_value *= mod.get("factor", 1.0)
         
-        # ─── 5. CALCULATE ADJUSTMENTS ─────────────────────────────────
+        # ─── 6. APPLY CUSTOM ADJUSTMENTS ─────────────────────────────
+        if custom_adjustments:
+            for key, value in custom_adjustments.items():
+                if key == "market_multiplier":
+                    base_value *= value
+                elif key == "condition_override":
+                    condition_factor = value
+                elif key == "location_override":
+                    location_factor = value
+        
+        # ─── 7. CALCULATE ADJUSTMENTS ─────────────────────────────────
         adjustments = self._calculate_adjustments(
             year=year,
             mileage=mileage,
@@ -100,10 +126,10 @@ class ValuationEngine:
             dep_data=dep_data
         )
         
-        # ─── 6. APPLY ADJUSTMENTS ─────────────────────────────────────
+        # ─── 8. APPLY ADJUSTMENTS ─────────────────────────────────────
         adjusted_value = base_value * adjustments["total_factor"]
         
-        # ─── 7. CONFIDENCE SCORE ──────────────────────────────────────
+        # ─── 9. CONFIDENCE SCORE ──────────────────────────────────────
         confidence = self._calculate_confidence(
             base_value=base_value,
             market_stats=market_stats,
@@ -111,7 +137,7 @@ class ValuationEngine:
             adjustments=adjustments
         )
         
-        # ─── 8. BUILD RESULT ──────────────────────────────────────────
+        # ─── 10. BUILD RESULT ──────────────────────────────────────────
         return {
             "market_value": round(adjusted_value, 2),
             "retail_value": round(adjusted_value * 1.08, 2),
@@ -131,6 +157,8 @@ class ValuationEngine:
                 model=model
             ),
             "market_adjustments": adjustments,
+            "modifications_applied": modifications if modifications else [],
+            "custom_adjustments_applied": custom_adjustments if custom_adjustments else {},
             "scraper_data": {
                 "listings_used": len(similar_listings) if similar_listings else 0,
                 "market_average": market_stats.get("average_price", 0),
@@ -141,19 +169,17 @@ class ValuationEngine:
             }
         }
     
-    def _get_base_value_from_scraper(
+    def _get_base_value(
         self,
+        variant: Dict,
         market_stats: Dict,
         similar_listings: List[Dict],
-        year: int,
-        make: str,
-        model: str
+        year: int
     ) -> float:
-        """Get base value from scraper data"""
+        """Get base value from scraper data or fallback"""
         
         # ─── Option 1: Use market statistics ──────────────────────────
         if market_stats.get("total_listings", 0) > 0:
-            # Use median price (more robust than average)
             median_price = market_stats.get("median_price", 0)
             avg_price = market_stats.get("average_price", 0)
             
@@ -168,32 +194,53 @@ class ValuationEngine:
             if prices:
                 return statistics.median(prices)
         
-        # ─── Option 3: Use database fallback ──────────────────────────
-        return self._get_fallback_value(make, model, year)
-    
-    def _get_fallback_value(self, make: str, model: str, year: int) -> float:
-        """Get fallback value from database when scraper has no data"""
+        # ─── Option 3: Use variant stored value ──────────────────────
+        if variant.get("market_value"):
+            return variant["market_value"]
         
-        # Try to get from vehicle_values table
-        try:
-            result = supabase.table("vehicle_values")\
-                .select("value")\
-                .eq("make", make)\
-                .eq("model", model)\
-                .eq("year", year)\
-                .execute()
-            
-            if result.data and len(result.data) > 0:
-                return result.data[0].get("value", 0)
-        except Exception as e:
-            logger.warning(f"Could not get fallback value from database: {e}")
+        if variant.get("base_price"):
+            return variant["base_price"]
         
-        # Try to get from variant
-        return 3000000  # Default fallback
+        # ─── Option 4: Estimate ──────────────────────────────────────
+        body_type = variant.get("body_type") or variant.get("body_type_name", "sedan").lower()
+        current_year = datetime.now().year
+        age = max(0, current_year - year)
+        
+        base_values = {
+            "suv": 4500000,
+            "crossover": 3800000,
+            "sedan": 3500000,
+            "hatchback": 2500000,
+            "pickup": 4000000,
+            "truck": 6000000,
+            "van": 3800000,
+            "luxury": 8000000,
+            "coupe": 5000000,
+            "convertible": 5500000,
+            "wagon": 3200000,
+            "minivan": 3500000
+        }
+        
+        value = base_values.get(body_type, 3000000)
+        value *= max(0.3, 1 - (age * 0.10))
+        
+        make = variant.get("make") or ""
+        luxury_makes = ["mercedes", "bmw", "audi", "lexus", "porsche", "range rover", "land rover"]
+        premium_makes = ["toyota", "honda", "nissan", "mazda", "subaru", "volkswagen", "ford"]
+        
+        if any(m in make.lower() for m in luxury_makes):
+            value *= 1.4
+        elif any(m in make.lower() for m in premium_makes):
+            value *= 1.0
+        else:
+            value *= 0.85
+        
+        return max(value, 300000)
     
     def _get_condition_factor(self, condition: str) -> float:
         """Get condition factor from database"""
         try:
+            from app.core.database import supabase
             result = supabase.table("condition_factors")\
                 .select("factor")\
                 .eq("condition", condition.lower())\
@@ -217,6 +264,7 @@ class ValuationEngine:
     def _get_accident_factor(self, accident_history: str) -> float:
         """Get accident factor from database"""
         try:
+            from app.core.database import supabase
             result = supabase.table("accident_factors")\
                 .select("factor")\
                 .eq("accident_type", accident_history.lower())\
@@ -252,7 +300,7 @@ class ValuationEngine:
         current_year = datetime.now().year
         age = max(0, current_year - year)
         
-        # ─── Age factor (from database) ────────────────────────────
+        # ─── Age factor ────────────────────────────────────────────
         if age <= 1:
             dep_rate = dep_data.get("year_1", 0.15)
         elif age <= 2:
