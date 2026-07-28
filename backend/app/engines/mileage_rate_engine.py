@@ -1,5 +1,6 @@
 """
 Mileage Rate Engine - Calculate cost per kilometer using database and scraper data
+FIXED: Realistic depreciation for Toyota SUVs, consistent fuel consumption, operating vs total cost
 """
 
 from typing import Dict, Any, Optional, List
@@ -52,8 +53,8 @@ class MileageRateEngine:
         body_type = variant.get("body_type") or variant.get("body_type_name", "sedan").lower()
         type_params = self.data_service.get_vehicle_type_parameters(body_type)
         
-        # 6. Get cost parameters
-        fuel_consumption = variant.get("fuel_consumption_combined") or variant.get("fuel_consumption", 8.0)
+        # 6. Get fuel consumption (FIXED: consistent value)
+        fuel_consumption = self._get_fuel_consumption(variant)
         year = variant.get("year") or request.year or datetime.now().year
         current_year = datetime.now().year
         age = max(0, current_year - year)
@@ -64,9 +65,9 @@ class MileageRateEngine:
         # 8. Get service intervals
         service_data = self.data_service.get_service_intervals(body_type)
         
-        # 9. Get depreciation rates
-        dep_class = variant.get("depreciation_class") or f"{body_type.upper()}_D"
-        dep_data = self.data_service.get_depreciation_rates(dep_class)
+        # 9. Get depreciation rates (FIXED: realistic for Toyota SUVs)
+        make = variant.get("make_name") or variant.get("make") or ""
+        dep_data = self._get_depreciation_rates(body_type, make)
         
         # 10. Get location factors
         location = request.location or "nairobi"
@@ -101,7 +102,7 @@ class MileageRateEngine:
             annual_mileage=request.annual_mileage
         )
         
-        # Depreciation cost
+        # Depreciation cost (FIXED: realistic rates)
         depreciation_per_km = self._calculate_depreciation_per_km(
             market_value=market_value,
             dep_data=dep_data,
@@ -127,12 +128,17 @@ class MileageRateEngine:
             type_params=type_params
         )
         
-        # ─── Total cost ──────────────────────────────────────────────
-        total_cost_per_km = (
+        # ─── Calculate Operating Cost (fuel + service + tyres + insurance) ──
+        operating_cost_per_km = (
             fuel_cost_per_km +
             maintenance_per_km +
             tyre_per_km +
-            insurance_per_km +
+            insurance_per_km
+        )
+        
+        # ─── Total cost (operating + depreciation + financing + misc) ──
+        total_cost_per_km = (
+            operating_cost_per_km +
             depreciation_per_km +
             financing_per_km +
             misc_per_km
@@ -140,21 +146,17 @@ class MileageRateEngine:
         
         # Apply market adjustment
         total_listings = market_stats.get("total_listings", 0)
-        if total_listings > 50:
-            market_adjustment = 1.02
-        elif total_listings > 20:
-            market_adjustment = 1.01
-        elif total_listings > 5:
-            market_adjustment = 1.0
-        else:
-            market_adjustment = 0.98
-        
+        market_adjustment = self._get_market_adjustment(total_listings)
         total_cost_per_km *= market_adjustment
         
         # ─── Annual and monthly ──────────────────────────────────────
         total_annual_cost = total_cost_per_km * request.annual_mileage
         monthly_km = request.annual_mileage / 12
         monthly_cost = total_cost_per_km * monthly_km
+        
+        # ─── Operating annual cost ──────────────────────────────────
+        operating_annual_cost = operating_cost_per_km * request.annual_mileage
+        operating_monthly_cost = operating_cost_per_km * monthly_km
         
         # ─── Breakdown ──────────────────────────────────────────────
         breakdown = {
@@ -174,18 +176,24 @@ class MileageRateEngine:
         recommendations = self._generate_recommendations(
             fuel_cost_per_km=fuel_cost_per_km,
             total_cost_per_km=total_cost_per_km,
+            operating_cost_per_km=operating_cost_per_km,
             maintenance_per_km=maintenance_per_km,
             insurance_per_km=insurance_per_km,
             depreciation_per_km=depreciation_per_km,
             market_stats=market_stats,
-            age=age
+            age=age,
+            make=make,
+            body_type=body_type
         )
         
         # ─── Return response ──────────────────────────────────────────
         return MileageRateResponse(
             total_cost_per_km=round(total_cost_per_km, 2),
+            operating_cost_per_km=round(operating_cost_per_km, 2),
             total_annual_cost=round(total_annual_cost, 2),
+            operating_annual_cost=round(operating_annual_cost, 2),
             monthly_cost=round(monthly_cost, 2),
+            operating_monthly_cost=round(operating_monthly_cost, 2),
             breakdown=breakdown,
             fuel_cost_per_km=round(fuel_cost_per_km, 2),
             maintenance_per_km=round(maintenance_per_km, 2),
@@ -195,7 +203,14 @@ class MileageRateEngine:
             financing_per_km=round(financing_per_km, 2),
             misc_per_km=round(misc_per_km, 2),
             annual_mileage=request.annual_mileage,
+            fuel_consumption=round(fuel_consumption, 2),
+            fuel_price=fuel_price,
             currency="KES",
+            confidence_score=self._calculate_confidence_score(
+                market_stats=market_stats,
+                age=age,
+                total_listings=total_listings
+            ),
             recommendations=recommendations,
             market_data={
                 "market_value": round(market_value, 2),
@@ -204,6 +219,78 @@ class MileageRateEngine:
                 "data_source": "scraper" if market_stats.get("total_listings", 0) > 0 else "database"
             }
         )
+    
+    def _get_fuel_consumption(self, variant: Dict) -> float:
+        """Get fuel consumption in L/100km (FIXED: consistent value)"""
+        fuel_consumption = variant.get("fuel_consumption_combined") or variant.get("fuel_consumption", 9.0)
+        
+        # If value is in km/L (e.g., 10.0 km/L), convert to L/100km
+        if fuel_consumption > 5 and fuel_consumption < 50:
+            # If it's km/L, convert to L/100km
+            if fuel_consumption < 20:  # km/L is typically 5-20
+                return round(100 / fuel_consumption, 1)
+        
+        # If it's already L/100km (5-20 L/100km)
+        if 5 <= fuel_consumption <= 20:
+            return round(fuel_consumption, 1)
+        
+        # Default
+        return 11.1  # ~9 km/L
+    
+    def _get_depreciation_rates(self, body_type: str, make: str) -> Dict:
+        """Get realistic depreciation rates based on vehicle type and make"""
+        
+        # ─── Toyota/Lexus hold value very well in Kenya ────────────
+        if make.lower() in ["toyota", "lexus"]:
+            if "prado" in body_type.lower() or "land cruiser" in body_type.lower():
+                return {
+                    "year_1": 0.08,   # 8% first year
+                    "year_2": 0.07,
+                    "year_3": 0.06,
+                    "year_4": 0.05,
+                    "year_5": 0.05,
+                    "year_6_plus": 0.04
+                }
+            elif "hilux" in body_type.lower():
+                return {
+                    "year_1": 0.09,
+                    "year_2": 0.08,
+                    "year_3": 0.07,
+                    "year_4": 0.06,
+                    "year_5": 0.05,
+                    "year_6_plus": 0.04
+                }
+            else:
+                # Other Toyota models
+                return {
+                    "year_1": 0.10,
+                    "year_2": 0.09,
+                    "year_3": 0.08,
+                    "year_4": 0.07,
+                    "year_5": 0.06,
+                    "year_6_plus": 0.05
+                }
+        
+        # ─── German luxury (Mercedes, BMW, Audi) ──────────────────
+        if make.lower() in ["mercedes", "bmw", "audi", "porsche"]:
+            return {
+                "year_1": 0.15,
+                "year_2": 0.13,
+                "year_3": 0.11,
+                "year_4": 0.09,
+                "year_5": 0.08,
+                "year_6_plus": 0.06
+            }
+        
+        # ─── Default rates for other makes ─────────────────────────
+        return {
+            "year_1": 0.12,
+            "year_2": 0.10,
+            "year_3": 0.08,
+            "year_4": 0.07,
+            "year_5": 0.06,
+            "year_6_plus": 0.05
+        }
     
     def _get_market_value(self, variant: Dict, market_stats: Dict) -> float:
         """Get market value from database or scraper data"""
@@ -219,7 +306,7 @@ class MileageRateEngine:
         if variant.get("base_price"):
             return variant["base_price"]
         
-        # Estimate
+        # Estimate based on vehicle type
         body_type = variant.get("body_type") or variant.get("body_type_name", "sedan").lower()
         year = variant.get("year") or datetime.now().year
         age = datetime.now().year - year
@@ -232,6 +319,17 @@ class MileageRateEngine:
         value = base_values.get(body_type, 3000000)
         value *= max(0.3, 1 - (age * 0.10))
         return max(value, 300000)
+    
+    def _get_market_adjustment(self, total_listings: int) -> float:
+        """Get market adjustment based on available listings"""
+        if total_listings > 50:
+            return 1.02
+        elif total_listings > 20:
+            return 1.01
+        elif total_listings > 5:
+            return 1.0
+        else:
+            return 0.98
     
     def _calculate_maintenance_per_km(
         self,
@@ -355,47 +453,178 @@ class MileageRateEngine:
         
         return base * location_factor * trip_factor
     
+    def _calculate_confidence_score(
+        self,
+        market_stats: Dict,
+        age: int,
+        total_listings: int
+    ) -> int:
+        """Calculate confidence score"""
+        confidence = 50  # Base
+        
+        # Market data confidence
+        if total_listings > 50:
+            confidence += 30
+        elif total_listings > 20:
+            confidence += 25
+        elif total_listings > 10:
+            confidence += 20
+        elif total_listings > 5:
+            confidence += 15
+        elif total_listings > 0:
+            confidence += 10
+        
+        # Age confidence (newer = more data)
+        if age <= 3:
+            confidence += 10
+        elif age <= 5:
+            confidence += 5
+        elif age <= 10:
+            confidence += 0
+        else:
+            confidence -= 5
+        
+        # Market health confidence
+        health = market_stats.get("market_health", "unknown")
+        if health == "good":
+            confidence += 5
+        elif health == "fair":
+            confidence += 0
+        elif health == "limited":
+            confidence -= 5
+        
+        return min(98, max(50, confidence))
+    
     def _generate_recommendations(
         self,
         fuel_cost_per_km: float,
         total_cost_per_km: float,
+        operating_cost_per_km: float,
         maintenance_per_km: float,
         insurance_per_km: float,
         depreciation_per_km: float,
         market_stats: Dict,
-        age: int
+        age: int,
+        make: str,
+        body_type: str
     ) -> List[str]:
-        """Generate recommendations"""
+        """Generate actionable recommendations"""
         recommendations = []
         
-        # Fuel recommendations
+        # ─── Fuel recommendations ──────────────────────────────────
         fuel_percentage = (fuel_cost_per_km / total_cost_per_km) * 100 if total_cost_per_km > 0 else 0
         if fuel_percentage > 40:
-            recommendations.append("⛽ Fuel costs are high. Consider eco-driving or a more fuel-efficient vehicle.")
+            savings = round((fuel_cost_per_km * 5000) / 100, 0)  # Savings per 5,000 km reduction
+            recommendations.append(
+                f"⛽ Fuel accounts for {fuel_percentage:.0f}% of your running costs. "
+                f"Reducing annual mileage by 5,000 km would save approximately KES {savings:,.0f} per year."
+            )
+        elif fuel_percentage > 30:
+            recommendations.append(
+                f"⛽ Fuel is {fuel_percentage:.0f}% of costs. Consider eco-driving techniques "
+                "to improve fuel economy."
+            )
         
-        # Maintenance recommendations
-        maintenance_percentage = (maintenance_per_km / total_cost_per_km) * 100 if total_cost_per_km > 0 else 0
-        if maintenance_percentage > 20:
-            recommendations.append("🔧 Maintenance costs are significant. Regular servicing can prevent costly repairs.")
-        
-        # Depreciation recommendations
+        # ─── Depreciation recommendations ─────────────────────────
         dep_percentage = (depreciation_per_km / total_cost_per_km) * 100 if total_cost_per_km > 0 else 0
         if dep_percentage > 25:
-            recommendations.append("📉 Depreciation is high. Consider a used vehicle for better value retention.")
+            if make.lower() in ["toyota", "lexus"]:
+                recommendations.append(
+                    f"📉 Depreciation is {dep_percentage:.0f}% of costs. "
+                    "Toyota vehicles typically hold value well. This estimate may be conservative."
+                )
+            else:
+                recommendations.append(
+                    f"📉 Depreciation is {dep_percentage:.0f}% of costs. "
+                    "Consider a vehicle with better resale value for lower total ownership cost."
+                )
         
-        # Age recommendations
+        # ─── Maintenance recommendations ──────────────────────────
+        maintenance_percentage = (maintenance_per_km / total_cost_per_km) * 100 if total_cost_per_km > 0 else 0
+        if maintenance_percentage > 20:
+            recommendations.append(
+                f"🔧 Maintenance is {maintenance_percentage:.0f}% of costs. "
+                "Regular servicing can prevent costly repairs and maintain value."
+            )
+        
+        # ─── Insurance recommendations ────────────────────────────
+        insurance_percentage = (insurance_per_km / total_cost_per_km) * 100 if total_cost_per_km > 0 else 0
+        if insurance_percentage > 15:
+            recommendations.append(
+                f"🛡️ Insurance is {insurance_percentage:.0f}% of costs. "
+                "Shop around for better rates or consider a higher excess."
+            )
+        
+        # ─── Age-based recommendations ────────────────────────────
         if age > 10:
-            recommendations.append("🔧 Older vehicles may have higher maintenance costs. Consider newer models.")
+            recommendations.append(
+                "🔧 This vehicle is over 10 years old. Consider higher maintenance costs "
+                "and potential major repairs in your budget."
+            )
+        elif age > 5 and age <= 10:
+            recommendations.append(
+                "📊 Vehicle is approaching 10 years old. Regular maintenance is crucial "
+                "for reliability and value retention."
+            )
+        elif age <= 2:
+            recommendations.append(
+                "✅ This is a relatively new vehicle. It should be reliable with lower "
+                "maintenance costs."
+            )
         
-        # Market recommendations
+        # ─── Operating vs Total cost insight ──────────────────────
+        if operating_cost_per_km > 0 and total_cost_per_km > 0:
+            operating_percentage = (operating_cost_per_km / total_cost_per_km) * 100
+            if operating_percentage < 50:
+                recommendations.append(
+                    f"💡 Operating costs (fuel, service, tyres, insurance) are only "
+                    f"{operating_percentage:.0f}% of total cost. Depreciation and financing "
+                    "are the main cost drivers."
+                )
+        
+        # ─── Market data recommendations ──────────────────────────
         total_listings = market_stats.get("total_listings", 0)
         health = market_stats.get("market_health", "unknown")
+        
         if total_listings == 0:
-            recommendations.append("📊 No market data available. Values are estimates based on database defaults.")
+            recommendations.append(
+                "📊 No market data available for this vehicle. Values are estimates "
+                "based on similar vehicles. Consider professional advice."
+            )
         elif health == "limited":
-            recommendations.append("📊 Limited market data available. Consider professional advice for accurate valuation.")
+            recommendations.append(
+                "📊 Limited market data available. Values may vary from estimates. "
+                "Consider checking multiple sources."
+            )
+        elif health == "good":
+            recommendations.append(
+                "📊 Good market data available for this vehicle. The valuation is "
+                "supported by recent market listings."
+            )
         
-        if not recommendations:
-            recommendations.append("📊 Running costs are within expected range for this vehicle type.")
+        # ─── General recommendations ──────────────────────────────
+        if total_cost_per_km > 50:
+            recommendations.append(
+                "💰 Total running cost is high. Consider a more economical vehicle "
+                "if cost is a primary concern."
+            )
+        elif total_cost_per_km < 20:
+            recommendations.append(
+                "✅ Excellent running cost efficiency! Your vehicle is economical to operate."
+            )
         
-        return recommendations
+        # Remove duplicate recommendations
+        seen = set()
+        unique_recommendations = []
+        for rec in recommendations:
+            key = rec[:50]  # Use first 50 chars as key
+            if key not in seen:
+                seen.add(key)
+                unique_recommendations.append(rec)
+        
+        if not unique_recommendations:
+            unique_recommendations.append(
+                "📊 Running costs are within expected range for this vehicle type."
+            )
+        
+        return unique_recommendations
