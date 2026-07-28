@@ -1350,7 +1350,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v6.3
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v6.4
             </div>
         </footer>
     </div>
@@ -1358,7 +1358,8 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 6.3 - Connected to Backend API with Fixed Payload
+        // Version 6.4 - Fixed: real Supabase auth token used for API calls
+        //                Fixed: fuel-type filter now filters variants, not makes
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1385,6 +1386,8 @@
             let debounceTimer = null;
             let isUnlocked = false;
             let authCheckInterval = null;
+            let selectedCategoryId = null;
+            let selectedFuelFilter = 'all';
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1544,6 +1547,24 @@
                 }
             }
 
+            // ─── AUTH TOKEN ──────────────────────────────────────────────
+            // FIX: the calculator used to read a plain `access_token` key from
+            // localStorage, but supabase-js never wrote one there (it keeps the
+            // session under its own `sb-<project>-auth-token` key). That meant
+            // every API call went out with an empty Authorization header.
+            // We now always pull a fresh token straight from the Supabase
+            // client, which also benefits from its built-in auto-refresh.
+            async function getAccessToken() {
+                try {
+                    const { data, error } = await supabaseClient.auth.getSession();
+                    if (error) throw error;
+                    return data?.session?.access_token || '';
+                } catch (error) {
+                    console.warn('⚠️ Could not get access token:', error.message);
+                    return '';
+                }
+            }
+
             // ─── AUTH ──────────────────────────────────────────────────
             async function signIn(email, password) {
                 try {
@@ -1639,17 +1660,17 @@
                 if (shouldLock) {
                     el.lockOverlay.classList.add('show');
                     isUnlocked = false;
-                    document.querySelectorAll('.calculator-panel select, .calculator-panel input, .calc-btn').forEach(el => {
-                        el.disabled = true;
+                    document.querySelectorAll('.calculator-panel select, .calculator-panel input, .calc-btn').forEach(node => {
+                        node.disabled = true;
                     });
                     el.calculateBtn.disabled = true;
                 } else {
                     el.lockOverlay.classList.remove('show');
                     isUnlocked = true;
-                    document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach(el => {
-                        if (el.id !== 'categorySelect' && el.id !== 'makeSelect' && el.id !== 'modelSelect' && 
-                            el.id !== 'generationSelect' && el.id !== 'variantSelect') {
-                            el.disabled = false;
+                    document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach(node => {
+                        if (node.id !== 'categorySelect' && node.id !== 'makeSelect' && node.id !== 'modelSelect' &&
+                            node.id !== 'generationSelect' && node.id !== 'variantSelect') {
+                            node.disabled = false;
                         }
                     });
                     if (el.categorySelect.value) el.makeSelect.disabled = false;
@@ -1943,9 +1964,18 @@
                 select.disabled = true;
                 el.calculateBtn.disabled = true;
                 if (!generationId || !isUnlocked) return;
-                const variants = await loadVariants(generationId);
+                let variants = await loadVariants(generationId);
+
+                // FIX: the fuel-type filter buttons previously did nothing to the
+                // variant list (they mistakenly re-triggered populateMakes and
+                // reset the whole selection chain). Now they actually filter.
+                if (selectedFuelFilter !== 'all') {
+                    variants = variants.filter(v => (v.fuel_type_name || '').toLowerCase() === selectedFuelFilter);
+                }
+
                 if (!variants || variants.length === 0) {
-                    select.innerHTML = '<option value="">No variants available</option>';
+                    select.innerHTML = '<option value="">No variants match this filter</option>';
+                    setStatus('warning', 'No variants match the selected fuel type');
                     return;
                 }
                 const seen = new Map();
@@ -2025,8 +2055,8 @@
                 const distance = num(el.distanceInput.value);
                 const annualKm = num(el.annualKmInput.value);
                 const fuelPrice = num(el.fuelPriceInput.value);
-                document.querySelectorAll('.error-text').forEach(el => el.classList.remove('show'));
-                document.querySelectorAll('.form-group input, .form-group select').forEach(el => el.classList.remove('error'));
+                document.querySelectorAll('.error-text').forEach(node => node.classList.remove('show'));
+                document.querySelectorAll('.form-group input, .form-group select').forEach(node => node.classList.remove('error'));
                 if (distance <= 0 || distance > 100000) {
                     document.getElementById('distanceError').classList.add('show');
                     document.getElementById('distanceInput').classList.add('error');
@@ -2071,12 +2101,18 @@
                     include_depreciation: true
                 };
 
-                const token = localStorage.getItem('access_token') || '';
-                const headers = { 
-                    'Content-Type': 'application/json', 
-                    'Accept': 'application/json' 
+                // FIX: fetch a live token from Supabase instead of a
+                // localStorage key ('access_token') that was never written.
+                const token = await getAccessToken();
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 };
-                if (token) headers['Authorization'] = `Bearer ${token}`;
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                } else {
+                    console.warn('⚠️ No access token available — request will be sent unauthenticated');
+                }
 
                 // ─── DEBUG LOGGING ──────────────────────────────────────
                 console.log('📤 Sending running cost request to:', `${CONFIG.API_BASE}/running-cost/calculate`);
@@ -2149,7 +2185,7 @@
                     driving_style: el.drivingStyle.value,
                     trip_type: el.tripType.value === 'city' ? 'urban' : el.tripType.value,
                     usage_type: el.usageType.value,
-                    location: el.locationSelect?.value || 'nairobi',
+                    location: 'nairobi',
                     year: parseInt(el.yearSelect.value) || 2024,
                     financed: isFinanced,
                     down_payment_percent: parseInt(el.downPct.value) || 30,
@@ -2450,6 +2486,9 @@
                 });
                 el.btnSignOut.addEventListener('click', signOut);
 
+                // FIX: this used to call populateMakes(selectedCategoryId), which
+                // wiped out the user's make/model/generation selection every time
+                // they clicked a fuel filter. It now filters the variant list.
                 el.fuelFilterGroup.addEventListener('click', function(e) {
                     if (!isUnlocked) return;
                     const btn = e.target.closest('.fuel-filter-btn');
@@ -2460,10 +2499,12 @@
                     });
                     btn.classList.add('active');
                     btn.setAttribute('aria-pressed', 'true');
-                    if (selectedCategoryId) populateMakes(selectedCategoryId);
+                    selectedFuelFilter = btn.dataset.fuel || 'all';
+                    if (el.generationSelect.value) {
+                        populateVariants(el.generationSelect.value);
+                    }
                 });
 
-                let selectedCategoryId = null;
                 el.categorySelect.addEventListener('change', async function() {
                     selectedCategoryId = this.value;
                     if (selectedCategoryId && isUnlocked) {
@@ -2606,6 +2647,16 @@
 
                 el.exportBtn.addEventListener('click', function() {
                     showToast('📥 Export feature coming soon!', 'info');
+                });
+
+                // Keep the token / lock state in sync on any Supabase auth event
+                // (sign in, sign out, or a silent token refresh), not just polling.
+                supabaseClient.auth.onAuthStateChange((_event, session) => {
+                    const wasAuthenticated = isAuthenticated;
+                    currentUser = session;
+                    isAuthenticated = !!session;
+                    updateAuthUI();
+                    if (wasAuthenticated !== isAuthenticated) updateLockState();
                 });
 
                 authCheckInterval = setInterval(async () => {
