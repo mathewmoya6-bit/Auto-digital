@@ -40,15 +40,41 @@ class ValuationRequest(BaseModel):
 # ─── RUNNING COST SCHEMAS ──────────────────────────────────────────
 
 class RunningCostRequest(BaseModel):
-    """Running cost calculation request"""
+    """Running cost calculation request for a trip"""
     variant_id: str = Field(..., description="Vehicle variant ID")
-    annual_mileage: float = Field(15000, ge=0, description="Annual mileage in km")
+    distance: float = Field(150, ge=1, le=100000, description="Trip distance in km")
+    annual_mileage: float = Field(20000, ge=0, le=200000, description="Annual mileage in km")
     fuel_price: float = Field(200, ge=0, description="Fuel price per liter (KES)")
+    trip_type: str = Field("mixed", description="Trip type: urban, highway, mixed, offroad")
+    driving_style: str = Field("normal", description="Driving style: eco, normal, aggressive")
+    usage_type: str = Field("private", description="Usage type: private, commercial, fleet")
+    location: str = Field("nairobi", description="Location for cost adjustment")
+    condition: str = Field("good", description="Vehicle condition")
+    year: Optional[int] = Field(None, description="Vehicle year")
+    financed: bool = Field(False, description="Is the vehicle financed")
+    down_payment: float = Field(30, ge=0, le=100, description="Down payment percentage")
+    interest_rate: float = Field(16, ge=0, le=100, description="Annual interest rate")
+    loan_term: int = Field(4, ge=1, le=10, description="Loan term in years")
+    years: int = Field(5, ge=1, le=15, description="Number of years to project")
     include_insurance: bool = Field(True, description="Include insurance in calculation")
     include_maintenance: bool = Field(True, description="Include maintenance in calculation")
     include_tyres: bool = Field(True, description="Include tyre replacement in calculation")
     include_depreciation: bool = Field(True, description="Include depreciation in calculation")
-    years: int = Field(5, ge=1, le=15, description="Number of years to project")
+    user_id: Optional[str] = Field(None, description="User ID for saving report")
+    
+    @validator('trip_type')
+    def validate_trip_type(cls, v):
+        allowed = ['urban', 'highway', 'mixed', 'offroad']
+        if v.lower() not in allowed:
+            raise ValueError(f"Trip type must be one of: {', '.join(allowed)}")
+        return v.lower()
+    
+    @validator('driving_style')
+    def validate_driving_style(cls, v):
+        allowed = ['eco', 'normal', 'aggressive']
+        if v.lower() not in allowed:
+            raise ValueError(f"Driving style must be one of: {', '.join(allowed)}")
+        return v.lower()
 
 
 # ─── MILEAGE SCHEMAS ───────────────────────────────────────────────
@@ -73,6 +99,14 @@ class MileageRateRequest(BaseModel):
     include_insurance: bool = Field(True, description="Include insurance in calculation")
     include_maintenance: bool = Field(True, description="Include maintenance in calculation")
     include_tyres: bool = Field(True, description="Include tyres in calculation")
+    location: Optional[str] = Field("nairobi", description="Location for cost adjustment")
+    trip_type: Optional[str] = Field("mixed", description="Trip type for cost adjustment")
+    financed: bool = Field(False, description="Is the vehicle financed")
+    down_payment: float = Field(30, ge=0, le=100, description="Down payment percentage")
+    interest_rate: float = Field(16, ge=0, le=100, description="Annual interest rate")
+    loan_term: int = Field(4, ge=1, le=10, description="Loan term in years")
+    year: Optional[int] = Field(None, description="Vehicle year")
+    user_id: Optional[str] = Field(None, description="User ID for saving report")
 
 
 # ─── OWNERSHIP SCHEMAS ─────────────────────────────────────────────
@@ -104,6 +138,12 @@ class OwnershipCostRequest(BaseModel):
     include_insurance: bool = Field(True, description="Include insurance in calculation")
     include_maintenance: bool = Field(True, description="Include maintenance in calculation")
     include_tyres: bool = Field(True, description="Include tyres in calculation")
+    years_owned: int = Field(5, ge=1, le=15, description="Number of years owned")
+    usage_type: str = Field("private", description="Usage type: private, commercial, fleet")
+    condition: str = Field("good", description="Vehicle condition")
+    financed: bool = Field(False, description="Is the vehicle financed")
+    location: str = Field("nairobi", description="Location for cost adjustment")
+    user_id: Optional[str] = Field(None, description="User ID for saving report")
 
 
 # ─── FUEL SCHEMAS ──────────────────────────────────────────────────
@@ -154,6 +194,20 @@ class VehicleCreateRequest(BaseModel):
     tyre_size: Optional[str] = None
 
 
+# ─── SERVICE PRICE SCHEMAS ─────────────────────────────────────────
+
+class ServicePriceCreateRequest(BaseModel):
+    """Create a service price"""
+    service_type: str = Field(..., description="Service type identifier")
+    service_name: str = Field(..., description="Display name")
+    price: float = Field(..., ge=0, description="Price in KES")
+    currency: str = Field("KES", description="Currency code")
+    description: Optional[str] = Field("", description="Service description")
+    icon: Optional[str] = Field("", description="Emoji icon")
+    display_order: int = Field(0, description="Display order")
+    is_active: bool = Field(True, description="Whether service is active")
+
+
 # ─── EXPORT ALL ─────────────────────────────────────────────────────
 
 __all__ = [
@@ -166,4 +220,5 @@ __all__ = [
     "FuelRequest",
     "VehicleSearchRequest",
     "VehicleCreateRequest",
+    "ServicePriceCreateRequest",
 ]
