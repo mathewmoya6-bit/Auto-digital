@@ -818,7 +818,7 @@ class ScraperService:
             mileage = item.get("mileage") or item.get("odometer")
             if mileage:
                 try:
-                    mileage = int(str(mileage).replace(",", ""))
+                    mileage = int(str(mileage).replace(", ""))
                 except:
                     mileage = None
 
@@ -1041,4 +1041,76 @@ class ScraperService:
             selected_model = model or random.choice(selected_models)
 
             year = random.choice(years)
-            price = random.randint(500000, 800
+            price = random.randint(500000, 8000000)
+            mileage = random.randint(10000, 150000)
+
+            listings.append({
+                "source": source,
+                "make": selected_make,
+                "model": selected_model,
+                "year": year,
+                "price": price,
+                "mileage": mileage,
+                "condition": random.choice(conditions),
+                "fuel_type": random.choice(fuel_types),
+                "transmission": random.choice(transmissions),
+                "location": random.choice(locations),
+                "description": f"{selected_make} {selected_model} for sale in Kenya",
+                "listing_url": f"https://{source}.com/listing/{i}",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            })
+
+        return listings
+
+    # ─── Logging ──────────────────────────────────────────────────
+
+    def add_scraper_log(self, message: str, level: str = "info"):
+        """Add entry to scraper log."""
+        try:
+            supabase.table("scraper_logs").insert({
+                "message": message,
+                "level": level,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }).execute()
+        except Exception as e:
+            logger.error(f"❌ Error adding scraper log: {e}")
+
+    # ─── Scraper Endpoints ──────────────────────────────────────
+
+    async def scrape_autochek(self, task_id: Optional[str] = None, **kwargs):
+        """Scrape Autochek."""
+        return await self._scrape_autochek(**kwargs)
+
+    async def scrape_jiji(self, task_id: Optional[str] = None, **kwargs):
+        """Scrape Jiji."""
+        return await self._scrape_jiji(**kwargs)
+
+    async def scrape_carapi(self, task_id: Optional[str] = None, **kwargs):
+        """Scrape CarAPI."""
+        return await self._scrape_carapi(**kwargs)
+
+
+# ─── Singleton ─────────────────────────────────────────────────────
+
+_scraper_service: Optional[ScraperService] = None
+
+
+def get_scraper_service() -> ScraperService:
+    """Get or create ScraperService singleton."""
+    global _scraper_service
+    if _scraper_service is None:
+        _scraper_service = ScraperService()
+    return _scraper_service
+
+
+# ─── Export ─────────────────────────────────────────────────────
+
+__all__ = [
+    "ScraperService",
+    "get_scraper_service",
+    "ScraperError",
+    "SourceUnavailableError",
+    "RateLimitError",
+    "ParseError",
+]
