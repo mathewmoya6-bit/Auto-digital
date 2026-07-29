@@ -6,20 +6,3105 @@
     <title>Dashboard — Auto-D Kenya</title>
     <meta name="description" content="Your Auto-D Kenya dashboard — control center for vehicle management, reports, and services." />
     <meta name="robots" content="noindex, nofollow" />
+    
     <meta name="theme-color" content="#0f172a" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E" />
+    
     <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
     <noscript>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet" />
     </noscript>
+    
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
     <style>
-        PLACEHOLDER_STYLE
+        /* ─── CSS Variables ────────────────────────────────────────── */
+        :root {
+            --bg: #0a0c15;
+            --surface: #111827;
+            --surface-2: #1a2332;
+            --surface-3: #1e293b;
+            --primary: #eab308;
+            --primary-hover: #facc15;
+            --text: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --text-muted: #64748b;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --blue: #3b82f6;
+            --purple: #8b5cf6;
+            --radius: 12px;
+            --border: #334155;
+            --shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+            --font-heading: 'Space Grotesk', sans-serif;
+            --font-body: 'Inter', sans-serif;
+            --sidebar-width: 250px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: var(--font-body);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+            display: flex;
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: var(--sidebar-width);
+            height: 100vh;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            padding: 20px 0;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            overflow-y: auto;
+            transition: transform 0.3s ease;
+        }
+        .sidebar .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0 20px 20px;
+            font-family: var(--font-heading);
+            font-weight: 700;
+            font-size: 20px;
+            letter-spacing: -0.02em;
+            text-decoration: none;
+            color: var(--text);
+            border-bottom: 1px solid var(--border);
+        }
+        .sidebar .logo .logo-mark {
+            width: 34px;
+            height: 34px;
+            border-radius: 9px;
+            background: linear-gradient(145deg, var(--primary), #ca8a04);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #0f172a;
+            font-weight: 800;
+            font-size: 16px;
+        }
+        .sidebar .logo .logo-sub { color: var(--text-muted); font-weight: 500; font-size: 12px; }
+        
+        .sidebar .nav-section {
+            padding: 16px 20px 8px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .sidebar .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 20px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border-left: 3px solid transparent;
+        }
+        .sidebar .nav-item:hover {
+            background: rgba(255,255,255,0.05);
+            color: var(--text);
+        }
+        .sidebar .nav-item.active {
+            background: rgba(234, 179, 8, 0.08);
+            color: var(--primary);
+            border-left-color: var(--primary);
+        }
+        .sidebar .nav-item .icon { width: 20px; text-align: center; font-size: 16px; }
+        .sidebar .nav-item .badge {
+            margin-left: auto;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--primary);
+        }
+        .sidebar .nav-divider { height: 1px; background: var(--border); margin: 8px 20px; }
+        .sidebar .nav-footer { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); }
+
+        .main-content {
+            margin-left: var(--sidebar-width);
+            flex: 1;
+            min-height: 100vh;
+            padding: 20px 32px 80px;
+        }
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .main-content { margin-left: 0; padding: 16px; }
+            .mobile-toggle { display: flex !important; }
+        }
+        .mobile-toggle {
+            display: none;
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 101;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: var(--text);
+            font-size: 20px;
+            cursor: pointer;
+        }
+
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 24px;
+        }
+        .top-bar .greeting h1 {
+            font-family: var(--font-heading);
+            font-size: 24px;
+        }
+        .top-bar .greeting .sub {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        .top-bar .actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .top-bar .actions .user-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px 6px 6px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+        }
+        .top-bar .actions .user-badge .avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .top-bar .actions .user-badge .name { font-size: 13px; font-weight: 500; }
+
+        .btn {
+            padding: 10px 22px;
+            border-radius: 50px;
+            font-weight: 700;
+            cursor: pointer;
+            border: none;
+            transition: 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            font-family: inherit;
+            letter-spacing: 0.2px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+            color: #0f172a;
+            box-shadow: 0 4px 16px rgba(234, 179, 8, 0.25);
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 28px rgba(234, 179, 8, 0.35);
+        }
+        .btn-outline {
+            border: 1.5px solid var(--primary);
+            color: var(--primary);
+            background: transparent;
+        }
+        .btn-outline:hover {
+            background: rgba(234, 179, 8, 0.08);
+            transform: translateY(-2px);
+        }
+        .btn-sm { padding: 6px 14px; font-size: 0.75rem; }
+        .btn-block { width: 100%; justify-content: center; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .btn-sm-primary {
+            background: var(--primary);
+            color: #0f172a;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-sm-primary:hover { background: var(--primary-hover); }
+
+        .btn-sm-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-sm-outline:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .btn-sm-success {
+            background: var(--success);
+            color: #000;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-sm-success:hover { background: #16a34a; }
+
+        .btn-sm-warning {
+            background: var(--warning);
+            color: #000;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-sm-warning:hover { background: #d97706; }
+
+        .btn-sm-danger {
+            background: var(--danger);
+            color: #fff;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-sm-danger:hover { background: #dc2626; }
+
+        .workflow-steps {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding: 12px 16px;
+            background: var(--surface-2);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            margin-bottom: 20px;
+        }
+        .workflow-step {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-muted);
+            padding: 4px 10px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid transparent;
+        }
+        .workflow-step.active {
+            color: var(--primary);
+            border-color: var(--primary);
+            background: rgba(234, 179, 8, 0.08);
+        }
+        .workflow-step.done {
+            color: var(--success);
+            border-color: var(--success);
+            background: rgba(34, 197, 94, 0.08);
+        }
+        .workflow-step .step-icon { font-size: 14px; }
+        .workflow-step .step-num { font-size: 9px; font-weight: 700; opacity: 0.5; }
+        .workflow-arrow { color: var(--text-muted); font-size: 12px; opacity: 0.4; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px 20px;
+            transition: border-color 0.3s ease;
+            text-align: center;
+        }
+        .stat-card:hover { border-color: rgba(234, 179, 8, 0.3); }
+        .stat-card .stat-icon { font-size: 20px; margin-bottom: 4px; }
+        .stat-card .stat-value {
+            font-family: var(--font-heading);
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .stat-card .stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .stat-card .stat-change {
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 4px;
+            display: inline-block;
+            padding: 1px 10px;
+            border-radius: 20px;
+        }
+        .stat-card .stat-change.up { color: var(--success); background: rgba(34, 197, 94, 0.1); }
+        .stat-card .stat-change.down { color: var(--danger); background: rgba(239, 68, 68, 0.1); }
+        .stat-card .stat-change.neutral { color: var(--text-muted); background: rgba(100, 116, 139, 0.1); }
+
+        .quick-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 28px;
+        }
+        .quick-action-btn {
+            padding: 10px 18px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .quick-action-btn:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: rgba(234, 179, 8, 0.05);
+            transform: translateY(-2px);
+        }
+
+        .section-title {
+            font-family: var(--font-heading);
+            font-size: 18px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .section-title .count {
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--text-muted);
+            font-family: var(--font-body);
+        }
+
+        .vehicle-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .vehicle-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px 24px;
+            transition: all 0.3s ease;
+        }
+        .vehicle-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 30px rgba(0,0,0,0.3);
+        }
+        .vehicle-card .top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+        .vehicle-card .plate {
+            font-family: var(--font-heading);
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        .vehicle-card .make-model { font-size: 16px; font-weight: 600; margin-bottom: 2px; }
+        .vehicle-card .details-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 16px;
+            margin: 10px 0 14px;
+        }
+        .vehicle-card .details-grid .item {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .vehicle-card .details-grid .item strong { color: var(--text); font-weight: 600; }
+        .vehicle-card .actions {
+            display: flex;
+            gap: 8px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+            flex-wrap: wrap;
+        }
+
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .service-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px 20px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        .service-card:hover { border-color: var(--primary); transform: translateY(-3px); }
+        .service-card .service-icon { font-size: 28px; margin-bottom: 6px; }
+        .service-card .service-name { font-weight: 600; font-size: 14px; }
+        .service-card .service-code { font-size: 10px; color: var(--text-muted); font-family: monospace; }
+        .service-card .service-status {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 10px;
+            border-radius: 999px;
+            display: inline-block;
+            margin-top: 4px;
+        }
+        .service-card .service-status.active { background: rgba(34, 197, 94, 0.12); color: var(--success); }
+        .service-card .service-status.locked { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
+        .service-card .service-price {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--primary);
+            margin-top: 6px;
+        }
+        .service-card .service-price .currency { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+        .service-card .btn-access {
+            width: 100%;
+            margin-top: 10px;
+            padding: 8px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .service-card .btn-access.active {
+            background: var(--success);
+            color: #000;
+        }
+        .service-card .btn-access.active:hover {
+            background: #16a34a;
+        }
+        .service-card .btn-access.locked {
+            background: var(--primary);
+            color: #0f172a;
+        }
+        .service-card .btn-access.locked:hover {
+            background: var(--primary-hover);
+        }
+        
+        .purchase-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            font-size: 10px;
+            padding: 2px 10px;
+            border-radius: 999px;
+            background: var(--success);
+            color: #000;
+            font-weight: 700;
+        }
+
+        .list-container {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            margin-bottom: 28px;
+        }
+        .list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.2s;
+        }
+        .list-item:last-child { border-bottom: none; }
+        .list-item:hover { background: rgba(255,255,255,0.02); }
+        .list-item .info { display: flex; flex-direction: column; gap: 2px; }
+        .list-item .info .title { font-weight: 500; font-size: 14px; }
+        .list-item .info .meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
+        .list-item .status-badge {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 12px;
+            border-radius: 999px;
+        }
+        .list-item .status-badge.completed { background: rgba(34, 197, 94, 0.12); color: var(--success); }
+        .list-item .status-badge.pending { background: rgba(234, 179, 8, 0.12); color: var(--warning); }
+        .list-item .status-badge.failed { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
+        .list-item .amount { font-weight: 700; font-family: var(--font-heading); }
+
+        .notification-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 20px;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.2s;
+        }
+        .notification-item:hover { background: rgba(255,255,255,0.02); }
+        .notification-item .notif-icon { font-size: 18px; }
+        .notification-item .notif-content { flex: 1; }
+        .notification-item .notif-content .msg { font-size: 13px; }
+        .notification-item .notif-content .time { font-size: 11px; color: var(--text-muted); }
+        .notification-item .notif-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .notification-item .notif-dot.unread { background: var(--primary); }
+        .notification-item .notif-dot.read { background: var(--text-muted); }
+
+        #toastContainer {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-width: 400px;
+        }
+        .toast {
+            padding: 14px 24px;
+            border-radius: 10px;
+            font-weight: 500;
+            font-size: 14px;
+            animation: slideIn 0.3s ease;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+        }
+        .toast.success { background: var(--success); color: #000; }
+        .toast.error { background: var(--danger); color: #fff; }
+        .toast.info { background: var(--blue); color: #fff; }
+        .toast.warning { background: var(--warning); color: #000; }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(100px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+        .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+        .empty-state h3 { font-family: var(--font-heading); font-size: 18px; margin-bottom: 6px; }
+        .empty-state p { color: var(--text-muted); font-size: 14px; max-width: 400px; margin: 0 auto 16px; }
+
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(8px);
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .modal.open { display: flex; }
+        .modal-content {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 32px;
+            max-width: 520px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+        }
+        .modal-content .close-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 24px;
+            cursor: pointer;
+        }
+        .modal-content .close-btn:hover { color: var(--text); }
+        .modal-content h2 { font-family: var(--font-heading); font-size: 24px; margin-bottom: 6px; }
+        .modal-content .sub { color: var(--text-muted); font-size: 14px; margin-bottom: 20px; }
+        .modal-content .form-group { margin-bottom: 16px; }
+        .modal-content label {
+            display: block;
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .modal-content input, .modal-content select {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 14px;
+            font-family: var(--font-body);
+        }
+        .modal-content input:focus, .modal-content select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .modal-content .payment-summary {
+            background: var(--bg);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 12px 0;
+            border: 1px solid var(--border);
+        }
+        .modal-content .payment-summary .row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            font-size: 14px;
+        }
+        .modal-content .payment-summary .row.total {
+            border-top: 1px solid var(--border);
+            padding-top: 10px;
+            margin-top: 4px;
+            font-weight: 700;
+        }
+        .modal-content .payment-summary .row .label { color: var(--text-muted); }
+        .modal-content .payment-summary .row .value { color: var(--text); }
+
+        .phone-input {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 4px 14px;
+            margin: 12px 0;
+            transition: border-color 0.3s ease;
+        }
+        .phone-input:focus-within {
+            border-color: var(--primary);
+        }
+        .phone-input.error {
+            border-color: var(--danger);
+            box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+        }
+        .phone-input span {
+            color: var(--primary);
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        .phone-input input {
+            border: none;
+            margin: 0;
+            padding: 10px 0;
+            background: transparent;
+            color: #fff;
+            width: 100%;
+            font-size: 15px;
+            font-family: inherit;
+        }
+        .phone-input input:focus { outline: none; }
+        .phone-input input::placeholder {
+            color: var(--text-muted);
+            opacity: 0.6;
+        }
+
+        .payment-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(8px);
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .payment-overlay.open { display: flex; }
+        .payment-overlay .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        .payment-overlay .status-text { font-size: 16px; color: var(--text-secondary); }
+        .payment-overlay .status-detail {
+            font-size: 13px;
+            color: var(--text-muted);
+            text-align: center;
+            max-width: 320px;
+        }
+        .payment-overlay .status-detail button {
+            background: var(--primary);
+            color: #0f172a;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .payment-overlay .status-detail button:hover { background: var(--primary-hover); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .success-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(0,0,0,0.9);
+            backdrop-filter: blur(8px);
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 20px;
+            animation: fadeIn 0.5s ease;
+        }
+        .success-overlay.open { display: flex; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .success-overlay .checkmark { font-size: 80px; animation: popIn 0.6s ease; }
+        .success-overlay h2 {
+            font-family: var(--font-heading);
+            font-size: 28px;
+            color: var(--success);
+        }
+        .success-overlay p {
+            color: var(--text-secondary);
+            font-size: 16px;
+            text-align: center;
+            max-width: 400px;
+        }
+        .success-overlay .btn { margin-top: 10px; }
+        @keyframes popIn {
+            0% { transform: scale(0); opacity: 0; }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .confetti-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9998;
+            overflow: hidden;
+        }
+        .confetti-piece {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            animation: confettiFall linear forwards;
+        }
+        @keyframes confettiFall {
+            0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+        .service-error-banner {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: var(--radius);
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            display: none;
+            align-items: center;
+            gap: 12px;
+        }
+        .service-error-banner.show { display: flex; }
+        .service-error-banner .icon { font-size: 24px; }
+        .service-error-banner .content { flex: 1; }
+        .service-error-banner .content h4 { color: var(--danger); font-size: 14px; margin-bottom: 2px; }
+        .service-error-banner .content p { font-size: 12px; color: var(--text-secondary); }
+        .service-error-banner .btn-retry {
+            background: var(--primary);
+            color: #0f172a;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .service-error-banner .btn-retry:hover { background: var(--primary-hover); }
+
+        /* Mock mode indicator */
+        .mock-mode-badge {
+            display: none;
+            background: rgba(234, 179, 8, 0.15);
+            border: 1px solid var(--primary);
+            color: var(--primary);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 600;
+            font-family: var(--font-mono, monospace);
+            letter-spacing: 0.05em;
+        }
+        .mock-mode-badge.show { display: inline-block; }
+
+        @media (max-width: 768px) {
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .vehicle-grid { grid-template-columns: 1fr; }
+            .services-grid { grid-template-columns: 1fr; }
+            .modal-content { padding: 20px; }
+        }
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
-PLACEHOLDER_BODY
+
+    <!-- ─── MOBILE TOGGLE ─── -->
+    <button class="mobile-toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">☰</button>
+
+    <!-- ─── SIDEBAR ─── -->
+    <aside class="sidebar" id="sidebar">
+        <a href="/dashboard.html" class="logo">
+            <span class="logo-mark">AD</span>
+            Auto-D<span class="logo-sub">Kenya</span>
+        </a>
+
+        <div class="nav-section">Main</div>
+        <a href="/dashboard.html" class="nav-item active">
+            <span class="icon">📊</span> Dashboard
+        </a>
+        <a href="#" class="nav-item" onclick="navigateTo('vehicles')">
+            <span class="icon">🚗</span> Vehicles
+            <span class="badge" id="vehicleBadge">0</span>
+        </a>
+        <a href="#" class="nav-item" onclick="navigateTo('reports')">
+            <span class="icon">📄</span> Reports
+            <span class="badge" id="reportBadge">0</span>
+        </a>
+        <a href="#" class="nav-item" onclick="navigateTo('payments')">
+            <span class="icon">💳</span> Payments
+        </a>
+
+        <div class="nav-divider"></div>
+        <div class="nav-section">Services</div>
+        <a href="#" class="nav-item" onclick="navigateToService('mileage')">
+            <span class="icon">📈</span> Mileage
+        </a>
+        <a href="#" class="nav-item" onclick="navigateToService('valuation')">
+            <span class="icon">💰</span> Vehicle Value
+        </a>
+        <a href="#" class="nav-item" onclick="navigateToService('ownership')">
+            <span class="icon">📊</span> Ownership Cost
+        </a>
+
+        <div class="nav-divider"></div>
+        <div class="nav-section">Account</div>
+        <a href="#" class="nav-item" onclick="navigateTo('profile')">
+            <span class="icon">👤</span> Profile
+        </a>
+        <a href="#" class="nav-item" onclick="navigateTo('settings')">
+            <span class="icon">⚙️</span> Settings
+        </a>
+        <div class="nav-footer">
+            <a href="#" class="nav-item" onclick="handleLogout()" style="color:var(--danger);">
+                <span class="icon">🚪</span> Logout
+            </a>
+        </div>
+    </aside>
+
+    <!-- ─── MAIN CONTENT ─── -->
+    <main class="main-content" id="mainContent">
+
+        <!-- ─── TOP BAR ─── -->
+        <div class="top-bar">
+            <div class="greeting">
+                <h1 id="greetingText">👋 Welcome back!</h1>
+                <div class="sub" id="greetingSub">Here's what's happening with your vehicles</div>
+            </div>
+            <div class="actions">
+                <span class="mock-mode-badge" id="mockModeBadge">⚠️ MOCK MODE</span>
+                <button class="btn-sm-primary" onclick="openAddVehicleModal()">➕ Add Vehicle</button>
+                <div class="user-badge" onclick="navigateTo('profile')">
+                    <span class="avatar" id="userAvatar">A</span>
+                    <span class="name" id="userName">User</span>
+                </div>
+                <button class="btn-sm-outline" onclick="handleLogout()">Logout</button>
+            </div>
+        </div>
+
+        <!-- ─── SERVICE ERROR BANNER ─── -->
+        <div class="service-error-banner" id="serviceErrorBanner">
+            <span class="icon">🔌</span>
+            <div class="content">
+                <h4>Service Connection Issue</h4>
+                <p id="serviceErrorText">Some services may be temporarily unavailable. Using cached data where possible.</p>
+            </div>
+            <button class="btn-retry" onclick="retryServices()">🔄 Retry</button>
+        </div>
+
+        <!-- ─── WORKFLOW STEPS ────────────────────────────────────── -->
+        <div class="workflow-steps" id="workflowSteps">
+            <div class="workflow-step active" id="step1">
+                <span class="step-num">01</span>
+                <span class="step-icon">📝</span>
+                <span>Enter Details</span>
+            </div>
+            <span class="workflow-arrow">→</span>
+            <div class="workflow-step" id="step2">
+                <span class="step-num">02</span>
+                <span class="step-icon">🔄</span>
+                <span>Create Request</span>
+            </div>
+            <span class="workflow-arrow">→</span>
+            <div class="workflow-step" id="step3">
+                <span class="step-num">03</span>
+                <span class="step-icon">💳</span>
+                <span>Pay via M-Pesa</span>
+            </div>
+            <span class="workflow-arrow">→</span>
+            <div class="workflow-step" id="step4">
+                <span class="step-num">04</span>
+                <span class="step-icon">✅</span>
+                <span>Confirm Payment</span>
+            </div>
+            <span class="workflow-arrow">→</span>
+            <div class="workflow-step" id="step5">
+                <span class="step-num">05</span>
+                <span class="step-icon">🎯</span>
+                <span>Access Service</span>
+            </div>
+        </div>
+
+        <!-- ─── STATS ─── -->
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+                <div class="stat-icon">🚗</div>
+                <div class="stat-value" id="statVehicles">0</div>
+                <div class="stat-label">Vehicles</div>
+                <span class="stat-change up">● Active</span>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📄</div>
+                <div class="stat-value" id="statRequests">0</div>
+                <div class="stat-label">Requests</div>
+                <span class="stat-change neutral">● Pending</span>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">⚡</div>
+                <div class="stat-value" id="statServices">0</div>
+                <div class="stat-label">Active Services</div>
+                <span class="stat-change up">● Purchased</span>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">💰</div>
+                <div class="stat-value" id="statSpent">KES 0</div>
+                <div class="stat-label">Amount Spent</div>
+                <span class="stat-change neutral">● Total</span>
+            </div>
+        </div>
+
+        <!-- ─── QUICK ACTIONS ─── -->
+        <div class="quick-actions">
+            <button class="quick-action-btn" onclick="openAddVehicleModal()">➕ Add Vehicle</button>
+            <button class="quick-action-btn" onclick="openNewRequestModal()">📝 New Request</button>
+            <button class="quick-action-btn" onclick="navigateToService('valuation')">💰 Vehicle Value</button>
+            <button class="quick-action-btn" onclick="navigateToService('mileage')">📈 Mileage</button>
+            <button class="quick-action-btn" onclick="navigateToService('ownership')">📊 Running Cost</button>
+        </div>
+
+        <!-- ─── SERVICES ─── -->
+        <div class="section-title">
+            ⚡ Services <span class="count" id="serviceCountLabel">(0)</span>
+        </div>
+        <div id="servicesGrid" class="services-grid"></div>
+
+        <!-- ─── MY VEHICLES ─── -->
+        <div class="section-title">
+            🚗 My Vehicles <span class="count" id="vehicleCountLabel">(0)</span>
+        </div>
+        <div id="vehicleGrid" class="vehicle-grid"></div>
+
+        <!-- ─── MY REQUESTS ─── -->
+        <div class="section-title">
+            📋 My Requests <span class="count" id="requestsCountLabel">(0)</span>
+        </div>
+        <div id="requestsList" class="list-container"></div>
+
+        <!-- ─── RECENT PAYMENTS ─── -->
+        <div class="section-title">
+            💳 Recent Payments <span class="count" id="paymentsCountLabel">(0)</span>
+        </div>
+        <div id="paymentsList" class="list-container"></div>
+
+    </main>
+
+    <!-- ─── SUCCESS OVERLAY ─── -->
+    <div class="success-overlay" id="successOverlay">
+        <div class="checkmark">✅</div>
+        <h2>Payment Successful! 🎉</h2>
+        <p id="successMessage">Your service has been unlocked. You can now access it from the dashboard.</p>
+        <button class="btn btn-primary" onclick="closeSuccessOverlay()">Continue to Dashboard</button>
+        <button class="btn btn-outline" onclick="openPurchasedService()" id="openServiceBtn">🚀 Open Service Now</button>
+    </div>
+    <div class="confetti-container" id="confettiContainer"></div>
+
+    <!-- ─── PAYMENT OVERLAY ─── -->
+    <div class="payment-overlay" id="paymentOverlay">
+        <div class="spinner" id="paymentSpinner"></div>
+        <div class="status-text" id="paymentStatusText">Processing payment...</div>
+        <div class="status-detail" id="paymentStatusDetail">Please check your phone for the M-Pesa STK push</div>
+    </div>
+
+    <!-- ─── MODALS ─── -->
+    <div class="modal" id="newRequestModal">
+        <div class="modal-content">
+            <button class="close-btn" onclick="closeNewRequestModal()">✕</button>
+            <h2>📝 New Service Request</h2>
+            <p class="sub">Select a vehicle and service to request.</p>
+            <div class="form-group">
+                <label>Vehicle</label>
+                <select id="requestVehicle"><option value="">Select vehicle...</option></select>
+            </div>
+            <div class="form-group">
+                <label>Service</label>
+                <select id="requestService"><option value="">Select service...</option></select>
+            </div>
+            <div class="form-group">
+                <label>Notes (Optional)</label>
+                <input type="text" id="requestNotes" placeholder="Any additional notes..." />
+            </div>
+            <button class="btn btn-primary btn-block" onclick="createRequest()">Create Request</button>
+        </div>
+    </div>
+
+    <div class="modal" id="addVehicleModal">
+        <div class="modal-content">
+            <button class="close-btn" onclick="closeAddVehicleModal()">✕</button>
+            <h2>Add Vehicle</h2>
+            <p class="sub">Enter your vehicle details to start tracking.</p>
+            <div class="form-group">
+                <label>Registration Number (Plate)</label>
+                <input type="text" id="vehiclePlate" placeholder="e.g., KCA 123A" />
+            </div>
+            <div class="form-group">
+                <label>Make &amp; Model</label>
+                <input type="text" id="vehicleMake" placeholder="e.g., Toyota Hilux 2022" />
+            </div>
+            <div class="form-group">
+                <label>VIN (Optional)</label>
+                <input type="text" id="vehicleVin" placeholder="e.g., JT1234567890" />
+            </div>
+            <div class="form-group">
+                <label>Year</label>
+                <select id="vehicleYear"><option value="">Select year</option></select>
+            </div>
+            <div class="form-group">
+                <label>Current Mileage (km)</label>
+                <input type="number" id="vehicleMileage" placeholder="e.g., 45000" />
+            </div>
+            <button class="btn btn-primary btn-block" onclick="addVehicle()">Add Vehicle</button>
+        </div>
+    </div>
+
+    <!-- ─── PAYMENT MODAL ─── -->
+    <div class="modal" id="paymentModal">
+        <div class="modal-content">
+            <button class="close-btn" onclick="closePaymentModal()">✕</button>
+            <h2>💳 Pay with M-Pesa</h2>
+            <p class="sub">Complete payment to unlock this service.</p>
+            <div class="payment-summary">
+                <div class="row"><span class="label">Service</span><span class="value" id="paymentServiceName">—</span></div>
+                <div class="row"><span class="label">Amount</span><span class="value" id="paymentAmount">KES 0</span></div>
+                <div class="row total"><span class="label">Total</span><span class="value" id="paymentTotal">KES 0</span></div>
+            </div>
+            <div class="form-group">
+                <label>M-Pesa Phone Number</label>
+                <div class="phone-input" id="phoneInputWrapper">
+                    <input 
+                        type="tel" 
+                        id="mpesaPhone" 
+                        placeholder="0700000000 or 0110000000" 
+                        autocomplete="off"
+                        maxlength="10"
+                        inputmode="numeric"
+                        pattern="[0-9]*"
+                    />
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                    Enter 0700000000 or 0110000000 (10 digits)
+                </div>
+            </div>
+            <button class="btn btn-primary btn-block" onclick="processPayment()" id="payNowBtn">
+                💳 Pay Now
+            </button>
+            <button class="btn btn-outline btn-block" style="margin-top:8px;" onclick="closePaymentModal()">
+                Cancel
+            </button>
+        </div>
+    </div>
+
+    <!-- ─── TOAST ─── -->
+    <div id="toastContainer"></div>
+
+    <script>
+    // ════════════════════════════════════════════════════════════════
+    // AUTO-D KENYA - DASHBOARD (FIXED)
+    // Fixed: Recursive navigateToService loop & toast duplication
+    // ════════════════════════════════════════════════════════════════
+
+    (function() {
+        'use strict';
+
+        // ─── MOCK MODE ──────────────────────────────────────────────
+        // Set to true when backend is down (Render cold start / 503)
+        // This provides mock services so the UI works for testing
+        const MOCK_MODE = true; // ← Set to false when backend is fixed
+
+        // Mock services data - prices from database would normally be here
+        const MOCK_SERVICES = [
+            { id: '1', code: 'mileage', name: 'Mileage Calculator', price: 100, currency: 'KES', icon: '📈', active: true },
+            { id: '2', code: 'valuation', name: 'Instant Vehicle Value', price: 150, currency: 'KES', icon: '💰', active: true },
+            { id: '3', code: 'ownership', name: 'Ownership Cost Report', price: 200, currency: 'KES', icon: '📊', active: true }
+        ];
+
+        // ─── Configuration ──────────────────────────────────────────
+        const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+        
+        const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+
+        // ─── Service Routes ──────────────────────────────────────────
+        const SERVICE_ROUTES = {
+            'mileage': '/mileage.html',
+            'valuation': '/instant-value.html',
+            'ownership': '/ownership-cost.html'
+        };
+
+        const SERVICE_ICONS = {
+            'mileage': '📈',
+            'valuation': '💰',
+            'ownership': '📊'
+        };
+
+        // ─── State ──────────────────────────────────────────────────
+        let currentUser = null;
+        let supabaseClient = null;
+        let dashboardData = null;
+        let selectedService = null;
+        let isProcessingPayment = false;
+        let checkoutRequestId = null;
+        let pendingServiceRedirect = null;
+        let pendingRequestId = null;
+        let pollTimer = null;
+        let isWaitingForPayment = false;
+        let confirmedCheckoutId = null;
+        let unlockInFlightFor = null;
+        let recentlyUnlockedService = null;
+        let servicesFromDB = [];
+        let _isLoading = false;
+        let _lastDashboardLoad = 0;
+        let _apiErrorCount = 0;
+        let _lastApiErrorTime = 0;
+        const DASHBOARD_CACHE_TTL = 30000;
+        const MAX_RETRIES = 3;
+        const RETRY_DELAY = 2000;
+
+        // ─── FIX: Navigation load guard ────────────────────────────
+        let _navigatingToService = false;
+        let _lastToastTime = 0;
+        const TOAST_DEBOUNCE_MS = 3000;
+
+        // ─── DOM Refs ──────────────────────────────────────────────
+        const vehicleGrid = document.getElementById('vehicleGrid');
+        const servicesGrid = document.getElementById('servicesGrid');
+        const requestsList = document.getElementById('requestsList');
+        const paymentsList = document.getElementById('paymentsList');
+        const errorBanner = document.getElementById('serviceErrorBanner');
+        const errorText = document.getElementById('serviceErrorText');
+        const mockModeBadge = document.getElementById('mockModeBadge');
+
+        // ─── Show mock mode badge ──────────────────────────────────
+        if (MOCK_MODE && mockModeBadge) {
+            mockModeBadge.classList.add('show');
+        }
+
+        // ─── FIX: Override fetch for mock mode ──────────────────────
+        if (MOCK_MODE) {
+            const originalFetch = window.fetch;
+            window.fetch = function(url, options) {
+                const urlStr = typeof url === 'string' ? url : url.url || '';
+                console.log('🔧 MOCK: Intercepting:', urlStr);
+                
+                // Mock services endpoint
+                if (urlStr.includes('/services') || urlStr.includes('/mpesa/mpesa/user/services')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () => Promise.resolve({ services: MOCK_SERVICES })
+                    });
+                }
+                
+                // Mock payments endpoint
+                if (urlStr.includes('/payments')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () => Promise.resolve({ payments: [] })
+                    });
+                }
+                
+                // Mock STK push endpoint
+                if (urlStr.includes('/stkpush')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () => Promise.resolve({
+                            checkout_request_id: 'MOCK_' + Date.now(),
+                            success: true,
+                            message: 'STK Push sent (MOCK)'
+                        })
+                    });
+                }
+                
+                // Mock status endpoint
+                if (urlStr.includes('/status/')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () => Promise.resolve({
+                            status: 'completed',
+                            success: true
+                        })
+                    });
+                }
+                
+                // Mock confirm endpoint
+                if (urlStr.includes('/confirm/')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () => Promise.resolve({
+                            success: true,
+                            status: 'completed'
+                        })
+                    });
+                }
+                
+                // Pass through for other URLs (Supabase, etc.)
+                return originalFetch(url, options);
+            };
+            
+            console.log('🔧 MOCK MODE ENABLED - Using mock data');
+            setTimeout(() => {
+                showToast('⚠️ MOCK MODE: Backend is down, using mock data', 'warning');
+            }, 1000);
+        }
+
+        // ─── FIX: Debounced toast to prevent duplication ──────────
+        function showToast(message, type) {
+            type = type || 'info';
+            
+            // Debounce: prevent identical toasts from stacking
+            const now = Date.now();
+            const toastKey = message + type;
+            if (window._lastToastKey === toastKey && (now - _lastToastTime) < TOAST_DEBOUNCE_MS) {
+                return; // Skip duplicate toast
+            }
+            window._lastToastKey = toastKey;
+            _lastToastTime = now;
+            
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+            
+            // Remove existing toasts of the same type to prevent stacking
+            const existingToasts = container.querySelectorAll('.toast');
+            if (existingToasts.length >= 3) {
+                // Remove oldest toast
+                existingToasts[0].remove();
+            }
+            
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
+            toast.innerHTML = icon + ' ' + message;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/[&<>]/g, function(m) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;' } [m];
+            });
+        }
+
+        function updateWorkflowStep(step) {
+            const steps = ['step1', 'step2', 'step3', 'step4', 'step5'];
+            steps.forEach((id, index) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.className = 'workflow-step';
+                if (index + 1 === step) el.classList.add('active');
+                if (index + 1 < step) el.classList.add('done');
+            });
+        }
+
+        function showErrorBanner(show, message) {
+            if (!errorBanner || !errorText) return;
+            if (show) {
+                errorBanner.classList.add('show');
+                if (message) errorText.textContent = message;
+            } else {
+                errorBanner.classList.remove('show');
+            }
+        }
+
+        // ─── Retry Logic ──────────────────────────────────────────
+        async function fetchWithRetry(url, options = {}, maxRetries = MAX_RETRIES) {
+            let lastError;
+            let delay = RETRY_DELAY;
+            
+            // In mock mode, intercept before retry
+            if (MOCK_MODE) {
+                // Let the mock fetch handler take over
+                return window.fetch(url, options);
+            }
+            
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 15000);
+                    
+                    const response = await fetch(url, {
+                        ...options,
+                        signal: controller.signal,
+                        headers: {
+                            'Accept': 'application/json',
+                            ...options.headers
+                        }
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (response.status >= 500 && response.status < 600) {
+                        throw new Error(`Server error: ${response.status}`);
+                    }
+                    
+                    return response;
+                } catch (error) {
+                    lastError = error;
+                    
+                    if (error.status && error.status >= 400 && error.status < 500 && error.status !== 429) {
+                        throw error;
+                    }
+                    
+                    if (attempt < maxRetries - 1) {
+                        console.log(`🔄 Retry ${attempt + 1}/${maxRetries} for ${url} after ${delay}ms`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2;
+                    }
+                }
+            }
+            
+            throw lastError || new Error('All retry attempts failed');
+        }
+
+        // ─── Auth ──────────────────────────────────────────────────
+        async function getAuthToken() {
+            try {
+                if (!supabaseClient) {
+                    if (!initSupabase()) return null;
+                }
+                const { data: { session }, error } = await supabaseClient.auth.getSession();
+                if (error) throw error;
+                if (session?.access_token) {
+                    return session.access_token;
+                }
+                const stored = localStorage.getItem('auto_d_user');
+                if (stored) {
+                    try {
+                        const user = JSON.parse(stored);
+                        if (user?.access_token) return user.access_token;
+                    } catch (e) { /* ignore */ }
+                }
+                return null;
+            } catch (error) {
+                console.warn('⚠️ Auth token error:', error.message);
+                return null;
+            }
+        }
+
+        async function requireAuthToken() {
+            const token = await getAuthToken();
+            if (!token) {
+                showToast('⚠️ Your session has expired. Please log in again.', 'error');
+                return null;
+            }
+            return token;
+        }
+
+        // ─── Supabase ─────────────────────────────────────────────
+        function initSupabase() {
+            try {
+                if (typeof supabase === 'undefined') {
+                    console.warn('⚠️ Supabase SDK not loaded');
+                    return false;
+                }
+                const { createClient } = supabase;
+                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('✅ Supabase client initialized');
+                return true;
+            } catch (error) {
+                console.error('❌ Supabase init error:', error);
+                return false;
+            }
+        }
+
+        // ─── Auth ──────────────────────────────────────────────────
+        async function checkAuth() {
+            try {
+                if (!supabaseClient) {
+                    if (!initSupabase()) {
+                        console.error('❌ Supabase initialization failed');
+                        return false;
+                    }
+                }
+
+                const { data: { session }, error } = await supabaseClient.auth.getSession();
+                
+                if (error) {
+                    console.warn('⚠️ Auth session error:', error.message);
+                    const stored = localStorage.getItem('auto_d_user');
+                    if (stored) {
+                        try {
+                            const user = JSON.parse(stored);
+                            if (user) {
+                                console.log('✅ Using stored user session');
+                                currentUser = user;
+                                updateUserUI();
+                                return true;
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+                    return false;
+                }
+
+                if (session?.user) {
+                    currentUser = session.user;
+                    const userData = {
+                        ...session.user,
+                        access_token: session.access_token
+                    };
+                    localStorage.setItem('auto_d_user', JSON.stringify(userData));
+                    updateUserUI();
+                    return true;
+                }
+
+                const stored = localStorage.getItem('auto_d_user');
+                if (stored) {
+                    try {
+                        const user = JSON.parse(stored);
+                        if (user) {
+                            console.log('✅ Using stored user session');
+                            currentUser = user;
+                            updateUserUI();
+                            return true;
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+
+                return false;
+
+            } catch (error) {
+                console.warn('⚠️ Auth check error:', error.message);
+                try {
+                    const stored = localStorage.getItem('auto_d_user');
+                    if (stored) {
+                        const user = JSON.parse(stored);
+                        if (user) {
+                            console.log('✅ Using stored user session (fallback)');
+                            currentUser = user;
+                            updateUserUI();
+                            return true;
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+                return false;
+            }
+        }
+
+        function updateUserUI() {
+            if (!currentUser) return;
+            const meta = currentUser.user_metadata || {};
+            const name = meta.full_name || meta.first_name || currentUser.email?.split('@')[0] || 'User';
+            const userNameEl = document.getElementById('userName');
+            const userAvatarEl = document.getElementById('userAvatar');
+            const greetingTextEl = document.getElementById('greetingText');
+            if (userNameEl) userNameEl.textContent = name;
+            if (userAvatarEl) userAvatarEl.textContent = name.charAt(0).toUpperCase();
+            if (greetingTextEl) greetingTextEl.textContent = `👋 Welcome back, ${name}!`;
+        }
+
+        // ─── FIX: Navigation with guard to prevent recursive loops ──
+        window.navigateTo = function(section) {
+            showToast(`📂 Navigating to ${section}...`, 'info');
+        };
+
+        window.navigateToService = function(serviceCode) {
+            // FIX: Prevent recursive loops
+            if (_navigatingToService) {
+                console.log('⏳ Navigation already in progress, skipping...');
+                return;
+            }
+            
+            console.log('🔍 navigateToService called with:', serviceCode);
+            
+            // Check if dashboard data is loaded
+            if (!dashboardData || !dashboardData.services || dashboardData.services.length === 0) {
+                console.log('📊 Services not loaded yet, attempting to load...');
+                
+                // Set guard
+                _navigatingToService = true;
+                
+                // Load dashboard and try again
+                loadDashboard(true).then(() => {
+                    _navigatingToService = false;
+                    // Only retry if we actually got services
+                    if (dashboardData && dashboardData.services && dashboardData.services.length > 0) {
+                        setTimeout(() => {
+                            window.navigateToService(serviceCode);
+                        }, 300);
+                    } else {
+                        showToast('⚠️ No services available. Please check your connection.', 'warning');
+                    }
+                }).catch(() => {
+                    _navigatingToService = false;
+                    showToast('⚠️ Failed to load services. Please try again.', 'error');
+                });
+                return;
+            }
+
+            // Find the service
+            const service = dashboardData.services.find(s => s.code === serviceCode);
+            if (!service) {
+                showToast('Service not found', 'error');
+                _navigatingToService = false;
+                return;
+            }
+
+            // Reset guard before navigation
+            _navigatingToService = false;
+
+            const isPurchased = service.purchased || service.status === 'active';
+
+            if (isPurchased) {
+                const route = SERVICE_ROUTES[serviceCode];
+                if (route) {
+                    console.log('🚀 Redirecting to purchased service:', route);
+                    window.location.href = route;
+                } else {
+                    showToast('Service route not found', 'error');
+                }
+            } else {
+                console.log('🔒 Service is locked, opening payment modal for:', service.name);
+                pendingServiceRedirect = serviceCode;
+                selectedService = service;
+                openPaymentModal(service);
+            }
+        };
+
+        window.handleServiceAction = function(serviceCode) {
+            window.navigateToService(serviceCode);
+        };
+
+        window.retryServices = function() {
+            showErrorBanner(false);
+            _navigatingToService = false; // Reset guard
+            loadDashboard(true);
+        };
+
+        // ─── Success Overlay ──────────────────────────────────────
+        window.showSuccessOverlay = function(serviceCode, serviceName) {
+            const overlay = document.getElementById('successOverlay');
+            const message = document.getElementById('successMessage');
+            const openBtn = document.getElementById('openServiceBtn');
+            
+            recentlyUnlockedService = serviceCode;
+            
+            if (message) {
+                message.textContent = `${serviceName || 'Service'} has been unlocked successfully! You can now access it.`;
+            }
+            
+            if (openBtn) {
+                openBtn.onclick = function() {
+                    closeSuccessOverlay();
+                    const route = SERVICE_ROUTES[serviceCode];
+                    if (route) {
+                        window.location.href = route;
+                    } else {
+                        showToast('Service route not found', 'error');
+                    }
+                };
+                openBtn.style.display = 'inline-flex';
+            }
+            
+            if (overlay) {
+                overlay.classList.add('open');
+                fireConfetti();
+            }
+            
+            updateWorkflowStep(5);
+        };
+
+        window.closeSuccessOverlay = function() {
+            const overlay = document.getElementById('successOverlay');
+            if (overlay) {
+                overlay.classList.remove('open');
+            }
+            const confetti = document.getElementById('confettiContainer');
+            if (confetti) {
+                confetti.innerHTML = '';
+            }
+            loadDashboard();
+        };
+
+        window.openPurchasedService = function() {
+            if (recentlyUnlockedService) {
+                const route = SERVICE_ROUTES[recentlyUnlockedService];
+                if (route) {
+                    window.location.href = route;
+                }
+            }
+        };
+
+        function fireConfetti() {
+            const container = document.getElementById('confettiContainer');
+            if (!container) return;
+            container.innerHTML = '';
+            const colors = ['#eab308', '#22c55e', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#f59e0b', '#06b6d4'];
+            for (let i = 0; i < 80; i++) {
+                const piece = document.createElement('div');
+                piece.className = 'confetti-piece';
+                piece.style.left = Math.random() * 100 + '%';
+                piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+                piece.style.width = (Math.random() * 8 + 4) + 'px';
+                piece.style.height = (Math.random() * 8 + 4) + 'px';
+                piece.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                piece.style.animationDelay = (Math.random() * 2) + 's';
+                piece.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+                container.appendChild(piece);
+            }
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+
+        // ─── Load Services from Database ──────────────────────────
+        async function loadServicesFromDB() {
+            // If mock mode is enabled, return mock services immediately
+            if (MOCK_MODE) {
+                console.log('🔧 MOCK: Returning mock services');
+                return MOCK_SERVICES;
+            }
+
+            try {
+                const token = await getAuthToken();
+                const headers = { 'Accept': 'application/json' };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                console.log('📡 Fetching services from:', `${API_BASE}/services`);
+                
+                const response = await fetchWithRetry(`${API_BASE}/services`, { headers });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('📋 Services from DB:', data);
+                
+                _apiErrorCount = 0;
+                showErrorBanner(false);
+                
+                try {
+                    localStorage.setItem('cached_services', JSON.stringify(data));
+                } catch (e) { /* ignore */ }
+
+                const dbServices = (data.services || data || []).map(s => ({
+                    id: s.id,
+                    code: s.code || s.service_type || s.id,
+                    name: s.name || s.service_name || s.code || 'Service',
+                    price: num(s.price || 0),
+                    currency: s.currency || 'KES',
+                    icon: s.icon || SERVICE_ICONS[s.code] || '📦',
+                    active: s.active !== false,
+                    display_order: s.display_order || 0
+                }));
+
+                const activeServices = dbServices.filter(s => s.active !== false && s.price > 0);
+                
+                if (activeServices.length === 0) {
+                    console.warn('⚠️ No active services found');
+                    const cached = localStorage.getItem('cached_services');
+                    if (cached) {
+                        try {
+                            const cachedData = JSON.parse(cached);
+                            const cachedServices = (cachedData.services || cachedData || []).map(s => ({
+                                id: s.id,
+                                code: s.code || s.service_type || s.id,
+                                name: s.name || s.service_name || s.code || 'Service',
+                                price: num(s.price || 0),
+                                currency: s.currency || 'KES',
+                                icon: s.icon || SERVICE_ICONS[s.code] || '📦',
+                                active: s.active !== false
+                            }));
+                            if (cachedServices.length > 0) {
+                                return cachedServices;
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+                    return [];
+                }
+
+                return activeServices;
+
+            } catch (error) {
+                console.error('❌ Error loading services from DB:', error);
+                _apiErrorCount++;
+                _lastApiErrorTime = Date.now();
+                
+                showErrorBanner(true, error.message || 'Unable to connect to services.');
+                
+                try {
+                    const cached = localStorage.getItem('cached_services');
+                    if (cached) {
+                        const cachedData = JSON.parse(cached);
+                        const cachedServices = (cachedData.services || cachedData || []).map(s => ({
+                            id: s.id,
+                            code: s.code || s.service_type || s.id,
+                            name: s.name || s.service_name || s.code || 'Service',
+                            price: num(s.price || 0),
+                            currency: s.currency || 'KES',
+                            icon: s.icon || SERVICE_ICONS[s.code] || '📦',
+                            active: s.active !== false
+                        }));
+                        if (cachedServices.length > 0) {
+                            return cachedServices;
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+                
+                return [];
+            }
+        }
+
+        function num(v, fallback = 0) {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        // ─── Load User Services ──────────────────────────────────
+        async function loadUserServices() {
+            if (MOCK_MODE) {
+                return []; // No purchased services in mock mode
+            }
+
+            try {
+                const token = await getAuthToken();
+                if (!token) return [];
+
+                const response = await fetchWithRetry(`${API_BASE}/mpesa/mpesa/user/services`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!response.ok) {
+                    return [];
+                }
+
+                const data = await response.json();
+                console.log('🔓 User services:', data);
+                return data.services || [];
+            } catch (error) {
+                console.warn('⚠️ Could not fetch user services:', error.message);
+                return [];
+            }
+        }
+
+        // ─── Load Dashboard ──────────────────────────────────────
+        async function loadDashboard(force = false) {
+            const now = Date.now();
+            if (!force && (now - _lastDashboardLoad) < DASHBOARD_CACHE_TTL && dashboardData) {
+                console.log('📊 Using cached dashboard data');
+                return;
+            }
+
+            if (_isLoading) {
+                console.log('📊 Dashboard already loading, skipping...');
+                return;
+            }
+
+            _isLoading = true;
+            
+            try {
+                const dbServices = await loadServicesFromDB();
+                servicesFromDB = dbServices;
+
+                const userServices = await loadUserServices();
+                const purchasedCodes = new Set(userServices.map(s => s.service_id || s.code));
+
+                const services = dbServices.map(s => ({
+                    ...s,
+                    purchased: purchasedCodes.has(s.code) || purchasedCodes.has(s.id),
+                    status: (purchasedCodes.has(s.code) || purchasedCodes.has(s.id)) ? 'active' : 'locked'
+                }));
+
+                console.log('✅ Final services:', services);
+
+                let vehicles = [];
+                try {
+                    if (currentUser && supabaseClient) {
+                        const { data, error } = await supabaseClient
+                            .from('vehicles')
+                            .select('*')
+                            .eq('user_id', currentUser.id)
+                            .order('created_at', { ascending: false });
+                        if (!error) vehicles = data || [];
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch vehicles:', e.message);
+                }
+
+                let payments = [];
+                if (!MOCK_MODE) {
+                    try {
+                        const token = await getAuthToken();
+                        if (token) {
+                            const payResp = await fetchWithRetry(`${API_BASE}/mpesa/mpesa/payments`, {
+                                headers: { 'Authorization': `Bearer ${token}` }
+                            });
+                            if (payResp.ok) {
+                                const payJson = await payResp.json();
+                                payments = payJson.payments || [];
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Could not fetch payments:', e.message);
+                    }
+                }
+
+                let requests = [];
+                try {
+                    if (currentUser && supabaseClient) {
+                        const { data, error } = await supabaseClient
+                            .from('requests')
+                            .select('*')
+                            .eq('user_id', currentUser.id)
+                            .order('created_at', { ascending: false });
+                        if (!error) requests = data || [];
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch requests:', e.message);
+                }
+
+                const pendingRequests = requests ? requests.filter(r => r.status === 'pending' || r.status === 'paid').length : 0;
+                const activeServices = services.filter(s => s.purchased).length;
+
+                dashboardData = {
+                    stats: {
+                        vehicles: vehicles ? vehicles.length : 0,
+                        requests: pendingRequests,
+                        active_services: activeServices,
+                        amount_spent: payments ? payments.reduce((sum, p) => sum + num(p.amount), 0) : 0
+                    },
+                    services: services,
+                    vehicles: vehicles || [],
+                    requests: requests || [],
+                    payments: payments || []
+                };
+
+                _lastDashboardLoad = Date.now();
+                renderDashboard(dashboardData);
+
+                if (services.length === 0 && !MOCK_MODE) {
+                    showToast('⚠️ No services available. Please check your connection.', 'warning');
+                }
+
+            } catch (error) {
+                console.error('❌ Dashboard load error:', error);
+                showToast('Error loading dashboard: ' + error.message, 'error');
+                showErrorBanner(true, error.message || 'Unable to load dashboard data.');
+            } finally {
+                _isLoading = false;
+                _navigatingToService = false;
+            }
+        }
+
+        // ─── Render Functions ────────────────────────────────────
+        function renderDashboard(data) {
+            const stats = data.stats || {};
+            
+            const setText = (id, text) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = text;
+            };
+            
+            setText('statVehicles', stats.vehicles || 0);
+            setText('statRequests', stats.requests || 0);
+            setText('statServices', stats.active_services || 0);
+            setText('statSpent', 'KES ' + num(stats.amount_spent).toLocaleString());
+
+            setText('vehicleBadge', stats.vehicles || 0);
+            setText('reportBadge', 0);
+
+            renderServices(data.services || []);
+            renderVehicles(data.vehicles || []);
+            renderRequests(data.requests || []);
+            renderPayments(data.payments || []);
+            
+            setText('serviceCountLabel', `(${(data.services || []).length})`);
+            setText('vehicleCountLabel', `(${(data.vehicles || []).length})`);
+            setText('requestsCountLabel', `(${(data.requests || []).length})`);
+            setText('paymentsCountLabel', `(${(data.payments || []).length})`);
+        }
+
+        function renderServices(services) {
+            if (!servicesGrid) return;
+            
+            if (!services || services.length === 0) {
+                servicesGrid.innerHTML = `
+                    <div class="empty-state" style="grid-column:1/-1;">
+                        <div class="icon">⚡</div>
+                        <h3>No Services Available</h3>
+                        <p>${MOCK_MODE ? 'Mock mode is enabled. Services are for testing.' : 'Please check your connection or contact support.'}</p>
+                        <button class="btn-sm-primary" onclick="retryServices()">🔄 Retry</button>
+                    </div>
+                `;
+                return;
+            }
+
+            servicesGrid.innerHTML = services.map(s => {
+                const isPurchased = s.purchased || s.status === 'active';
+                const statusClass = isPurchased ? 'active' : 'locked';
+                const statusText = isPurchased ? '✅ Active' : '🔒 Locked';
+                const priceDisplay = num(s.price).toLocaleString();
+                const btnText = isPurchased ? '🚀 Open Service' : `💰 Purchase ${priceDisplay} ${s.currency || 'KES'}`;
+                const btnClass = isPurchased ? 'active' : 'locked';
+
+                return `
+                    <div class="service-card">
+                        ${isPurchased ? '<span class="purchase-badge">✅ Purchased</span>' : ''}
+                        <div class="service-icon">${s.icon || '📦'}</div>
+                        <div class="service-name">${escapeHtml(s.name)}</div>
+                        <div class="service-code">${escapeHtml(s.code || s.id)}</div>
+                        <span class="service-status ${statusClass}">${statusText}</span>
+                        <div class="service-price">
+                            ${isPurchased ? 'Active' : priceDisplay}
+                            <span class="currency">${s.currency || 'KES'}</span>
+                        </div>
+                        <button class="btn-access ${btnClass}" onclick="handleServiceAction('${s.code || s.id}')">
+                            ${btnText}
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderVehicles(vehicles) {
+            if (!vehicleGrid) return;
+            
+            if (!vehicles || vehicles.length === 0) {
+                vehicleGrid.innerHTML = `
+                    <div class="empty-state" style="grid-column:1/-1;">
+                        <div class="icon">🚗</div>
+                        <h3>No Vehicles Added</h3>
+                        <p>Add your first vehicle to start tracking.</p>
+                        <button class="btn-sm-primary" onclick="openAddVehicleModal()">➕ Add Your First Vehicle</button>
+                    </div>
+                `;
+                return;
+            }
+
+            vehicleGrid.innerHTML = vehicles.map(v => `
+                <div class="vehicle-card">
+                    <div class="top">
+                        <span class="plate">${escapeHtml(v.plate || 'N/A')}</span>
+                        <span class="status-badge ${v.verified ? 'completed' : 'pending'}">${v.verified ? '✅ Verified' : '📝 Pending'}</span>
+                    </div>
+                    <div class="make-model">${escapeHtml(v.make_model || 'Unknown Vehicle')}</div>
+                    <div style="font-size:12px;color:var(--text-muted);">${v.year ? `Year: ${v.year}` : ''} ${v.vin ? `· VIN: ${v.vin}` : ''}</div>
+                    <div class="details-grid">
+                        <div class="item">📏 Mileage: <strong>${num(v.mileage).toLocaleString()} km</strong></div>
+                        <div class="item">💰 Value: <strong>KES ${num(v.value).toLocaleString()}</strong></div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn-sm-primary" onclick="viewVehicle('${v.id}')">View</button>
+                        <button class="btn-sm-outline" onclick="openNewRequestModal()">📝 Request</button>
+                        <button class="btn-sm-danger" onclick="deleteVehicle('${v.id}')">🗑️</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderRequests(requests) {
+            if (!requestsList) return;
+            
+            if (!requests || requests.length === 0) {
+                requestsList.innerHTML = `
+                    <div class="empty-state" style="padding:20px;">
+                        <div class="icon">📋</div>
+                        <p>No requests yet. Start by creating a new request.</p>
+                        <button class="btn-sm-primary" onclick="openNewRequestModal()">📝 Create Request</button>
+                    </div>
+                `;
+                return;
+            }
+
+            requestsList.innerHTML = requests.map(r => {
+                const statusMap = {
+                    'pending': { class: 'pending', label: '⏳ Pending Payment' },
+                    'paid': { class: 'completed', label: '✅ Paid - Ready' },
+                    'completed': { class: 'completed', label: '📄 Completed' },
+                    'failed': { class: 'failed', label: '❌ Failed' },
+                    'cancelled': { class: 'failed', label: '🗑️ Cancelled' }
+                };
+                const status = statusMap[r.status] || statusMap['pending'];
+                const serviceName = r.service_name || r.service_id || 'Service';
+
+                let actionsHtml = '';
+                if (r.status === 'pending') {
+                    actionsHtml = `
+                        <button class="btn-sm-warning" onclick="payForRequest('${r.id}')">💳 Pay Now</button>
+                        <button class="btn-sm-outline" onclick="cancelRequest('${r.id}')">Cancel</button>
+                    `;
+                } else if (r.status === 'paid') {
+                    actionsHtml = `
+                        <button class="btn-sm-success" onclick="generateReportForRequest('${r.id}')">📄 Generate Report</button>
+                    `;
+                }
+
+                return `
+                    <div class="list-item">
+                        <div class="info">
+                            <span class="title">#${String(r.id).slice(0, 8)} - ${escapeHtml(serviceName)}</span>
+                            <span class="meta">
+                                <span>🚗 ${escapeHtml(r.vehicle_plate || r.vehicle_id || 'N/A')}</span>
+                                <span>📅 ${new Date(r.created_at).toLocaleDateString()}</span>
+                                <span>💰 KES ${num(r.amount).toLocaleString()}</span>
+                            </span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <span class="status-badge ${status.class}">${status.label}</span>
+                            ${actionsHtml}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderPayments(payments) {
+            if (!paymentsList) return;
+            
+            if (!payments || payments.length === 0) {
+                paymentsList.innerHTML = `
+                    <div class="empty-state" style="padding:20px;">
+                        <div class="icon">💳</div>
+                        <p>No payment history yet.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            paymentsList.innerHTML = payments.slice(0, 10).map(p => `
+                <div class="list-item">
+                    <div class="info">
+                        <span class="title">${escapeHtml(p.service_name || p.service_id || 'Payment')}</span>
+                        <span class="meta">
+                            <span>📅 ${new Date(p.created_at).toLocaleDateString()}</span>
+                            <span>📱 ${escapeHtml(p.phone || '—')}</span>
+                            <span>🔑 ${escapeHtml(p.checkout_request_id || p.transaction_id || '—')}</span>
+                        </span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <span class="amount">KES ${num(p.amount).toLocaleString()}</span>
+                        <span class="status-badge ${p.status || 'completed'}">${p.status === 'pending' ? '⏳ Pending' : '✅ Complete'}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ─── Requests ─────────────────────────────────────────────
+        window.openNewRequestModal = function() {
+            const vehicleSelect = document.getElementById('requestVehicle');
+            if (vehicleSelect) {
+                vehicleSelect.innerHTML = '<option value="">Select vehicle...</option>';
+                if (dashboardData?.vehicles) {
+                    dashboardData.vehicles.forEach(v => {
+                        const opt = document.createElement('option');
+                        opt.value = v.id;
+                        opt.textContent = `${v.plate || 'N/A'} - ${v.make_model || 'Unknown'}`;
+                        vehicleSelect.appendChild(opt);
+                    });
+                }
+            }
+
+            const serviceSelect = document.getElementById('requestService');
+            if (serviceSelect) {
+                serviceSelect.innerHTML = '<option value="">Select service...</option>';
+                if (dashboardData?.services) {
+                    dashboardData.services.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s.code || s.id;
+                        const priceDisplay = num(s.price).toLocaleString();
+                        opt.textContent = `${s.icon || '📦'} ${s.name} (${s.currency || 'KES'} ${priceDisplay})`;
+                        serviceSelect.appendChild(opt);
+                    });
+                }
+            }
+
+            const notesEl = document.getElementById('requestNotes');
+            if (notesEl) notesEl.value = '';
+            
+            const modal = document.getElementById('newRequestModal');
+            if (modal) modal.classList.add('open');
+            
+            updateWorkflowStep(1);
+        };
+
+        window.closeNewRequestModal = function() {
+            const modal = document.getElementById('newRequestModal');
+            if (modal) modal.classList.remove('open');
+        };
+
+        window.createRequest = async function() {
+            const vehicleSelect = document.getElementById('requestVehicle');
+            const serviceSelect = document.getElementById('requestService');
+            const notesEl = document.getElementById('requestNotes');
+
+            const vehicleId = vehicleSelect ? vehicleSelect.value : '';
+            const serviceId = serviceSelect ? serviceSelect.value : '';
+            const notes = notesEl ? notesEl.value.trim() : '';
+
+            if (!vehicleId) {
+                showToast('Please select a vehicle', 'error');
+                return;
+            }
+            if (!serviceId) {
+                showToast('Please select a service', 'error');
+                return;
+            }
+
+            try {
+                const token = await requireAuthToken();
+                if (!token) return;
+
+                const vehicle = dashboardData?.vehicles?.find(v => v.id === vehicleId);
+                const service = dashboardData?.services?.find(s => (s.code || s.id) === serviceId);
+                
+                if (!service) {
+                    showToast('Service not found', 'error');
+                    return;
+                }
+
+                closeNewRequestModal();
+                
+                if (supabaseClient) {
+                    const { data, error } = await supabaseClient
+                        .from('requests')
+                        .insert({
+                            user_id: currentUser.id,
+                            vehicle_id: vehicleId,
+                            vehicle_plate: vehicle?.plate || 'N/A',
+                            service_id: serviceId,
+                            service_name: service.name || serviceId,
+                            amount: num(service.price),
+                            notes: notes,
+                            status: 'pending',
+                            created_at: new Date().toISOString()
+                        })
+                        .select()
+                        .single();
+
+                    if (error) {
+                        console.warn('Could not create request record:', error);
+                        showToast('Failed to create request. Please try again.', 'error');
+                        return;
+                    } else {
+                        console.log('Request created:', data);
+                        pendingRequestId = data?.id || null;
+                        showToast('✅ Request created!', 'success');
+                    }
+                }
+
+                pendingServiceRedirect = serviceId;
+                selectedService = service;
+                openPaymentModal(service);
+                updateWorkflowStep(3);
+
+            } catch (error) {
+                console.error('❌ Create request error:', error);
+                showToast(error.message || 'Failed to create request', 'error');
+            }
+        };
+
+        window.payForRequest = async function(requestId) {
+            try {
+                const token = await requireAuthToken();
+                if (!token) return;
+
+                const request = dashboardData?.requests?.find(r => r.id === requestId);
+                if (!request) {
+                    showToast('Request not found', 'error');
+                    return;
+                }
+
+                const service = dashboardData?.services?.find(s => (s.code || s.id) === request.service_id);
+                if (!service) {
+                    showToast('Service not found', 'error');
+                    return;
+                }
+
+                selectedService = service;
+                pendingServiceRedirect = service.code || service.id;
+                pendingRequestId = requestId;
+                updateWorkflowStep(3);
+                openPaymentModal(service);
+
+            } catch (error) {
+                console.error('❌ Pay for request error:', error);
+                showToast(error.message || 'Failed to process payment', 'error');
+            }
+        };
+
+        window.cancelRequest = async function(requestId) {
+            if (!confirm('Are you sure you want to cancel this request?')) return;
+
+            try {
+                if (!supabaseClient) {
+                    if (!initSupabase()) {
+                        throw new Error('Database not connected');
+                    }
+                }
+
+                const { error } = await supabaseClient
+                    .from('requests')
+                    .update({ status: 'cancelled' })
+                    .eq('id', requestId)
+                    .eq('user_id', currentUser.id);
+
+                if (error) throw error;
+
+                showToast('🗑️ Request cancelled', 'info');
+                await loadDashboard();
+
+            } catch (error) {
+                console.error('❌ Cancel request error:', error);
+                showToast(error.message || 'Failed to cancel request', 'error');
+            }
+        };
+
+        // ─── Payment Functions ────────────────────────────────────
+        window.openPaymentModal = function(service) {
+            console.log('💰 Opening payment modal for:', service.name);
+            selectedService = service;
+            confirmedCheckoutId = null;
+            checkoutRequestId = null;
+            unlockInFlightFor = null;
+
+            const nameEl = document.getElementById('paymentServiceName');
+            const amountEl = document.getElementById('paymentAmount');
+            const totalEl = document.getElementById('paymentTotal');
+            const phoneEl = document.getElementById('mpesaPhone');
+            const phoneWrapper = document.getElementById('phoneInputWrapper');
+            
+            if (nameEl) nameEl.textContent = service.name || 'Service';
+            const priceDisplay = num(service.price).toLocaleString();
+            if (amountEl) amountEl.textContent = `${service.currency || 'KES'} ${priceDisplay}`;
+            if (totalEl) totalEl.textContent = `${service.currency || 'KES'} ${priceDisplay}`;
+            
+            if (phoneEl) {
+                phoneEl.value = '';
+                phoneEl.placeholder = '0700000000 or 0110000000';
+            }
+            if (phoneWrapper) phoneWrapper.classList.remove('error');
+            
+            const modal = document.getElementById('paymentModal');
+            if (modal) modal.classList.add('open');
+            
+            updateWorkflowStep(3);
+        };
+
+        window.closePaymentModal = function(opts) {
+            opts = opts || {};
+            const modal = document.getElementById('paymentModal');
+            if (modal) modal.classList.remove('open');
+            selectedService = null;
+            pendingServiceRedirect = null;
+            pendingRequestId = null;
+            isProcessingPayment = false;
+            isWaitingForPayment = false;
+            if (!opts.keepConfirmed) {
+                confirmedCheckoutId = null;
+            }
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+            const payBtn = document.getElementById('payNowBtn');
+            if (payBtn) {
+                payBtn.disabled = false;
+                payBtn.textContent = '💳 Pay Now';
+            }
+            const overlay = document.getElementById('paymentOverlay');
+            if (overlay) {
+                overlay.classList.remove('open');
+                const spinner = document.getElementById('paymentSpinner');
+                if (spinner) spinner.style.display = 'block';
+            }
+            updateWorkflowStep(3);
+        };
+
+        window.processPayment = async function() {
+            const phoneEl = document.getElementById('mpesaPhone');
+            const payBtn = document.getElementById('payNowBtn');
+            const phoneWrapper = document.getElementById('phoneInputWrapper');
+
+            let rawPhone = phoneEl ? phoneEl.value.trim() : '';
+
+            if (!rawPhone) {
+                showToast('Please enter your M-Pesa phone number', 'error');
+                if (phoneWrapper) phoneWrapper.classList.add('error');
+                if (phoneEl) phoneEl.focus();
+                setTimeout(() => {
+                    if (phoneWrapper) phoneWrapper.classList.remove('error');
+                }, 3000);
+                return;
+            }
+
+            let phone = rawPhone.replace(/\D/g, '');
+            if (phone.startsWith('254')) phone = phone.slice(3);
+            if (phone.startsWith('0')) phone = phone.slice(1);
+
+            if (!/^(7\d{8}|11\d{7})$/.test(phone)) {
+                showToast('Please enter a valid Safaricom number (07X or 011X)', 'error');
+                if (phoneWrapper) phoneWrapper.classList.add('error');
+                setTimeout(() => {
+                    if (phoneWrapper) phoneWrapper.classList.remove('error');
+                }, 3000);
+                return;
+            }
+
+            if (!selectedService) {
+                showToast('No service selected', 'error');
+                return;
+            }
+
+            if (isProcessingPayment) return;
+
+            const token = await requireAuthToken();
+            if (!token) return;
+
+            isProcessingPayment = true;
+            confirmedCheckoutId = null;
+            if (payBtn) {
+                payBtn.disabled = true;
+                payBtn.textContent = '⏳ Processing...';
+            }
+
+            const overlay = document.getElementById('paymentOverlay');
+            const spinner = document.getElementById('paymentSpinner');
+            const statusText = document.getElementById('paymentStatusText');
+            const statusDetail = document.getElementById('paymentStatusDetail');
+
+            if (overlay) {
+                if (spinner) spinner.style.display = 'block';
+                if (statusText) statusText.textContent = 'Initiating M-Pesa payment...';
+                if (statusDetail) statusDetail.textContent = 'Please wait...';
+                overlay.classList.add('open');
+            }
+
+            const requestBody = {
+                phone: phone,
+                service_id: selectedService.code || selectedService.id,
+                description: `Auto-D: ${selectedService.name}`,
+                user_id: currentUser.id,
+                request_id: pendingRequestId || null,
+                amount: num(selectedService.price)
+            };
+
+            try {
+                console.log('📤 Sending payment request:', requestBody);
+                
+                const response = await fetchWithRetry(`${API_BASE}/mpesa/mpesa/stkpush`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+
+                if (response.status === 403) {
+                    const errorMsg = data.detail || data.message || 'Payment service is not available.';
+                    showToast('🔒 ' + errorMsg, 'warning');
+                    if (overlay) {
+                        if (statusText) statusText.textContent = '🔒 Payment Service Unavailable';
+                        if (statusDetail) statusDetail.textContent = 'Please contact support.';
+                        if (spinner) spinner.style.display = 'none';
+                    }
+                    setTimeout(() => {
+                        if (overlay) overlay.classList.remove('open');
+                        closePaymentModal();
+                    }, 3000);
+                    return;
+                }
+
+                if (!response.ok) {
+                    const errorMsg = data.detail || data.error || data.message || 'Payment initiation failed';
+                    showToast('❌ ' + errorMsg, 'error');
+                    if (overlay) {
+                        if (statusText) statusText.textContent = '❌ Payment Failed';
+                        if (statusDetail) statusDetail.textContent = errorMsg;
+                        if (spinner) spinner.style.display = 'none';
+                    }
+                    setTimeout(() => {
+                        if (overlay) overlay.classList.remove('open');
+                        closePaymentModal();
+                    }, 3000);
+                    return;
+                }
+
+                const checkoutId = data.checkout_request_id || data.checkoutRequestID;
+                if (!checkoutId) {
+                    showToast('❌ No checkout ID returned by server', 'error');
+                    if (overlay) overlay.classList.remove('open');
+                    closePaymentModal();
+                    return;
+                }
+                checkoutRequestId = checkoutId;
+                const targetServiceId = pendingServiceRedirect || selectedService.code || selectedService.id;
+
+                if (overlay) {
+                    if (statusText) statusText.textContent = '📱 STK Push Sent!';
+                    if (statusDetail) statusDetail.textContent = 'Please check your phone and enter your M-Pesa PIN.';
+                }
+                showToast('📱 STK Push sent! Check your phone.', 'info');
+
+                isWaitingForPayment = true;
+                const paymentSuccess = await waitForPayment(checkoutId, targetServiceId);
+
+                if (!paymentSuccess) {
+                    if (payBtn) {
+                        payBtn.disabled = false;
+                        payBtn.textContent = '💳 Pay Now';
+                    }
+                    isProcessingPayment = false;
+                    isWaitingForPayment = false;
+                    updateWorkflowStep(3);
+                }
+
+            } catch (error) {
+                console.error('Payment error:', error);
+                if (overlay) {
+                    if (statusText) statusText.textContent = '❌ Payment Error';
+                    if (statusDetail) statusDetail.textContent = error.message || 'Please try again.';
+                    if (spinner) spinner.style.display = 'none';
+                }
+                showToast('❌ Payment error: ' + error.message, 'error');
+                setTimeout(() => {
+                    if (overlay) overlay.classList.remove('open');
+                    closePaymentModal();
+                }, 2000);
+            } finally {
+                isProcessingPayment = false;
+                if (payBtn) {
+                    payBtn.disabled = false;
+                    payBtn.textContent = '💳 Pay Now';
+                }
+            }
+        };
+
+        async function waitForPayment(checkoutId, serviceId, maxAttempts = 120) {
+            const statusText = document.getElementById('paymentStatusText');
+            const statusDetail = document.getElementById('paymentStatusDetail');
+            const spinner = document.getElementById('paymentSpinner');
+
+            let attempts = 0;
+            let isComplete = false;
+            let startTime = Date.now();
+
+            return new Promise((resolve) => {
+                if (pollTimer) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+
+                pollTimer = setInterval(async () => {
+                    if (!isWaitingForPayment || checkoutRequestId !== checkoutId) {
+                        clearInterval(pollTimer);
+                        pollTimer = null;
+                        resolve(false);
+                        return;
+                    }
+
+                    attempts++;
+                    const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
+
+                    try {
+                        if (statusText) {
+                            statusText.textContent = `⏳ Waiting for M-Pesa confirmation... (${elapsedSeconds}s)`;
+                        }
+
+                        const pollToken = await getAuthToken();
+                        const headers = { 'Accept': 'application/json' };
+                        if (pollToken) {
+                            headers['Authorization'] = `Bearer ${pollToken}`;
+                        }
+
+                        const statusResponse = await fetchWithRetry(`${API_BASE}/mpesa/mpesa/status/${encodeURIComponent(checkoutId)}`, {
+                            headers: headers
+                        }, 2);
+
+                        if (!statusResponse.ok) {
+                            if (statusResponse.status === 404 && attempts > 20 && !isComplete) {
+                                if (statusDetail) {
+                                    statusDetail.innerHTML = `
+                                        <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
+                                            <p style="font-size:14px;color:var(--text-secondary);">
+                                                Still waiting for payment confirmation...
+                                            </p>
+                                            <button id="retryPinBtn"
+                                                    style="padding:10px 20px;background:var(--primary);color:#0f172a;border:none;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;width:100%;">
+                                                🔄 I've Entered My PIN
+                                            </button>
+                                        </div>
+                                    `;
+                                    const btn = document.getElementById('retryPinBtn');
+                                    if (btn) btn.addEventListener('click', () => window.retryPaymentConfirmation(checkoutId, serviceId));
+                                }
+                            }
+                            return;
+                        }
+
+                        const statusData = await statusResponse.json();
+                        const normalized = (statusData.status || '').toString().toLowerCase();
+
+                        if (normalized === 'completed' || normalized === 'success' || normalized === 'paid' ||
+                            normalized === 'complete' || statusData.success === true) {
+
+                            isComplete = true;
+                            clearInterval(pollTimer);
+                            pollTimer = null;
+
+                            if (statusText) statusText.innerHTML = '✅ Payment Successful! 🎉';
+                            if (statusDetail) statusDetail.textContent = 'Confirming with server...';
+
+                            showToast('✅ Payment received, confirming...', 'success');
+
+                            const confirmed = await unlockServiceAfterPayment(checkoutId, serviceId);
+                            resolve(confirmed);
+                            return;
+
+                        } else if (normalized === 'failed' || normalized === 'error' || normalized === 'cancelled' ||
+                                   normalized === 'canceled' || normalized === 'timeout') {
+
+                            isComplete = true;
+                            clearInterval(pollTimer);
+                            pollTimer = null;
+
+                            if (statusText) statusText.textContent = '❌ Payment Failed';
+                            if (statusDetail) statusDetail.textContent = statusData.description || statusData.message || 'Please try again.';
+                            if (spinner) spinner.style.display = 'none';
+
+                            showToast('❌ Payment failed: ' + (statusData.description || 'Please try again'), 'error');
+                            resolve(false);
+                            return;
+                        }
+
+                        if (attempts >= maxAttempts) {
+                            isComplete = true;
+                            clearInterval(pollTimer);
+                            pollTimer = null;
+
+                            if (statusText) statusText.textContent = '⏰ Payment Timeout';
+                            if (statusDetail) {
+                                statusDetail.innerHTML = `
+                                    <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
+                                        <p style="font-size:14px;color:var(--text-secondary);">
+                                            Payment confirmation timed out.
+                                        </p>
+                                        <button id="manualConfirmBtn"
+                                                style="padding:12px 24px;background:var(--success);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;width:100%;">
+                                            ✅ I've Completed Payment
+                                        </button>
+                                    </div>
+                                `;
+                                const btn = document.getElementById('manualConfirmBtn');
+                                if (btn) btn.addEventListener('click', () => window.manualConfirmPayment(checkoutId, serviceId));
+                            }
+                            if (spinner) spinner.style.display = 'none';
+
+                            showToast('⏰ Payment confirmation timed out. Please check your M-Pesa.', 'warning');
+                            resolve(false);
+                            return;
+                        }
+
+                    } catch (pollError) {
+                        console.warn('Polling error:', pollError);
+                        if (attempts >= maxAttempts) {
+                            clearInterval(pollTimer);
+                            pollTimer = null;
+                            resolve(false);
+                        }
+                    }
+                }, 2000);
+            });
+        }
+
+        async function unlockServiceAfterPayment(checkoutId, serviceId) {
+            if (unlockInFlightFor === checkoutId) {
+                return confirmedCheckoutId === checkoutId;
+            }
+            if (confirmedCheckoutId === checkoutId) {
+                return true;
+            }
+            unlockInFlightFor = checkoutId;
+
+            try {
+                const token = await getAuthToken();
+                if (!token) {
+                    showToast('⚠️ Authentication error. Please log in again.', 'error');
+                    return false;
+                }
+
+                const response = await fetchWithRetry(`${API_BASE}/mpesa/mpesa/confirm/${encodeURIComponent(checkoutId)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                let data = {};
+                try {
+                    data = await response.json();
+                } catch (e) {
+                    data = {};
+                }
+                console.log('📥 Confirm response:', data);
+
+                const backendConfirmed = response.ok && (data.success === true || data.status === 'completed');
+
+                if (!backendConfirmed) {
+                    showToast('⚠️ Payment could not be confirmed yet. Please wait or contact support.', 'warning');
+                    const overlay = document.getElementById('paymentOverlay');
+                    const statusText = document.getElementById('paymentStatusText');
+                    const statusDetail = document.getElementById('paymentStatusDetail');
+                    const spinner = document.getElementById('paymentSpinner');
+                    if (statusText) statusText.textContent = '⚠️ Not confirmed yet';
+                    if (statusDetail) statusDetail.textContent = data.message || data.detail || 'Please try again in a moment.';
+                    if (spinner) spinner.style.display = 'none';
+                    return false;
+                }
+
+                confirmedCheckoutId = checkoutId;
+
+                if (dashboardData && dashboardData.services) {
+                    const svc = dashboardData.services.find(s => (s.code || s.id) === serviceId);
+                    if (svc) {
+                        svc.purchased = true;
+                        svc.status = 'active';
+                    }
+                }
+                renderServices(dashboardData.services || []);
+
+                const overlay = document.getElementById('paymentOverlay');
+                const statusText = document.getElementById('paymentStatusText');
+                const statusDetail = document.getElementById('paymentStatusDetail');
+                const spinner = document.getElementById('paymentSpinner');
+
+                if (overlay) {
+                    if (spinner) spinner.style.display = 'none';
+                    if (statusText) statusText.innerHTML = '✅ Payment Successful! 🎉';
+                    if (statusDetail) statusDetail.textContent = 'Service unlocked!';
+                }
+
+                showToast(`✅ ${selectedService?.name || 'Service'} unlocked successfully!`, 'success');
+                updateWorkflowStep(5);
+                isWaitingForPayment = false;
+
+                const serviceName = selectedService?.name || serviceId;
+                showSuccessOverlay(serviceId, serviceName);
+
+                setTimeout(() => {
+                    if (overlay) overlay.classList.remove('open');
+                    closePaymentModal({ keepConfirmed: true });
+                }, 500);
+
+                return true;
+
+            } catch (error) {
+                console.error('Unlock error:', error);
+                showToast('❌ Error confirming payment: ' + error.message, 'error');
+                return false;
+            } finally {
+                if (unlockInFlightFor === checkoutId) {
+                    unlockInFlightFor = null;
+                }
+            }
+        }
+
+        window.manualConfirmPayment = async function(checkoutId, serviceId) {
+            const statusText = document.getElementById('paymentStatusText');
+            const statusDetail = document.getElementById('paymentStatusDetail');
+            const spinner = document.getElementById('paymentSpinner');
+
+            if (statusText) statusText.textContent = '⏳ Confirming payment...';
+            if (statusDetail) statusDetail.textContent = 'Please wait...';
+            if (spinner) spinner.style.display = 'block';
+
+            await unlockServiceAfterPayment(checkoutId, serviceId);
+        };
+
+        window.retryPaymentConfirmation = async function(checkoutId, serviceId) {
+            const statusText = document.getElementById('paymentStatusText');
+            const statusDetail = document.getElementById('paymentStatusDetail');
+            const spinner = document.getElementById('paymentSpinner');
+
+            if (statusText) statusText.textContent = '⏳ Retrying confirmation...';
+            if (statusDetail) statusDetail.textContent = 'Checking payment status...';
+            if (spinner) spinner.style.display = 'block';
+
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+
+            isWaitingForPayment = true;
+            const result = await waitForPayment(checkoutId, serviceId, 20);
+            if (!result) {
+                if (statusText) statusText.textContent = '⏳ Still waiting...';
+                if (statusDetail) {
+                    statusDetail.innerHTML = `
+                        <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
+                            <p style="font-size:14px;color:var(--text-secondary);">
+                                Still waiting for confirmation.
+                            </p>
+                            <button id="manualConfirmBtn2"
+                                    style="padding:12px 24px;background:var(--success);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;width:100%;">
+                                ✅ I've Completed Payment
+                            </button>
+                        </div>
+                    `;
+                    const btn = document.getElementById('manualConfirmBtn2');
+                    if (btn) btn.addEventListener('click', () => window.manualConfirmPayment(checkoutId, serviceId));
+                }
+                if (spinner) spinner.style.display = 'none';
+            }
+        };
+
+        // ─── Vehicles ─────────────────────────────────────────────
+        window.openAddVehicleModal = function() {
+            const yearSelect = document.getElementById('vehicleYear');
+            if (yearSelect) {
+                const currentYear = new Date().getFullYear();
+                yearSelect.innerHTML = '<option value="">Select year</option>';
+                for (let y = currentYear; y >= 1980; y--) {
+                    yearSelect.innerHTML += `<option value="${y}">${y}</option>`;
+                }
+            }
+            
+            ['vehiclePlate', 'vehicleMake', 'vehicleVin', 'vehicleMileage'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            if (yearSelect) yearSelect.value = '';
+            
+            const modal = document.getElementById('addVehicleModal');
+            if (modal) modal.classList.add('open');
+        };
+
+        window.closeAddVehicleModal = function() {
+            const modal = document.getElementById('addVehicleModal');
+            if (modal) modal.classList.remove('open');
+        };
+
+        window.addVehicle = async function() {
+            const plate = document.getElementById('vehiclePlate');
+            const make = document.getElementById('vehicleMake');
+            const vin = document.getElementById('vehicleVin');
+            const year = document.getElementById('vehicleYear');
+            const mileage = document.getElementById('vehicleMileage');
+
+            const plateVal = plate ? plate.value.trim() : '';
+            const makeVal = make ? make.value.trim() : '';
+
+            if (!plateVal || !makeVal) {
+                showToast('Please enter plate number and make/model', 'error');
+                return;
+            }
+
+            try {
+                if (!supabaseClient) initSupabase();
+
+                const { data, error } = await supabaseClient
+                    .from('vehicles')
+                    .insert({
+                        user_id: currentUser.id,
+                        plate: plateVal.toUpperCase(),
+                        make_model: makeVal,
+                        vin: vin?.value.trim() || null,
+                        year: year?.value || null,
+                        mileage: parseInt(mileage?.value) || 0,
+                        created_at: new Date().toISOString()
+                    })
+                    .select()
+                    .single();
+
+                if (error) throw error;
+
+                showToast('✅ Vehicle added successfully!', 'success');
+                closeAddVehicleModal();
+                await loadDashboard(true);
+
+            } catch (error) {
+                console.error('Add vehicle error:', error);
+                showToast(error.message || 'Failed to add vehicle', 'error');
+            }
+        };
+
+        window.deleteVehicle = async function(id) {
+            if (!confirm('Are you sure you want to delete this vehicle?')) return;
+
+            try {
+                if (!supabaseClient) initSupabase();
+
+                const { error } = await supabaseClient
+                    .from('vehicles')
+                    .delete()
+                    .eq('id', id)
+                    .eq('user_id', currentUser.id);
+
+                if (error) throw error;
+
+                showToast('🗑️ Vehicle deleted', 'info');
+                await loadDashboard(true);
+
+            } catch (error) {
+                console.error('Delete vehicle error:', error);
+                showToast(error.message || 'Failed to delete vehicle', 'error');
+            }
+        };
+
+        // ─── Stub Functions ──────────────────────────────────────
+        window.viewVehicle = function(id) { showToast(`📊 Viewing vehicle ${id}`, 'info'); };
+        window.viewReport = function(id) { showToast(`📄 Viewing report ${id}`, 'info'); };
+        window.generateReport = function() { showToast('📄 Use the Valuation, Mileage, or Ownership services.', 'info'); };
+        window.generateReportForRequest = function(id) { showToast(`📄 Generating report for request ${id}`, 'info'); };
+
+        // ─── Sidebar & Logout ──────────────────────────────────
+        window.toggleSidebar = function() {
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) sidebar.classList.toggle('open');
+        };
+
+        window.handleLogout = async function() {
+            try {
+                try {
+                    const token = await getAuthToken();
+                    if (token) {
+                        await fetch(`${API_BASE}/auth/logout`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Backend logout call failed:', e.message);
+                }
+
+                if (supabaseClient) await supabaseClient.auth.signOut();
+                localStorage.removeItem('auto_d_user');
+                window.location.href = 'https://auto-d.meipressgroup.com/';
+            } catch (error) {
+                window.location.href = 'https://auto-d.meipressgroup.com/';
+            }
+        };
+
+        // ─── Close modals on outside click ───
+        document.addEventListener('click', function(e) {
+            const modals = ['addVehicleModal', 'paymentModal', 'newRequestModal'];
+            modals.forEach(id => {
+                const modal = document.getElementById(id);
+                if (modal && e.target === modal) {
+                    const closeFn = id === 'addVehicleModal' ? closeAddVehicleModal : 
+                                   id === 'paymentModal' ? closePaymentModal : 
+                                   closeNewRequestModal;
+                    if (typeof closeFn === 'function') closeFn();
+                }
+            });
+        });
+
+        // ─── Phone input validation ───
+        document.addEventListener('DOMContentLoaded', function() {
+            const phoneInput = document.getElementById('mpesaPhone');
+            if (phoneInput) {
+                phoneInput.addEventListener('input', function() {
+                    let cleaned = this.value.replace(/\D/g, '');
+                    if (cleaned.length > 10) cleaned = cleaned.substring(0, 10);
+                    if (this.value !== cleaned) this.value = cleaned;
+                });
+            }
+        });
+
+        // ─── Init ────────────────────────────────────────────────
+        (async function() {
+            console.log('🚗 Auto-D Kenya Dashboard (FIXED)');
+            console.log('🔗 API Base:', API_BASE);
+            console.log('🔧 Mock Mode:', MOCK_MODE ? 'ENABLED' : 'DISABLED');
+            console.log('✅ Fixed: navigateToService recursive loop');
+            console.log('✅ Fixed: Toast duplication');
+            console.log('✅ All prices from database (no hardcoded values)');
+
+            initSupabase();
+
+            const isAuthenticated = await checkAuth();
+
+            if (!isAuthenticated) {
+                console.log('🔓 Not authenticated, redirecting to landing page');
+                showToast('Please sign in to access your dashboard', 'warning');
+                setTimeout(() => {
+                    window.location.href = 'https://auto-d.meipressgroup.com/';
+                }, 1500);
+                return;
+            }
+
+            console.log('✅ Authenticated, loading dashboard...');
+            await loadDashboard(true);
+            updateWorkflowStep(1);
+
+            if (supabaseClient) {
+                supabaseClient.auth.onAuthStateChange((event, session) => {
+                    if (event === 'SIGNED_OUT') {
+                        console.log('🔓 User signed out, redirecting to landing page');
+                        window.location.href = 'https://auto-d.meipressgroup.com/';
+                    } else if (event === 'SIGNED_IN' && session?.user) {
+                        console.log('🔐 User signed in, reloading dashboard');
+                        currentUser = session.user;
+                        localStorage.setItem('auto_d_user', JSON.stringify({
+                            ...session.user,
+                            access_token: session.access_token
+                        }));
+                        updateUserUI();
+                        loadDashboard(true);
+                    }
+                });
+            }
+
+            // ─── Keep-alive ping ────────────────────────────────────
+            setInterval(async () => {
+                if (!MOCK_MODE) {
+                    try {
+                        const token = await getAuthToken();
+                        if (token) {
+                            await fetch(`${API_BASE}/mpesa/mpesa/user/services`, {
+                                headers: { 'Authorization': `Bearer ${token}` }
+                            });
+                        }
+                    } catch (e) {
+                        // Silently fail - keep-alive pings are best effort
+                    }
+                }
+            }, 60000);
+
+            // ─── Periodic auth check ───────────────────────────────
+            setInterval(async () => {
+                const wasAuthenticated = isAuthenticated;
+                const isNowAuthenticated = await checkAuth();
+                if (wasAuthenticated && !isNowAuthenticated) {
+                    console.log('🔓 Session expired, redirecting to landing page');
+                    window.location.href = 'https://auto-d.meipressgroup.com/';
+                }
+            }, 30000);
+
+        })();
+
+    })();
+    </script>
+
 </body>
 </html>
