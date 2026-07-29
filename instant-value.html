@@ -153,41 +153,6 @@
         .calculator-panel::-webkit-scrollbar-track { background: transparent; }
         .calculator-panel::-webkit-scrollbar-thumb { background: #eab308; border-radius: 10px; }
 
-        .lock-overlay {
-            display: none;
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(10, 12, 21, 0.92);
-            border-radius: 12px;
-            z-index: 50;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 40px 30px;
-            text-align: center;
-            backdrop-filter: blur(8px);
-        }
-        .lock-overlay.show { display: flex; }
-        .lock-overlay .lock-icon { font-size: 56px; margin-bottom: 16px; color: #eab308; }
-        .lock-overlay h3 { font-family: 'Space Grotesk', sans-serif; font-size: 22px; color: #f8fafc; margin-bottom: 8px; }
-        .lock-overlay p { color: #94a3b8; font-size: 14px; max-width: 360px; line-height: 1.6; margin-bottom: 20px; }
-        .lock-overlay .unlock-btn {
-            background: linear-gradient(135deg, #eab308, #ca8a04);
-            color: #0a0c10;
-            border: none;
-            padding: 12px 40px;
-            border-radius: 8px;
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 15px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .lock-overlay .unlock-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(234, 179, 8, 0.3); }
-
         .auth-section {
             background: rgba(255,255,255,0.03);
             border: 1px solid var(--border);
@@ -937,15 +902,12 @@
             .image-upload-grid { grid-template-columns: repeat(2, 1fr); }
             .action-bar { flex-direction: column; }
             .action-btn { justify-content: center; }
-            .lock-overlay { padding: 20px; }
-            .lock-overlay .lock-icon { font-size: 40px; }
-            .lock-overlay h3 { font-size: 18px; }
             .result-card .vehicle-specs { grid-template-columns: 1fr; }
             .result-details { grid-template-columns: 1fr; }
         }
 
         @media print {
-            .calculator-panel, .action-bar, .report-footer, .lock-overlay, .auth-section, .image-upload-section, .loading-steps { display: none !important; }
+            .calculator-panel, .action-bar, .report-footer, .auth-section, .image-upload-section, .loading-steps { display: none !important; }
             .result-box { display: block !important; }
             .result-card { background: #fff !important; border-color: #ddd !important; }
             .result-card .card-title { color: #b8860b !important; }
@@ -996,12 +958,7 @@
 
             <section class="calculator-panel" aria-label="Vehicle valuation calculator">
 
-                <div class="lock-overlay show" id="lockOverlay">
-                    <div class="lock-icon">🔒</div>
-                    <h3 id="lockTitle">Sign In Required</h3>
-                    <p id="lockMessage">Please sign in to access the AI-powered instant vehicle valuation tool.</p>
-                    <button class="unlock-btn" id="unlockBtn">🔑 Sign In</button>
-                </div>
+                <!-- LOCK OVERLAY REMOVED - Authentication handled via service access check -->
 
                 <div class="panel-label"><span class="num">🔐</span> Authentication</div>
                 <div class="auth-section">
@@ -1284,7 +1241,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> AI Valuation · Real-time Market Data<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.2
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.3
             </div>
         </footer>
     </div>
@@ -1292,7 +1249,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK (FIXED)
-        // Version 4.3 - Fixed endpoint alignment & auth flow
+        // Version 4.3 - Lock overlay removed, auth handled via service access
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1368,10 +1325,7 @@
                 btnLogin: document.getElementById('btnLogin'),
                 btnSignup: document.getElementById('btnSignup'),
                 btnCancelAuth: document.getElementById('btnCancelAuth'),
-                lockOverlay: document.getElementById('lockOverlay'),
-                unlockBtn: document.getElementById('unlockBtn'),
-                lockTitle: document.getElementById('lockTitle'),
-                lockMessage: document.getElementById('lockMessage'),
+                // lockOverlay removed
                 loadingSteps: document.getElementById('loadingSteps'),
                 lastUpdated: document.getElementById('lastUpdated'),
                 serviceStatus: document.getElementById('serviceStatus'),
@@ -1490,10 +1444,6 @@
             }
 
             // ─── API HELPERS ──────────────────────────────────────────
-            // NOTE: Every M-Pesa endpoint in the live API sits under a doubled
-            // "/mpesa/mpesa/..." path (see the OpenAPI schema — the router is
-            // mounted twice: once for the module prefix, once for the tag).
-            // All calls below build on that so this file matches dashboard.html.
             async function apiRequest(endpoint, options = {}) {
                 const url = `${CONFIG.API_BASE}${endpoint}`;
                 const token = getAccessToken();
@@ -1515,10 +1465,6 @@
                 });
                 
                 if (response.status === 401) {
-                    // There is no /auth/refresh or /auth/verify endpoint on the API.
-                    // Supabase's client already auto-refreshes the session (see
-                    // initSupabase below), so just re-pull the current session and
-                    // retry once with whatever token it has.
                     try {
                         const { data, error } = await supabaseClient.auth.getSession();
                         if (!error && data.session) {
@@ -1534,7 +1480,6 @@
                     clearTokens();
                     isAuthenticated = false;
                     updateAuthUI();
-                    updateLockState();
                     showToast('Session expired. Please sign in again.', 'warning');
                     throw new Error('Authentication required');
                 }
@@ -1574,7 +1519,6 @@
                     setTokens(data.session);
                     
                     updateAuthUI();
-                    updateLockState();
                     await checkServiceAccess();
                     
                     showToast('✅ Signed in successfully!', 'success');
@@ -1609,7 +1553,6 @@
                     serviceAccess = null;
                     isUnlocked = false;
                     updateAuthUI();
-                    updateLockState();
                     showToast('🔓 Signed out', 'info');
                     return true;
                 } catch (error) {
@@ -1618,10 +1561,6 @@
                 }
             }
 
-            // checkAuth relies solely on the Supabase session (persisted in
-            // localStorage by the SDK itself and shared with dashboard.html,
-            // since both pages use the default Supabase storage key). There is
-            // no backend /auth/verify endpoint, so we no longer call it.
             async function checkAuth() {
                 try {
                     const { data, error } = await supabaseClient.auth.getSession();
@@ -1638,7 +1577,6 @@
                     }
 
                     updateAuthUI();
-                    updateLockState();
                     if (isAuthenticated) {
                         await checkServiceAccess();
                     }
@@ -1649,7 +1587,6 @@
                     isAuthenticated = false;
                     clearTokens();
                     updateAuthUI();
-                    updateLockState();
                     return false;
                 }
             }
@@ -1672,27 +1609,21 @@
                     const data = await response.json();
                     serviceAccess = data;
                     
-                    // The user-services endpoint returns entries keyed by
-                    // service_id (matching dashboard.html's handling of the
-                    // same payload) — presence in the list means unlocked.
                     const valuationService = (data.services || []).find(s => s.service_id === 'valuation');
                     isUnlocked = !!valuationService;
                     
                     updateServiceUI();
-                    updateLockState();
                     return isUnlocked;
                 } catch (error) {
                     console.warn('⚠️ Service check failed:', error.message);
                     serviceAccess = null;
                     isUnlocked = false;
                     updateServiceUI();
-                    updateLockState();
                     return false;
                 }
             }
 
             // ─── PURCHASE / PAYMENT FLOW ──────────────────────────────
-            // Mirrors dashboard.html's flow: STK push -> poll status -> confirm.
             async function purchaseValuation() {
                 if (!isAuthenticated) {
                     showToast('⚠️ Please sign in first', 'warning');
@@ -1702,7 +1633,7 @@
                 let phone = null;
                 while (phone === null) {
                     const raw = prompt('Enter M-Pesa phone number (e.g., 0712345678):');
-                    if (raw === null) return false; // user cancelled
+                    if (raw === null) return false;
                     const normalized = normalizePhone(raw);
                     if (isValidSafaricomPhone(normalized)) {
                         phone = normalized;
@@ -1792,7 +1723,6 @@
                     if (confirmed) {
                         showToast('✅ Payment confirmed! Valuation unlocked.', 'success');
                         await checkServiceAccess();
-                        updateLockState();
                         return true;
                     }
 
@@ -1840,45 +1770,6 @@
                     el.authMessage.textContent = 'Sign in to access the valuation tool';
                     el.btnSignIn.style.display = 'inline-block';
                     el.btnSignOut.style.display = 'none';
-                }
-            }
-
-            // ─── UPDATE LOCK STATE ────────────────────────────────────
-            function updateLockState() {
-                const shouldLock = !isAuthenticated || !isUnlocked;
-                
-                if (shouldLock) {
-                    el.lockOverlay.classList.add('show');
-                    if (!isAuthenticated) {
-                        el.lockTitle.textContent = '🔒 Sign In Required';
-                        el.lockMessage.textContent = 'Please sign in to access the AI-powered instant vehicle valuation tool.';
-                        el.unlockBtn.textContent = '🔑 Sign In';
-                    } else if (!isUnlocked) {
-                        el.lockTitle.textContent = '💳 Service Locked';
-                        el.lockMessage.textContent = 'Purchase the Vehicle Valuation service to unlock this tool.';
-                        el.unlockBtn.textContent = '💳 Purchase Valuation (KES 500)';
-                    }
-                    
-                    document.querySelectorAll('.calculator-panel select, .calculator-panel input, .calc-btn').forEach(el => {
-                        if (el.id !== 'categorySelect' && el.id !== 'makeSelect' && el.id !== 'modelSelect' && 
-                            el.id !== 'generationSelect' && el.id !== 'variantSelect') {
-                            el.disabled = true;
-                        }
-                    });
-                    el.valuateBtn.disabled = true;
-                } else {
-                    el.lockOverlay.classList.remove('show');
-                    document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach(el => {
-                        if (el.id !== 'categorySelect' && el.id !== 'makeSelect' && el.id !== 'modelSelect' && 
-                            el.id !== 'generationSelect' && el.id !== 'variantSelect') {
-                            el.disabled = false;
-                        }
-                    });
-                    if (el.categorySelect.value) el.makeSelect.disabled = false;
-                    if (el.makeSelect.value) el.modelSelect.disabled = false;
-                    if (el.modelSelect.value) el.generationSelect.disabled = false;
-                    if (el.generationSelect.value) el.variantSelect.disabled = false;
-                    if (el.variantSelect.value && isUnlocked) el.valuateBtn.disabled = false;
                 }
             }
 
@@ -2691,13 +2582,7 @@
 
             // ─── EVENT LISTENERS ─────────────────────────────────────────
             function initEventListeners() {
-                el.unlockBtn.addEventListener('click', function() {
-                    if (!isAuthenticated) {
-                        el.btnSignIn.click();
-                    } else if (!isUnlocked) {
-                        purchaseValuation();
-                    }
-                });
+                // Removed lock overlay event listeners
 
                 el.btnPurchase.addEventListener('click', purchaseValuation);
 
@@ -2825,7 +2710,7 @@
                     const wasAuthenticated = isAuthenticated;
                     await checkAuth();
                     if (wasAuthenticated !== isAuthenticated) {
-                        updateLockState();
+                        // Update UI
                     }
                 }, 30000);
             }
@@ -2855,8 +2740,6 @@
                     el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
                         year: 'numeric', month: 'short', day: 'numeric'
                     });
-
-                    updateLockState();
 
                     console.log('✅ Auto-D Kenya Instant Value Check initialized');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
