@@ -879,20 +879,6 @@
         }
         .service-error-banner .btn-retry:hover { background: var(--primary-hover); }
 
-        .mock-mode-badge {
-            display: none;
-            background: rgba(234, 179, 8, 0.15);
-            border: 1px solid var(--primary);
-            color: var(--primary);
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 10px;
-            font-weight: 600;
-            font-family: monospace;
-            letter-spacing: 0.05em;
-        }
-        .mock-mode-badge.show { display: inline-block; }
-
         @media (max-width: 768px) {
             .stats-grid { grid-template-columns: 1fr 1fr; }
             .vehicle-grid { grid-template-columns: 1fr; }
@@ -969,7 +955,6 @@
                 <div class="sub" id="greetingSub">Here's what's happening with your vehicles</div>
             </div>
             <div class="actions">
-                <span class="mock-mode-badge" id="mockModeBadge">⚠️ MOCK MODE</span>
                 <button class="btn-sm-primary" onclick="openAddVehicleModal()">➕ Add Vehicle</button>
                 <div class="user-badge" onclick="navigateTo('profile')">
                     <span class="avatar" id="userAvatar">A</span>
@@ -984,7 +969,7 @@
             <span class="icon">🔌</span>
             <div class="content">
                 <h4>Service Connection Issue</h4>
-                <p id="serviceErrorText">Some services may be temporarily unavailable. Using cached data where possible.</p>
+                <p id="serviceErrorText">Unable to connect to the backend. Please check your connection.</p>
             </div>
             <button class="btn-retry" onclick="retryServices()">🔄 Retry</button>
         </div>
@@ -1196,8 +1181,8 @@
     <script>
     // ════════════════════════════════════════════════════════════════
     // AUTO-D KENYA - PRODUCTION DASHBOARD
+    // NO MOCK DATA - Full backend and Supabase integration
     // Corrected endpoints based on OpenAPI spec
-    // Removed duplicate /mpesa/mpesa/ -> /mpesa/
     // ════════════════════════════════════════════════════════════════
 
     (function() {
@@ -1279,14 +1264,6 @@
             LIVE: `${API_BASE}/live`
         };
 
-        // ─── MOCK MODE (for testing when backend is down) ──────────
-        const MOCK_MODE = true; // Set to false for production
-        const MOCK_SERVICES = [
-            { id: '1', code: 'mileage', name: 'Mileage Calculator', price: 100, currency: 'KES', icon: '📈', active: true },
-            { id: '2', code: 'valuation', name: 'Instant Vehicle Value', price: 150, currency: 'KES', icon: '💰', active: true },
-            { id: '3', code: 'ownership', name: 'Ownership Cost Report', price: 200, currency: 'KES', icon: '📊', active: true }
-        ];
-
         // ─── Supabase Config ──────────────────────────────────────
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
@@ -1337,86 +1314,6 @@
         const paymentsList = document.getElementById('paymentsList');
         const errorBanner = document.getElementById('serviceErrorBanner');
         const errorText = document.getElementById('serviceErrorText');
-        const mockModeBadge = document.getElementById('mockModeBadge');
-
-        // ─── Show mock mode badge ──────────────────────────────
-        if (MOCK_MODE && mockModeBadge) {
-            mockModeBadge.classList.add('show');
-        }
-
-        // ─── Override fetch for mock mode ──────────────────────
-        if (MOCK_MODE) {
-            const originalFetch = window.fetch;
-            window.fetch = function(url, options) {
-                const urlStr = typeof url === 'string' ? url : url.url || '';
-                console.log('🔧 MOCK: Intercepting:', urlStr);
-                
-                if (urlStr.includes('/services') && !urlStr.includes('/user/services')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: () => Promise.resolve({ services: MOCK_SERVICES })
-                    });
-                }
-                
-                if (urlStr.includes('/mpesa/user/services')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: () => Promise.resolve({ services: [] })
-                    });
-                }
-                
-                if (urlStr.includes('/mpesa/payments')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: () => Promise.resolve({ payments: [] })
-                    });
-                }
-                
-                if (urlStr.includes('/mpesa/stkpush')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: () => Promise.resolve({
-                            checkout_request_id: 'MOCK_' + Date.now(),
-                            success: true,
-                            message: 'STK Push sent (MOCK)'
-                        })
-                    });
-                }
-                
-                if (urlStr.includes('/mpesa/status/')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: () => Promise.resolve({
-                            status: 'completed',
-                            success: true
-                        })
-                    });
-                }
-                
-                if (urlStr.includes('/mpesa/confirm/')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: () => Promise.resolve({
-                            success: true,
-                            status: 'completed'
-                        })
-                    });
-                }
-                
-                return originalFetch(url, options);
-            };
-            
-            console.log('🔧 MOCK MODE ENABLED');
-            setTimeout(() => {
-                showToast('⚠️ MOCK MODE: Using mock data', 'warning');
-            }, 1000);
-        }
 
         // ─── Debounced Toast ────────────────────────────────────
         function showToast(message, type) {
@@ -1485,10 +1382,6 @@
 
         // ─── Retry Logic ──────────────────────────────────────────
         async function fetchWithRetry(url, options = {}, maxRetries = MAX_RETRIES) {
-            if (MOCK_MODE) {
-                return window.fetch(url, options);
-            }
-            
             let lastError;
             let delay = RETRY_DELAY;
             
@@ -1539,7 +1432,13 @@
                     return false;
                 }
                 const { createClient } = supabase;
-                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                    auth: {
+                        persistSession: true,
+                        autoRefreshToken: true,
+                        detectSessionInUrl: true
+                    }
+                });
                 console.log('✅ Supabase client initialized');
                 return true;
             } catch (error) {
@@ -1800,13 +1699,8 @@
             }, 5000);
         }
 
-        // ─── Load Services from Database ──────────────────────────
+        // ─── Load Services from Backend ──────────────────────────
         async function loadServicesFromDB() {
-            if (MOCK_MODE) {
-                console.log('🔧 MOCK: Returning mock services');
-                return MOCK_SERVICES;
-            }
-
             try {
                 const token = await getAuthToken();
                 const headers = { 'Accept': 'application/json' };
@@ -1828,6 +1722,7 @@
                 _apiErrorCount = 0;
                 showErrorBanner(false);
                 
+                // Cache the response
                 try {
                     localStorage.setItem('cached_services', JSON.stringify(data));
                 } catch (e) { /* ignore */ }
@@ -1847,6 +1742,7 @@
                 
                 if (activeServices.length === 0) {
                     console.warn('⚠️ No active services found');
+                    // Try cached data as fallback
                     const cached = localStorage.getItem('cached_services');
                     if (cached) {
                         try {
@@ -1861,6 +1757,7 @@
                                 active: s.active !== false
                             }));
                             if (cachedServices.length > 0) {
+                                showToast('⚠️ Using cached services data', 'warning');
                                 return cachedServices;
                             }
                         } catch (e) { /* ignore */ }
@@ -1877,6 +1774,7 @@
                 
                 showErrorBanner(true, error.message || 'Unable to connect to services.');
                 
+                // Try cached data as fallback
                 try {
                     const cached = localStorage.getItem('cached_services');
                     if (cached) {
@@ -1891,6 +1789,7 @@
                             active: s.active !== false
                         }));
                         if (cachedServices.length > 0) {
+                            showToast('⚠️ Using cached services data', 'warning');
                             return cachedServices;
                         }
                     }
@@ -1900,12 +1799,8 @@
             }
         }
 
-        // ─── Load User Services ──────────────────────────────────
+        // ─── Load User Services (purchased) ──────────────────────
         async function loadUserServices() {
-            if (MOCK_MODE) {
-                return [];
-            }
-
             try {
                 const token = await getAuthToken();
                 if (!token) return [];
@@ -1943,12 +1838,15 @@
             _isLoading = true;
             
             try {
+                // 1. Load services from backend
                 const dbServices = await loadServicesFromDB();
                 servicesFromDB = dbServices;
 
+                // 2. Load user's purchased services
                 const userServices = await loadUserServices();
                 const purchasedCodes = new Set(userServices.map(s => s.service_id || s.code));
 
+                // 3. Merge: mark services as purchased
                 const services = dbServices.map(s => ({
                     ...s,
                     purchased: purchasedCodes.has(s.code) || purchasedCodes.has(s.id),
@@ -1957,6 +1855,7 @@
 
                 console.log('✅ Final services:', services);
 
+                // 4. Load vehicles from Supabase
                 let vehicles = [];
                 try {
                     if (currentUser && supabaseClient) {
@@ -1971,24 +1870,24 @@
                     console.warn('Could not fetch vehicles:', e.message);
                 }
 
+                // 5. Load payments from backend
                 let payments = [];
-                if (!MOCK_MODE) {
-                    try {
-                        const token = await getAuthToken();
-                        if (token) {
-                            const payResp = await fetchWithRetry(ENDPOINTS.MPESA_PAYMENTS, {
-                                headers: { 'Authorization': `Bearer ${token}` }
-                            });
-                            if (payResp.ok) {
-                                const payJson = await payResp.json();
-                                payments = payJson.payments || [];
-                            }
+                try {
+                    const token = await getAuthToken();
+                    if (token) {
+                        const payResp = await fetchWithRetry(ENDPOINTS.MPESA_PAYMENTS, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (payResp.ok) {
+                            const payJson = await payResp.json();
+                            payments = payJson.payments || [];
                         }
-                    } catch (e) {
-                        console.warn('Could not fetch payments:', e.message);
                     }
+                } catch (e) {
+                    console.warn('Could not fetch payments:', e.message);
                 }
 
+                // 6. Load requests from Supabase
                 let requests = [];
                 try {
                     if (currentUser && supabaseClient) {
@@ -2022,7 +1921,7 @@
                 _lastDashboardLoad = Date.now();
                 renderDashboard(dashboardData);
 
-                if (services.length === 0 && !MOCK_MODE) {
+                if (services.length === 0) {
                     showToast('⚠️ No services available. Please check your connection.', 'warning');
                 }
 
@@ -2072,7 +1971,7 @@
                     <div class="empty-state" style="grid-column:1/-1;">
                         <div class="icon">⚡</div>
                         <h3>No Services Available</h3>
-                        <p>${MOCK_MODE ? 'Mock mode is enabled. Services are for testing.' : 'Please check your connection or contact support.'}</p>
+                        <p>Please check your connection or contact support.</p>
                         <button class="btn-sm-primary" onclick="retryServices()">🔄 Retry</button>
                     </div>
                 `;
@@ -3062,11 +2961,12 @@
 
         // ─── Init ────────────────────────────────────────────────
         (async function() {
-            console.log('🚗 Auto-D Kenya Dashboard (Production Ready)');
+            console.log('🚗 Auto-D Kenya Dashboard (Production)');
             console.log('🔗 API Base:', API_BASE);
-            console.log('🔧 Mock Mode:', MOCK_MODE ? 'ENABLED' : 'DISABLED');
+            console.log('✅ NO MOCK DATA - Using real backend');
             console.log('✅ Corrected endpoints: /mpesa/ (not /mpesa/mpesa/)');
             console.log('✅ All prices from database (no hardcoded values)');
+            console.log('✅ Supabase connected for auth and vehicles');
 
             initSupabase();
 
@@ -3103,19 +3003,17 @@
                 });
             }
 
-            // ─── Keep-alive ping ────────────────────────────────────
+            // ─── Keep-alive ping to prevent backend from sleeping ──
             setInterval(async () => {
-                if (!MOCK_MODE) {
-                    try {
-                        const token = await getAuthToken();
-                        if (token) {
-                            await fetch(ENDPOINTS.MPESA_USER_SERVICES, {
-                                headers: { 'Authorization': `Bearer ${token}` }
-                            });
-                        }
-                    } catch (e) {
-                        // Silently fail - keep-alive pings are best effort
+                try {
+                    const token = await getAuthToken();
+                    if (token) {
+                        await fetch(ENDPOINTS.MPESA_USER_SERVICES, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
                     }
+                } catch (e) {
+                    // Silently fail - keep-alive pings are best effort
                 }
             }, 60000);
 
