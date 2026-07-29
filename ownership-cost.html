@@ -79,6 +79,37 @@
         .header-right .auth-status.authenticated { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
         .header-right .auth-status.unauthenticated { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
 
+        /* Back to Dashboard button */
+        .dashboard-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 18px;
+            background: rgba(234, 179, 8, 0.12);
+            border: 1px solid rgba(234, 179, 8, 0.2);
+            border-radius: 8px;
+            color: #eab308;
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            margin-top: 8px;
+        }
+        .dashboard-link:hover {
+            background: rgba(234, 179, 8, 0.2);
+            border-color: #eab308;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(234, 179, 8, 0.15);
+        }
+        .dashboard-link .arrow {
+            font-size: 16px;
+            transition: transform 0.3s ease;
+        }
+        .dashboard-link:hover .arrow {
+            transform: translateX(-4px);
+        }
+
         .main-grid { display: grid; grid-template-columns: 420px 1fr; gap: 28px; }
         @media (max-width: 1024px) { .main-grid { grid-template-columns: 1fr; } }
 
@@ -93,40 +124,7 @@
             top: 20px;
             max-height: calc(100vh - 40px);
             overflow-y: auto;
-        }
-
-        .lock-overlay {
-            display: none;
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(10, 12, 21, 0.92);
-            border-radius: 12px;
-            z-index: 50;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 40px 30px;
-            text-align: center;
-            backdrop-filter: blur(8px);
-        }
-        .lock-overlay.show { display: flex; }
-        .lock-overlay .lock-icon { font-size: 56px; margin-bottom: 16px; color: #eab308; }
-        .lock-overlay h3 { font-family: 'Space Grotesk', sans-serif; font-size: 22px; color: #f8fafc; margin-bottom: 8px; }
-        .lock-overlay p { color: #94a3b8; font-size: 14px; max-width: 360px; line-height: 1.6; margin-bottom: 20px; }
-        .lock-overlay .unlock-btn {
-            background: linear-gradient(135deg, #eab308, #ca8a04);
-            color: #0a0c10;
-            border: none;
-            padding: 12px 40px;
-            border-radius: 8px;
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 15px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s;
+            position: relative;
         }
 
         .auth-section {
@@ -155,6 +153,7 @@
         }
         .auth-section .auth-buttons button:hover { border-color: var(--amber); color: var(--amber); }
         .auth-section .auth-buttons button.primary { background: var(--amber); color: #0a0c10; border-color: var(--amber); }
+        .auth-section .auth-buttons button.primary:hover { background: var(--amber-dark); }
         .auth-section .user-email { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); padding: 4px 0; }
 
         .panel-label {
@@ -428,6 +427,10 @@
         @media (max-width: 480px) {
             .stats-grid { grid-template-columns: 1fr; }
         }
+
+        @media print {
+            .calculator-panel, .dashboard-link { display: none !important; }
+        }
     </style>
 </head>
 <body>
@@ -444,9 +447,13 @@
                 <div class="badge">💰 Auto-D <span style="color:var(--amber);font-weight:700;">TCO</span></div>
                 <h1>Auto-D <span>Kenya</span><br />Cost of Vehicle Ownership</h1>
                 <p class="subtitle">Complete year-by-year ownership cost breakdown</p>
+                <!-- Back to Dashboard button -->
+                <a href="/dashboard.html" class="dashboard-link">
+                    <span class="arrow">←</span> Back to Dashboard
+                </a>
             </div>
             <div class="header-right">
-                <div>Version <span style="color:#eab308;">v6.1</span></div>
+                <div>Version <span style="color:#eab308;">v6.2</span></div>
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus">🔓 Not Authenticated</span>
                 </div>
@@ -456,13 +463,6 @@
         <div class="main-grid">
 
             <section class="calculator-panel">
-
-                <div class="lock-overlay show" id="lockOverlay">
-                    <div class="lock-icon">🔒</div>
-                    <h3>Sign In Required</h3>
-                    <p>Please sign in to access the total cost of ownership calculator.</p>
-                    <button class="unlock-btn" id="unlockBtn">🔑 Sign In</button>
-                </div>
 
                 <div class="panel-label"><span class="num">🔐</span> Authentication</div>
                 <div class="auth-section">
@@ -631,7 +631,7 @@
 
     <script>
     // ═══════════════════════════════════════════════════════════════
-    // AUTO-D KENYA - TCO CALCULATOR v6.1 (DEBUG VERSION)
+    // AUTO-D KENYA - TCO CALCULATOR v6.2 (LOCK REMOVED)
     // ═══════════════════════════════════════════════════════════════
 
     (function() {
@@ -647,7 +647,6 @@
         let supabaseClient = null;
         let isAuthenticated = false;
         let currentUser = null;
-        let isUnlocked = false;
 
         // State for toggles
         let includeDepreciation = true;
@@ -706,8 +705,6 @@
             btnLogin: document.getElementById('btnLogin'),
             btnSignup: document.getElementById('btnSignup'),
             btnCancelAuth: document.getElementById('btnCancelAuth'),
-            lockOverlay: document.getElementById('lockOverlay'),
-            unlockBtn: document.getElementById('unlockBtn'),
             progressContainer: document.getElementById('progressContainer'),
             progressFill: document.getElementById('progressFill'),
             progressLabel: document.getElementById('progressLabel'),
@@ -788,7 +785,7 @@
                 currentUser = data.session;
                 isAuthenticated = true;
                 updateAuthUI();
-                updateLockState();
+                enableControls();
                 showToast('✅ Signed in successfully!', 'success');
                 return true;
             } catch (error) {
@@ -818,7 +815,7 @@
                 currentUser = null;
                 isAuthenticated = false;
                 updateAuthUI();
-                updateLockState();
+                disableControls();
                 showToast('🔓 Signed out', 'info');
                 return true;
             } catch (error) {
@@ -839,14 +836,18 @@
                     isAuthenticated = false;
                 }
                 updateAuthUI();
-                updateLockState();
+                if (isAuthenticated) {
+                    enableControls();
+                } else {
+                    disableControls();
+                }
                 return isAuthenticated;
             } catch (error) {
                 console.warn('⚠️ Auth check failed:', error.message);
                 currentUser = null;
                 isAuthenticated = false;
                 updateAuthUI();
-                updateLockState();
+                disableControls();
                 return false;
             }
         }
@@ -869,35 +870,33 @@
             }
         }
 
-        function updateLockState() {
-            const shouldLock = !isAuthenticated;
-            if (shouldLock) {
-                el.lockOverlay.classList.add('show');
-                isUnlocked = false;
-                document.querySelectorAll('.calculator-panel select, .calculator-panel input, .calc-btn').forEach(el => {
-                    el.disabled = true;
-                });
-                el.calculateBtn.disabled = true;
-            } else {
-                el.lockOverlay.classList.remove('show');
-                isUnlocked = true;
-                document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach(el => {
-                    if (el.id !== 'makeSelect' && el.id !== 'modelSelect' &&
-                        el.id !== 'generationSelect' && el.id !== 'variantSelect') {
-                        el.disabled = false;
-                    }
-                });
-                if (el.categorySelect.value) el.makeSelect.disabled = false;
-                if (el.makeSelect.value) el.modelSelect.disabled = false;
-                if (el.modelSelect.value) el.generationSelect.disabled = false;
-                if (el.generationSelect.value) el.variantSelect.disabled = false;
-                if (el.variantSelect.value) el.calculateBtn.disabled = false;
-            }
+        function enableControls() {
+            document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach(el => {
+                if (el.id !== 'makeSelect' && el.id !== 'modelSelect' &&
+                    el.id !== 'generationSelect' && el.id !== 'variantSelect') {
+                    el.disabled = false;
+                }
+            });
+            if (el.categorySelect.value) el.makeSelect.disabled = false;
+            if (el.makeSelect.value) el.modelSelect.disabled = false;
+            if (el.modelSelect.value) el.generationSelect.disabled = false;
+            if (el.generationSelect.value) el.variantSelect.disabled = false;
+            if (el.variantSelect.value) el.calculateBtn.disabled = false;
+        }
+
+        function disableControls() {
+            document.querySelectorAll('.calculator-panel select, .calculator-panel input, .calc-btn').forEach(el => {
+                el.disabled = true;
+            });
+            el.calculateBtn.disabled = true;
         }
 
         // ─── API: QUERY VIEW ──────────────────────────────────────
         async function queryView(select, filter, order) {
-            if (!isUnlocked) return [];
+            if (!isAuthenticated) {
+                setStatus('warning', 'Please sign in to load vehicle data');
+                return [];
+            }
             let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
             if (filter) query = query.eq(filter.column, filter.value);
             if (order) query = query.order(order.column, { ascending: order.ascending !== false });
@@ -1044,7 +1043,7 @@
                 opt.textContent = cat.name;
                 select.appendChild(opt);
             });
-            select.disabled = !isUnlocked;
+            select.disabled = !isAuthenticated;
             setStatus('success', `✅ Loaded ${categories.length} categories`);
         }
 
@@ -1059,7 +1058,7 @@
             el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
             el.variantSelect.disabled = true;
             el.calculateBtn.disabled = true;
-            if (!categoryId || !isUnlocked) return;
+            if (!categoryId || !isAuthenticated) return;
             const makes = await loadMakes(categoryId);
             if (!makes || makes.length === 0) {
                 select.innerHTML = '<option value="">No makes available</option>';
@@ -1086,7 +1085,7 @@
             el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
             el.variantSelect.disabled = true;
             el.calculateBtn.disabled = true;
-            if (!makeId || !isUnlocked) return;
+            if (!makeId || !isAuthenticated) return;
             const models = await loadModels(makeId);
             if (!models || models.length === 0) {
                 select.innerHTML = '<option value="">No models available</option>';
@@ -1111,7 +1110,7 @@
             el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
             el.variantSelect.disabled = true;
             el.calculateBtn.disabled = true;
-            if (!modelId || !isUnlocked) return;
+            if (!modelId || !isAuthenticated) return;
             const generations = await loadGenerations(modelId);
             if (!generations || generations.length === 0) {
                 select.innerHTML = '<option value="">No generations available</option>';
@@ -1133,7 +1132,7 @@
             select.innerHTML = '<option value="">Select Variant...</option>';
             select.disabled = true;
             el.calculateBtn.disabled = true;
-            if (!generationId || !isUnlocked) return;
+            if (!generationId || !isAuthenticated) return;
             const variants = await loadVariants(generationId);
             if (!variants || variants.length === 0) {
                 select.innerHTML = '<option value="">No variants available</option>';
@@ -1191,7 +1190,6 @@
         }
 
         // ─── TCO CALCULATION ──────────────────────────────────────
-        // EXACT payload matching your backend schema
         function buildTCOPayload(formData) {
             return {
                 variant_id: formData.variant_id,
@@ -1228,7 +1226,6 @@
 
             const url = `${CONFIG.API_BASE}/ownership/calculate`;
             
-            // DEBUG: Show exactly what we're sending
             console.log('📤 TCO Request URL:', url);
             console.log('📦 TCO Payload:', JSON.stringify(payload, null, 2));
             debugLog(`📤 Sending to: ${url}\n\n📦 Payload:\n${JSON.stringify(payload, null, 2)}`);
@@ -1250,7 +1247,6 @@
                 console.error('❌ API Error Response:', errorData);
                 debugLog(`❌ ERROR RESPONSE (${response.status}):\n${JSON.stringify(errorData, null, 2)}`);
                 
-                // Extract validation errors
                 let errorMsg = errorData.message || errorData.detail || `HTTP ${response.status}`;
                 if (errorData.detail && Array.isArray(errorData.detail)) {
                     errorMsg = errorData.detail.map(d => `${d.loc?.join('.') || ''}: ${d.msg}`).join('\n');
@@ -1265,7 +1261,7 @@
 
         // ─── MAIN CALCULATION ──────────────────────────────────────
         async function calculate() {
-            if (!isUnlocked) {
+            if (!isAuthenticated) {
                 showToast('⚠️ Please sign in to access the calculator', 'warning');
                 return;
             }
@@ -1338,7 +1334,6 @@
             el.outPayment.textContent = fmt(monthlyPayment);
             el.outInterest.textContent = fmt(totalInterest);
 
-            // Components
             const components = result.components || [];
             const componentsList = el.componentsList;
             componentsList.innerHTML = '';
@@ -1360,7 +1355,6 @@
 
         // ─── EVENT LISTENERS ─────────────────────────────────────────
         function initEventListeners() {
-            el.unlockBtn.addEventListener('click', () => { el.btnSignIn.click(); });
             el.btnSignIn.addEventListener('click', () => {
                 el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
             });
@@ -1388,34 +1382,34 @@
 
             el.categorySelect.addEventListener('change', async function() {
                 const catId = this.value;
-                if (catId && isUnlocked) {
+                if (catId && isAuthenticated) {
                     await populateMakes(catId);
                 }
             });
 
             el.makeSelect.addEventListener('change', async function() {
                 const makeId = this.value;
-                if (makeId && isUnlocked) {
+                if (makeId && isAuthenticated) {
                     await populateModels(makeId);
                 }
             });
 
             el.modelSelect.addEventListener('change', async function() {
                 const modelId = this.value;
-                if (modelId && isUnlocked) {
+                if (modelId && isAuthenticated) {
                     await populateGenerations(modelId);
                 }
             });
 
             el.generationSelect.addEventListener('change', async function() {
                 const genId = this.value;
-                if (genId && isUnlocked) {
+                if (genId && isAuthenticated) {
                     await populateVariants(genId);
                 }
             });
 
             el.variantSelect.addEventListener('change', function() {
-                if (this.value && isUnlocked) {
+                if (this.value && isAuthenticated) {
                     el.calculateBtn.disabled = false;
                 } else {
                     el.calculateBtn.disabled = true;
@@ -1486,14 +1480,16 @@
                 showProgress(60, 'Loading vehicle data...');
                 await populateCategories();
 
-                if (isUnlocked) {
+                if (isAuthenticated) {
                     showToast('✅ Calculator ready! Select a vehicle to begin.', 'success');
+                } else {
+                    showToast('🔐 Please sign in to use the calculator', 'info');
                 }
 
                 initEventListeners();
                 el.loadingOverlay.classList.remove('active');
 
-                console.log('✅ Auto-D Kenya TCO Calculator v6.1 (Debug)');
+                console.log('✅ Auto-D Kenya TCO Calculator v6.2 (Lock Removed)');
                 console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
 
             } catch (error) {
