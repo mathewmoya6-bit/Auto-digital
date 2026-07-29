@@ -1,9 +1,10 @@
 """
 Request Schemas for API - COMPLETE
+Production Grade - Auto-D Kenya
 """
 from typing import Optional, List, Dict, Any
-from datetime import datetime
-from pydantic import BaseModel, Field, validator
+from datetime import datetime, timezone
+from pydantic import BaseModel, Field, field_validator
 
 
 # ─── VALUATION SCHEMAS ─────────────────────────────────────────────
@@ -11,30 +12,44 @@ from pydantic import BaseModel, Field, validator
 class ValuationRequest(BaseModel):
     """Vehicle valuation request model"""
     variant_id: str = Field(..., description="Vehicle variant ID from database")
-    year: int = Field(..., ge=1990, le=datetime.now().year, description="Year of manufacture")
+    year: int = Field(..., ge=1990, le=datetime.now(timezone.utc).year, description="Year of manufacture")
     mileage: float = Field(..., ge=0, le=1000000, description="Current odometer reading in km")
     condition: str = Field("good", description="Vehicle condition: excellent, very_good, good, fair, poor")
     accident_history: str = Field("none", description="Accident history: none, minor, major, total_loss")
     previous_owners: int = Field(0, ge=0, le=20, description="Number of previous owners")
     service_history: bool = Field(True, description="Whether service history is available")
     location: str = Field("nairobi", description="Vehicle location/county")
-    modifications: Optional[List[str]] = Field(default=[], description="List of modifications")
-    custom_adjustments: Optional[Dict[str, float]] = Field(default={}, description="Custom value adjustments")
+    modifications: Optional[List[str]] = Field(default_factory=list, description="List of modifications")
+    custom_adjustments: Optional[Dict[str, float]] = Field(default_factory=dict, description="Custom value adjustments")
     images: Optional[List[str]] = Field(None, description="Base64 encoded images for AI analysis")
+    user_id: Optional[str] = Field(None, description="User ID for saving report")
     
-    @validator('condition')
-    def validate_condition(cls, v):
+    @field_validator('condition')
+    @classmethod
+    def validate_condition(cls, v: str) -> str:
+        """Validate condition is one of allowed values."""
         allowed = ['excellent', 'very_good', 'good', 'fair', 'poor']
         if v.lower() not in allowed:
             raise ValueError(f"Condition must be one of: {', '.join(allowed)}")
         return v.lower()
     
-    @validator('accident_history')
-    def validate_accident(cls, v):
+    @field_validator('accident_history')
+    @classmethod
+    def validate_accident(cls, v: str) -> str:
+        """Validate accident history is one of allowed values."""
         allowed = ['none', 'minor', 'major', 'total_loss']
         if v.lower() not in allowed:
             raise ValueError(f"Accident history must be one of: {', '.join(allowed)}")
         return v.lower()
+    
+    @field_validator('year')
+    @classmethod
+    def validate_year(cls, v: int) -> int:
+        """Validate year is within reasonable range."""
+        current_year = datetime.now(timezone.utc).year
+        if v < 1980 or v > current_year + 1:
+            raise ValueError(f"Year must be between 1980 and {current_year + 1}")
+        return v
 
 
 # ─── RUNNING COST SCHEMAS ──────────────────────────────────────────
@@ -62,19 +77,31 @@ class RunningCostRequest(BaseModel):
     include_depreciation: bool = Field(True, description="Include depreciation in calculation")
     user_id: Optional[str] = Field(None, description="User ID for saving report")
     
-    @validator('trip_type')
-    def validate_trip_type(cls, v):
+    @field_validator('trip_type')
+    @classmethod
+    def validate_trip_type(cls, v: str) -> str:
+        """Validate trip type is one of allowed values."""
         allowed = ['urban', 'highway', 'mixed', 'offroad']
         if v.lower() not in allowed:
             raise ValueError(f"Trip type must be one of: {', '.join(allowed)}")
         return v.lower()
     
-    @validator('driving_style')
-    def validate_driving_style(cls, v):
+    @field_validator('driving_style')
+    @classmethod
+    def validate_driving_style(cls, v: str) -> str:
+        """Validate driving style is one of allowed values."""
         allowed = ['eco', 'normal', 'aggressive']
         if v.lower() not in allowed:
             raise ValueError(f"Driving style must be one of: {', '.join(allowed)}")
         return v.lower()
+    
+    @field_validator('distance')
+    @classmethod
+    def validate_distance(cls, v: float) -> float:
+        """Validate distance is positive."""
+        if v <= 0:
+            raise ValueError("Distance must be greater than 0")
+        return v
 
 
 # ─── MILEAGE SCHEMAS ───────────────────────────────────────────────
@@ -144,6 +171,14 @@ class OwnershipCostRequest(BaseModel):
     financed: bool = Field(False, description="Is the vehicle financed")
     location: str = Field("nairobi", description="Location for cost adjustment")
     user_id: Optional[str] = Field(None, description="User ID for saving report")
+    
+    @field_validator('purchase_price')
+    @classmethod
+    def validate_purchase_price(cls, v: float) -> float:
+        """Validate purchase price is positive."""
+        if v <= 0:
+            raise ValueError("Purchase price must be greater than 0")
+        return v
 
 
 # ─── FUEL SCHEMAS ──────────────────────────────────────────────────
@@ -177,7 +212,7 @@ class VehicleCreateRequest(BaseModel):
     make_id: str = Field(..., description="Make ID")
     model_id: str = Field(..., description="Model ID")
     name: str = Field(..., description="Variant name")
-    year: int = Field(..., ge=1900, le=datetime.now().year + 1)
+    year: int = Field(..., ge=1900, le=datetime.now(timezone.utc).year + 1)
     engine_cc: float = Field(..., ge=50, le=10000)
     fuel_type: str = Field(..., description="petrol, diesel, hybrid, electric")
     transmission: str = Field(..., description="automatic, manual, cvt")
