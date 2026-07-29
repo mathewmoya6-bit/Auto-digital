@@ -76,7 +76,7 @@ def _get_cache_lock():
     return _cache_lock
 
 
-def _get_cached_user(token: str) -> Optional[Dict]:
+def _get_cached_user(token: str) -> Optional[Dict[str, Any]]:
     """Get cached user by token."""
     import threading
     with _get_cache_lock():
@@ -89,7 +89,7 @@ def _get_cached_user(token: str) -> Optional[Dict]:
     return None
 
 
-def _set_cached_user(token: str, user_data: Dict):
+def _set_cached_user(token: str, user_data: Dict[str, Any]):
     """Cache user data by token."""
     import threading
     with _get_cache_lock():
@@ -112,8 +112,7 @@ def _set_cached_user(token: str, user_data: Dict):
 
 async def get_current_user(
     authorization: Optional[str] = Header(None, description="Bearer token"),
-    request: Optional[Request] = None
-) -> Dict:
+) -> Dict[str, Any]:
     """
     Get current user from Supabase session.
     
@@ -215,7 +214,7 @@ async def get_current_user(
 
 async def get_optional_user(
     authorization: Optional[str] = Header(None, description="Bearer token")
-) -> Optional[Dict]:
+) -> Optional[Dict[str, Any]]:
     """
     Get current user if authenticated, otherwise return None.
     Does not raise 401 if no token is provided.
@@ -224,7 +223,7 @@ async def get_optional_user(
         return None
     
     try:
-        return await get_current_user(authorization)
+        return await get_current_user(authorization=authorization)
     except HTTPException:
         return None
 
@@ -233,12 +232,12 @@ async def get_optional_user(
 
 async def get_current_admin_user(
     authorization: Optional[str] = Header(None, description="Bearer token")
-) -> Dict:
+) -> Dict[str, Any]:
     """
     Get current user and verify they are an admin.
     Raises HTTPException 403 if not an admin.
     """
-    user = await get_current_user(authorization)
+    user = await get_current_user(authorization=authorization)
     
     # Check if user is admin
     user_role = user.get("user_metadata", {}).get("role", "user")
@@ -269,7 +268,7 @@ async def get_current_admin_user(
 
 async def get_service_user(
     authorization: Optional[str] = Header(None, description="Service token")
-) -> Dict:
+) -> Dict[str, Any]:
     """
     Validate service-to-service authentication.
     Used for internal API calls between services.
@@ -300,7 +299,7 @@ async def get_service_user(
             }
         
         # Fallback: validate as regular user
-        return await get_current_user(authorization)
+        return await get_current_user(authorization=authorization)
         
     except HTTPException:
         raise
@@ -314,7 +313,7 @@ async def get_service_user(
 
 # ─── Health Check Dependency ─────────────────────────────────────
 
-async def require_healthy_db():
+async def require_healthy_db() -> bool:
     """Check if database is healthy before proceeding."""
     if not supabase_client.health_check():
         logger.error("Database health check failed")
@@ -327,7 +326,7 @@ async def require_healthy_db():
 
 # ─── Rate Limiting Dependencies ──────────────────────────────────
 
-async def rate_limit_check(request: Request):
+async def rate_limit_check(request: Request) -> bool:
     """
     Check rate limits for the current request.
     Requires Redis to be configured.
@@ -337,7 +336,6 @@ async def rate_limit_check(request: Request):
     
     try:
         import redis.asyncio as redis
-        from app.core.config import settings
         
         # Get client IP
         client_ip = request.client.host if request.client else "unknown"
@@ -388,7 +386,7 @@ async def rate_limit_check(request: Request):
 
 # ─── User Token Management ──────────────────────────────────────
 
-def invalidate_user_cache(token: str):
+def invalidate_user_cache(token: str) -> None:
     """Invalidate cached user data for a token."""
     import threading
     with _get_cache_lock():
@@ -397,7 +395,7 @@ def invalidate_user_cache(token: str):
             logger.debug(f"User cache invalidated for token: {token[:8]}...")
 
 
-def clear_user_cache():
+def clear_user_cache() -> None:
     """Clear all cached user data."""
     import threading
     with _get_cache_lock():
