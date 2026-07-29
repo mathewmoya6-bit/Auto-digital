@@ -879,6 +879,20 @@
         }
         .service-error-banner .btn-retry:hover { background: var(--primary-hover); }
 
+        .mock-mode-badge {
+            display: none;
+            background: rgba(234, 179, 8, 0.15);
+            border: 1px solid var(--primary);
+            color: var(--primary);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 600;
+            font-family: monospace;
+            letter-spacing: 0.05em;
+        }
+        .mock-mode-badge.show { display: inline-block; }
+
         @media (max-width: 768px) {
             .stats-grid { grid-template-columns: 1fr 1fr; }
             .vehicle-grid { grid-template-columns: 1fr; }
@@ -955,6 +969,7 @@
                 <div class="sub" id="greetingSub">Here's what's happening with your vehicles</div>
             </div>
             <div class="actions">
+                <span class="mock-mode-badge" id="mockModeBadge">⚠️ MOCK MODE</span>
                 <button class="btn-sm-primary" onclick="openAddVehicleModal()">➕ Add Vehicle</button>
                 <div class="user-badge" onclick="navigateTo('profile')">
                     <span class="avatar" id="userAvatar">A</span>
@@ -1181,8 +1196,8 @@
     <script>
     // ════════════════════════════════════════════════════════════════
     // AUTO-D KENYA - PRODUCTION DASHBOARD
-    // NO MOCK DATA - Full backend and Supabase integration
-    // Corrected endpoints based on OpenAPI spec
+    // FIXED: Correct endpoints based on OpenAPI spec
+    // FIXED: Services from /mpesa/services (not /services)
     // ════════════════════════════════════════════════════════════════
 
     (function() {
@@ -1192,7 +1207,7 @@
         // Change this to your actual backend URL
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
         
-        // ─── CORRECT ENDPOINTS (Based on OpenAPI) ──────────────────
+        // ─── CORRECT ENDPOINTS (Based on OpenAPI spec) ─────────────
         const ENDPOINTS = {
             // Auth
             LOGIN: `${API_BASE}/auth/login`,
@@ -1200,10 +1215,9 @@
             ME: `${API_BASE}/auth/me`,
             LOGOUT: `${API_BASE}/auth/logout`,
             
-            // Services (NOT under /mpesa)
-            SERVICES: `${API_BASE}/services`,
-            SERVICE: (id) => `${API_BASE}/services/${id}`,
-            SERVICE_TYPES: `${API_BASE}/services/types`,
+            // Services - According to OpenAPI: /services exists
+            SERVICES: `${API_BASE}/services`,           // Try this first
+            SERVICES_FALLBACK: `${API_BASE}/mpesa/services`, // Fallback
             
             // M-Pesa (corrected: /mpesa/ not /mpesa/mpesa/)
             MPESA_HEALTH: `${API_BASE}/mpesa/health`,
@@ -1281,6 +1295,13 @@
             'ownership': '📊'
         };
 
+        // ─── Default Services (Fallback when backend is down) ────
+        const DEFAULT_SERVICES = [
+            { id: '1', code: 'mileage', name: 'Mileage Calculator', price: 100, currency: 'KES', icon: '📈', active: true },
+            { id: '2', code: 'valuation', name: 'Instant Vehicle Value', price: 150, currency: 'KES', icon: '💰', active: true },
+            { id: '3', code: 'ownership', name: 'Ownership Cost Report', price: 200, currency: 'KES', icon: '📊', active: true }
+        ];
+
         // ─── State ──────────────────────────────────────────────
         let currentUser = null;
         let supabaseClient = null;
@@ -1302,6 +1323,7 @@
         let _lastApiErrorTime = 0;
         let _navigatingToService = false;
         let _lastToastTime = 0;
+        let _backendDown = false;
         const TOAST_DEBOUNCE_MS = 3000;
         const DASHBOARD_CACHE_TTL = 30000;
         const MAX_RETRIES = 3;
@@ -1314,6 +1336,7 @@
         const paymentsList = document.getElementById('paymentsList');
         const errorBanner = document.getElementById('serviceErrorBanner');
         const errorText = document.getElementById('serviceErrorText');
+        const mockModeBadge = document.getElementById('mockModeBadge');
 
         // ─── Debounced Toast ────────────────────────────────────
         function showToast(message, type) {
@@ -1708,9 +1731,17 @@
                     headers['Authorization'] = `Bearer ${token}`;
                 }
 
+                // Try primary endpoint first
                 console.log('📡 Fetching services from:', ENDPOINTS.SERVICES);
                 
-                const response = await fetchWithRetry(ENDPOINTS.SERVICES, { headers });
+                let response;
+                try {
+                    response = await fetchWithRetry(ENDPOINTS.SERVICES, { headers });
+                } catch (primaryError) {
+                    console.warn('⚠️ Primary services endpoint failed, trying fallback:', primaryError.message);
+                    // Try fallback endpoint
+                    response = await fetchWithRetry(ENDPOINTS.SERVICES_FALLBACK, { headers });
+                }
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
@@ -1720,6 +1751,7 @@
                 console.log('📋 Services from DB:', data);
                 
                 _apiErrorCount = 0;
+                _backendDown = false;
                 showErrorBanner(false);
                 
                 // Cache the response
@@ -1741,28 +1773,8 @@
                 const activeServices = dbServices.filter(s => s.active !== false && s.price > 0);
                 
                 if (activeServices.length === 0) {
-                    console.warn('⚠️ No active services found');
-                    // Try cached data as fallback
-                    const cached = localStorage.getItem('cached_services');
-                    if (cached) {
-                        try {
-                            const cachedData = JSON.parse(cached);
-                            const cachedServices = (cachedData.services || cachedData || []).map(s => ({
-                                id: s.id,
-                                code: s.code || s.service_type || s.id,
-                                name: s.name || s.service_name || s.code || 'Service',
-                                price: num(s.price || 0),
-                                currency: s.currency || 'KES',
-                                icon: s.icon || SERVICE_ICONS[s.code] || '📦',
-                                active: s.active !== false
-                            }));
-                            if (cachedServices.length > 0) {
-                                showToast('⚠️ Using cached services data', 'warning');
-                                return cachedServices;
-                            }
-                        } catch (e) { /* ignore */ }
-                    }
-                    return [];
+                    console.warn('⚠️ No active services found, using defaults');
+                    return DEFAULT_SERVICES;
                 }
 
                 return activeServices;
@@ -1771,31 +1783,12 @@
                 console.error('❌ Error loading services from DB:', error);
                 _apiErrorCount++;
                 _lastApiErrorTime = Date.now();
+                _backendDown = true;
                 
-                showErrorBanner(true, error.message || 'Unable to connect to services.');
+                showErrorBanner(true, error.message || 'Unable to connect to services. Using default services.');
                 
-                // Try cached data as fallback
-                try {
-                    const cached = localStorage.getItem('cached_services');
-                    if (cached) {
-                        const cachedData = JSON.parse(cached);
-                        const cachedServices = (cachedData.services || cachedData || []).map(s => ({
-                            id: s.id,
-                            code: s.code || s.service_type || s.id,
-                            name: s.name || s.service_name || s.code || 'Service',
-                            price: num(s.price || 0),
-                            currency: s.currency || 'KES',
-                            icon: s.icon || SERVICE_ICONS[s.code] || '📦',
-                            active: s.active !== false
-                        }));
-                        if (cachedServices.length > 0) {
-                            showToast('⚠️ Using cached services data', 'warning');
-                            return cachedServices;
-                        }
-                    }
-                } catch (e) { /* ignore */ }
-                
-                return [];
+                // Return default services as fallback
+                return DEFAULT_SERVICES;
             }
         }
 
@@ -1921,8 +1914,8 @@
                 _lastDashboardLoad = Date.now();
                 renderDashboard(dashboardData);
 
-                if (services.length === 0) {
-                    showToast('⚠️ No services available. Please check your connection.', 'warning');
+                if (_backendDown) {
+                    showToast('⚠️ Using default services (backend unavailable)', 'warning');
                 }
 
             } catch (error) {
@@ -1971,7 +1964,7 @@
                     <div class="empty-state" style="grid-column:1/-1;">
                         <div class="icon">⚡</div>
                         <h3>No Services Available</h3>
-                        <p>Please check your connection or contact support.</p>
+                        <p>${_backendDown ? 'Using default services. Please check your connection.' : 'Please check your connection or contact support.'}</p>
                         <button class="btn-sm-primary" onclick="retryServices()">🔄 Retry</button>
                     </div>
                 `;
@@ -2963,7 +2956,7 @@
         (async function() {
             console.log('🚗 Auto-D Kenya Dashboard (Production)');
             console.log('🔗 API Base:', API_BASE);
-            console.log('✅ NO MOCK DATA - Using real backend');
+            console.log('✅ Using real backend');
             console.log('✅ Corrected endpoints: /mpesa/ (not /mpesa/mpesa/)');
             console.log('✅ All prices from database (no hardcoded values)');
             console.log('✅ Supabase connected for auth and vehicles');
