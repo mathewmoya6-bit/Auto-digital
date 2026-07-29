@@ -9,16 +9,15 @@ POST /api/v1/logout - Logout
 """
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response  # ← ADD Response here
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 import uuid
 
 from app.core.database import supabase
-from app.core.security import create_access_token, get_current_user, security
-from app.core.config import settings
+from app.core.security import create_access_token, get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +87,7 @@ def create_user_profile(user_id: str, user_data: Dict[str, Any]) -> bool:
 
 @router.post("/login", response_model=AuthResponse)
 async def login(
-    request: LoginRequest,
-    response: Optional[Response] = None  # ← Response is now defined
+    request: LoginRequest  # ← Removed 'response: Optional[Response] = None'
 ):
     """
     POST /api/v1/login - Login user with email and password.
@@ -143,8 +141,7 @@ async def login(
 
 @router.post("/register", response_model=AuthResponse)
 async def register(
-    request: RegisterRequest,
-    response: Optional[Response] = None  # ← Response is now defined
+    request: RegisterRequest  # ← Removed 'response: Optional[Response] = None'
 ):
     """
     POST /api/v1/register - Register a new user.
@@ -253,7 +250,6 @@ async def get_current_user_info(
 
 @router.post("/logout", response_model=LogoutResponse)
 async def logout(
-    request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
