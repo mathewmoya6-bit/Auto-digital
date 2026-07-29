@@ -1,108 +1,140 @@
-# backend/app/api/v1/auth.py
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer
-from pydantic import BaseModel
-from app.core.database import supabase
-from app.core.security import create_access_token, get_current_user
+# backend/app/api/v1/valuation.py
 
-router = APIRouter()
-security = HTTPBearer()
+from fastapi import APIRouter, HTTPException, Depends, Request, status
+from typing import Optional, Dict
+from datetime import datetime, timezone
 
-class LoginRequest(BaseModel):
-    email: str
-    password: str
+from app.core.dependencies import get_current_user
+from app.services.valuation_service import ValuationService
+from app.schemas.request import ValuationRequest
+from app.schemas.response import ValuationResponse
 
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    full_name: str
+router = APIRouter(tags=["Valuation"])
 
-@router.post("/login")
-async def login(request: LoginRequest):
-    """Login with email and password"""
+
+# ─── Request Models ──────────────────────────────────────────────
+
+class CalculateValuationRequest(BaseModel):
+    """Request model for valuation calculation"""
+    variant_id: str
+    year: int
+    mileage: float
+    condition: str = "good"
+    accident_history: str = "none"
+    previous_owners: int = 1
+    location: str = "nairobi"
+    service_history: bool = True
+    images: Optional[list] = None
+
+
+# ─── Endpoints ──────────────────────────────────────────────────
+
+@router.get("/ping")
+async def valuation_ping():
+    """GET /api/v1/ping - Valuation service ping"""
+    return {
+        "status": "ok",
+        "service": "valuation",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@router.post("/calculate", response_model=None)  # ← FIX: Add response_model=None
+async def calculate_valuation(
+    request: Request,  # ← Request is allowed now
+    valuation_request: CalculateValuationRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """POST /api/v1/calculate - Calculate vehicle valuation"""
     try:
-        # Authenticate with Supabase
-        response = supabase.auth.sign_in_with_password({
-            "email": request.email,
-            "password": request.password
-        })
+        service = ValuationService()
         
-        if not response or not response.user:
+        # Convert to service request format
+        service_request = ValuationRequest(
+            variant_id=valuation_request.variant_id,
+            year=valuation_request.year,
+            mileage=valuation_request.mileage,
+            condition=valuation_request.condition,
+            accident_history=valuation_request.accident_history,
+            previous_owners=valuation_request.previous_owners,
+            location=valuation_request.location,
+            service_history=valuation_request.service_history,
+            images=valuation_request.images,
+            user_id=current_user.get("id")
+        )
+        
+        result = service.calculate_valuation(service_request)
+        
+        if not result:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Valuation calculation failed"
             )
         
-        # Create JWT token
-        token = create_access_token({
-            "sub": response.user.id,
-            "email": response.user.email
-        })
-        
         return {
-            "access_token": token,
-            "token_type": "bearer",
-            "user": {
-                "id": response.user.id,
-                "email": response.user.email
-            }
+            "status": "success",
+            "data": result,
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
+        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Valuation calculation failed: {str(e)}"
         )
 
-@router.post("/register")
-async def register(request: RegisterRequest):
-    """Register a new user"""
+
+@router.get("/variant/{variant_id}")
+async def get_variant(
+    variant_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """GET /api/v1/variant/{variant_id} - Get variant details"""
     try:
-        # Register with Supabase
-        response = supabase.auth.sign_up({
-            "email": request.email,
-            "password": request.password
-        })
+        service = ValuationService()
+        variant = service.get_variant(variant_id)
         
-        if not response or not response.user:
+        if not variant:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Registration failed"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Variant with ID {variant_id} not found"
             )
         
-        # Create user profile
-        supabase.table("user_profiles").insert({
-            "user_id": response.user.id,
-            "full_name": request.full_name,
-            "email": request.email
-        }).execute()
+        return variant
         
-        # Create JWT token
-        token = create_access_token({
-            "sub": response.user.id,
-            "email": response.user.email
-        })
-        
-        return {
-            "access_token": token,
-            "token_type": "bearer",
-            "user": {
-                "id": response.user.id,
-                "email": response.user.email,
-                "full_name": request.full_name
-            }
-        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch variant: {str(e)}"
         )
 
-@router.get("/me")
-async def get_current_user_info(current_user: dict = Depends(get_current_user)):
-    """Get current user information"""
-    return current_user
 
-@router.post("/logout")
-async def logout(current_user: dict = Depends(get_current_user)):
-    """Logout current user"""
-    return {"message": "Logged out successfully"}
+@router.get("/compare/{variant_id}")
+async def get_market_comparison(
+    variant_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """GET /api/v1/compare/{variant_id} - Get market comparison"""
+    try:
+        service = ValuationService()
+        comparison = service.get_market_comparison(variant_id)
+        
+        if not comparison:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Market data for variant {variant_id} not found"
+            )
+        
+        return comparison
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch market comparison: {str(e)}"
+        )
