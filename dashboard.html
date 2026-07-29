@@ -21,7 +21,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
     <style>
-        /* ─── Same CSS as before ─── */
+        /* ─── CSS Variables ────────────────────────────────────────── */
         :root {
             --bg: #0a0c15;
             --surface: #111827;
@@ -433,57 +433,6 @@
             font-family: var(--font-body);
         }
 
-        .request-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 16px 20px;
-            margin-bottom: 12px;
-            transition: all 0.3s ease;
-        }
-        .request-card:hover { border-color: var(--primary); }
-        .request-card .request-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .request-card .request-id {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            color: var(--text-muted);
-        }
-        .request-card .request-id strong { color: var(--text); }
-        .request-card .request-status {
-            font-size: 11px;
-            font-weight: 600;
-            padding: 2px 12px;
-            border-radius: 999px;
-        }
-        .request-card .request-status.pending { background: rgba(234, 179, 8, 0.12); color: var(--warning); }
-        .request-card .request-status.paid { background: rgba(34, 197, 94, 0.12); color: var(--success); }
-        .request-card .request-status.completed { background: rgba(59, 130, 246, 0.12); color: var(--blue); }
-        .request-card .request-status.failed { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
-        .request-card .request-status.cancelled { background: rgba(100, 116, 139, 0.12); color: var(--text-muted); }
-        .request-card .request-details {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 8px;
-            margin-top: 10px;
-            font-size: 12px;
-            color: var(--text-muted);
-        }
-        .request-card .request-details .detail-item strong { color: var(--text); }
-        .request-card .request-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 12px;
-            padding-top: 12px;
-            border-top: 1px solid var(--border);
-            flex-wrap: wrap;
-        }
-
         .vehicle-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -549,8 +498,9 @@
             position: relative;
         }
         .service-card:hover { border-color: var(--primary); transform: translateY(-3px); }
-        .service-card .service-icon { font-size: 24px; margin-bottom: 6px; }
+        .service-card .service-icon { font-size: 28px; margin-bottom: 6px; }
         .service-card .service-name { font-weight: 600; font-size: 14px; }
+        .service-card .service-code { font-size: 10px; color: var(--text-muted); font-family: monospace; }
         .service-card .service-status {
             font-size: 10px;
             font-weight: 600;
@@ -559,10 +509,16 @@
             display: inline-block;
             margin-top: 4px;
         }
-        .service-card .service-status.purchased { background: rgba(34, 197, 94, 0.12); color: var(--success); }
+        .service-card .service-status.active { background: rgba(34, 197, 94, 0.12); color: var(--success); }
         .service-card .service-status.locked { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
-        .service-card .service-expiry { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
-        .service-card .service-price { font-family: var(--font-heading); font-size: 18px; font-weight: 700; color: var(--primary); margin-top: 6px; }
+        .service-card .service-price {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--primary);
+            margin-top: 6px;
+        }
+        .service-card .service-price .currency { font-size: 12px; color: var(--text-muted); font-weight: 400; }
         .service-card .btn-access {
             width: 100%;
             margin-top: 10px;
@@ -574,12 +530,21 @@
             cursor: pointer;
             transition: all 0.2s;
         }
-        .service-card .btn-access.purchased { background: var(--success); color: #000; }
-        .service-card .btn-access.purchased:hover { background: #16a34a; }
-        .service-card .btn-access.locked { background: var(--primary); color: #0f172a; }
-        .service-card .btn-access.locked:hover { background: var(--primary-hover); }
+        .service-card .btn-access.active {
+            background: var(--success);
+            color: #000;
+        }
+        .service-card .btn-access.active:hover {
+            background: #16a34a;
+        }
+        .service-card .btn-access.locked {
+            background: var(--primary);
+            color: #0f172a;
+        }
+        .service-card .btn-access.locked:hover {
+            background: var(--primary-hover);
+        }
         
-        /* ─── PURCHASE BADGE ─── */
         .purchase-badge {
             position: absolute;
             top: 12px;
@@ -840,33 +805,6 @@
         .payment-overlay .status-detail button:hover { background: var(--primary-hover); }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        .success-check {
-            font-size: 64px;
-            animation: popIn 0.5s ease;
-        }
-        @keyframes popIn {
-            0% { transform: scale(0); opacity: 0; }
-            50% { transform: scale(1.2); }
-            100% { transform: scale(1); opacity: 1; }
-        }
-
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
-
-        @media (max-width: 768px) {
-            .stats-grid { grid-template-columns: 1fr 1fr; }
-            .vehicle-grid { grid-template-columns: 1fr; }
-            .services-grid { grid-template-columns: 1fr; }
-            .request-card .request-details { grid-template-columns: 1fr; }
-            .modal-content { padding: 20px; }
-        }
-        @media (max-width: 480px) {
-            .stats-grid { grid-template-columns: 1fr; }
-        }
-
-        /* ─── SUCCESS ANIMATION ─── */
         .success-overlay {
             display: none;
             position: fixed;
@@ -885,10 +823,7 @@
             from { opacity: 0; transform: scale(0.95); }
             to { opacity: 1; transform: scale(1); }
         }
-        .success-overlay .checkmark {
-            font-size: 80px;
-            animation: popIn 0.6s ease;
-        }
+        .success-overlay .checkmark { font-size: 80px; animation: popIn 0.6s ease; }
         .success-overlay h2 {
             font-family: var(--font-heading);
             font-size: 28px;
@@ -900,9 +835,13 @@
             text-align: center;
             max-width: 400px;
         }
-        .success-overlay .btn {
-            margin-top: 10px;
+        .success-overlay .btn { margin-top: 10px; }
+        @keyframes popIn {
+            0% { transform: scale(0); opacity: 0; }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); opacity: 1; }
         }
+
         .confetti-container {
             position: fixed;
             top: 0;
@@ -924,6 +863,21 @@
             0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
             100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
         }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+        @media (max-width: 768px) {
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .vehicle-grid { grid-template-columns: 1fr; }
+            .services-grid { grid-template-columns: 1fr; }
+            .modal-content { padding: 20px; }
+        }
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -939,7 +893,7 @@
         </a>
 
         <div class="nav-section">Main</div>
-        <a href="/dashboard.html" class="nav-item active" onclick="navigateTo('dashboard')">
+        <a href="/dashboard.html" class="nav-item active">
             <span class="icon">📊</span> Dashboard
         </a>
         <a href="#" class="nav-item" onclick="navigateTo('vehicles')">
@@ -1059,18 +1013,6 @@
                 <div class="stat-label">Amount Spent</div>
                 <span class="stat-change neutral">● Total</span>
             </div>
-            <div class="stat-card">
-                <div class="stat-icon">📈</div>
-                <div class="stat-value" id="statFleetValue">KES 0</div>
-                <div class="stat-label">Fleet Value</div>
-                <span class="stat-change up">● Current</span>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">⛽</div>
-                <div class="stat-value" id="statMonthlyCost">KES 0</div>
-                <div class="stat-label">Monthly Running Cost</div>
-                <span class="stat-change neutral">● Average</span>
-            </div>
         </div>
 
         <!-- ─── QUICK ACTIONS ─── -->
@@ -1080,20 +1022,7 @@
             <button class="quick-action-btn" onclick="navigateToService('valuation')">💰 Vehicle Value</button>
             <button class="quick-action-btn" onclick="navigateToService('mileage')">📈 Mileage</button>
             <button class="quick-action-btn" onclick="navigateToService('ownership')">📊 Running Cost</button>
-            <button class="quick-action-btn" onclick="generateReport()">📄 Generate Report</button>
         </div>
-
-        <!-- ─── MY REQUESTS ─── -->
-        <div class="section-title">
-            📋 My Requests <span class="count" id="requestsCountLabel">(0)</span>
-        </div>
-        <div id="requestsList"></div>
-
-        <!-- ─── MY VEHICLES ─── -->
-        <div class="section-title">
-            🚗 My Vehicles <span class="count" id="vehicleCountLabel">(0)</span>
-        </div>
-        <div id="vehicleGrid" class="vehicle-grid"></div>
 
         <!-- ─── SERVICES ─── -->
         <div class="section-title">
@@ -1101,17 +1030,23 @@
         </div>
         <div id="servicesGrid" class="services-grid"></div>
 
+        <!-- ─── MY VEHICLES ─── -->
+        <div class="section-title">
+            🚗 My Vehicles <span class="count" id="vehicleCountLabel">(0)</span>
+        </div>
+        <div id="vehicleGrid" class="vehicle-grid"></div>
+
+        <!-- ─── MY REQUESTS ─── -->
+        <div class="section-title">
+            📋 My Requests <span class="count" id="requestsCountLabel">(0)</span>
+        </div>
+        <div id="requestsList" class="list-container"></div>
+
         <!-- ─── RECENT PAYMENTS ─── -->
         <div class="section-title">
             💳 Recent Payments <span class="count" id="paymentsCountLabel">(0)</span>
         </div>
         <div id="paymentsList" class="list-container"></div>
-
-        <!-- ─── NOTIFICATIONS ─── -->
-        <div class="section-title">
-            🔔 Notifications <span class="count" id="notificationsCountLabel">(0)</span>
-        </div>
-        <div id="notificationsList" class="list-container"></div>
 
     </main>
 
@@ -1224,1668 +1159,1606 @@
     <div id="toastContainer"></div>
 
     <script>
-        // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - DASHBOARD (FIXED - PRODUCTION)
-        // FIXED: Authentication flow - stays on dashboard if authenticated
-        // ════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════
+    // AUTO-D KENYA - DASHBOARD
+    // FIXED: Services fetched from database with dynamic prices
+    // ════════════════════════════════════════════════════════════════
 
-        (function() {
-            'use strict';
+    (function() {
+        'use strict';
 
-            // ─── Configuration ──────────────────────────────────────────
-            const API_BASE = 'https://auto-digital.onrender.com/api/v1';
-            
-            const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
-            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+        // ─── Configuration ──────────────────────────────────────────
+        const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+        
+        const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-            // ─── State ──────────────────────────────────────────────────
-            let currentUser = null;
-            let supabaseClient = null;
-            let dashboardData = null;
-            let selectedService = null;
-            let isProcessingPayment = false;
-            let checkoutRequestId = null;
-            let pendingServiceRedirect = null;
-            let pendingRequestId = null;
-            let pollTimer = null;
-            let isWaitingForPayment = false;
-            let confirmedCheckoutId = null;
-            let unlockInFlightFor = null;
-            let recentlyUnlockedService = null;
-            let authCheckAttempts = 0;
-            const MAX_AUTH_ATTEMPTS = 3;
+        // ─── Service Routes ──────────────────────────────────────────
+        const SERVICE_ROUTES = {
+            'mileage': '/mileage.html',
+            'valuation': '/instant-value.html',
+            'ownership': '/ownership-cost.html'
+        };
 
-            const MAX_POLLING_ATTEMPTS = 120;
-            const PAYMENT_TIMEOUT_MINUTES = 4;
+        const SERVICE_ICONS = {
+            'mileage': '📈',
+            'valuation': '💰',
+            'ownership': '📊'
+        };
 
-            // ─── Service Routes ──────────────────────────────────────
-            const SERVICE_ROUTES = {
-                'mileage': '/mileage.html',
-                'valuation': '/instant-value.html',
-                'ownership': '/ownership-cost.html'
-            };
+        // ─── State ──────────────────────────────────────────────────
+        let currentUser = null;
+        let supabaseClient = null;
+        let dashboardData = null;
+        let selectedService = null;
+        let isProcessingPayment = false;
+        let checkoutRequestId = null;
+        let pendingServiceRedirect = null;
+        let pendingRequestId = null;
+        let pollTimer = null;
+        let isWaitingForPayment = false;
+        let confirmedCheckoutId = null;
+        let unlockInFlightFor = null;
+        let recentlyUnlockedService = null;
+        let servicesFromDB = [];
 
-            const SERVICE_NAMES = {
-                'mileage': 'Mileage Calculator',
-                'valuation': 'Instant Vehicle Value',
-                'ownership': 'Ownership Cost Report'
-            };
+        // ─── DOM Refs ──────────────────────────────────────────────
+        const vehicleGrid = document.getElementById('vehicleGrid');
+        const servicesGrid = document.getElementById('servicesGrid');
+        const requestsList = document.getElementById('requestsList');
+        const paymentsList = document.getElementById('paymentsList');
 
-            const SERVICE_ICONS = {
-                'mileage': '📈',
-                'valuation': '💰',
-                'ownership': '📊'
-            };
+        // ─── Helpers ──────────────────────────────────────────────
+        function num(v, fallback = 0) {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        }
 
-            const DEFAULT_SERVICES = [
-                { id: 'mileage', code: 'mileage', name: 'Mileage Calculator', price: 100, icon: '📈', route: '/mileage.html', purchased: false, status: 'locked' },
-                { id: 'valuation', code: 'valuation', name: 'Instant Vehicle Value', price: 150, icon: '💰', route: '/instant-value.html', purchased: false, status: 'locked' },
-                { id: 'ownership', code: 'ownership', name: 'Ownership Cost Report', price: 200, icon: '📊', route: '/ownership-cost.html', purchased: false, status: 'locked' }
-            ];
+        function showToast(message, type) {
+            type = type || 'info';
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
+            toast.innerHTML = icon + ' ' + message;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
 
-            // ─── DOM Refs ──────────────────────────────────────────────
-            const vehicleGrid = document.getElementById('vehicleGrid');
-            const servicesGrid = document.getElementById('servicesGrid');
-            const requestsList = document.getElementById('requestsList');
-            const paymentsList = document.getElementById('paymentsList');
-            const notificationsList = document.getElementById('notificationsList');
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/[&<>]/g, function(m) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;' } [m];
+            });
+        }
 
-            // ─── Helpers ──────────────────────────────────────────────
-            function num(v, fallback = 0) {
-                const n = Number(v);
-                return Number.isFinite(n) ? n : fallback;
-            }
+        function updateWorkflowStep(step) {
+            const steps = ['step1', 'step2', 'step3', 'step4', 'step5'];
+            steps.forEach((id, index) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.className = 'workflow-step';
+                if (index + 1 === step) el.classList.add('active');
+                if (index + 1 < step) el.classList.add('done');
+            });
+        }
 
-            function showToast(message, type) {
-                type = type || 'info';
-                const container = document.getElementById('toastContainer');
-                if (!container) return;
-                const toast = document.createElement('div');
-                toast.className = `toast ${type}`;
-                const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
-                toast.innerHTML = icon + ' ' + message;
-                container.appendChild(toast);
-                setTimeout(() => {
-                    toast.style.opacity = '0';
-                    toast.style.transform = 'translateX(100px)';
-                    setTimeout(() => toast.remove(), 300);
-                }, 4000);
-            }
-
-            function escapeHtml(str) {
-                if (!str) return '';
-                return String(str).replace(/[&<>]/g, function(m) {
-                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;' } [m];
-                });
-            }
-
-            function updateWorkflowStep(step) {
-                const steps = ['step1', 'step2', 'step3', 'step4', 'step5'];
-                steps.forEach((id, index) => {
-                    const el = document.getElementById(id);
-                    if (!el) return;
-                    el.className = 'workflow-step';
-                    if (index + 1 === step) el.classList.add('active');
-                    if (index + 1 < step) el.classList.add('done');
-                });
-            }
-
-            async function getAuthToken() {
-                try {
-                    if (!supabaseClient) {
-                        if (!initSupabase()) return null;
-                    }
-                    const { data: { session }, error } = await supabaseClient.auth.getSession();
-                    if (error) throw error;
-                    if (session?.access_token) {
-                        return session.access_token;
-                    }
-                    const stored = localStorage.getItem('auto_d_user');
-                    if (stored) {
-                        try {
-                            const user = JSON.parse(stored);
-                            if (user?.access_token) return user.access_token;
-                        } catch (e) { /* ignore */ }
-                    }
-                    return null;
-                } catch (error) {
-                    console.warn('⚠️ Auth token error:', error.message);
-                    return null;
+        async function getAuthToken() {
+            try {
+                if (!supabaseClient) {
+                    if (!initSupabase()) return null;
                 }
-            }
-
-            async function requireAuthToken() {
-                const token = await getAuthToken();
-                if (!token) {
-                    showToast('⚠️ Your session has expired. Please log in again.', 'error');
-                    return null;
+                const { data: { session }, error } = await supabaseClient.auth.getSession();
+                if (error) throw error;
+                if (session?.access_token) {
+                    return session.access_token;
                 }
-                return token;
-            }
-
-            // ─── Supabase ─────────────────────────────────────────────
-            function initSupabase() {
-                try {
-                    if (typeof supabase === 'undefined') {
-                        console.warn('⚠️ Supabase SDK not loaded');
-                        return false;
-                    }
-                    const { createClient } = supabase;
-                    supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                    console.log('✅ Supabase client initialized');
-                    return true;
-                } catch (error) {
-                    console.error('❌ Supabase init error:', error);
-                    return false;
-                }
-            }
-
-            // ─── Auth (FIXED - stays on dashboard) ──────────────────────
-            async function checkAuth() {
-                try {
-                    // Try to get session from Supabase
-                    if (!supabaseClient) {
-                        if (!initSupabase()) {
-                            console.error('❌ Supabase initialization failed');
-                            return false;
-                        }
-                    }
-
-                    const { data: { session }, error } = await supabaseClient.auth.getSession();
-                    
-                    if (error) {
-                        console.warn('⚠️ Auth session error:', error.message);
-                        // Try stored user as fallback
-                        const stored = localStorage.getItem('auto_d_user');
-                        if (stored) {
-                            try {
-                                const user = JSON.parse(stored);
-                                if (user) {
-                                    console.log('✅ Using stored user session');
-                                    currentUser = user;
-                                    updateUserUI();
-                                    return true;
-                                }
-                            } catch (e) { /* ignore */ }
-                        }
-                        return false;
-                    }
-
-                    if (session?.user) {
-                        currentUser = session.user;
-                        const userData = {
-                            ...session.user,
-                            access_token: session.access_token
-                        };
-                        localStorage.setItem('auto_d_user', JSON.stringify(userData));
-                        updateUserUI();
-
-                        // Verify with backend (but don't redirect on failure)
-                        try {
-                            const meResp = await fetch(`${API_BASE}/auth/me`, {
-                                headers: { 'Authorization': `Bearer ${session.access_token}` }
-                            });
-                            if (!meResp.ok) {
-                                console.warn('Backend rejected session token, but continuing with local session');
-                                // Don't sign out - let user stay on dashboard
-                            }
-                        } catch (e) {
-                            console.warn('Could not verify session with backend:', e.message);
-                            // Still consider user authenticated
-                        }
-
-                        return true;
-                    }
-
-                    // ─── TRY STORED USER ──────────────────────────────
-                    const stored = localStorage.getItem('auto_d_user');
-                    if (stored) {
-                        try {
-                            const user = JSON.parse(stored);
-                            if (user) {
-                                console.log('✅ Using stored user session (no active Supabase session)');
-                                currentUser = user;
-                                updateUserUI();
-                                return true;
-                            }
-                        } catch (e) { /* ignore */ }
-                    }
-
-                    return false;
-
-                } catch (error) {
-                    console.warn('⚠️ Auth check error:', error.message);
-                    
-                    // ─── FALLBACK: Check stored user ─────────────────
+                const stored = localStorage.getItem('auto_d_user');
+                if (stored) {
                     try {
-                        const stored = localStorage.getItem('auto_d_user');
-                        if (stored) {
+                        const user = JSON.parse(stored);
+                        if (user?.access_token) return user.access_token;
+                    } catch (e) { /* ignore */ }
+                }
+                return null;
+            } catch (error) {
+                console.warn('⚠️ Auth token error:', error.message);
+                return null;
+            }
+        }
+
+        async function requireAuthToken() {
+            const token = await getAuthToken();
+            if (!token) {
+                showToast('⚠️ Your session has expired. Please log in again.', 'error');
+                return null;
+            }
+            return token;
+        }
+
+        // ─── Supabase ─────────────────────────────────────────────
+        function initSupabase() {
+            try {
+                if (typeof supabase === 'undefined') {
+                    console.warn('⚠️ Supabase SDK not loaded');
+                    return false;
+                }
+                const { createClient } = supabase;
+                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('✅ Supabase client initialized');
+                return true;
+            } catch (error) {
+                console.error('❌ Supabase init error:', error);
+                return false;
+            }
+        }
+
+        // ─── Auth ──────────────────────────────────────────────────
+        async function checkAuth() {
+            try {
+                if (!supabaseClient) {
+                    if (!initSupabase()) {
+                        console.error('❌ Supabase initialization failed');
+                        return false;
+                    }
+                }
+
+                const { data: { session }, error } = await supabaseClient.auth.getSession();
+                
+                if (error) {
+                    console.warn('⚠️ Auth session error:', error.message);
+                    const stored = localStorage.getItem('auto_d_user');
+                    if (stored) {
+                        try {
                             const user = JSON.parse(stored);
                             if (user) {
-                                console.log('✅ Using stored user session (fallback)');
+                                console.log('✅ Using stored user session');
                                 currentUser = user;
                                 updateUserUI();
                                 return true;
                             }
+                        } catch (e) { /* ignore */ }
+                    }
+                    return false;
+                }
+
+                if (session?.user) {
+                    currentUser = session.user;
+                    const userData = {
+                        ...session.user,
+                        access_token: session.access_token
+                    };
+                    localStorage.setItem('auto_d_user', JSON.stringify(userData));
+                    updateUserUI();
+                    return true;
+                }
+
+                const stored = localStorage.getItem('auto_d_user');
+                if (stored) {
+                    try {
+                        const user = JSON.parse(stored);
+                        if (user) {
+                            console.log('✅ Using stored user session');
+                            currentUser = user;
+                            updateUserUI();
+                            return true;
                         }
                     } catch (e) { /* ignore */ }
-                    
-                    return false;
+                }
+
+                return false;
+
+            } catch (error) {
+                console.warn('⚠️ Auth check error:', error.message);
+                try {
+                    const stored = localStorage.getItem('auto_d_user');
+                    if (stored) {
+                        const user = JSON.parse(stored);
+                        if (user) {
+                            console.log('✅ Using stored user session (fallback)');
+                            currentUser = user;
+                            updateUserUI();
+                            return true;
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+                return false;
+            }
+        }
+
+        function updateUserUI() {
+            if (!currentUser) return;
+            const meta = currentUser.user_metadata || {};
+            const name = meta.full_name || meta.first_name || currentUser.email?.split('@')[0] || 'User';
+            const userNameEl = document.getElementById('userName');
+            const userAvatarEl = document.getElementById('userAvatar');
+            const greetingTextEl = document.getElementById('greetingText');
+            if (userNameEl) userNameEl.textContent = name;
+            if (userAvatarEl) userAvatarEl.textContent = name.charAt(0).toUpperCase();
+            if (greetingTextEl) greetingTextEl.textContent = `👋 Welcome back, ${name}!`;
+        }
+
+        // ─── Navigation ────────────────────────────────────────────
+        window.navigateTo = function(section) {
+            showToast(`📂 Navigating to ${section}...`, 'info');
+        };
+
+        window.navigateToService = function(serviceCode) {
+            console.log('🔍 navigateToService called with:', serviceCode);
+            
+            if (!dashboardData || !dashboardData.services) {
+                showToast('Loading services, please wait...', 'warning');
+                loadDashboard().then(() => {
+                    setTimeout(() => {
+                        window.navigateToService(serviceCode);
+                    }, 500);
+                });
+                return;
+            }
+
+            const service = dashboardData.services.find(s => s.code === serviceCode);
+            if (!service) {
+                showToast('Service not found', 'error');
+                return;
+            }
+
+            const isPurchased = service.purchased || service.status === 'active';
+
+            if (isPurchased) {
+                const route = SERVICE_ROUTES[serviceCode];
+                if (route) {
+                    console.log('🚀 Redirecting to purchased service:', route);
+                    window.location.href = route;
+                } else {
+                    showToast('Service route not found', 'error');
+                }
+            } else {
+                console.log('🔒 Service is locked, opening payment modal for:', service.name);
+                pendingServiceRedirect = serviceCode;
+                selectedService = service;
+                openPaymentModal(service);
+            }
+        };
+
+        window.handleServiceAction = function(serviceCode) {
+            window.navigateToService(serviceCode);
+        };
+
+        // ─── Success Overlay ──────────────────────────────────────
+        window.showSuccessOverlay = function(serviceCode, serviceName) {
+            const overlay = document.getElementById('successOverlay');
+            const message = document.getElementById('successMessage');
+            const openBtn = document.getElementById('openServiceBtn');
+            
+            recentlyUnlockedService = serviceCode;
+            
+            if (message) {
+                message.textContent = `${serviceName || 'Service'} has been unlocked successfully! You can now access it.`;
+            }
+            
+            if (openBtn) {
+                openBtn.onclick = function() {
+                    closeSuccessOverlay();
+                    const route = SERVICE_ROUTES[serviceCode];
+                    if (route) {
+                        window.location.href = route;
+                    } else {
+                        showToast('Service route not found', 'error');
+                    }
+                };
+                openBtn.style.display = 'inline-flex';
+            }
+            
+            if (overlay) {
+                overlay.classList.add('open');
+                fireConfetti();
+            }
+            
+            updateWorkflowStep(5);
+        };
+
+        window.closeSuccessOverlay = function() {
+            const overlay = document.getElementById('successOverlay');
+            if (overlay) {
+                overlay.classList.remove('open');
+            }
+            const confetti = document.getElementById('confettiContainer');
+            if (confetti) {
+                confetti.innerHTML = '';
+            }
+            loadDashboard();
+        };
+
+        window.openPurchasedService = function() {
+            if (recentlyUnlockedService) {
+                const route = SERVICE_ROUTES[recentlyUnlockedService];
+                if (route) {
+                    window.location.href = route;
                 }
             }
+        };
 
-            function updateUserUI() {
-                if (!currentUser) return;
-                const meta = currentUser.user_metadata || {};
-                const name = meta.full_name || meta.first_name || currentUser.email?.split('@')[0] || 'User';
-                const userNameEl = document.getElementById('userName');
-                const userAvatarEl = document.getElementById('userAvatar');
-                const greetingTextEl = document.getElementById('greetingText');
-                if (userNameEl) userNameEl.textContent = name;
-                if (userAvatarEl) userAvatarEl.textContent = name.charAt(0).toUpperCase();
-                if (greetingTextEl) greetingTextEl.textContent = `👋 Welcome back, ${name}!`;
+        function fireConfetti() {
+            const container = document.getElementById('confettiContainer');
+            if (!container) return;
+            container.innerHTML = '';
+            const colors = ['#eab308', '#22c55e', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#f59e0b', '#06b6d4'];
+            for (let i = 0; i < 80; i++) {
+                const piece = document.createElement('div');
+                piece.className = 'confetti-piece';
+                piece.style.left = Math.random() * 100 + '%';
+                piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+                piece.style.width = (Math.random() * 8 + 4) + 'px';
+                piece.style.height = (Math.random() * 8 + 4) + 'px';
+                piece.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                piece.style.animationDelay = (Math.random() * 2) + 's';
+                piece.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+                container.appendChild(piece);
             }
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
 
-            // ─── Navigation ────────────────────────────────────────────
-            window.navigateTo = function(section) {
-                showToast(`📂 Navigating to ${section}...`, 'info');
-            };
+        // ─── Load Services from Database ──────────────────────────
+        async function loadServicesFromDB() {
+            try {
+                const token = await getAuthToken();
+                const headers = { 'Accept': 'application/json' };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
 
-            window.navigateToService = function(serviceId) {
-                console.log('🔍 navigateToService called with:', serviceId);
+                console.log('📡 Fetching services from:', `${API_BASE}/services`);
+                const response = await fetch(`${API_BASE}/services`, { headers });
                 
-                if (!dashboardData || !dashboardData.services) {
-                    showToast('Loading services, please wait...', 'warning');
-                    loadDashboard().then(() => {
-                        setTimeout(() => {
-                            window.navigateToService(serviceId);
-                        }, 500);
-                    });
-                    return;
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
                 }
 
-                const service = dashboardData.services.find(s => s.id === serviceId);
+                const data = await response.json();
+                console.log('📋 Services from DB:', data);
+
+                // Map database services to our format
+                const dbServices = (data.services || data || []).map(s => ({
+                    id: s.id,
+                    code: s.code || s.service_type || s.id,
+                    name: s.name || s.service_name || s.code || 'Service',
+                    price: num(s.price || 0),
+                    currency: s.currency || 'KES',
+                    icon: s.icon || SERVICE_ICONS[s.code] || '📦',
+                    active: s.active !== false,
+                    display_order: s.display_order || 0
+                }));
+
+                // Filter only active services
+                const activeServices = dbServices.filter(s => s.active !== false && s.price > 0);
+                
+                if (activeServices.length === 0) {
+                    console.warn('⚠️ No active services found in database, using defaults');
+                    // Fallback to default services with prices from DB if available
+                    const defaultServices = [
+                        { code: 'mileage', name: 'Mileage Calculator', price: 100 },
+                        { code: 'valuation', name: 'Instant Vehicle Value', price: 150 },
+                        { code: 'ownership', name: 'Ownership Cost Report', price: 200 }
+                    ];
+                    // Try to find prices from DB response
+                    defaultServices.forEach(ds => {
+                        const found = dbServices.find(s => s.code === ds.code);
+                        if (found && found.price > 0) {
+                            ds.price = found.price;
+                        }
+                    });
+                    return defaultServices.map(s => ({
+                        ...s,
+                        id: s.code,
+                        icon: SERVICE_ICONS[s.code] || '📦',
+                        currency: 'KES',
+                        active: true
+                    }));
+                }
+
+                return activeServices;
+
+            } catch (error) {
+                console.error('❌ Error loading services from DB:', error);
+                // Fallback to hardcoded defaults
+                return [
+                    { id: 'mileage', code: 'mileage', name: 'Mileage Calculator', price: 100, icon: '📈', currency: 'KES', active: true },
+                    { id: 'valuation', code: 'valuation', name: 'Instant Vehicle Value', price: 150, icon: '💰', currency: 'KES', active: true },
+                    { id: 'ownership', code: 'ownership', name: 'Ownership Cost Report', price: 200, icon: '📊', currency: 'KES', active: true }
+                ];
+            }
+        }
+
+        // ─── Load User Services (purchased) ──────────────────────
+        async function loadUserServices() {
+            try {
+                const token = await getAuthToken();
+                if (!token) return [];
+
+                const response = await fetch(`${API_BASE}/mpesa/mpesa/user/services`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!response.ok) {
+                    return [];
+                }
+
+                const data = await response.json();
+                console.log('🔓 User services:', data);
+                return data.services || [];
+            } catch (error) {
+                console.warn('⚠️ Could not fetch user services:', error.message);
+                return [];
+            }
+        }
+
+        // ─── Load Dashboard ──────────────────────────────────────
+        async function loadDashboard() {
+            try {
+                // 1. Load services from database
+                const dbServices = await loadServicesFromDB();
+                servicesFromDB = dbServices;
+
+                // 2. Load user's purchased services
+                const userServices = await loadUserServices();
+                const purchasedCodes = new Set(userServices.map(s => s.service_id || s.code));
+
+                // 3. Merge: mark services as purchased
+                const services = dbServices.map(s => ({
+                    ...s,
+                    purchased: purchasedCodes.has(s.code) || purchasedCodes.has(s.id),
+                    status: (purchasedCodes.has(s.code) || purchasedCodes.has(s.id)) ? 'active' : 'locked'
+                }));
+
+                console.log('✅ Final services:', services);
+
+                // 4. Load vehicles
+                let vehicles = [];
+                try {
+                    if (currentUser) {
+                        const { data, error } = await supabaseClient
+                            .from('vehicles')
+                            .select('*')
+                            .eq('user_id', currentUser.id)
+                            .order('created_at', { ascending: false });
+                        if (!error) vehicles = data || [];
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch vehicles:', e.message);
+                }
+
+                // 5. Load payments
+                let payments = [];
+                try {
+                    const token = await getAuthToken();
+                    if (token) {
+                        const payResp = await fetch(`${API_BASE}/mpesa/mpesa/payments`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (payResp.ok) {
+                            const payJson = await payResp.json();
+                            payments = payJson.payments || [];
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch payments:', e.message);
+                }
+
+                // 6. Load requests
+                let requests = [];
+                try {
+                    if (currentUser) {
+                        const { data, error } = await supabaseClient
+                            .from('requests')
+                            .select('*')
+                            .eq('user_id', currentUser.id)
+                            .order('created_at', { ascending: false });
+                        if (!error) requests = data || [];
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch requests:', e.message);
+                }
+
+                const pendingRequests = requests ? requests.filter(r => r.status === 'pending' || r.status === 'paid').length : 0;
+                const activeServices = services.filter(s => s.purchased).length;
+
+                dashboardData = {
+                    stats: {
+                        vehicles: vehicles ? vehicles.length : 0,
+                        requests: pendingRequests,
+                        active_services: activeServices,
+                        amount_spent: payments ? payments.reduce((sum, p) => sum + num(p.amount), 0) : 0
+                    },
+                    services: services,
+                    vehicles: vehicles || [],
+                    requests: requests || [],
+                    payments: payments || []
+                };
+
+                renderDashboard(dashboardData);
+
+            } catch (error) {
+                console.error('❌ Dashboard load error:', error);
+                showToast('Error loading dashboard: ' + error.message, 'error');
+            }
+        }
+
+        // ─── Render Functions ────────────────────────────────────
+        function renderDashboard(data) {
+            const stats = data.stats || {};
+            
+            const setText = (id, text) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = text;
+            };
+            
+            setText('statVehicles', stats.vehicles || 0);
+            setText('statRequests', stats.requests || 0);
+            setText('statServices', stats.active_services || 0);
+            setText('statSpent', 'KES ' + num(stats.amount_spent).toLocaleString());
+
+            setText('vehicleBadge', stats.vehicles || 0);
+            setText('reportBadge', 0);
+
+            renderServices(data.services || []);
+            renderVehicles(data.vehicles || []);
+            renderRequests(data.requests || []);
+            renderPayments(data.payments || []);
+            
+            setText('serviceCountLabel', `(${(data.services || []).length})`);
+            setText('vehicleCountLabel', `(${(data.vehicles || []).length})`);
+            setText('requestsCountLabel', `(${(data.requests || []).length})`);
+            setText('paymentsCountLabel', `(${(data.payments || []).length})`);
+        }
+
+        function renderServices(services) {
+            if (!servicesGrid) return;
+            
+            if (!services || services.length === 0) {
+                servicesGrid.innerHTML = `
+                    <div class="empty-state" style="grid-column:1/-1;">
+                        <div class="icon">⚡</div>
+                        <h3>No Services Available</h3>
+                        <p>Check back later for new services.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            servicesGrid.innerHTML = services.map(s => {
+                const isPurchased = s.purchased || s.status === 'active';
+                const statusClass = isPurchased ? 'active' : 'locked';
+                const statusText = isPurchased ? '✅ Active' : '🔒 Locked';
+                const btnText = isPurchased ? '🚀 Open Service' : `💰 Purchase ${num(s.price).toLocaleString()} ${s.currency || 'KES'}`;
+                const btnClass = isPurchased ? 'active' : 'locked';
+
+                return `
+                    <div class="service-card">
+                        ${isPurchased ? '<span class="purchase-badge">✅ Purchased</span>' : ''}
+                        <div class="service-icon">${s.icon || '📦'}</div>
+                        <div class="service-name">${escapeHtml(s.name)}</div>
+                        <div class="service-code">${escapeHtml(s.code || s.id)}</div>
+                        <span class="service-status ${statusClass}">${statusText}</span>
+                        <div class="service-price">
+                            ${isPurchased ? 'Active' : num(s.price).toLocaleString()}
+                            <span class="currency">${s.currency || 'KES'}</span>
+                        </div>
+                        <button class="btn-access ${btnClass}" onclick="handleServiceAction('${s.code || s.id}')">
+                            ${btnText}
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderVehicles(vehicles) {
+            if (!vehicleGrid) return;
+            
+            if (!vehicles || vehicles.length === 0) {
+                vehicleGrid.innerHTML = `
+                    <div class="empty-state" style="grid-column:1/-1;">
+                        <div class="icon">🚗</div>
+                        <h3>No Vehicles Added</h3>
+                        <p>Add your first vehicle to start tracking.</p>
+                        <button class="btn-sm-primary" onclick="openAddVehicleModal()">➕ Add Your First Vehicle</button>
+                    </div>
+                `;
+                return;
+            }
+
+            vehicleGrid.innerHTML = vehicles.map(v => `
+                <div class="vehicle-card">
+                    <div class="top">
+                        <span class="plate">${escapeHtml(v.plate || 'N/A')}</span>
+                        <span class="status-badge ${v.verified ? 'completed' : 'pending'}">${v.verified ? '✅ Verified' : '📝 Pending'}</span>
+                    </div>
+                    <div class="make-model">${escapeHtml(v.make_model || 'Unknown Vehicle')}</div>
+                    <div style="font-size:12px;color:var(--text-muted);">${v.year ? `Year: ${v.year}` : ''} ${v.vin ? `· VIN: ${v.vin}` : ''}</div>
+                    <div class="details-grid">
+                        <div class="item">📏 Mileage: <strong>${num(v.mileage).toLocaleString()} km</strong></div>
+                        <div class="item">💰 Value: <strong>KES ${num(v.value).toLocaleString()}</strong></div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn-sm-primary" onclick="viewVehicle('${v.id}')">View</button>
+                        <button class="btn-sm-outline" onclick="openNewRequestModal()">📝 Request</button>
+                        <button class="btn-sm-danger" onclick="deleteVehicle('${v.id}')">🗑️</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderRequests(requests) {
+            if (!requestsList) return;
+            
+            if (!requests || requests.length === 0) {
+                requestsList.innerHTML = `
+                    <div class="empty-state" style="padding:20px;">
+                        <div class="icon">📋</div>
+                        <p>No requests yet. Start by creating a new request.</p>
+                        <button class="btn-sm-primary" onclick="openNewRequestModal()">📝 Create Request</button>
+                    </div>
+                `;
+                return;
+            }
+
+            requestsList.innerHTML = requests.map(r => {
+                const statusMap = {
+                    'pending': { class: 'pending', label: '⏳ Pending Payment' },
+                    'paid': { class: 'completed', label: '✅ Paid - Ready' },
+                    'completed': { class: 'completed', label: '📄 Completed' },
+                    'failed': { class: 'failed', label: '❌ Failed' },
+                    'cancelled': { class: 'failed', label: '🗑️ Cancelled' }
+                };
+                const status = statusMap[r.status] || statusMap['pending'];
+                const serviceName = r.service_name || r.service_id || 'Service';
+
+                let actionsHtml = '';
+                if (r.status === 'pending') {
+                    actionsHtml = `
+                        <button class="btn-sm-warning" onclick="payForRequest('${r.id}')">💳 Pay Now</button>
+                        <button class="btn-sm-outline" onclick="cancelRequest('${r.id}')">Cancel</button>
+                    `;
+                } else if (r.status === 'paid') {
+                    actionsHtml = `
+                        <button class="btn-sm-success" onclick="generateReportForRequest('${r.id}')">📄 Generate Report</button>
+                    `;
+                }
+
+                return `
+                    <div class="list-item">
+                        <div class="info">
+                            <span class="title">#${String(r.id).slice(0, 8)} - ${escapeHtml(serviceName)}</span>
+                            <span class="meta">
+                                <span>🚗 ${escapeHtml(r.vehicle_plate || r.vehicle_id || 'N/A')}</span>
+                                <span>📅 ${new Date(r.created_at).toLocaleDateString()}</span>
+                                <span>💰 KES ${num(r.amount).toLocaleString()}</span>
+                            </span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <span class="status-badge ${status.class}">${status.label}</span>
+                            ${actionsHtml}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderPayments(payments) {
+            if (!paymentsList) return;
+            
+            if (!payments || payments.length === 0) {
+                paymentsList.innerHTML = `
+                    <div class="empty-state" style="padding:20px;">
+                        <div class="icon">💳</div>
+                        <p>No payment history yet.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            paymentsList.innerHTML = payments.slice(0, 10).map(p => `
+                <div class="list-item">
+                    <div class="info">
+                        <span class="title">${escapeHtml(p.service_name || p.service_id || 'Payment')}</span>
+                        <span class="meta">
+                            <span>📅 ${new Date(p.created_at).toLocaleDateString()}</span>
+                            <span>📱 ${escapeHtml(p.phone || '—')}</span>
+                            <span>🔑 ${escapeHtml(p.checkout_request_id || p.transaction_id || '—')}</span>
+                        </span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <span class="amount">KES ${num(p.amount).toLocaleString()}</span>
+                        <span class="status-badge ${p.status || 'completed'}">${p.status === 'pending' ? '⏳ Pending' : '✅ Complete'}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ─── Requests ─────────────────────────────────────────────
+        window.openNewRequestModal = function() {
+            const vehicleSelect = document.getElementById('requestVehicle');
+            if (vehicleSelect) {
+                vehicleSelect.innerHTML = '<option value="">Select vehicle...</option>';
+                if (dashboardData?.vehicles) {
+                    dashboardData.vehicles.forEach(v => {
+                        const opt = document.createElement('option');
+                        opt.value = v.id;
+                        opt.textContent = `${v.plate || 'N/A'} - ${v.make_model || 'Unknown'}`;
+                        vehicleSelect.appendChild(opt);
+                    });
+                }
+            }
+
+            const serviceSelect = document.getElementById('requestService');
+            if (serviceSelect) {
+                serviceSelect.innerHTML = '<option value="">Select service...</option>';
+                if (dashboardData?.services) {
+                    dashboardData.services.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s.code || s.id;
+                        opt.textContent = `${s.icon || '📦'} ${s.name} (${s.currency || 'KES'} ${num(s.price)})`;
+                        serviceSelect.appendChild(opt);
+                    });
+                }
+            }
+
+            const notesEl = document.getElementById('requestNotes');
+            if (notesEl) notesEl.value = '';
+            
+            const modal = document.getElementById('newRequestModal');
+            if (modal) modal.classList.add('open');
+            
+            updateWorkflowStep(1);
+        };
+
+        window.closeNewRequestModal = function() {
+            const modal = document.getElementById('newRequestModal');
+            if (modal) modal.classList.remove('open');
+        };
+
+        window.createRequest = async function() {
+            const vehicleSelect = document.getElementById('requestVehicle');
+            const serviceSelect = document.getElementById('requestService');
+            const notesEl = document.getElementById('requestNotes');
+
+            const vehicleId = vehicleSelect ? vehicleSelect.value : '';
+            const serviceId = serviceSelect ? serviceSelect.value : '';
+            const notes = notesEl ? notesEl.value.trim() : '';
+
+            if (!vehicleId) {
+                showToast('Please select a vehicle', 'error');
+                return;
+            }
+            if (!serviceId) {
+                showToast('Please select a service', 'error');
+                return;
+            }
+
+            try {
+                const token = await requireAuthToken();
+                if (!token) return;
+
+                const vehicle = dashboardData?.vehicles?.find(v => v.id === vehicleId);
+                const service = dashboardData?.services?.find(s => (s.code || s.id) === serviceId);
+                
                 if (!service) {
                     showToast('Service not found', 'error');
                     return;
                 }
 
-                const isPurchased = service.purchased || service.status === 'purchased' || service.status === 'active';
-
-                if (isPurchased) {
-                    const route = SERVICE_ROUTES[serviceId];
-                    if (route) {
-                        console.log('🚀 Redirecting to purchased service:', route);
-                        window.location.href = route;
-                    } else {
-                        showToast('Service route not found', 'error');
-                    }
-                } else {
-                    console.log('🔒 Service is locked, opening payment modal for:', service.name);
-                    pendingServiceRedirect = serviceId;
-                    selectedService = service;
-                    openPaymentModal(service);
-                }
-            };
-
-            window.handleServiceAction = function(serviceId) {
-                window.navigateToService(serviceId);
-            };
-
-            // ─── Success Overlay ──────────────────────────────────────
-            window.showSuccessOverlay = function(serviceId, serviceName) {
-                const overlay = document.getElementById('successOverlay');
-                const message = document.getElementById('successMessage');
-                const openBtn = document.getElementById('openServiceBtn');
+                closeNewRequestModal();
                 
-                recentlyUnlockedService = serviceId;
-                
-                if (message) {
-                    message.textContent = `${serviceName || 'Service'} has been unlocked successfully! You can now access it.`;
-                }
-                
-                if (openBtn) {
-                    openBtn.onclick = function() {
-                        closeSuccessOverlay();
-                        const route = SERVICE_ROUTES[serviceId];
-                        if (route) {
-                            window.location.href = route;
-                        } else {
-                            showToast('Service route not found', 'error');
-                        }
-                    };
-                    openBtn.style.display = 'inline-flex';
-                }
-                
-                if (overlay) {
-                    overlay.classList.add('open');
-                    fireConfetti();
-                }
-                
-                updateWorkflowStep(5);
-            };
-
-            window.closeSuccessOverlay = function() {
-                const overlay = document.getElementById('successOverlay');
-                if (overlay) {
-                    overlay.classList.remove('open');
-                }
-                const confetti = document.getElementById('confettiContainer');
-                if (confetti) {
-                    confetti.innerHTML = '';
-                }
-                loadDashboard();
-            };
-
-            window.openPurchasedService = function() {
-                if (recentlyUnlockedService) {
-                    const route = SERVICE_ROUTES[recentlyUnlockedService];
-                    if (route) {
-                        window.location.href = route;
-                    }
-                }
-            };
-
-            function fireConfetti() {
-                const container = document.getElementById('confettiContainer');
-                if (!container) return;
-                container.innerHTML = '';
-                const colors = ['#eab308', '#22c55e', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#f59e0b', '#06b6d4'];
-                for (let i = 0; i < 80; i++) {
-                    const piece = document.createElement('div');
-                    piece.className = 'confetti-piece';
-                    piece.style.left = Math.random() * 100 + '%';
-                    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
-                    piece.style.width = (Math.random() * 8 + 4) + 'px';
-                    piece.style.height = (Math.random() * 8 + 4) + 'px';
-                    piece.style.animationDuration = (Math.random() * 2 + 2) + 's';
-                    piece.style.animationDelay = (Math.random() * 2) + 's';
-                    piece.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
-                    container.appendChild(piece);
-                }
-                setTimeout(() => {
-                    container.innerHTML = '';
-                }, 5000);
-            }
-
-            // ─── Load Dashboard ──────────────────────────────────────
-            async function loadDashboard() {
-                try {
-                    if (vehicleGrid) {
-                        vehicleGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
-                    }
-                    if (servicesGrid) {
-                        servicesGrid.innerHTML = `<div class="empty-state"><div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-muted);">Loading...</p></div>`;
-                    }
-
-                    let services;
-                    try {
-                        const svcResp = await fetch(`${API_BASE}/services?active_only=true`);
-                        if (!svcResp.ok) throw new Error(`HTTP ${svcResp.status}`);
-                        const svcJson = await svcResp.json();
-                        const liveServices = (svcJson.services || []).map(s => ({
-                            id: s.service_type,
-                            code: s.service_type,
-                            name: s.service_name,
-                            price: s.price,
-                            icon: s.icon || SERVICE_ICONS[s.service_type] || '📦',
-                            route: SERVICE_ROUTES[s.service_type] || null,
-                            purchased: false,
-                            status: 'locked'
-                        }));
-                        if (liveServices.length > 0) {
-                            services = liveServices;
-                            console.log('📋 Loaded services from API:', services);
-                        } else {
-                            throw new Error('API returned zero active services');
-                        }
-                    } catch (e) {
-                        console.warn('⚠️ Could not load services from /api/v1/services, using hardcoded defaults:', e.message);
-                        services = DEFAULT_SERVICES.map(s => ({ ...s }));
-                    }
-
-                    let vehicles = [];
-                    try {
-                        if (currentUser) {
-                            const { data, error } = await supabaseClient
-                                .from('vehicles')
-                                .select('*')
-                                .eq('user_id', currentUser.id)
-                                .order('created_at', { ascending: false });
-                            if (!error) vehicles = data || [];
-                        }
-                    } catch (e) {
-                        console.warn('Could not fetch vehicles:', e.message);
-                    }
-
-                    let payments = [];
-                    try {
-                        const payToken = await getAuthToken();
-                        if (payToken) {
-                            const payResp = await fetch(`${API_BASE}/mpesa/mpesa/payments`, {
-                                headers: { 'Authorization': `Bearer ${payToken}` }
-                            });
-                            if (payResp.ok) {
-                                const payJson = await payResp.json();
-                                payments = payJson.payments || [];
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Could not fetch payments from backend:', e.message);
-                    }
-
-                    let unlockedServiceIds = [];
-                    try {
-                        const svcToken = await getAuthToken();
-                        if (svcToken) {
-                            const userSvcResp = await fetch(`${API_BASE}/mpesa/mpesa/user/services`, {
-                                headers: { 'Authorization': `Bearer ${svcToken}` }
-                            });
-                            if (userSvcResp.ok) {
-                                const userSvcJson = await userSvcResp.json();
-                                unlockedServiceIds = (userSvcJson.services || []).map(s => s.service_id);
-                                console.log('🔓 Unlocked services from backend:', unlockedServiceIds);
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Could not fetch user services from backend:', e.message);
-                    }
-
-                    let requests = [];
-                    try {
-                        if (currentUser) {
-                            const { data, error } = await supabaseClient
-                                .from('requests')
-                                .select('*')
-                                .eq('user_id', currentUser.id)
-                                .order('created_at', { ascending: false });
-                            if (!error) requests = data || [];
-                        }
-                    } catch (e) {
-                        console.warn('Could not fetch requests:', e.message);
-                    }
-
-                    let notifications = [];
-                    try {
-                        if (currentUser) {
-                            const { data, error } = await supabaseClient
-                                .from('notifications')
-                                .select('*')
-                                .eq('user_id', currentUser.id)
-                                .order('created_at', { ascending: false });
-                            if (!error) notifications = data || [];
-                        }
-                    } catch (e) {
-                        console.warn('Could not fetch notifications:', e.message);
-                    }
-
-                    const unlockedSet = new Set(unlockedServiceIds);
-                    services = services.map(s => ({
-                        ...s,
-                        purchased: unlockedSet.has(s.id),
-                        status: unlockedSet.has(s.id) ? 'active' : 'locked'
-                    }));
-
-                    console.log('✅ Final services:', services);
-
-                    const pendingRequests = requests ? requests.filter(r => r.status === 'pending' || r.status === 'paid').length : 0;
-
-                    dashboardData = {
-                        stats: {
-                            vehicles: vehicles ? vehicles.length : 0,
-                            requests: pendingRequests,
-                            active_services: unlockedServiceIds.length || 0,
-                            amount_spent: payments ? payments.reduce((sum, p) => sum + num(p.amount), 0) : 0,
-                            fleet_value: vehicles ? vehicles.reduce((sum, v) => sum + num(v.value), 0) : 0,
-                            monthly_running_cost: 45000
-                        },
-                        services: services,
-                        vehicles: vehicles || [],
-                        requests: requests || [],
-                        payments: payments || [],
-                        notifications: notifications || []
-                    };
-
-                    renderDashboard(dashboardData);
-
-                } catch (error) {
-                    console.error('❌ Dashboard load error:', error);
-                    showToast('Error loading dashboard: ' + error.message, 'error');
-                }
-            }
-
-            // ─── Render Functions ────────────────────────────────────
-            function renderDashboard(data) {
-                const stats = data.stats || {};
-                
-                const setText = (id, text) => {
-                    const el = document.getElementById(id);
-                    if (el) el.textContent = text;
-                };
-                
-                setText('statVehicles', stats.vehicles || 0);
-                setText('statRequests', stats.requests || 0);
-                setText('statServices', stats.active_services || 0);
-                setText('statSpent', 'KES ' + num(stats.amount_spent).toLocaleString());
-                setText('statFleetValue', 'KES ' + num(stats.fleet_value).toLocaleString());
-                setText('statMonthlyCost', 'KES ' + num(stats.monthly_running_cost).toLocaleString());
-
-                setText('vehicleBadge', stats.vehicles || 0);
-                setText('reportBadge', 0);
-
-                renderVehicles(data.vehicles || []);
-                renderServices(data.services || []);
-                renderRequests(data.requests || []);
-                renderPayments(data.payments || []);
-                renderNotifications(data.notifications || []);
-                
-                setText('requestsCountLabel', `(${(data.requests || []).length})`);
-                setText('vehicleCountLabel', `(${(data.vehicles || []).length})`);
-                setText('serviceCountLabel', `(${(data.services || []).length})`);
-                setText('paymentsCountLabel', `(${(data.payments || []).length})`);
-                setText('notificationsCountLabel', `(${(data.notifications || []).length})`);
-            }
-
-            function renderVehicles(vehicles) {
-                if (!vehicleGrid) return;
-                
-                if (!vehicles || vehicles.length === 0) {
-                    vehicleGrid.innerHTML = `
-                        <div class="empty-state" style="grid-column:1/-1;">
-                            <div class="icon">🚗</div>
-                            <h3>No Vehicles Added</h3>
-                            <p>Add your first vehicle to start tracking.</p>
-                            <button class="btn-sm-primary" onclick="openAddVehicleModal()">➕ Add Your First Vehicle</button>
-                        </div>
-                    `;
-                    return;
-                }
-
-                vehicleGrid.innerHTML = vehicles.map(v => `
-                    <div class="vehicle-card">
-                        <div class="top">
-                            <span class="plate">${escapeHtml(v.plate || 'N/A')}</span>
-                            <span class="status-badge ${v.verified ? 'completed' : 'pending'}">${v.verified ? '✅ Verified' : '📝 Pending'}</span>
-                        </div>
-                        <div class="make-model">${escapeHtml(v.make_model || 'Unknown Vehicle')}</div>
-                        <div style="font-size:12px;color:var(--text-muted);">${v.year ? `Year: ${v.year}` : ''} ${v.vin ? `· VIN: ${v.vin}` : ''}</div>
-                        <div class="details-grid">
-                            <div class="item">📏 Mileage: <strong>${num(v.mileage).toLocaleString()} km</strong></div>
-                            <div class="item">💰 Value: <strong>KES ${num(v.value).toLocaleString()}</strong></div>
-                            <div class="item">⛽ Running Cost: <strong>KES ${num(v.running_cost).toFixed(2)}/km</strong></div>
-                            <div class="item">📊 TCO: <strong>KES ${num(v.tco).toLocaleString()}</strong></div>
-                        </div>
-                        <div class="actions">
-                            <button class="btn-sm-primary" onclick="viewVehicle('${v.id}')">View</button>
-                            <button class="btn-sm-outline" onclick="openNewRequestModal()">📝 Request</button>
-                            <button class="btn-sm-danger" onclick="deleteVehicle('${v.id}')">🗑️</button>
-                        </div>
-                    </div>
-                `).join('');
-            }
-
-            function renderServices(services) {
-                if (!servicesGrid) return;
-                
-                if (!services || services.length === 0) {
-                    servicesGrid.innerHTML = `
-                        <div class="empty-state" style="grid-column:1/-1;">
-                            <div class="icon">⚡</div>
-                            <h3>No Services Available</h3>
-                            <p>Check back later for new services.</p>
-                        </div>
-                    `;
-                    return;
-                }
-
-                servicesGrid.innerHTML = services.map(s => {
-                    const isPurchased = s.purchased || s.status === 'purchased' || s.status === 'active';
-                    const statusClass = isPurchased ? 'purchased' : 'locked';
-                    const statusText = isPurchased ? '✅ Active' : '🔒 Locked';
-                    const btnText = isPurchased ? '🚀 Open Service' : `💰 Purchase ${num(s.price)} KES`;
-                    const btnClass = isPurchased ? 'purchased' : 'locked';
-
-                    return `
-                        <div class="service-card">
-                            ${isPurchased ? '<span class="purchase-badge">✅ Purchased</span>' : ''}
-                            <div class="service-icon">${s.icon || '📦'}</div>
-                            <div class="service-name">${escapeHtml(s.name)}</div>
-                            <span class="service-status ${statusClass}">${statusText}</span>
-                            <div class="service-price">${isPurchased ? 'Active' : 'KES ' + num(s.price).toLocaleString()}</div>
-                            <button class="btn-access ${btnClass}" onclick="handleServiceAction('${s.id}')">
-                                ${btnText}
-                            </button>
-                        </div>
-                    `;
-                }).join('');
-            }
-
-            function renderRequests(requests) {
-                if (!requestsList) return;
-                
-                if (!requests || requests.length === 0) {
-                    requestsList.innerHTML = `
-                        <div class="empty-state" style="padding:20px;">
-                            <div class="icon">📋</div>
-                            <p>No requests yet. Start by creating a new request.</p>
-                            <button class="btn-sm-primary" onclick="openNewRequestModal()">📝 Create Request</button>
-                        </div>
-                    `;
-                    return;
-                }
-
-                requestsList.innerHTML = requests.map(r => {
-                    const statusMap = {
-                        'pending': { class: 'pending', label: '⏳ Pending Payment' },
-                        'paid': { class: 'paid', label: '✅ Paid - Ready' },
-                        'completed': { class: 'completed', label: '📄 Completed' },
-                        'failed': { class: 'failed', label: '❌ Failed' },
-                        'cancelled': { class: 'cancelled', label: '🗑️ Cancelled' }
-                    };
-                    const status = statusMap[r.status] || statusMap['pending'];
-                    const serviceName = SERVICE_NAMES[r.service_id] || r.service_id || r.service_name || 'Service';
-
-                    let actionsHtml = '';
-                    if (r.status === 'pending') {
-                        actionsHtml = `
-                            <button class="btn-sm-warning" onclick="payForRequest('${r.id}')">💳 Pay Now</button>
-                            <button class="btn-sm-outline" onclick="cancelRequest('${r.id}')">Cancel</button>
-                        `;
-                    } else if (r.status === 'paid') {
-                        actionsHtml = `
-                            <button class="btn-sm-success" onclick="generateReportForRequest('${r.id}')">📄 Generate Report</button>
-                        `;
-                    } else if (r.status === 'completed') {
-                        actionsHtml = `
-                            <button class="btn-sm-primary" onclick="viewReportForRequest('${r.id}')">📄 View Report</button>
-                            <button class="btn-sm-outline" onclick="downloadReportForRequest('${r.id}')">⬇️ Download</button>
-                        `;
-                    }
-
-                    return `
-                        <div class="request-card">
-                            <div class="request-header">
-                                <span class="request-id"><strong>#${String(r.id).slice(0, 8)}</strong> - ${escapeHtml(serviceName)}</span>
-                                <span class="request-status ${status.class}">${status.label}</span>
-                            </div>
-                            <div class="request-details">
-                                <div class="detail-item"><strong>Vehicle:</strong> ${escapeHtml(r.vehicle_plate || r.vehicle_id || 'N/A')}</div>
-                                <div class="detail-item"><strong>Created:</strong> ${new Date(r.created_at).toLocaleDateString()}</div>
-                                <div class="detail-item"><strong>Amount:</strong> KES ${num(r.amount).toLocaleString()}</div>
-                            </div>
-                            ${r.notes ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">📝 ${escapeHtml(r.notes)}</div>` : ''}
-                            <div class="request-actions">
-                                ${actionsHtml}
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            }
-
-            function renderPayments(payments) {
-                if (!paymentsList) return;
-                
-                if (!payments || payments.length === 0) {
-                    paymentsList.innerHTML = `
-                        <div class="empty-state" style="padding:20px;">
-                            <div class="icon">💳</div>
-                            <p>No payment history yet.</p>
-                        </div>
-                    `;
-                    return;
-                }
-
-                paymentsList.innerHTML = payments.map(p => `
-                    <div class="list-item">
-                        <div class="info">
-                            <span class="title">${escapeHtml(p.service_name || 'Payment')}</span>
-                            <span class="meta">
-                                <span>📅 ${new Date(p.created_at).toLocaleDateString()}</span>
-                                <span>📱 ${escapeHtml(p.phone || '—')}</span>
-                                <span>🔑 ${escapeHtml(p.checkout_request_id || p.transaction_id || '—')}</span>
-                            </span>
-                        </div>
-                        <div style="display:flex;align-items:center;gap:12px;">
-                            <span class="amount">KES ${num(p.amount).toLocaleString()}</span>
-                            <span class="status-badge ${p.status || 'completed'}">${p.status === 'pending' ? '⏳ Pending' : '✅ Complete'}</span>
-                        </div>
-                    </div>
-                `).join('');
-            }
-
-            function renderNotifications(notifications) {
-                if (!notificationsList) return;
-                
-                if (!notifications || notifications.length === 0) {
-                    notificationsList.innerHTML = `
-                        <div class="empty-state" style="padding:20px;">
-                            <div class="icon">🔔</div>
-                            <p>No notifications</p>
-                        </div>
-                    `;
-                    return;
-                }
-
-                notificationsList.innerHTML = notifications.map(n => {
-                    const icons = { 'insurance': '🛡️', 'service': '🔧', 'valuation': '📈', 'payment': '💳', 'report': '📄' };
-                    return `
-                        <div class="notification-item" onclick="viewNotification('${n.id}')">
-                            <span class="notif-icon">${icons[n.type] || '📌'}</span>
-                            <div class="notif-content">
-                                <div class="msg">${escapeHtml(n.message)}</div>
-                                <div class="time">${new Date(n.created_at).toLocaleDateString()}</div>
-                            </div>
-                            <span class="notif-dot ${n.read ? 'read' : 'unread'}"></span>
-                        </div>
-                    `;
-                }).join('');
-            }
-
-            // ─── Requests ─────────────────────────────────────────────
-            window.openNewRequestModal = function() {
-                const vehicleSelect = document.getElementById('requestVehicle');
-                if (vehicleSelect) {
-                    vehicleSelect.innerHTML = '<option value="">Select vehicle...</option>';
-                    if (dashboardData?.vehicles) {
-                        dashboardData.vehicles.forEach(v => {
-                            const opt = document.createElement('option');
-                            opt.value = v.id;
-                            opt.textContent = `${v.plate || 'N/A'} - ${v.make_model || 'Unknown'}`;
-                            vehicleSelect.appendChild(opt);
-                        });
-                    }
-                }
-
-                const serviceSelect = document.getElementById('requestService');
-                if (serviceSelect) {
-                    serviceSelect.innerHTML = '<option value="">Select service...</option>';
-                    if (dashboardData?.services) {
-                        dashboardData.services.forEach(s => {
-                            const opt = document.createElement('option');
-                            opt.value = s.id;
-                            opt.textContent = `${s.icon || '📦'} ${s.name} (KES ${num(s.price)})`;
-                            serviceSelect.appendChild(opt);
-                        });
-                    }
-                }
-
-                const notesEl = document.getElementById('requestNotes');
-                if (notesEl) notesEl.value = '';
-                
-                const modal = document.getElementById('newRequestModal');
-                if (modal) modal.classList.add('open');
-                
-                updateWorkflowStep(1);
-            };
-
-            window.closeNewRequestModal = function() {
-                const modal = document.getElementById('newRequestModal');
-                if (modal) modal.classList.remove('open');
-            };
-
-            window.createRequest = async function() {
-                const vehicleSelect = document.getElementById('requestVehicle');
-                const serviceSelect = document.getElementById('requestService');
-                const notesEl = document.getElementById('requestNotes');
-
-                const vehicleId = vehicleSelect ? vehicleSelect.value : '';
-                const serviceId = serviceSelect ? serviceSelect.value : '';
-                const notes = notesEl ? notesEl.value.trim() : '';
-
-                if (!vehicleId) {
-                    showToast('Please select a vehicle', 'error');
-                    return;
-                }
-                if (!serviceId) {
-                    showToast('Please select a service', 'error');
-                    return;
-                }
-
-                try {
-                    const token = await requireAuthToken();
-                    if (!token) return;
-
-                    const vehicle = dashboardData?.vehicles?.find(v => v.id === vehicleId);
-                    const service = dashboardData?.services?.find(s => s.id === serviceId);
-                    
-                    if (!service) {
-                        showToast('Service not found', 'error');
-                        return;
-                    }
-
-                    closeNewRequestModal();
-                    
-                    if (supabaseClient) {
-                        const { data, error } = await supabaseClient
-                            .from('requests')
-                            .insert({
-                                user_id: currentUser.id,
-                                vehicle_id: vehicleId,
-                                vehicle_plate: vehicle?.plate || 'N/A',
-                                service_id: serviceId,
-                                service_name: service.name || serviceId,
-                                amount: num(service.price),
-                                notes: notes,
-                                status: 'pending',
-                                created_at: new Date().toISOString()
-                            })
-                            .select()
-                            .single();
-
-                        if (error) {
-                            console.warn('Could not create request record:', error);
-                            showToast('Failed to create request. Please try again.', 'error');
-                            return;
-                        } else {
-                            console.log('Request created:', data);
-                            pendingRequestId = data?.id || null;
-                            showToast('✅ Request created!', 'success');
-                        }
-                    }
-
-                    pendingServiceRedirect = serviceId;
-                    openPaymentModal(service);
-                    updateWorkflowStep(3);
-
-                } catch (error) {
-                    console.error('❌ Create request error:', error);
-                    showToast(error.message || 'Failed to create request', 'error');
-                }
-            };
-
-            window.payForRequest = async function(requestId) {
-                try {
-                    const token = await requireAuthToken();
-                    if (!token) return;
-
-                    const request = dashboardData?.requests?.find(r => r.id === requestId);
-                    if (!request) {
-                        showToast('Request not found', 'error');
-                        return;
-                    }
-
-                    const requestAmount = (request.amount !== null && request.amount !== undefined)
-                        ? num(request.amount)
-                        : 100;
-
-                    selectedService = {
-                        id: request.service_id,
-                        name: request.service_name || SERVICE_NAMES[request.service_id] || request.service_id,
-                        price: requestAmount
-                    };
-                    pendingServiceRedirect = request.service_id;
-                    pendingRequestId = requestId;
-                    updateWorkflowStep(3);
-                    openPaymentModal(selectedService);
-
-                } catch (error) {
-                    console.error('❌ Pay for request error:', error);
-                    showToast(error.message || 'Failed to process payment', 'error');
-                }
-            };
-
-            window.cancelRequest = async function(requestId) {
-                if (!confirm('Are you sure you want to cancel this request?')) return;
-
-                try {
-                    if (!supabaseClient) {
-                        if (!initSupabase()) {
-                            throw new Error('Database not connected');
-                        }
-                    }
-
-                    const { error } = await supabaseClient
-                        .from('requests')
-                        .update({ status: 'cancelled' })
-                        .eq('id', requestId)
-                        .eq('user_id', currentUser.id);
-
-                    if (error) throw error;
-
-                    showToast('🗑️ Request cancelled', 'info');
-                    await loadDashboard();
-
-                } catch (error) {
-                    console.error('❌ Cancel request error:', error);
-                    showToast(error.message || 'Failed to cancel request', 'error');
-                }
-            };
-
-            // ─── Payment Functions ────────────────────────────────────
-            window.openPaymentModal = function(service) {
-                console.log('💰 Opening payment modal for:', service.name);
-                selectedService = service;
-                confirmedCheckoutId = null;
-                checkoutRequestId = null;
-                unlockInFlightFor = null;
-
-                const nameEl = document.getElementById('paymentServiceName');
-                const amountEl = document.getElementById('paymentAmount');
-                const totalEl = document.getElementById('paymentTotal');
-                const phoneEl = document.getElementById('mpesaPhone');
-                const phoneWrapper = document.getElementById('phoneInputWrapper');
-                
-                if (nameEl) nameEl.textContent = service.name || 'Service';
-                if (amountEl) amountEl.textContent = 'KES ' + num(service.price).toLocaleString();
-                if (totalEl) totalEl.textContent = 'KES ' + num(service.price).toLocaleString();
-                
-                if (phoneEl) {
-                    phoneEl.value = '';
-                    phoneEl.placeholder = '0700000000 or 0110000000';
-                }
-                if (phoneWrapper) phoneWrapper.classList.remove('error');
-                
-                const modal = document.getElementById('paymentModal');
-                if (modal) modal.classList.add('open');
-                
-                updateWorkflowStep(3);
-            };
-
-            window.closePaymentModal = function(opts) {
-                opts = opts || {};
-                const modal = document.getElementById('paymentModal');
-                if (modal) modal.classList.remove('open');
-                selectedService = null;
-                pendingServiceRedirect = null;
-                pendingRequestId = null;
-                isProcessingPayment = false;
-                isWaitingForPayment = false;
-                if (!opts.keepConfirmed) {
-                    confirmedCheckoutId = null;
-                }
-                if (pollTimer) {
-                    clearInterval(pollTimer);
-                    pollTimer = null;
-                }
-                const payBtn = document.getElementById('payNowBtn');
-                if (payBtn) {
-                    payBtn.disabled = false;
-                    payBtn.textContent = '💳 Pay Now';
-                }
-                const overlay = document.getElementById('paymentOverlay');
-                if (overlay) {
-                    overlay.classList.remove('open');
-                    const spinner = document.getElementById('paymentSpinner');
-                    if (spinner) spinner.style.display = 'block';
-                }
-                updateWorkflowStep(3);
-            };
-
-            window.processPayment = async function() {
-                const phoneEl = document.getElementById('mpesaPhone');
-                const payBtn = document.getElementById('payNowBtn');
-                const phoneWrapper = document.getElementById('phoneInputWrapper');
-
-                let rawPhone = phoneEl ? phoneEl.value.trim() : '';
-
-                if (!rawPhone) {
-                    showToast('Please enter your M-Pesa phone number', 'error');
-                    if (phoneWrapper) phoneWrapper.classList.add('error');
-                    if (phoneEl) phoneEl.focus();
-                    setTimeout(() => {
-                        if (phoneWrapper) phoneWrapper.classList.remove('error');
-                    }, 3000);
-                    return;
-                }
-
-                let phone = rawPhone.replace(/\D/g, '');
-                if (phone.startsWith('254')) phone = phone.slice(3);
-                if (phone.startsWith('0')) phone = phone.slice(1);
-
-                if (!/^(7\d{8}|11\d{7})$/.test(phone)) {
-                    showToast('Please enter a valid Safaricom number (07X or 011X)', 'error');
-                    if (phoneWrapper) phoneWrapper.classList.add('error');
-                    setTimeout(() => {
-                        if (phoneWrapper) phoneWrapper.classList.remove('error');
-                    }, 3000);
-                    return;
-                }
-
-                if (!selectedService) {
-                    showToast('No service selected', 'error');
-                    return;
-                }
-
-                const purchasedCount = dashboardData?.services?.filter(s => s.purchased).length || 0;
-                if (purchasedCount >= 4) {
-                    showToast('⚠️ You already have 4 active services. Please use or cancel one first.', 'warning');
-                    return;
-                }
-
-                if (isProcessingPayment) return;
-
-                const token = await requireAuthToken();
-                if (!token) return;
-
-                isProcessingPayment = true;
-                confirmedCheckoutId = null;
-                if (payBtn) {
-                    payBtn.disabled = true;
-                    payBtn.textContent = '⏳ Processing...';
-                }
-
-                const overlay = document.getElementById('paymentOverlay');
-                const spinner = document.getElementById('paymentSpinner');
-                const statusText = document.getElementById('paymentStatusText');
-                const statusDetail = document.getElementById('paymentStatusDetail');
-
-                if (overlay) {
-                    if (spinner) spinner.style.display = 'block';
-                    if (statusText) statusText.textContent = 'Initiating M-Pesa payment...';
-                    if (statusDetail) statusDetail.textContent = 'Please wait...';
-                    overlay.classList.add('open');
-                }
-
-                const requestBody = {
-                    phone: phone,
-                    service_id: selectedService.id,
-                    description: `Auto-D: ${selectedService.name}`,
-                    user_id: currentUser.id,
-                    request_id: pendingRequestId || null
-                };
-
-                try {
-                    const response = await fetch(`${API_BASE}/mpesa/mpesa/stkpush`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        },
-                        body: JSON.stringify(requestBody)
-                    });
-
-                    const data = await response.json();
-
-                    if (response.status === 403) {
-                        const errorMsg = data.detail || data.message || 'Payment service is not available. Please try again later.';
-                        showToast('🔒 ' + errorMsg, 'warning');
-                        if (overlay) {
-                            if (statusText) statusText.textContent = '🔒 Payment Service Unavailable';
-                            if (statusDetail) statusDetail.textContent = 'Please contact support for assistance.';
-                            if (spinner) spinner.style.display = 'none';
-                        }
-                        setTimeout(() => {
-                            if (overlay) overlay.classList.remove('open');
-                            closePaymentModal();
-                        }, 3000);
-                        return;
-                    }
-
-                    if (!response.ok) {
-                        const errorMsg = data.detail || data.error || data.message || 'Payment initiation failed';
-                        showToast('❌ ' + errorMsg, 'error');
-                        if (overlay) {
-                            if (statusText) statusText.textContent = '❌ Payment Failed';
-                            if (statusDetail) statusDetail.textContent = errorMsg;
-                            if (spinner) spinner.style.display = 'none';
-                        }
-                        setTimeout(() => {
-                            if (overlay) overlay.classList.remove('open');
-                            closePaymentModal();
-                        }, 3000);
-                        return;
-                    }
-
-                    const checkoutId = data.checkout_request_id || data.checkoutRequestID;
-                    if (!checkoutId) {
-                        showToast('❌ No checkout ID returned by server', 'error');
-                        if (overlay) overlay.classList.remove('open');
-                        closePaymentModal();
-                        return;
-                    }
-                    checkoutRequestId = checkoutId;
-                    const targetServiceId = pendingServiceRedirect || selectedService.id;
-
-                    if (overlay) {
-                        if (statusText) statusText.textContent = '📱 STK Push Sent!';
-                        if (statusDetail) statusDetail.textContent = 'Please check your phone and enter your M-Pesa PIN.';
-                    }
-                    showToast('📱 STK Push sent! Check your phone.', 'info');
-
-                    isWaitingForPayment = true;
-                    const paymentSuccess = await waitForPayment(checkoutId, targetServiceId);
-
-                    if (!paymentSuccess) {
-                        if (payBtn) {
-                            payBtn.disabled = false;
-                            payBtn.textContent = '💳 Pay Now';
-                        }
-                        isProcessingPayment = false;
-                        isWaitingForPayment = false;
-                        updateWorkflowStep(3);
-                    }
-
-                } catch (error) {
-                    console.error('Payment error:', error);
-                    if (overlay) {
-                        if (statusText) statusText.textContent = '❌ Payment Error';
-                        if (statusDetail) statusDetail.textContent = error.message || 'Please try again.';
-                        if (spinner) spinner.style.display = 'none';
-                    }
-                    showToast('❌ Payment error: ' + error.message, 'error');
-                    setTimeout(() => {
-                        if (overlay) overlay.classList.remove('open');
-                        closePaymentModal();
-                    }, 2000);
-                } finally {
-                    isProcessingPayment = false;
-                    if (payBtn) {
-                        payBtn.disabled = false;
-                        payBtn.textContent = '💳 Pay Now';
-                    }
-                }
-            };
-
-            async function waitForPayment(checkoutId, serviceId, maxAttempts = MAX_POLLING_ATTEMPTS) {
-                const statusText = document.getElementById('paymentStatusText');
-                const statusDetail = document.getElementById('paymentStatusDetail');
-                const spinner = document.getElementById('paymentSpinner');
-
-                let attempts = 0;
-                let isComplete = false;
-                let startTime = Date.now();
-
-                return new Promise((resolve) => {
-                    if (pollTimer) {
-                        clearInterval(pollTimer);
-                        pollTimer = null;
-                    }
-
-                    pollTimer = setInterval(async () => {
-                        if (!isWaitingForPayment || checkoutRequestId !== checkoutId) {
-                            clearInterval(pollTimer);
-                            pollTimer = null;
-                            resolve(false);
-                            return;
-                        }
-
-                        attempts++;
-                        const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
-
-                        try {
-                            if (statusText) {
-                                statusText.textContent = `⏳ Waiting for M-Pesa confirmation... (${elapsedSeconds}s)`;
-                            }
-                            if (statusDetail) {
-                                statusDetail.textContent = `Please check your phone and enter your M-Pesa PIN. (${Math.round(attempts * 2)}s)`;
-                            }
-
-                            const pollToken = await getAuthToken();
-                            const headers = { 'Accept': 'application/json' };
-                            if (pollToken) {
-                                headers['Authorization'] = `Bearer ${pollToken}`;
-                            }
-
-                            const statusResponse = await fetch(`${API_BASE}/mpesa/mpesa/status/${encodeURIComponent(checkoutId)}`, {
-                                headers: headers
-                            });
-
-                            if (!statusResponse.ok) {
-                                if (statusResponse.status === 404) {
-                                    if (attempts > 20 && !isComplete) {
-                                        if (statusDetail) {
-                                            statusDetail.innerHTML = `
-                                                <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
-                                                    <p style="font-size:14px;color:var(--text-secondary);">
-                                                        Still waiting for payment confirmation...
-                                                    </p>
-                                                    <p style="font-size:12px;color:var(--text-muted);">
-                                                        Did you enter your PIN on your phone?
-                                                    </p>
-                                                    <button id="retryPinBtn"
-                                                            style="padding:10px 20px;background:var(--primary);color:#0f172a;border:none;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;width:100%;">
-                                                        🔄 I've Entered My PIN
-                                                    </button>
-                                                </div>
-                                            `;
-                                            const btn = document.getElementById('retryPinBtn');
-                                            if (btn) btn.addEventListener('click', () => window.retryPaymentConfirmation(checkoutId, serviceId));
-                                        }
-                                    }
-                                    return;
-                                }
-                                console.warn('Status check error:', statusResponse.status);
-                                return;
-                            }
-
-                            const statusData = await statusResponse.json();
-                            const normalized = (statusData.status || '').toString().toLowerCase();
-
-                            if (normalized === 'completed' || normalized === 'success' || normalized === 'paid' ||
-                                normalized === 'complete' || statusData.success === true) {
-
-                                isComplete = true;
-                                clearInterval(pollTimer);
-                                pollTimer = null;
-
-                                if (statusText) statusText.innerHTML = '✅ Payment Successful! 🎉';
-                                if (statusDetail) statusDetail.textContent = 'Confirming with server...';
-
-                                showToast('✅ Payment received, confirming...', 'success');
-
-                                const confirmed = await unlockServiceAfterPayment(checkoutId, serviceId);
-                                resolve(confirmed);
-                                return;
-
-                            } else if (normalized === 'failed' || normalized === 'error' || normalized === 'cancelled' ||
-                                       normalized === 'canceled' || normalized === 'timeout') {
-
-                                isComplete = true;
-                                clearInterval(pollTimer);
-                                pollTimer = null;
-
-                                if (statusText) statusText.textContent = '❌ Payment Failed';
-                                if (statusDetail) statusDetail.textContent = statusData.description || statusData.message || 'Please try again.';
-                                if (spinner) spinner.style.display = 'none';
-
-                                showToast('❌ Payment failed: ' + (statusData.description || 'Please try again'), 'error');
-                                resolve(false);
-                                return;
-                            }
-
-                            if (attempts >= maxAttempts) {
-                                isComplete = true;
-                                clearInterval(pollTimer);
-                                pollTimer = null;
-
-                                if (statusText) statusText.textContent = '⏰ Payment Timeout';
-                                if (statusDetail) {
-                                    statusDetail.innerHTML = `
-                                        <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
-                                            <p style="font-size:14px;color:var(--text-secondary);">
-                                                Payment confirmation timed out after 4 minutes.
-                                            </p>
-                                            <p style="font-size:12px;color:var(--text-muted);">
-                                                If you've already paid, click below to confirm.
-                                            </p>
-                                            <button id="manualConfirmBtn"
-                                                    style="padding:12px 24px;background:var(--success);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;width:100%;">
-                                                ✅ I've Completed Payment
-                                            </button>
-                                        </div>
-                                    `;
-                                    const btn = document.getElementById('manualConfirmBtn');
-                                    if (btn) btn.addEventListener('click', () => window.manualConfirmPayment(checkoutId, serviceId));
-                                }
-                                if (spinner) spinner.style.display = 'none';
-
-                                showToast('⏰ Payment confirmation timed out. Please check your M-Pesa.', 'warning');
-                                resolve(false);
-                                return;
-                            }
-
-                        } catch (pollError) {
-                            console.warn('Polling error:', pollError);
-                            if (attempts >= maxAttempts) {
-                                clearInterval(pollTimer);
-                                pollTimer = null;
-                                resolve(false);
-                            }
-                        }
-                    }, 2000);
-                });
-            }
-
-            async function unlockServiceAfterPayment(checkoutId, serviceId) {
-                if (unlockInFlightFor === checkoutId) {
-                    return confirmedCheckoutId === checkoutId;
-                }
-                if (confirmedCheckoutId === checkoutId) {
-                    return true;
-                }
-                unlockInFlightFor = checkoutId;
-
-                try {
-                    const token = await getAuthToken();
-                    if (!token) {
-                        showToast('⚠️ Authentication error. Please log in again.', 'error');
-                        return false;
-                    }
-
-                    const response = await fetch(`${API_BASE}/mpesa/mpesa/confirm/${encodeURIComponent(checkoutId)}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        }
-                    });
-
-                    let data = {};
-                    try {
-                        data = await response.json();
-                    } catch (e) {
-                        data = {};
-                    }
-                    console.log('📥 Confirm response:', data);
-
-                    const backendConfirmed = response.ok && (data.success === true || data.status === 'completed');
-
-                    if (!backendConfirmed) {
-                        showToast('⚠️ Payment could not be confirmed yet. Please wait or contact support.', 'warning');
-                        const overlay = document.getElementById('paymentOverlay');
-                        const statusText = document.getElementById('paymentStatusText');
-                        const statusDetail = document.getElementById('paymentStatusDetail');
-                        const spinner = document.getElementById('paymentSpinner');
-                        if (statusText) statusText.textContent = '⚠️ Not confirmed yet';
-                        if (statusDetail) statusDetail.textContent = data.message || data.detail || 'Please try again in a moment.';
-                        if (spinner) spinner.style.display = 'none';
-                        return false;
-                    }
-
-                    confirmedCheckoutId = checkoutId;
-
-                    if (dashboardData && dashboardData.services) {
-                        const svc = dashboardData.services.find(s => s.id === serviceId);
-                        if (svc) {
-                            svc.purchased = true;
-                            svc.status = 'active';
-                        }
-                    }
-                    renderServices(dashboardData.services || []);
-
-                    const overlay = document.getElementById('paymentOverlay');
-                    const statusText = document.getElementById('paymentStatusText');
-                    const statusDetail = document.getElementById('paymentStatusDetail');
-                    const spinner = document.getElementById('paymentSpinner');
-
-                    if (overlay) {
-                        if (spinner) spinner.style.display = 'none';
-                        if (statusText) statusText.innerHTML = '✅ Payment Successful! 🎉';
-                        if (statusDetail) statusDetail.textContent = 'Service unlocked!';
-                    }
-
-                    showToast(`✅ ${selectedService?.name || 'Service'} unlocked successfully!`, 'success');
-                    updateWorkflowStep(5);
-                    isWaitingForPayment = false;
-
-                    const serviceName = selectedService?.name || SERVICE_NAMES[serviceId] || serviceId;
-                    showSuccessOverlay(serviceId, serviceName);
-
-                    setTimeout(() => {
-                        if (overlay) overlay.classList.remove('open');
-                        closePaymentModal({ keepConfirmed: true });
-                    }, 500);
-
-                    return true;
-
-                } catch (error) {
-                    console.error('Unlock error:', error);
-                    showToast('❌ Error confirming payment: ' + error.message, 'error');
-                    return false;
-                } finally {
-                    if (unlockInFlightFor === checkoutId) {
-                        unlockInFlightFor = null;
-                    }
-                }
-            }
-
-            window.manualConfirmPayment = async function(checkoutId, serviceId) {
-                const statusText = document.getElementById('paymentStatusText');
-                const statusDetail = document.getElementById('paymentStatusDetail');
-                const spinner = document.getElementById('paymentSpinner');
-
-                if (statusText) statusText.textContent = '⏳ Confirming payment...';
-                if (statusDetail) statusDetail.textContent = 'Please wait...';
-                if (spinner) spinner.style.display = 'block';
-
-                await unlockServiceAfterPayment(checkoutId, serviceId);
-            };
-
-            window.retryPaymentConfirmation = async function(checkoutId, serviceId) {
-                const statusText = document.getElementById('paymentStatusText');
-                const statusDetail = document.getElementById('paymentStatusDetail');
-                const spinner = document.getElementById('paymentSpinner');
-
-                if (statusText) statusText.textContent = '⏳ Retrying confirmation...';
-                if (statusDetail) statusDetail.textContent = 'Checking payment status...';
-                if (spinner) spinner.style.display = 'block';
-
-                if (pollTimer) {
-                    clearInterval(pollTimer);
-                    pollTimer = null;
-                }
-
-                isWaitingForPayment = true;
-                const result = await waitForPayment(checkoutId, serviceId, 20);
-                if (!result) {
-                    if (statusText) statusText.textContent = '⏳ Still waiting...';
-                    if (statusDetail) {
-                        statusDetail.innerHTML = `
-                            <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
-                                <p style="font-size:14px;color:var(--text-secondary);">
-                                    Still waiting for confirmation.
-                                </p>
-                                <button id="manualConfirmBtn2"
-                                        style="padding:12px 24px;background:var(--success);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;width:100%;">
-                                    ✅ I've Completed Payment
-                                </button>
-                            </div>
-                        `;
-                        const btn = document.getElementById('manualConfirmBtn2');
-                        if (btn) btn.addEventListener('click', () => window.manualConfirmPayment(checkoutId, serviceId));
-                    }
-                    if (spinner) spinner.style.display = 'none';
-                }
-            };
-
-            // ─── Vehicles ─────────────────────────────────────────────
-            window.openAddVehicleModal = function() {
-                const yearSelect = document.getElementById('vehicleYear');
-                if (yearSelect) {
-                    const currentYear = new Date().getFullYear();
-                    yearSelect.innerHTML = '<option value="">Select year</option>';
-                    for (let y = currentYear; y >= 1980; y--) {
-                        yearSelect.innerHTML += `<option value="${y}">${y}</option>`;
-                    }
-                }
-                
-                ['vehiclePlate', 'vehicleMake', 'vehicleVin', 'vehicleMileage'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) el.value = '';
-                });
-                if (yearSelect) yearSelect.value = '';
-                
-                const modal = document.getElementById('addVehicleModal');
-                if (modal) modal.classList.add('open');
-            };
-
-            window.closeAddVehicleModal = function() {
-                const modal = document.getElementById('addVehicleModal');
-                if (modal) modal.classList.remove('open');
-            };
-
-            window.addVehicle = async function() {
-                const plate = document.getElementById('vehiclePlate');
-                const make = document.getElementById('vehicleMake');
-                const vin = document.getElementById('vehicleVin');
-                const year = document.getElementById('vehicleYear');
-                const mileage = document.getElementById('vehicleMileage');
-
-                const plateVal = plate ? plate.value.trim() : '';
-                const makeVal = make ? make.value.trim() : '';
-
-                if (!plateVal || !makeVal) {
-                    showToast('Please enter plate number and make/model', 'error');
-                    return;
-                }
-
-                try {
-                    if (!supabaseClient) initSupabase();
-
+                if (supabaseClient) {
                     const { data, error } = await supabaseClient
-                        .from('vehicles')
+                        .from('requests')
                         .insert({
                             user_id: currentUser.id,
-                            plate: plateVal.toUpperCase(),
-                            make_model: makeVal,
-                            vin: vin?.value.trim() || null,
-                            year: year?.value || null,
-                            mileage: parseInt(mileage?.value) || 0,
+                            vehicle_id: vehicleId,
+                            vehicle_plate: vehicle?.plate || 'N/A',
+                            service_id: serviceId,
+                            service_name: service.name || serviceId,
+                            amount: num(service.price),
+                            notes: notes,
+                            status: 'pending',
                             created_at: new Date().toISOString()
                         })
                         .select()
                         .single();
 
-                    if (error) throw error;
-
-                    showToast('✅ Vehicle added successfully!', 'success');
-                    closeAddVehicleModal();
-                    await loadDashboard();
-
-                } catch (error) {
-                    console.error('Add vehicle error:', error);
-                    showToast(error.message || 'Failed to add vehicle', 'error');
-                }
-            };
-
-            window.deleteVehicle = async function(id) {
-                if (!confirm('Are you sure you want to delete this vehicle?')) return;
-
-                try {
-                    if (!supabaseClient) initSupabase();
-
-                    const { error } = await supabaseClient
-                        .from('vehicles')
-                        .delete()
-                        .eq('id', id)
-                        .eq('user_id', currentUser.id);
-
-                    if (error) throw error;
-
-                    showToast('🗑️ Vehicle deleted', 'info');
-                    await loadDashboard();
-
-                } catch (error) {
-                    console.error('Delete vehicle error:', error);
-                    showToast(error.message || 'Failed to delete vehicle', 'error');
-                }
-            };
-
-            // ─── Stub Functions ──────────────────────────────────────
-            window.viewVehicle = function(id) { showToast(`📊 Viewing vehicle ${id}`, 'info'); };
-            window.viewReport = function(id) { showToast(`📄 Viewing report ${id}`, 'info'); };
-            window.viewNotification = function(id) { showToast(`🔔 Viewing notification ${id}`, 'info'); };
-            window.generateReport = function() { showToast('📄 Use the Valuation, Mileage, or Ownership services.', 'info'); };
-            window.viewReportForRequest = function(id) { showToast(`📄 Viewing report for request ${id}`, 'info'); };
-            window.downloadReportForRequest = function(id) { showToast(`⬇️ Downloading report for request ${id}`, 'info'); };
-            window.generateReportForRequest = function(id) { showToast(`📄 Generating report for request ${id}`, 'info'); };
-
-            // ─── Sidebar & Logout ──────────────────────────────────
-            window.toggleSidebar = function() {
-                const sidebar = document.getElementById('sidebar');
-                if (sidebar) sidebar.classList.toggle('open');
-            };
-
-            window.handleLogout = async function() {
-                try {
-                    try {
-                        const token = await getAuthToken();
-                        if (token) {
-                            await fetch(`${API_BASE}/auth/logout`, {
-                                method: 'POST',
-                                headers: { 'Authorization': `Bearer ${token}` }
-                            });
-                        }
-                    } catch (e) {
-                        console.warn('Backend logout call failed (continuing anyway):', e.message);
+                    if (error) {
+                        console.warn('Could not create request record:', error);
+                        showToast('Failed to create request. Please try again.', 'error');
+                        return;
+                    } else {
+                        console.log('Request created:', data);
+                        pendingRequestId = data?.id || null;
+                        showToast('✅ Request created!', 'success');
                     }
-
-                    if (supabaseClient) await supabaseClient.auth.signOut();
-                    localStorage.removeItem('auto_d_user');
-                    window.location.href = 'https://auto-d.meipressgroup.com/';
-                } catch (error) {
-                    window.location.href = 'https://auto-d.meipressgroup.com/';
                 }
-            };
 
-            // ─── Close modals on outside click ───
-            document.addEventListener('click', function(e) {
-                const modals = ['addVehicleModal', 'paymentModal', 'newRequestModal'];
-                modals.forEach(id => {
-                    const modal = document.getElementById(id);
-                    if (modal && e.target === modal) {
-                        const closeFn = id === 'addVehicleModal' ? closeAddVehicleModal : 
-                                       id === 'paymentModal' ? closePaymentModal : 
-                                       closeNewRequestModal;
-                        if (typeof closeFn === 'function') closeFn();
-                    }
-                });
-            });
+                pendingServiceRedirect = serviceId;
+                selectedService = service;
+                openPaymentModal(service);
+                updateWorkflowStep(3);
 
-            // ─── Phone input validation ───
-            document.addEventListener('DOMContentLoaded', function() {
-                const phoneInput = document.getElementById('mpesaPhone');
-                if (phoneInput) {
-                    phoneInput.addEventListener('input', function() {
-                        let cleaned = this.value.replace(/\D/g, '');
-                        if (cleaned.length > 10) cleaned = cleaned.substring(0, 10);
-                        if (this.value !== cleaned) this.value = cleaned;
-                    });
-                }
-            });
+            } catch (error) {
+                console.error('❌ Create request error:', error);
+                showToast(error.message || 'Failed to create request', 'error');
+            }
+        };
 
-            // ─── Init (FIXED - stays on dashboard) ────────────────────
-            (async function() {
-                console.log('🚗 Auto-D Kenya Dashboard');
-                console.log('🔗 API Base:', API_BASE);
-                console.log('✅ Payment flow: Success overlay + service unlock');
-                console.log('⏱️ Payment timeout: 4 minutes');
-                console.log('📊 Max services per user: 4');
-                console.log('🔑 Authentication: Stays on dashboard if logged in');
+        window.payForRequest = async function(requestId) {
+            try {
+                const token = await requireAuthToken();
+                if (!token) return;
 
-                initSupabase();
-
-                const isAuthenticated = await checkAuth();
-
-                if (!isAuthenticated) {
-                    // ─── NOT AUTHENTICATED: Redirect to login ──────────
-                    console.log('🔓 Not authenticated, redirecting to landing page');
-                    showToast('Please sign in to access your dashboard', 'warning');
-                    setTimeout(() => {
-                        window.location.href = 'https://auto-d.meipressgroup.com/';
-                    }, 1500);
+                const request = dashboardData?.requests?.find(r => r.id === requestId);
+                if (!request) {
+                    showToast('Request not found', 'error');
                     return;
                 }
 
-                // ─── AUTHENTICATED: Load dashboard ────────────────────
-                console.log('✅ Authenticated, loading dashboard...');
-                await loadDashboard();
-                updateWorkflowStep(1);
-
-                if (supabaseClient) {
-                    supabaseClient.auth.onAuthStateChange((event, session) => {
-                        if (event === 'SIGNED_OUT') {
-                            console.log('🔓 User signed out, redirecting to landing page');
-                            window.location.href = 'https://auto-d.meipressgroup.com/';
-                        } else if (event === 'SIGNED_IN' && session?.user) {
-                            console.log('🔐 User signed in, reloading dashboard');
-                            currentUser = session.user;
-                            localStorage.setItem('auto_d_user', JSON.stringify({
-                                ...session.user,
-                                access_token: session.access_token
-                            }));
-                            updateUserUI();
-                            loadDashboard();
-                        }
-                    });
+                // Find the service in our services list
+                const service = dashboardData?.services?.find(s => (s.code || s.id) === request.service_id);
+                if (!service) {
+                    showToast('Service not found', 'error');
+                    return;
                 }
 
-                // ─── PERIODIC AUTH CHECK (keep session alive) ──────────
-                setInterval(async () => {
-                    const wasAuthenticated = isAuthenticated;
-                    const isNowAuthenticated = await checkAuth();
-                    
-                    if (wasAuthenticated && !isNowAuthenticated) {
-                        console.log('🔓 Session expired, redirecting to landing page');
-                        window.location.href = 'https://auto-d.meipressgroup.com/';
-                    }
-                }, 30000);
+                selectedService = service;
+                pendingServiceRedirect = service.code || service.id;
+                pendingRequestId = requestId;
+                updateWorkflowStep(3);
+                openPaymentModal(service);
 
-            })();
+            } catch (error) {
+                console.error('❌ Pay for request error:', error);
+                showToast(error.message || 'Failed to process payment', 'error');
+            }
+        };
+
+        window.cancelRequest = async function(requestId) {
+            if (!confirm('Are you sure you want to cancel this request?')) return;
+
+            try {
+                if (!supabaseClient) {
+                    if (!initSupabase()) {
+                        throw new Error('Database not connected');
+                    }
+                }
+
+                const { error } = await supabaseClient
+                    .from('requests')
+                    .update({ status: 'cancelled' })
+                    .eq('id', requestId)
+                    .eq('user_id', currentUser.id);
+
+                if (error) throw error;
+
+                showToast('🗑️ Request cancelled', 'info');
+                await loadDashboard();
+
+            } catch (error) {
+                console.error('❌ Cancel request error:', error);
+                showToast(error.message || 'Failed to cancel request', 'error');
+            }
+        };
+
+        // ─── Payment Functions ────────────────────────────────────
+        window.openPaymentModal = function(service) {
+            console.log('💰 Opening payment modal for:', service.name);
+            selectedService = service;
+            confirmedCheckoutId = null;
+            checkoutRequestId = null;
+            unlockInFlightFor = null;
+
+            const nameEl = document.getElementById('paymentServiceName');
+            const amountEl = document.getElementById('paymentAmount');
+            const totalEl = document.getElementById('paymentTotal');
+            const phoneEl = document.getElementById('mpesaPhone');
+            const phoneWrapper = document.getElementById('phoneInputWrapper');
+            
+            if (nameEl) nameEl.textContent = service.name || 'Service';
+            if (amountEl) amountEl.textContent = `${service.currency || 'KES'} ${num(service.price).toLocaleString()}`;
+            if (totalEl) totalEl.textContent = `${service.currency || 'KES'} ${num(service.price).toLocaleString()}`;
+            
+            if (phoneEl) {
+                phoneEl.value = '';
+                phoneEl.placeholder = '0700000000 or 0110000000';
+            }
+            if (phoneWrapper) phoneWrapper.classList.remove('error');
+            
+            const modal = document.getElementById('paymentModal');
+            if (modal) modal.classList.add('open');
+            
+            updateWorkflowStep(3);
+        };
+
+        window.closePaymentModal = function(opts) {
+            opts = opts || {};
+            const modal = document.getElementById('paymentModal');
+            if (modal) modal.classList.remove('open');
+            selectedService = null;
+            pendingServiceRedirect = null;
+            pendingRequestId = null;
+            isProcessingPayment = false;
+            isWaitingForPayment = false;
+            if (!opts.keepConfirmed) {
+                confirmedCheckoutId = null;
+            }
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+            const payBtn = document.getElementById('payNowBtn');
+            if (payBtn) {
+                payBtn.disabled = false;
+                payBtn.textContent = '💳 Pay Now';
+            }
+            const overlay = document.getElementById('paymentOverlay');
+            if (overlay) {
+                overlay.classList.remove('open');
+                const spinner = document.getElementById('paymentSpinner');
+                if (spinner) spinner.style.display = 'block';
+            }
+            updateWorkflowStep(3);
+        };
+
+        window.processPayment = async function() {
+            const phoneEl = document.getElementById('mpesaPhone');
+            const payBtn = document.getElementById('payNowBtn');
+            const phoneWrapper = document.getElementById('phoneInputWrapper');
+
+            let rawPhone = phoneEl ? phoneEl.value.trim() : '';
+
+            if (!rawPhone) {
+                showToast('Please enter your M-Pesa phone number', 'error');
+                if (phoneWrapper) phoneWrapper.classList.add('error');
+                if (phoneEl) phoneEl.focus();
+                setTimeout(() => {
+                    if (phoneWrapper) phoneWrapper.classList.remove('error');
+                }, 3000);
+                return;
+            }
+
+            let phone = rawPhone.replace(/\D/g, '');
+            if (phone.startsWith('254')) phone = phone.slice(3);
+            if (phone.startsWith('0')) phone = phone.slice(1);
+
+            if (!/^(7\d{8}|11\d{7})$/.test(phone)) {
+                showToast('Please enter a valid Safaricom number (07X or 011X)', 'error');
+                if (phoneWrapper) phoneWrapper.classList.add('error');
+                setTimeout(() => {
+                    if (phoneWrapper) phoneWrapper.classList.remove('error');
+                }, 3000);
+                return;
+            }
+
+            if (!selectedService) {
+                showToast('No service selected', 'error');
+                return;
+            }
+
+            if (isProcessingPayment) return;
+
+            const token = await requireAuthToken();
+            if (!token) return;
+
+            isProcessingPayment = true;
+            confirmedCheckoutId = null;
+            if (payBtn) {
+                payBtn.disabled = true;
+                payBtn.textContent = '⏳ Processing...';
+            }
+
+            const overlay = document.getElementById('paymentOverlay');
+            const spinner = document.getElementById('paymentSpinner');
+            const statusText = document.getElementById('paymentStatusText');
+            const statusDetail = document.getElementById('paymentStatusDetail');
+
+            if (overlay) {
+                if (spinner) spinner.style.display = 'block';
+                if (statusText) statusText.textContent = 'Initiating M-Pesa payment...';
+                if (statusDetail) statusDetail.textContent = 'Please wait...';
+                overlay.classList.add('open');
+            }
+
+            const requestBody = {
+                phone: phone,
+                service_id: selectedService.code || selectedService.id,
+                description: `Auto-D: ${selectedService.name}`,
+                user_id: currentUser.id,
+                request_id: pendingRequestId || null
+            };
+
+            try {
+                console.log('📤 Sending payment request:', requestBody);
+                const response = await fetch(`${API_BASE}/mpesa/mpesa/stkpush`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+
+                if (response.status === 403) {
+                    const errorMsg = data.detail || data.message || 'Payment service is not available.';
+                    showToast('🔒 ' + errorMsg, 'warning');
+                    if (overlay) {
+                        if (statusText) statusText.textContent = '🔒 Payment Service Unavailable';
+                        if (statusDetail) statusDetail.textContent = 'Please contact support.';
+                        if (spinner) spinner.style.display = 'none';
+                    }
+                    setTimeout(() => {
+                        if (overlay) overlay.classList.remove('open');
+                        closePaymentModal();
+                    }, 3000);
+                    return;
+                }
+
+                if (!response.ok) {
+                    const errorMsg = data.detail || data.error || data.message || 'Payment initiation failed';
+                    showToast('❌ ' + errorMsg, 'error');
+                    if (overlay) {
+                        if (statusText) statusText.textContent = '❌ Payment Failed';
+                        if (statusDetail) statusDetail.textContent = errorMsg;
+                        if (spinner) spinner.style.display = 'none';
+                    }
+                    setTimeout(() => {
+                        if (overlay) overlay.classList.remove('open');
+                        closePaymentModal();
+                    }, 3000);
+                    return;
+                }
+
+                const checkoutId = data.checkout_request_id || data.checkoutRequestID;
+                if (!checkoutId) {
+                    showToast('❌ No checkout ID returned by server', 'error');
+                    if (overlay) overlay.classList.remove('open');
+                    closePaymentModal();
+                    return;
+                }
+                checkoutRequestId = checkoutId;
+                const targetServiceId = pendingServiceRedirect || selectedService.code || selectedService.id;
+
+                if (overlay) {
+                    if (statusText) statusText.textContent = '📱 STK Push Sent!';
+                    if (statusDetail) statusDetail.textContent = 'Please check your phone and enter your M-Pesa PIN.';
+                }
+                showToast('📱 STK Push sent! Check your phone.', 'info');
+
+                isWaitingForPayment = true;
+                const paymentSuccess = await waitForPayment(checkoutId, targetServiceId);
+
+                if (!paymentSuccess) {
+                    if (payBtn) {
+                        payBtn.disabled = false;
+                        payBtn.textContent = '💳 Pay Now';
+                    }
+                    isProcessingPayment = false;
+                    isWaitingForPayment = false;
+                    updateWorkflowStep(3);
+                }
+
+            } catch (error) {
+                console.error('Payment error:', error);
+                if (overlay) {
+                    if (statusText) statusText.textContent = '❌ Payment Error';
+                    if (statusDetail) statusDetail.textContent = error.message || 'Please try again.';
+                    if (spinner) spinner.style.display = 'none';
+                }
+                showToast('❌ Payment error: ' + error.message, 'error');
+                setTimeout(() => {
+                    if (overlay) overlay.classList.remove('open');
+                    closePaymentModal();
+                }, 2000);
+            } finally {
+                isProcessingPayment = false;
+                if (payBtn) {
+                    payBtn.disabled = false;
+                    payBtn.textContent = '💳 Pay Now';
+                }
+            }
+        };
+
+        async function waitForPayment(checkoutId, serviceId, maxAttempts = 120) {
+            const statusText = document.getElementById('paymentStatusText');
+            const statusDetail = document.getElementById('paymentStatusDetail');
+            const spinner = document.getElementById('paymentSpinner');
+
+            let attempts = 0;
+            let isComplete = false;
+            let startTime = Date.now();
+
+            return new Promise((resolve) => {
+                if (pollTimer) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+
+                pollTimer = setInterval(async () => {
+                    if (!isWaitingForPayment || checkoutRequestId !== checkoutId) {
+                        clearInterval(pollTimer);
+                        pollTimer = null;
+                        resolve(false);
+                        return;
+                    }
+
+                    attempts++;
+                    const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
+
+                    try {
+                        if (statusText) {
+                            statusText.textContent = `⏳ Waiting for M-Pesa confirmation... (${elapsedSeconds}s)`;
+                        }
+
+                        const pollToken = await getAuthToken();
+                        const headers = { 'Accept': 'application/json' };
+                        if (pollToken) {
+                            headers['Authorization'] = `Bearer ${pollToken}`;
+                        }
+
+                        const statusResponse = await fetch(`${API_BASE}/mpesa/mpesa/status/${encodeURIComponent(checkoutId)}`, {
+                            headers: headers
+                        });
+
+                        if (!statusResponse.ok) {
+                            if (statusResponse.status === 404 && attempts > 20 && !isComplete) {
+                                if (statusDetail) {
+                                    statusDetail.innerHTML = `
+                                        <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
+                                            <p style="font-size:14px;color:var(--text-secondary);">
+                                                Still waiting for payment confirmation...
+                                            </p>
+                                            <button id="retryPinBtn"
+                                                    style="padding:10px 20px;background:var(--primary);color:#0f172a;border:none;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;width:100%;">
+                                                🔄 I've Entered My PIN
+                                            </button>
+                                        </div>
+                                    `;
+                                    const btn = document.getElementById('retryPinBtn');
+                                    if (btn) btn.addEventListener('click', () => window.retryPaymentConfirmation(checkoutId, serviceId));
+                                }
+                            }
+                            return;
+                        }
+
+                        const statusData = await statusResponse.json();
+                        const normalized = (statusData.status || '').toString().toLowerCase();
+
+                        if (normalized === 'completed' || normalized === 'success' || normalized === 'paid' ||
+                            normalized === 'complete' || statusData.success === true) {
+
+                            isComplete = true;
+                            clearInterval(pollTimer);
+                            pollTimer = null;
+
+                            if (statusText) statusText.innerHTML = '✅ Payment Successful! 🎉';
+                            if (statusDetail) statusDetail.textContent = 'Confirming with server...';
+
+                            showToast('✅ Payment received, confirming...', 'success');
+
+                            const confirmed = await unlockServiceAfterPayment(checkoutId, serviceId);
+                            resolve(confirmed);
+                            return;
+
+                        } else if (normalized === 'failed' || normalized === 'error' || normalized === 'cancelled' ||
+                                   normalized === 'canceled' || normalized === 'timeout') {
+
+                            isComplete = true;
+                            clearInterval(pollTimer);
+                            pollTimer = null;
+
+                            if (statusText) statusText.textContent = '❌ Payment Failed';
+                            if (statusDetail) statusDetail.textContent = statusData.description || statusData.message || 'Please try again.';
+                            if (spinner) spinner.style.display = 'none';
+
+                            showToast('❌ Payment failed: ' + (statusData.description || 'Please try again'), 'error');
+                            resolve(false);
+                            return;
+                        }
+
+                        if (attempts >= maxAttempts) {
+                            isComplete = true;
+                            clearInterval(pollTimer);
+                            pollTimer = null;
+
+                            if (statusText) statusText.textContent = '⏰ Payment Timeout';
+                            if (statusDetail) {
+                                statusDetail.innerHTML = `
+                                    <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
+                                        <p style="font-size:14px;color:var(--text-secondary);">
+                                            Payment confirmation timed out.
+                                        </p>
+                                        <button id="manualConfirmBtn"
+                                                style="padding:12px 24px;background:var(--success);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;width:100%;">
+                                            ✅ I've Completed Payment
+                                        </button>
+                                    </div>
+                                `;
+                                const btn = document.getElementById('manualConfirmBtn');
+                                if (btn) btn.addEventListener('click', () => window.manualConfirmPayment(checkoutId, serviceId));
+                            }
+                            if (spinner) spinner.style.display = 'none';
+
+                            showToast('⏰ Payment confirmation timed out. Please check your M-Pesa.', 'warning');
+                            resolve(false);
+                            return;
+                        }
+
+                    } catch (pollError) {
+                        console.warn('Polling error:', pollError);
+                        if (attempts >= maxAttempts) {
+                            clearInterval(pollTimer);
+                            pollTimer = null;
+                            resolve(false);
+                        }
+                    }
+                }, 2000);
+            });
+        }
+
+        async function unlockServiceAfterPayment(checkoutId, serviceId) {
+            if (unlockInFlightFor === checkoutId) {
+                return confirmedCheckoutId === checkoutId;
+            }
+            if (confirmedCheckoutId === checkoutId) {
+                return true;
+            }
+            unlockInFlightFor = checkoutId;
+
+            try {
+                const token = await getAuthToken();
+                if (!token) {
+                    showToast('⚠️ Authentication error. Please log in again.', 'error');
+                    return false;
+                }
+
+                const response = await fetch(`${API_BASE}/mpesa/mpesa/confirm/${encodeURIComponent(checkoutId)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                let data = {};
+                try {
+                    data = await response.json();
+                } catch (e) {
+                    data = {};
+                }
+                console.log('📥 Confirm response:', data);
+
+                const backendConfirmed = response.ok && (data.success === true || data.status === 'completed');
+
+                if (!backendConfirmed) {
+                    showToast('⚠️ Payment could not be confirmed yet. Please wait or contact support.', 'warning');
+                    const overlay = document.getElementById('paymentOverlay');
+                    const statusText = document.getElementById('paymentStatusText');
+                    const statusDetail = document.getElementById('paymentStatusDetail');
+                    const spinner = document.getElementById('paymentSpinner');
+                    if (statusText) statusText.textContent = '⚠️ Not confirmed yet';
+                    if (statusDetail) statusDetail.textContent = data.message || data.detail || 'Please try again in a moment.';
+                    if (spinner) spinner.style.display = 'none';
+                    return false;
+                }
+
+                confirmedCheckoutId = checkoutId;
+
+                if (dashboardData && dashboardData.services) {
+                    const svc = dashboardData.services.find(s => (s.code || s.id) === serviceId);
+                    if (svc) {
+                        svc.purchased = true;
+                        svc.status = 'active';
+                    }
+                }
+                renderServices(dashboardData.services || []);
+
+                const overlay = document.getElementById('paymentOverlay');
+                const statusText = document.getElementById('paymentStatusText');
+                const statusDetail = document.getElementById('paymentStatusDetail');
+                const spinner = document.getElementById('paymentSpinner');
+
+                if (overlay) {
+                    if (spinner) spinner.style.display = 'none';
+                    if (statusText) statusText.innerHTML = '✅ Payment Successful! 🎉';
+                    if (statusDetail) statusDetail.textContent = 'Service unlocked!';
+                }
+
+                showToast(`✅ ${selectedService?.name || 'Service'} unlocked successfully!`, 'success');
+                updateWorkflowStep(5);
+                isWaitingForPayment = false;
+
+                const serviceName = selectedService?.name || serviceId;
+                showSuccessOverlay(serviceId, serviceName);
+
+                setTimeout(() => {
+                    if (overlay) overlay.classList.remove('open');
+                    closePaymentModal({ keepConfirmed: true });
+                }, 500);
+
+                return true;
+
+            } catch (error) {
+                console.error('Unlock error:', error);
+                showToast('❌ Error confirming payment: ' + error.message, 'error');
+                return false;
+            } finally {
+                if (unlockInFlightFor === checkoutId) {
+                    unlockInFlightFor = null;
+                }
+            }
+        }
+
+        window.manualConfirmPayment = async function(checkoutId, serviceId) {
+            const statusText = document.getElementById('paymentStatusText');
+            const statusDetail = document.getElementById('paymentStatusDetail');
+            const spinner = document.getElementById('paymentSpinner');
+
+            if (statusText) statusText.textContent = '⏳ Confirming payment...';
+            if (statusDetail) statusDetail.textContent = 'Please wait...';
+            if (spinner) spinner.style.display = 'block';
+
+            await unlockServiceAfterPayment(checkoutId, serviceId);
+        };
+
+        window.retryPaymentConfirmation = async function(checkoutId, serviceId) {
+            const statusText = document.getElementById('paymentStatusText');
+            const statusDetail = document.getElementById('paymentStatusDetail');
+            const spinner = document.getElementById('paymentSpinner');
+
+            if (statusText) statusText.textContent = '⏳ Retrying confirmation...';
+            if (statusDetail) statusDetail.textContent = 'Checking payment status...';
+            if (spinner) spinner.style.display = 'block';
+
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+
+            isWaitingForPayment = true;
+            const result = await waitForPayment(checkoutId, serviceId, 20);
+            if (!result) {
+                if (statusText) statusText.textContent = '⏳ Still waiting...';
+                if (statusDetail) {
+                    statusDetail.innerHTML = `
+                        <div style="display:flex;flex-direction:column;gap:12px;align-items:center;max-width:300px;">
+                            <p style="font-size:14px;color:var(--text-secondary);">
+                                Still waiting for confirmation.
+                            </p>
+                            <button id="manualConfirmBtn2"
+                                    style="padding:12px 24px;background:var(--success);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;width:100%;">
+                                ✅ I've Completed Payment
+                            </button>
+                        </div>
+                    `;
+                    const btn = document.getElementById('manualConfirmBtn2');
+                    if (btn) btn.addEventListener('click', () => window.manualConfirmPayment(checkoutId, serviceId));
+                }
+                if (spinner) spinner.style.display = 'none';
+            }
+        };
+
+        // ─── Vehicles ─────────────────────────────────────────────
+        window.openAddVehicleModal = function() {
+            const yearSelect = document.getElementById('vehicleYear');
+            if (yearSelect) {
+                const currentYear = new Date().getFullYear();
+                yearSelect.innerHTML = '<option value="">Select year</option>';
+                for (let y = currentYear; y >= 1980; y--) {
+                    yearSelect.innerHTML += `<option value="${y}">${y}</option>`;
+                }
+            }
+            
+            ['vehiclePlate', 'vehicleMake', 'vehicleVin', 'vehicleMileage'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            if (yearSelect) yearSelect.value = '';
+            
+            const modal = document.getElementById('addVehicleModal');
+            if (modal) modal.classList.add('open');
+        };
+
+        window.closeAddVehicleModal = function() {
+            const modal = document.getElementById('addVehicleModal');
+            if (modal) modal.classList.remove('open');
+        };
+
+        window.addVehicle = async function() {
+            const plate = document.getElementById('vehiclePlate');
+            const make = document.getElementById('vehicleMake');
+            const vin = document.getElementById('vehicleVin');
+            const year = document.getElementById('vehicleYear');
+            const mileage = document.getElementById('vehicleMileage');
+
+            const plateVal = plate ? plate.value.trim() : '';
+            const makeVal = make ? make.value.trim() : '';
+
+            if (!plateVal || !makeVal) {
+                showToast('Please enter plate number and make/model', 'error');
+                return;
+            }
+
+            try {
+                if (!supabaseClient) initSupabase();
+
+                const { data, error } = await supabaseClient
+                    .from('vehicles')
+                    .insert({
+                        user_id: currentUser.id,
+                        plate: plateVal.toUpperCase(),
+                        make_model: makeVal,
+                        vin: vin?.value.trim() || null,
+                        year: year?.value || null,
+                        mileage: parseInt(mileage?.value) || 0,
+                        created_at: new Date().toISOString()
+                    })
+                    .select()
+                    .single();
+
+                if (error) throw error;
+
+                showToast('✅ Vehicle added successfully!', 'success');
+                closeAddVehicleModal();
+                await loadDashboard();
+
+            } catch (error) {
+                console.error('Add vehicle error:', error);
+                showToast(error.message || 'Failed to add vehicle', 'error');
+            }
+        };
+
+        window.deleteVehicle = async function(id) {
+            if (!confirm('Are you sure you want to delete this vehicle?')) return;
+
+            try {
+                if (!supabaseClient) initSupabase();
+
+                const { error } = await supabaseClient
+                    .from('vehicles')
+                    .delete()
+                    .eq('id', id)
+                    .eq('user_id', currentUser.id);
+
+                if (error) throw error;
+
+                showToast('🗑️ Vehicle deleted', 'info');
+                await loadDashboard();
+
+            } catch (error) {
+                console.error('Delete vehicle error:', error);
+                showToast(error.message || 'Failed to delete vehicle', 'error');
+            }
+        };
+
+        // ─── Stub Functions ──────────────────────────────────────
+        window.viewVehicle = function(id) { showToast(`📊 Viewing vehicle ${id}`, 'info'); };
+        window.viewReport = function(id) { showToast(`📄 Viewing report ${id}`, 'info'); };
+        window.generateReport = function() { showToast('📄 Use the Valuation, Mileage, or Ownership services.', 'info'); };
+        window.generateReportForRequest = function(id) { showToast(`📄 Generating report for request ${id}`, 'info'); };
+
+        // ─── Sidebar & Logout ──────────────────────────────────
+        window.toggleSidebar = function() {
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) sidebar.classList.toggle('open');
+        };
+
+        window.handleLogout = async function() {
+            try {
+                try {
+                    const token = await getAuthToken();
+                    if (token) {
+                        await fetch(`${API_BASE}/auth/logout`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Backend logout call failed:', e.message);
+                }
+
+                if (supabaseClient) await supabaseClient.auth.signOut();
+                localStorage.removeItem('auto_d_user');
+                window.location.href = 'https://auto-d.meipressgroup.com/';
+            } catch (error) {
+                window.location.href = 'https://auto-d.meipressgroup.com/';
+            }
+        };
+
+        // ─── Close modals on outside click ───
+        document.addEventListener('click', function(e) {
+            const modals = ['addVehicleModal', 'paymentModal', 'newRequestModal'];
+            modals.forEach(id => {
+                const modal = document.getElementById(id);
+                if (modal && e.target === modal) {
+                    const closeFn = id === 'addVehicleModal' ? closeAddVehicleModal : 
+                                   id === 'paymentModal' ? closePaymentModal : 
+                                   closeNewRequestModal;
+                    if (typeof closeFn === 'function') closeFn();
+                }
+            });
+        });
+
+        // ─── Phone input validation ───
+        document.addEventListener('DOMContentLoaded', function() {
+            const phoneInput = document.getElementById('mpesaPhone');
+            if (phoneInput) {
+                phoneInput.addEventListener('input', function() {
+                    let cleaned = this.value.replace(/\D/g, '');
+                    if (cleaned.length > 10) cleaned = cleaned.substring(0, 10);
+                    if (this.value !== cleaned) this.value = cleaned;
+                });
+            }
+        });
+
+        // ─── Init ────────────────────────────────────────────────
+        (async function() {
+            console.log('🚗 Auto-D Kenya Dashboard');
+            console.log('🔗 API Base:', API_BASE);
+            console.log('✅ Services fetched from database with dynamic prices');
+
+            initSupabase();
+
+            const isAuthenticated = await checkAuth();
+
+            if (!isAuthenticated) {
+                console.log('🔓 Not authenticated, redirecting to landing page');
+                showToast('Please sign in to access your dashboard', 'warning');
+                setTimeout(() => {
+                    window.location.href = 'https://auto-d.meipressgroup.com/';
+                }, 1500);
+                return;
+            }
+
+            console.log('✅ Authenticated, loading dashboard...');
+            await loadDashboard();
+            updateWorkflowStep(1);
+
+            if (supabaseClient) {
+                supabaseClient.auth.onAuthStateChange((event, session) => {
+                    if (event === 'SIGNED_OUT') {
+                        console.log('🔓 User signed out, redirecting to landing page');
+                        window.location.href = 'https://auto-d.meipressgroup.com/';
+                    } else if (event === 'SIGNED_IN' && session?.user) {
+                        console.log('🔐 User signed in, reloading dashboard');
+                        currentUser = session.user;
+                        localStorage.setItem('auto_d_user', JSON.stringify({
+                            ...session.user,
+                            access_token: session.access_token
+                        }));
+                        updateUserUI();
+                        loadDashboard();
+                    }
+                });
+            }
+
+            setInterval(async () => {
+                const wasAuthenticated = isAuthenticated;
+                const isNowAuthenticated = await checkAuth();
+                if (wasAuthenticated && !isNowAuthenticated) {
+                    console.log('🔓 Session expired, redirecting to landing page');
+                    window.location.href = 'https://auto-d.meipressgroup.com/';
+                }
+            }, 30000);
 
         })();
+
+    })();
     </script>
+
 </body>
 </html>
