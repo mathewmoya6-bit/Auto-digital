@@ -1181,7 +1181,8 @@
     <script>
     // ════════════════════════════════════════════════════════════════
     // AUTO-D KENYA - PRODUCTION DASHBOARD
-    // Corrected endpoints matching OpenAPI spec
+    // Endpoints aligned to the /api/v1 OpenAPI spec (no /mpesa/mpesa
+    // double-prefix; service list lives at exactly /api/v1, no slash)
     // ════════════════════════════════════════════════════════════════
 
     (function() {
@@ -1190,20 +1191,24 @@
         // ─── PRODUCTION CONFIGURATION ──────────────────────────────
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
         
-        // ─── CORRECT ENDPOINTS (Based on OpenAPI) ──────────────────
+        // ─── ENDPOINTS (matches the OpenAPI schema exactly) ────────
         const ENDPOINTS = {
             // Auth
             LOGIN: `${API_BASE}/login`,
             REGISTER: `${API_BASE}/register`,
             ME: `${API_BASE}/me`,
             LOGOUT: `${API_BASE}/logout`,
-            
-            // Services
-            SERVICES: `${API_BASE}/`,
+
+            // Service Prices — "List Services" is GET /api/v1 exactly.
+            // IMPORTANT: no trailing slash and no extra path segment.
+            // A trailing slash here causes FastAPI to 307-redirect to the
+            // slash-less path; cross-origin redirects without their own
+            // CORS headers are what the browser reports as a CORS error.
+            SERVICES: API_BASE,
             SERVICE: (id) => `${API_BASE}/${id}`,
             SERVICE_TYPES: `${API_BASE}/types`,
-            
-            // M-Pesa (corrected: /mpesa/ not /mpesa/mpesa/)
+
+            // M-Pesa — single /mpesa/ prefix (not /mpesa/mpesa/)
             MPESA_HEALTH: `${API_BASE}/mpesa/health`,
             MPESA_SHORTCODE: `${API_BASE}/mpesa/shortcode`,
             MPESA_SERVICES: `${API_BASE}/mpesa/services`,
@@ -1214,7 +1219,7 @@
             MPESA_STATUS: (id) => `${API_BASE}/mpesa/status/${id}`,
             MPESA_CONFIRM: (id) => `${API_BASE}/mpesa/confirm/${id}`,
             MPESA_PAYMENTS: `${API_BASE}/mpesa/payments`,
-            
+
             // Admin M-Pesa
             MPESA_ADMIN_SERVICES: `${API_BASE}/mpesa/admin/services`,
             MPESA_ADMIN_SERVICE: (id) => `${API_BASE}/mpesa/admin/services/${id}`,
@@ -1222,42 +1227,48 @@
             MPESA_ADMIN_SERVICE_PRICE_HISTORY: (id) => `${API_BASE}/mpesa/admin/services/${id}/price-history`,
             MPESA_ADMIN_EXPIRE_STALE: `${API_BASE}/mpesa/admin/expire-stale`,
             MPESA_ADMIN_STATS: `${API_BASE}/mpesa/admin/stats`,
-            
-            // Valuation
-            VALUATION_PING: `${API_BASE}/ping`,
-            VALUATION_CALCULATE: `${API_BASE}/calculate`,
+
+            // Valuation — NOTE: the current backend spec only exposes
+            // Get Variant and Get Market Comparison. There is no
+            // "calculate" route anymore; that feature needs a backend
+            // route restored before instant-value.html can work again.
             VALUATION_VARIANT: (id) => `${API_BASE}/variant/${id}`,
             VALUATION_COMPARE: (id) => `${API_BASE}/compare/${id}`,
-            
+
             // Mileage
-            MILEAGE_CALCULATE: `${API_BASE}/mileage/calculate`,
-            
+            MILEAGE_CALCULATE: `${API_BASE}/calculate`,
+
             // Running Cost
             RUNNING_COST_PING: `${API_BASE}/ping`,
-            
-            // Ownership
-            OWNERSHIP_CALCULATE: `${API_BASE}/calculate`,
-            
+
+            // NOTE: "Ownership" has no routes at all in the current spec.
+            // ownership-cost.html will 404 until the backend adds them back.
+
             // Fuel
             FUEL_PRICES: `${API_BASE}/prices`,
             FUEL_PRICE: (type) => `${API_BASE}/prices/${type}`,
             FUEL_DEFAULTS: `${API_BASE}/defaults`,
-            
+
             // Vehicles
+            // NOTE: GET /api/v1/{variant_id} and GET /api/v1/{service_id}
+            // (Service Prices) are the SAME path pattern on the backend.
+            // That's a route collision that needs fixing server-side —
+            // whichever router is included first in main.py wins, and the
+            // other resource becomes unreachable through this exact path.
             VEHICLES_MAKES: `${API_BASE}/makes`,
             VEHICLES_MODELS: (makeId) => `${API_BASE}/models/${makeId}`,
             VEHICLES_VARIANTS: (modelId) => `${API_BASE}/variants/${modelId}`,
             VEHICLE: (id) => `${API_BASE}/${id}`,
-            
+
             // Reports
             REPORT_VALUATION: `${API_BASE}/valuation`,
             REPORT_MARKET_INSIGHTS: `${API_BASE}/market-insights`,
             REPORT_OWNERSHIP_COST: `${API_BASE}/ownership-cost`,
-            
-            // Health
-            HEALTH: `${API_BASE}/health`,
-            READY: `${API_BASE}/ready`,
-            LIVE: `${API_BASE}/live`
+
+            // Health checks live outside /api/v1 per the spec
+            HEALTH: 'https://auto-digital.onrender.com/health',
+            READY: 'https://auto-digital.onrender.com/ready',
+            LIVE: 'https://auto-digital.onrender.com/live'
         };
 
         // ─── Supabase Config ──────────────────────────────────────
@@ -2918,8 +2929,7 @@
         (async function() {
             console.log('🚗 Auto-D Kenya Dashboard (Production)');
             console.log('🔗 API Base:', API_BASE);
-            console.log('✅ Using real backend');
-            console.log('✅ Corrected endpoints matching OpenAPI spec');
+            console.log('✅ Endpoints aligned to /api/v1 OpenAPI spec');
             console.log('✅ All prices from database (no hardcoded values)');
             console.log('✅ Supabase connected for auth and vehicles');
 
