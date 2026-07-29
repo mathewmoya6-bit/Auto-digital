@@ -58,7 +58,6 @@ def load_router(module_path: str, router_name: str = "router"):
     except Exception as e:
         logger.error(f"❌ Failed to load router from {module_path}: {e}")
         logger.error(traceback.format_exc())
-        # Raise a clear error instead of exiting the process
         raise RuntimeError(f"Router loading failed for {module_path}: {e}")
 
 
@@ -85,26 +84,53 @@ def get_table_count(table_name: str) -> int:
 logger.info("📦 Loading routers...")
 
 try:
+    # Authentication - matches OpenAPI: /login, /register, /me, /logout
     auth_router = load_router("app.api.v1.auth")
+    
+    # Vehicles - matches OpenAPI: /makes, /models/{make_id}, /variants/{model_id}, /{variant_id}
     vehicles_router = load_router("app.api.v1.vehicles")
+    
+    # Valuation - matches OpenAPI: /variant/{variant_id}, /compare/{variant_id}
     valuation_router = load_router("app.api.v1.valuation")
-    mileage_router = load_router("app.api.v1.mileage")
-    ownership_router = load_router("app.api.v1.ownership")
-    fuel_router = load_router("app.api.v1.fuel")
+    
+    # Running Cost - matches OpenAPI: /ping
     running_cost_router = load_router("app.api.v1.running_cost")
+    
+    # Ownership - matches OpenAPI: /calculate
+    ownership_router = load_router("app.api.v1.ownership")
+    
+    # Fuel - matches OpenAPI: /prices, /prices/{fuel_type}, /defaults
+    fuel_router = load_router("app.api.v1.fuel")
+    
+    # Admin - matches OpenAPI: /fuel-prices, /dashboard
     admin_router = load_router("app.api.v1.admin")
+    
+    # Reports - matches OpenAPI: /valuation, /market-insights, /ownership-cost
     reports_router = load_router("app.api.v1.reports")
+    
+    # Service Prices - matches OpenAPI: /, /{service_id}, /types, /summary/pricing, etc.
     services_router = load_router("app.api.v1.services")
+    
+    # Price Alignment - matches OpenAPI: /history, /analyze, /align, /trend
     price_alignment_router = load_router("app.api.v1.price_alignment")
+    
+    # Market Data - matches OpenAPI: /insights, /scrape, /location/factors
     market_router = load_router("app.api.v1.market")
+    
+    # Market Scraper - matches OpenAPI: /run, /autochek, /jiji, /carapi, /status, /sources, /health
     scraper_router = load_router("app.api.v1.scraper")
+    
+    # M-Pesa - matches OpenAPI: /mpesa/health, /mpesa/services, /mpesa/stkpush, etc.
     mpesa_router = load_router("app.api.v1.mpesa")
+    
+    # ⚠️ IMPORTANT: These routers are NOT in the current OpenAPI spec
+    # They may need to be removed or their endpoints moved to other routers
+    # mileage_router = load_router("app.api.v1.mileage")  # No /mileage in OpenAPI
     
     logger.info("✅ All routers loaded successfully!")
 
 except Exception as e:
     logger.critical(f"❌ Application failed to start: {e}")
-    # Re-raise so the application fails with a clear error
     raise
 
 
@@ -184,11 +210,9 @@ app = FastAPI(
 
 
 # ─── CORS Configuration ────────────────────────────────────────────
-# Get CORS origins from settings
 cors_origins = settings.get_cors_origins() if hasattr(settings, 'get_cors_origins') else settings.BACKEND_CORS_ORIGINS
 logger.info(f"🔒 Configuring CORS with origins: {cors_origins}")
 
-# Use only FastAPI's CORSMiddleware - remove custom CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -235,22 +259,47 @@ async def general_exception_handler(request: Request, exc: Exception):
 # ─── Include Routers ───────────────────────────────────────────────
 api_prefix = getattr(settings, "API_V1_PREFIX", "/api/v1")
 
-# IMPORTANT: Each router's prefix is defined in the router file itself.
-# DO NOT add duplicate prefixes here - the router file already defines /mpesa, /auth, etc.
-# So we use prefix=api_prefix to add the /api/v1 base, then the router adds its own path.
+# ═══════════════════════════════════════════════════════════════════
+# ROUTER REGISTRATION - MATCHING OPENAPI SPEC
+# ═══════════════════════════════════════════════════════════════════
+
+# Authentication - /login, /register, /me, /logout
 app.include_router(auth_router, prefix=api_prefix, tags=["Authentication"])
+
+# Vehicles - /makes, /models/{make_id}, /variants/{model_id}, /{variant_id}
 app.include_router(vehicles_router, prefix=api_prefix, tags=["Vehicles"])
-app.include_router(valuation_router, prefix=api_prefix, tags=["Valuation"])
-app.include_router(mileage_router, prefix=api_prefix, tags=["Mileage"])
+
+# Running Cost - /ping
 app.include_router(running_cost_router, prefix=api_prefix, tags=["Running Cost"])
+
+# Ownership - /calculate
 app.include_router(ownership_router, prefix=api_prefix, tags=["Ownership"])
-app.include_router(fuel_router, prefix=api_prefix, tags=["Fuel"])
-app.include_router(admin_router, prefix=api_prefix, tags=["Admin"])
-app.include_router(reports_router, prefix=api_prefix, tags=["Reports"])
-app.include_router(services_router, prefix=api_prefix, tags=["Service Prices"])
+
+# Valuation - /variant/{variant_id}, /compare/{variant_id}
+app.include_router(valuation_router, prefix=api_prefix, tags=["Valuation"])
+
+# Price Alignment - /history, /analyze, /align, /trend
 app.include_router(price_alignment_router, prefix=api_prefix, tags=["Price Alignment"])
+
+# Fuel - /prices, /prices/{fuel_type}, /defaults
+app.include_router(fuel_router, prefix=api_prefix, tags=["Fuel"])
+
+# Admin - /fuel-prices, /dashboard
+app.include_router(admin_router, prefix=api_prefix, tags=["Admin"])
+
+# Reports - /valuation, /market-insights, /ownership-cost
+app.include_router(reports_router, prefix=api_prefix, tags=["Reports"])
+
+# Service Prices - /, /{service_id}, /types, /summary/pricing, /comparison/types, /price-range, /bulk
+app.include_router(services_router, prefix=api_prefix, tags=["Service Prices"])
+
+# Market Data - /insights, /scrape, /location/factors
 app.include_router(market_router, prefix=api_prefix, tags=["Market Data"])
+
+# Market Scraper - /run, /autochek, /jiji, /carapi, /status, /sources, /health
 app.include_router(scraper_router, prefix=api_prefix, tags=["Market Scraper"])
+
+# M-Pesa - /mpesa/health, /mpesa/shortcode, /mpesa/services, /mpesa/stkpush, etc.
 app.include_router(mpesa_router, prefix=api_prefix, tags=["M-Pesa"])
 
 logger.info("✅ All routers registered successfully")
@@ -288,7 +337,6 @@ async def health_check():
 async def readiness_check():
     """
     Readiness check endpoint - checks database connectivity.
-    This is where we do heavier checks.
     """
     supabase_status = "connected"
     service_prices_exist = False
@@ -308,7 +356,6 @@ async def readiness_check():
             }
         )
     
-    # Check service_prices
     try:
         response = supabase.table("service_prices").select("count", count="exact").limit(1).execute()
         service_prices_exist = True
@@ -370,6 +417,44 @@ async def root():
             "market_scraper": True,
             "service_prices": True,
             "docs": settings.ENABLE_DOCS
+        },
+        "endpoints": {
+            "auth": {
+                "login": f"{api_prefix}/login",
+                "register": f"{api_prefix}/register",
+                "me": f"{api_prefix}/me",
+                "logout": f"{api_prefix}/logout"
+            },
+            "vehicles": {
+                "makes": f"{api_prefix}/makes",
+                "models": f"{api_prefix}/models/{{make_id}}",
+                "variants": f"{api_prefix}/variants/{{model_id}}",
+                "vehicle": f"{api_prefix}/{{variant_id}}"
+            },
+            "valuation": {
+                "variant": f"{api_prefix}/variant/{{variant_id}}",
+                "compare": f"{api_prefix}/compare/{{variant_id}}"
+            },
+            "running_cost": {
+                "ping": f"{api_prefix}/ping"
+            },
+            "ownership": {
+                "calculate": f"{api_prefix}/calculate"
+            },
+            "fuel": {
+                "prices": f"{api_prefix}/prices",
+                "price": f"{api_prefix}/prices/{{fuel_type}}",
+                "defaults": f"{api_prefix}/defaults"
+            },
+            "mpesa": {
+                "health": f"{api_prefix}/mpesa/health",
+                "services": f"{api_prefix}/mpesa/services",
+                "user_services": f"{api_prefix}/mpesa/user/services",
+                "stkpush": f"{api_prefix}/mpesa/stkpush",
+                "status": f"{api_prefix}/mpesa/status/{{checkout_request_id}}",
+                "confirm": f"{api_prefix}/mpesa/confirm/{{checkout_request_id}}",
+                "payments": f"{api_prefix}/mpesa/payments"
+            }
         }
     }
 
@@ -378,7 +463,7 @@ async def root():
 async def info():
     """
     Get application information.
-    NOTE: Sensitive information like Supabase URL is not exposed.
+    Sensitive information like Supabase URL is not exposed.
     """
     mpesa_configured = all([
         getattr(settings, "MPESA_CONSUMER_KEY", ""),
