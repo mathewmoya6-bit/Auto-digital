@@ -128,7 +128,6 @@
             color: #ef4444;
         }
 
-        /* Back to Dashboard button */
         .dashboard-link {
             display: inline-flex;
             align-items: center;
@@ -1048,7 +1047,6 @@
                     Real-world running cost estimates for Kenyan vehicles<br />
                     <span style="font-size:12px;color:var(--text-muted);">⚡ API-driven · Dynamic costing · Long-term planning</span>
                 </p>
-                <!-- Back to Dashboard button -->
                 <a href="/dashboard.html" class="dashboard-link">
                     <span class="arrow">←</span> Back to Dashboard
                 </a>
@@ -1378,6 +1376,7 @@
             let debounceTimer = null;
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
+            let authCheckInterval = null;
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1634,11 +1633,9 @@
             }
 
             // ─── API: QUERY THE VIEW ──────────────────────────────────
+            // FIX: Remove the authentication check so vehicle data loads even when not signed in
             async function queryView(select, filter, order) {
-                if (!isAuthenticated) {
-                    showToast('⚠️ Please sign in to access vehicle data', 'warning');
-                    return [];
-                }
+                // Allow public access to vehicle data
                 let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
                 if (filter) query = query.eq(filter.column, filter.value);
                 if (order) query = query.order(order.column, { ascending: order.ascending !== false });
@@ -1840,7 +1837,7 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
-                if (!categoryId || !isAuthenticated) return;
+                if (!categoryId) return;
                 const makes = await loadMakes(categoryId);
                 if (!makes || makes.length === 0) {
                     select.innerHTML = '<option value="">No makes available</option>';
@@ -1867,7 +1864,7 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
-                if (!makeId || !isAuthenticated) return;
+                if (!makeId) return;
                 const models = await loadModels(makeId);
                 if (!models || models.length === 0) {
                     select.innerHTML = '<option value="">No models available</option>';
@@ -1892,7 +1889,7 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.calculateBtn.disabled = true;
-                if (!modelId || !isAuthenticated) return;
+                if (!modelId) return;
                 const generations = await loadGenerations(modelId);
                 if (!generations || generations.length === 0) {
                     select.innerHTML = '<option value="">No generations available</option>';
@@ -1914,7 +1911,7 @@
                 select.innerHTML = '<option value="">Select Variant...</option>';
                 select.disabled = true;
                 el.calculateBtn.disabled = true;
-                if (!generationId || !isAuthenticated) return;
+                if (!generationId) return;
                 let variants = await loadVariants(generationId);
 
                 if (selectedFuelFilter !== 'all') {
@@ -2093,10 +2090,6 @@
 
             // ─── MAIN CALCULATION ──────────────────────────────────────
             async function calculateAndRender(variant = null) {
-                if (!isAuthenticated) {
-                    showToast('⚠️ Please sign in to access the calculator', 'warning');
-                    return;
-                }
                 if (!variant) variant = currentVariantData;
                 if (!variant) {
                     showToast('Please select a vehicle', 'error');
@@ -2365,7 +2358,7 @@
 
             // ─── LOAD VARIANT AND CALCULATE ────────────────────────────
             async function loadVariantAndCalculate(variantId) {
-                if (!variantId || !isAuthenticated) return;
+                if (!variantId) return;
                 el.calculateBtn.disabled = true;
                 el.calculateBtn.innerHTML = '<span class="spinner"></span> Loading...';
                 showProgress(5, 'Loading vehicle details...');
@@ -2421,7 +2414,6 @@
                 el.btnSignOut.addEventListener('click', signOut);
 
                 el.fuelFilterGroup.addEventListener('click', function(e) {
-                    if (!isAuthenticated) return;
                     const btn = e.target.closest('.fuel-filter-btn');
                     if (!btn) return;
                     document.querySelectorAll('.fuel-filter-btn').forEach(b => {
@@ -2438,7 +2430,7 @@
 
                 el.categorySelect.addEventListener('change', async function() {
                     selectedCategoryId = this.value;
-                    if (selectedCategoryId && isAuthenticated) {
+                    if (selectedCategoryId) {
                         await populateMakes(selectedCategoryId);
                         el.modelSelect.value = '';
                         el.generationSelect.value = '';
@@ -2449,7 +2441,6 @@
                 });
 
                 el.makeSelect.addEventListener('change', async function() {
-                    if (!isAuthenticated) return;
                     const makeId = this.value;
                     if (makeId) {
                         await populateModels(makeId);
@@ -2461,7 +2452,6 @@
                 });
 
                 el.modelSelect.addEventListener('change', async function() {
-                    if (!isAuthenticated) return;
                     const modelId = this.value;
                     if (modelId) {
                         await populateGenerations(modelId);
@@ -2472,7 +2462,6 @@
                 });
 
                 el.generationSelect.addEventListener('change', async function() {
-                    if (!isAuthenticated) return;
                     const genId = this.value;
                     if (genId) {
                         await populateVariants(genId);
@@ -2482,7 +2471,6 @@
                 });
 
                 el.variantSelect.addEventListener('change', function() {
-                    if (!isAuthenticated) return;
                     const variantId = this.value;
                     if (variantId) {
                         loadVariantAndCalculate(variantId);
@@ -2499,7 +2487,7 @@
                             this.classList.remove('error');
                             const errorEl = document.getElementById(this.id + 'Error');
                             if (errorEl) errorEl.classList.remove('show');
-                            if (el.variantSelect.value && currentVariantData && isAuthenticated) {
+                            if (el.variantSelect.value && currentVariantData) {
                                 clearTimeout(debounceTimer);
                                 debounceTimer = setTimeout(() => calculateAndRender(currentVariantData), 500);
                             }
@@ -2508,7 +2496,6 @@
                 });
 
                 el.routeChips.addEventListener('click', function(e) {
-                    if (!isAuthenticated) return;
                     const chip = e.target.closest('.chip');
                     if (!chip) return;
                     const km = parseInt(chip.dataset.km, 10);
@@ -2524,10 +2511,6 @@
                 });
 
                 el.calculateBtn.addEventListener('click', () => {
-                    if (!isAuthenticated) {
-                        showToast('⚠️ Please sign in to access the calculator', 'warning');
-                        return;
-                    }
                     if (currentVariantData) {
                         calculateAndRender(currentVariantData);
                     } else {
@@ -2536,7 +2519,6 @@
                 });
 
                 el.btnCash.addEventListener('click', function() {
-                    if (!isAuthenticated) return;
                     this.classList.add('active');
                     el.btnFinanced.classList.remove('active');
                     el.financedFields.classList.remove('show');
@@ -2544,7 +2526,6 @@
                     if (currentVariantData) setTimeout(() => calculateAndRender(currentVariantData), 400);
                 });
                 el.btnFinanced.addEventListener('click', function() {
-                    if (!isAuthenticated) return;
                     this.classList.add('active');
                     el.btnCash.classList.remove('active');
                     el.financedFields.classList.add('show');
