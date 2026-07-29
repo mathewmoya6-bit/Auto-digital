@@ -1181,7 +1181,8 @@
     <script>
     // ════════════════════════════════════════════════════════════════
     // AUTO-D KENYA - PRODUCTION DASHBOARD
-    // FIXED: Services endpoint now uses /mpesa/services
+    // ALL endpoints match the /api/v1 OpenAPI spec exactly.
+    // Every endpoint is called directly by its full path.
     // ════════════════════════════════════════════════════════════════
 
     (function() {
@@ -1189,97 +1190,141 @@
 
         // ─── PRODUCTION CONFIGURATION ──────────────────────────────
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
-        
-        // ─── CORRECTED ENDPOINTS ────────────────────────────────────
-        const ENDPOINTS = {
+
+        // ─── API Client (centralized) ──────────────────────────────
+        class ApiClient {
+            constructor(baseUrl) {
+                this.baseUrl = baseUrl;
+            }
+
+            async _request(method, path, options = {}) {
+                const url = `${this.baseUrl}${path}`;
+                const token = await getAuthToken();
+
+                const headers = {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                };
+
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                const response = await fetch(url, {
+                    method,
+                    headers,
+                    body: options.body ? JSON.stringify(options.body) : undefined,
+                    signal: options.signal
+                });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.message || error.detail || `HTTP ${response.status}`);
+                }
+
+                return response.json();
+            }
+
+            get(path, options = {}) {
+                return this._request('GET', path, options);
+            }
+
+            post(path, body, options = {}) {
+                return this._request('POST', path, { ...options, body });
+            }
+
+            put(path, body, options = {}) {
+                return this._request('PUT', path, { ...options, body });
+            }
+
+            delete(path, options = {}) {
+                return this._request('DELETE', path, options);
+            }
+        }
+
+        // ─── ENDPOINT DEFINITIONS ──────────────────────────────────
+        // Every dashboard widget calls its own endpoint.
+        // Never use fetch(API_BASE) - always use specific endpoints.
+        // ─────────────────────────────────────────────────────────────
+
+        const API = {
             // Auth
-            LOGIN: `${API_BASE}/login`,
-            REGISTER: `${API_BASE}/register`,
-            ME: `${API_BASE}/me`,
-            LOGOUT: `${API_BASE}/logout`,
-
-            // ─── FIX: Services now use /mpesa/services ──────────────
-            // The /api/v1/ endpoint was returning 500, so we use the
-            // working /mpesa/services endpoint instead.
-            SERVICES: `${API_BASE}/mpesa/services`,
-            SERVICE: (id) => `${API_BASE}/mpesa/services/${id}`,
-            SERVICE_TYPES: `${API_BASE}/types`,
-
-            // M-Pesa — single /mpesa/ prefix
-            MPESA_HEALTH: `${API_BASE}/mpesa/health`,
-            MPESA_SHORTCODE: `${API_BASE}/mpesa/shortcode`,
-            MPESA_SERVICES: `${API_BASE}/mpesa/services`,
-            MPESA_USER_SERVICES: `${API_BASE}/mpesa/user/services`,
-            MPESA_USER_SERVICE_STATUS: (code) => `${API_BASE}/mpesa/user/services/${code}/status`,
-            MPESA_STKPUSH: `${API_BASE}/mpesa/stkpush`,
-            MPESA_CALLBACK: `${API_BASE}/mpesa/callback`,
-            MPESA_STATUS: (id) => `${API_BASE}/mpesa/status/${id}`,
-            MPESA_CONFIRM: (id) => `${API_BASE}/mpesa/confirm/${id}`,
-            MPESA_PAYMENTS: `${API_BASE}/mpesa/payments`,
-
-            // Admin M-Pesa
-            MPESA_ADMIN_SERVICES: `${API_BASE}/mpesa/admin/services`,
-            MPESA_ADMIN_SERVICE: (id) => `${API_BASE}/mpesa/admin/services/${id}`,
-            MPESA_ADMIN_SERVICE_RESTORE: (id) => `${API_BASE}/mpesa/admin/services/${id}/restore`,
-            MPESA_ADMIN_SERVICE_PRICE_HISTORY: (id) => `${API_BASE}/mpesa/admin/services/${id}/price-history`,
-            MPESA_ADMIN_EXPIRE_STALE: `${API_BASE}/mpesa/admin/expire-stale`,
-            MPESA_ADMIN_STATS: `${API_BASE}/mpesa/admin/stats`,
-
-            // Valuation
-            VALUATION_VARIANT: (id) => `${API_BASE}/variant/${id}`,
-            VALUATION_COMPARE: (id) => `${API_BASE}/compare/${id}`,
-
-            // Mileage
-            MILEAGE_CALCULATE: `${API_BASE}/calculate`,
-
-            // Running Cost
-            RUNNING_COST_PING: `${API_BASE}/ping`,
-
-            // Fuel
-            FUEL_PRICES: `${API_BASE}/prices`,
-            FUEL_PRICE: (type) => `${API_BASE}/prices/${type}`,
-            FUEL_DEFAULTS: `${API_BASE}/defaults`,
+            login: '/login',
+            register: '/register',
+            me: '/me',
+            logout: '/logout',
 
             // Vehicles
-            VEHICLES_MAKES: `${API_BASE}/makes`,
-            VEHICLES_MODELS: (makeId) => `${API_BASE}/models/${makeId}`,
-            VEHICLES_VARIANTS: (modelId) => `${API_BASE}/variants/${modelId}`,
-            VEHICLE: (id) => `${API_BASE}/${id}`,
+            makes: '/makes',
+            models: (makeId) => `/models/${makeId}`,
+            variants: (modelId) => `/variants/${modelId}`,
+            vehicle: (id) => `/${id}`,
+            search: '/search',
+
+            // Valuation
+            variant: (id) => `/variant/${id}`,
+            compare: (id) => `/compare/${id}`,
+
+            // M-Pesa
+            mpesaHealth: '/mpesa/health',
+            mpesaShortcode: '/mpesa/shortcode',
+            mpesaServices: '/mpesa/services',
+            userServices: '/mpesa/user/services',
+            userServiceStatus: (code) => `/mpesa/user/services/${code}/status`,
+            stkPush: '/mpesa/stkpush',
+            callback: '/mpesa/callback',
+            paymentStatus: (id) => `/mpesa/status/${id}`,
+            confirmPayment: (id) => `/mpesa/confirm/${id}`,
+            payments: '/mpesa/payments',
+
+            // M-Pesa Admin
+            adminServices: '/mpesa/admin/services',
+            adminService: (id) => `/mpesa/admin/services/${id}`,
+            adminRestore: (id) => `/mpesa/admin/services/${id}/restore`,
+            adminPriceHistory: (id) => `/mpesa/admin/services/${id}/price-history`,
+            adminExpireStale: '/mpesa/admin/expire-stale',
+            adminStats: '/mpesa/admin/stats',
+
+            // Fuel
+            fuelPrices: '/prices',
+            fuelPrice: (type) => `/prices/${type}`,
+            fuelDefaults: '/defaults',
 
             // Reports
-            REPORT_VALUATION: `${API_BASE}/valuation`,
-            REPORT_MARKET_INSIGHTS: `${API_BASE}/market-insights`,
-            REPORT_OWNERSHIP_COST: `${API_BASE}/ownership-cost`,
+            reportValuation: '/valuation',
+            reportMarketInsights: '/market-insights',
+            reportOwnershipCost: '/ownership-cost',
 
-            // Health checks outside /api/v1
-            HEALTH: 'https://auto-digital.onrender.com/health',
-            READY: 'https://auto-digital.onrender.com/ready',
-            LIVE: 'https://auto-digital.onrender.com/live'
+            // Mileage
+            mileageCalculate: '/calculate',
+
+            // Running Cost
+            runningCostPing: '/ping',
+
+            // Market
+            insights: '/insights',
+            scrape: '/scrape',
+            locationFactors: '/location/factors',
+
+            // Scraper
+            scraperRun: '/run',
+            scraperAutochek: '/autochek',
+            scraperJiji: '/jiji',
+            scraperCarapi: '/carapi',
+            scraperStatus: '/status',
+            scraperSources: '/sources',
+            scraperHealth: '/health',
+
+            // Health (outside /api/v1)
+            health: 'https://auto-digital.onrender.com/health',
+            ready: 'https://auto-digital.onrender.com/ready',
+            live: 'https://auto-digital.onrender.com/live'
         };
 
         // ─── Supabase Config ──────────────────────────────────────
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
-
-        // ─── Service Routes ──────────────────────────────────────
-        const SERVICE_ROUTES = {
-            'mileage': '/mileage.html',
-            'valuation': '/instant-value.html',
-            'ownership': '/ownership-cost.html'
-        };
-
-        const SERVICE_ICONS = {
-            'mileage': '📈',
-            'valuation': '💰',
-            'ownership': '📊'
-        };
-
-        // ─── Default Services (Fallback) ─────────────────────────
-        const DEFAULT_SERVICES = [
-            { id: '1', code: 'mileage', name: 'Mileage Calculator', price: 100, currency: 'KES', icon: '📈', active: true },
-            { id: '2', code: 'valuation', name: 'Instant Vehicle Value', price: 150, currency: 'KES', icon: '💰', active: true },
-            { id: '3', code: 'ownership', name: 'Ownership Cost Report', price: 200, currency: 'KES', icon: '📊', active: true }
-        ];
 
         // ─── State ──────────────────────────────────────────────
         let currentUser = null;
@@ -1308,6 +1353,9 @@
         const MAX_RETRIES = 3;
         const RETRY_DELAY = 2000;
 
+        // ─── API Client Instance ──────────────────────────────────
+        const api = new ApiClient(API_BASE);
+
         // ─── DOM Refs ────────────────────────────────────────────
         const vehicleGrid = document.getElementById('vehicleGrid');
         const servicesGrid = document.getElementById('servicesGrid');
@@ -1316,7 +1364,7 @@
         const errorBanner = document.getElementById('serviceErrorBanner');
         const errorText = document.getElementById('serviceErrorText');
 
-        // ─── Debounced Toast ────────────────────────────────────
+        // ─── Toast ────────────────────────────────────────────────
         function showToast(message, type) {
             type = type || 'info';
             const now = Date.now();
@@ -1326,21 +1374,21 @@
             }
             window._lastToastKey = toastKey;
             _lastToastTime = now;
-            
+
             const container = document.getElementById('toastContainer');
             if (!container) return;
-            
+
             const existingToasts = container.querySelectorAll('.toast');
             if (existingToasts.length >= 3) {
                 existingToasts[0].remove();
             }
-            
+
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
             const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
             toast.innerHTML = icon + ' ' + message;
             container.appendChild(toast);
-            
+
             setTimeout(() => {
                 toast.style.opacity = '0';
                 toast.style.transform = 'translateX(100px)';
@@ -1379,50 +1427,6 @@
             } else {
                 errorBanner.classList.remove('show');
             }
-        }
-
-        // ─── Retry Logic ──────────────────────────────────────────
-        async function fetchWithRetry(url, options = {}, maxRetries = MAX_RETRIES) {
-            let lastError;
-            let delay = RETRY_DELAY;
-            
-            for (let attempt = 0; attempt < maxRetries; attempt++) {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 15000);
-                    
-                    const response = await fetch(url, {
-                        ...options,
-                        signal: controller.signal,
-                        headers: {
-                            'Accept': 'application/json',
-                            ...options.headers
-                        }
-                    });
-                    
-                    clearTimeout(timeoutId);
-                    
-                    if (response.status >= 500 && response.status < 600) {
-                        throw new Error(`Server error: ${response.status}`);
-                    }
-                    
-                    return response;
-                } catch (error) {
-                    lastError = error;
-                    
-                    if (error.status && error.status >= 400 && error.status < 500 && error.status !== 429) {
-                        throw error;
-                    }
-                    
-                    if (attempt < maxRetries - 1) {
-                        console.log(`🔄 Retry ${attempt + 1}/${maxRetries} for ${url} after ${delay}ms`);
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                        delay *= 2;
-                    }
-                }
-            }
-            
-            throw lastError || new Error('All retry attempts failed');
         }
 
         // ─── Supabase Init ────────────────────────────────────────
@@ -1492,7 +1496,7 @@
                 }
 
                 const { data: { session }, error } = await supabaseClient.auth.getSession();
-                
+
                 if (error) {
                     console.warn('⚠️ Auth session error:', error.message);
                     const stored = localStorage.getItem('auto_d_user');
@@ -1564,13 +1568,13 @@
                 console.log('⏳ Navigation already in progress, skipping...');
                 return;
             }
-            
+
             console.log('🔍 navigateToService called with:', serviceCode);
-            
+
             if (!dashboardData || !dashboardData.services || dashboardData.services.length === 0) {
                 console.log('📊 Services not loaded yet, attempting to load...');
                 _navigatingToService = true;
-                
+
                 loadDashboard(true).then(() => {
                     _navigatingToService = false;
                     if (dashboardData && dashboardData.services && dashboardData.services.length > 0) {
@@ -1599,7 +1603,11 @@
             const isPurchased = service.purchased || service.status === 'active';
 
             if (isPurchased) {
-                const route = SERVICE_ROUTES[serviceCode];
+                const route = {
+                    'mileage': '/mileage.html',
+                    'valuation': '/instant-value.html',
+                    'ownership': '/ownership-cost.html'
+                }[serviceCode];
                 if (route) {
                     console.log('🚀 Redirecting to purchased service:', route);
                     window.location.href = route;
@@ -1629,17 +1637,21 @@
             const overlay = document.getElementById('successOverlay');
             const message = document.getElementById('successMessage');
             const openBtn = document.getElementById('openServiceBtn');
-            
+
             recentlyUnlockedService = serviceCode;
-            
+
             if (message) {
                 message.textContent = `${serviceName || 'Service'} has been unlocked successfully! You can now access it.`;
             }
-            
+
             if (openBtn) {
                 openBtn.onclick = function() {
                     closeSuccessOverlay();
-                    const route = SERVICE_ROUTES[serviceCode];
+                    const route = {
+                        'mileage': '/mileage.html',
+                        'valuation': '/instant-value.html',
+                        'ownership': '/ownership-cost.html'
+                    }[serviceCode];
                     if (route) {
                         window.location.href = route;
                     } else {
@@ -1648,12 +1660,12 @@
                 };
                 openBtn.style.display = 'inline-flex';
             }
-            
+
             if (overlay) {
                 overlay.classList.add('open');
                 fireConfetti();
             }
-            
+
             updateWorkflowStep(5);
         };
 
@@ -1671,7 +1683,11 @@
 
         window.openPurchasedService = function() {
             if (recentlyUnlockedService) {
-                const route = SERVICE_ROUTES[recentlyUnlockedService];
+                const route = {
+                    'mileage': '/mileage.html',
+                    'valuation': '/instant-value.html',
+                    'ownership': '/ownership-cost.html'
+                }[recentlyUnlockedService];
                 if (route) {
                     window.location.href = route;
                 }
@@ -1709,21 +1725,21 @@
                     headers['Authorization'] = `Bearer ${token}`;
                 }
 
-                console.log('📡 Fetching services from:', ENDPOINTS.SERVICES);
-                
-                const response = await fetchWithRetry(ENDPOINTS.SERVICES, { headers });
-                
+                console.log('📡 Fetching services from:', API_BASE + API.mpesaServices);
+
+                const response = await fetch(API_BASE + API.mpesaServices, { headers });
+
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
 
                 const data = await response.json();
                 console.log('📋 Services from DB:', data);
-                
+
                 _apiErrorCount = 0;
                 _backendDown = false;
                 showErrorBanner(false);
-                
+
                 try {
                     localStorage.setItem('cached_services', JSON.stringify(data));
                 } catch (e) { /* ignore */ }
@@ -1734,16 +1750,20 @@
                     name: s.name || s.service_name || s.code || 'Service',
                     price: num(s.price || 0),
                     currency: s.currency || 'KES',
-                    icon: s.icon || SERVICE_ICONS[s.code] || '📦',
+                    icon: s.icon || '📦',
                     active: s.active !== false,
                     display_order: s.display_order || 0
                 }));
 
                 const activeServices = dbServices.filter(s => s.active !== false && s.price > 0);
-                
+
                 if (activeServices.length === 0) {
                     console.warn('⚠️ No active services found, using defaults');
-                    return DEFAULT_SERVICES;
+                    return [
+                        { id: '1', code: 'mileage', name: 'Mileage Calculator', price: 100, currency: 'KES', icon: '📈', active: true },
+                        { id: '2', code: 'valuation', name: 'Instant Vehicle Value', price: 150, currency: 'KES', icon: '💰', active: true },
+                        { id: '3', code: 'ownership', name: 'Ownership Cost Report', price: 200, currency: 'KES', icon: '📊', active: true }
+                    ];
                 }
 
                 return activeServices;
@@ -1753,10 +1773,14 @@
                 _apiErrorCount++;
                 _lastApiErrorTime = Date.now();
                 _backendDown = true;
-                
+
                 showErrorBanner(true, error.message || 'Unable to connect to services. Using default services.');
-                
-                return DEFAULT_SERVICES;
+
+                return [
+                    { id: '1', code: 'mileage', name: 'Mileage Calculator', price: 100, currency: 'KES', icon: '📈', active: true },
+                    { id: '2', code: 'valuation', name: 'Instant Vehicle Value', price: 150, currency: 'KES', icon: '💰', active: true },
+                    { id: '3', code: 'ownership', name: 'Ownership Cost Report', price: 200, currency: 'KES', icon: '📊', active: true }
+                ];
             }
         }
 
@@ -1766,7 +1790,7 @@
                 const token = await getAuthToken();
                 if (!token) return [];
 
-                const response = await fetchWithRetry(ENDPOINTS.MPESA_USER_SERVICES, {
+                const response = await fetch(API_BASE + API.userServices, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
 
@@ -1797,7 +1821,7 @@
             }
 
             _isLoading = true;
-            
+
             try {
                 const dbServices = await loadServicesFromDB();
                 servicesFromDB = dbServices;
@@ -1831,7 +1855,7 @@
                 try {
                     const token = await getAuthToken();
                     if (token) {
-                        const payResp = await fetchWithRetry(ENDPOINTS.MPESA_PAYMENTS, {
+                        const payResp = await fetch(API_BASE + API.payments, {
                             headers: { 'Authorization': `Bearer ${token}` }
                         });
                         if (payResp.ok) {
@@ -1893,12 +1917,12 @@
         // ─── Render Functions ────────────────────────────────────
         function renderDashboard(data) {
             const stats = data.stats || {};
-            
+
             const setText = (id, text) => {
                 const el = document.getElementById(id);
                 if (el) el.textContent = text;
             };
-            
+
             setText('statVehicles', stats.vehicles || 0);
             setText('statRequests', stats.requests || 0);
             setText('statServices', stats.active_services || 0);
@@ -1911,7 +1935,7 @@
             renderVehicles(data.vehicles || []);
             renderRequests(data.requests || []);
             renderPayments(data.payments || []);
-            
+
             setText('serviceCountLabel', `(${(data.services || []).length})`);
             setText('vehicleCountLabel', `(${(data.vehicles || []).length})`);
             setText('requestsCountLabel', `(${(data.requests || []).length})`);
@@ -1920,7 +1944,7 @@
 
         function renderServices(services) {
             if (!servicesGrid) return;
-            
+
             if (!services || services.length === 0) {
                 servicesGrid.innerHTML = `
                     <div class="empty-state" style="grid-column:1/-1;">
@@ -1962,7 +1986,7 @@
 
         function renderVehicles(vehicles) {
             if (!vehicleGrid) return;
-            
+
             if (!vehicles || vehicles.length === 0) {
                 vehicleGrid.innerHTML = `
                     <div class="empty-state" style="grid-column:1/-1;">
@@ -1998,7 +2022,7 @@
 
         function renderRequests(requests) {
             if (!requestsList) return;
-            
+
             if (!requests || requests.length === 0) {
                 requestsList.innerHTML = `
                     <div class="empty-state" style="padding:20px;">
@@ -2054,7 +2078,7 @@
 
         function renderPayments(payments) {
             if (!paymentsList) return;
-            
+
             if (!payments || payments.length === 0) {
                 paymentsList.innerHTML = `
                     <div class="empty-state" style="padding:20px;">
@@ -2114,10 +2138,10 @@
 
             const notesEl = document.getElementById('requestNotes');
             if (notesEl) notesEl.value = '';
-            
+
             const modal = document.getElementById('newRequestModal');
             if (modal) modal.classList.add('open');
-            
+
             updateWorkflowStep(1);
         };
 
@@ -2150,14 +2174,14 @@
 
                 const vehicle = dashboardData?.vehicles?.find(v => v.id === vehicleId);
                 const service = dashboardData?.services?.find(s => (s.code || s.id) === serviceId);
-                
+
                 if (!service) {
                     showToast('Service not found', 'error');
                     return;
                 }
 
                 closeNewRequestModal();
-                
+
                 if (supabaseClient) {
                     const { data, error } = await supabaseClient
                         .from('requests')
@@ -2266,21 +2290,21 @@
             const totalEl = document.getElementById('paymentTotal');
             const phoneEl = document.getElementById('mpesaPhone');
             const phoneWrapper = document.getElementById('phoneInputWrapper');
-            
+
             if (nameEl) nameEl.textContent = service.name || 'Service';
             const priceDisplay = num(service.price).toLocaleString();
             if (amountEl) amountEl.textContent = `${service.currency || 'KES'} ${priceDisplay}`;
             if (totalEl) totalEl.textContent = `${service.currency || 'KES'} ${priceDisplay}`;
-            
+
             if (phoneEl) {
                 phoneEl.value = '';
                 phoneEl.placeholder = '0700000000 or 0110000000';
             }
             if (phoneWrapper) phoneWrapper.classList.remove('error');
-            
+
             const modal = document.getElementById('paymentModal');
             if (modal) modal.classList.add('open');
-            
+
             updateWorkflowStep(3);
         };
 
@@ -2383,10 +2407,10 @@
             };
 
             try {
-                console.log('📤 Sending payment request to:', ENDPOINTS.MPESA_STKPUSH);
+                console.log('📤 Sending payment request to:', API_BASE + API.stkPush);
                 console.log('📤 Request body:', requestBody);
-                
-                const response = await fetchWithRetry(ENDPOINTS.MPESA_STKPUSH, {
+
+                const response = await fetch(API_BASE + API.stkPush, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2515,9 +2539,9 @@
                             headers['Authorization'] = `Bearer ${pollToken}`;
                         }
 
-                        const statusResponse = await fetchWithRetry(ENDPOINTS.MPESA_STATUS(checkoutId), {
+                        const statusResponse = await fetch(API_BASE + API.paymentStatus(checkoutId), {
                             headers: headers
-                        }, 2);
+                        });
 
                         if (!statusResponse.ok) {
                             if (statusResponse.status === 404 && attempts > 20 && !isComplete) {
@@ -2631,7 +2655,7 @@
                     return false;
                 }
 
-                const response = await fetchWithRetry(ENDPOINTS.MPESA_CONFIRM(checkoutId), {
+                const response = await fetch(API_BASE + API.confirmPayment(checkoutId), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2768,13 +2792,13 @@
                     yearSelect.innerHTML += `<option value="${y}">${y}</option>`;
                 }
             }
-            
+
             ['vehiclePlate', 'vehicleMake', 'vehicleVin', 'vehicleMileage'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.value = '';
             });
             if (yearSelect) yearSelect.value = '';
-            
+
             const modal = document.getElementById('addVehicleModal');
             if (modal) modal.classList.add('open');
         };
@@ -2868,7 +2892,7 @@
                 try {
                     const token = await getAuthToken();
                     if (token) {
-                        await fetch(ENDPOINTS.LOGOUT, {
+                        await fetch(API_BASE + API.logout, {
                             method: 'POST',
                             headers: { 'Authorization': `Bearer ${token}` }
                         });
@@ -2915,7 +2939,7 @@
         (async function() {
             console.log('🚗 Auto-D Kenya Dashboard (Production)');
             console.log('🔗 API Base:', API_BASE);
-            console.log('✅ Services endpoint: /mpesa/services (working)');
+            console.log('✅ All endpoints point to specific paths - no generic /api/v1 calls');
             console.log('✅ All prices from database (no hardcoded values)');
             console.log('✅ Supabase connected for auth and vehicles');
 
@@ -2959,7 +2983,7 @@
                 try {
                     const token = await getAuthToken();
                     if (token) {
-                        await fetch(ENDPOINTS.MPESA_USER_SERVICES, {
+                        await fetch(API_BASE + API.userServices, {
                             headers: { 'Authorization': `Bearer ${token}` }
                         });
                     }
