@@ -1,6 +1,7 @@
 """
 Auto-D Kenya - FastAPI Application
 Vehicle cost analysis and valuation system
+Complete OpenAPI 3.1 compliant implementation
 """
 
 import os
@@ -84,48 +85,75 @@ def get_table_count(table_name: str) -> int:
 logger.info("📦 Loading routers...")
 
 try:
-    # Authentication - matches OpenAPI: /login, /register, /me, /logout
+    # =============================================================
+    # AUTHENTICATION - /login, /register, /me, /logout
+    # =============================================================
     auth_router = load_router("app.api.v1.auth")
     
-    # Vehicles - matches OpenAPI: /makes, /models/{make_id}, /variants/{model_id}, /{variant_id}
+    # =============================================================
+    # VEHICLES - /makes, /models/{make_id}, /variants/{model_id}, /{variant_id}
+    # =============================================================
     vehicles_router = load_router("app.api.v1.vehicles")
     
-    # Valuation - matches OpenAPI: /variant/{variant_id}, /compare/{variant_id}
+    # =============================================================
+    # VALUATION - /ping, /calculate, /variant/{variant_id}, /compare/{variant_id}
+    # =============================================================
     valuation_router = load_router("app.api.v1.valuation")
     
-    # Running Cost - matches OpenAPI: /ping
-    running_cost_router = load_router("app.api.v1.running_cost")
-    
-    # Ownership - matches OpenAPI: /calculate
-    ownership_router = load_router("app.api.v1.ownership")
-    
-    # Fuel - matches OpenAPI: /prices, /prices/{fuel_type}, /defaults
-    fuel_router = load_router("app.api.v1.fuel")
-    
-    # Admin - matches OpenAPI: /fuel-prices, /dashboard
-    admin_router = load_router("app.api.v1.admin")
-    
-    # Reports - matches OpenAPI: /valuation, /market-insights, /ownership-cost
-    reports_router = load_router("app.api.v1.reports")
-    
-    # Service Prices - matches OpenAPI: /, /{service_id}, /types, /summary/pricing, etc.
-    services_router = load_router("app.api.v1.services")
-    
-    # Price Alignment - matches OpenAPI: /history, /analyze, /align, /trend
+    # =============================================================
+    # PRICE ALIGNMENT - /history, /analyze, /align, /trend
+    # =============================================================
     price_alignment_router = load_router("app.api.v1.price_alignment")
     
-    # Market Data - matches OpenAPI: /insights, /scrape, /location/factors
+    # =============================================================
+    # FUEL - /prices, /prices/{fuel_type}, /defaults
+    # =============================================================
+    fuel_router = load_router("app.api.v1.fuel")
+    
+    # =============================================================
+    # ADMIN - /fuel-prices, /dashboard
+    # =============================================================
+    admin_router = load_router("app.api.v1.admin")
+    
+    # =============================================================
+    # REPORTS - /valuation, /market-insights, /ownership-cost
+    # =============================================================
+    reports_router = load_router("app.api.v1.reports")
+    
+    # =============================================================
+    # SERVICE PRICES - /, /{service_id}, /types, /summary/pricing, etc.
+    # =============================================================
+    services_router = load_router("app.api.v1.services")
+    
+    # =============================================================
+    # MARKET DATA - /insights, /scrape, /location/factors
+    # =============================================================
     market_router = load_router("app.api.v1.market")
     
-    # Market Scraper - matches OpenAPI: /run, /autochek, /jiji, /carapi, /status, /sources, /health
+    # =============================================================
+    # MARKET SCRAPER - /run, /autochek, /jiji, /carapi, /status, /sources, /health
+    # =============================================================
     scraper_router = load_router("app.api.v1.scraper")
     
-    # M-Pesa - matches OpenAPI: /mpesa/health, /mpesa/services, /mpesa/stkpush, etc.
+    # =============================================================
+    # M-PESA - /mpesa/health, /mpesa/services, /mpesa/stkpush, etc.
+    # =============================================================
     mpesa_router = load_router("app.api.v1.mpesa")
     
-    # ⚠️ IMPORTANT: These routers are NOT in the current OpenAPI spec
-    # They may need to be removed or their endpoints moved to other routers
-    # mileage_router = load_router("app.api.v1.mileage")  # No /mileage in OpenAPI
+    # =============================================================
+    # OWNERSHIP COST - /calculate
+    # =============================================================
+    ownership_router = load_router("app.api.v1.ownership")
+    
+    # =============================================================
+    # RUNNING COST - /ping
+    # =============================================================
+    running_cost_router = load_router("app.api.v1.running_cost")
+    
+    # =============================================================
+    # MILEAGE - /mileage/calculate
+    # =============================================================
+    mileage_router = load_router("app.api.v1.mileage")
     
     logger.info("✅ All routers loaded successfully!")
 
@@ -260,47 +288,116 @@ async def general_exception_handler(request: Request, exc: Exception):
 api_prefix = getattr(settings, "API_V1_PREFIX", "/api/v1")
 
 # ═══════════════════════════════════════════════════════════════════
-# ROUTER REGISTRATION - MATCHING OPENAPI SPEC
+# ROUTER REGISTRATION - FULL OPENAPI SPEC
 # ═══════════════════════════════════════════════════════════════════
 
-# Authentication - /login, /register, /me, /logout
+# ─── 1. Authentication ────────────────────────────────────────────
+# POST   /api/v1/login         - Login
+# POST   /api/v1/register      - Register
+# GET    /api/v1/me            - Get Current User Info
+# POST   /api/v1/logout        - Logout
 app.include_router(auth_router, prefix=api_prefix, tags=["Authentication"])
 
-# Vehicles - /makes, /models/{make_id}, /variants/{model_id}, /{variant_id}
+# ─── 2. Vehicles ──────────────────────────────────────────────────
+# GET    /api/v1/makes                     - Get Makes
+# GET    /api/v1/models/{make_id}          - Get Models
+# GET    /api/v1/variants/{model_id}       - Get Variants
+# GET    /api/v1/{variant_id}              - Get Vehicle
 app.include_router(vehicles_router, prefix=api_prefix, tags=["Vehicles"])
 
-# Running Cost - /ping
-app.include_router(running_cost_router, prefix=api_prefix, tags=["Running Cost"])
-
-# Ownership - /calculate
-app.include_router(ownership_router, prefix=api_prefix, tags=["Ownership"])
-
-# Valuation - /variant/{variant_id}, /compare/{variant_id}
+# ─── 3. Valuation ─────────────────────────────────────────────────
+# GET    /api/v1/ping                      - Valuation Ping
+# POST   /api/v1/calculate                 - Calculate Valuation
+# GET    /api/v1/variant/{variant_id}      - Get Variant
+# GET    /api/v1/compare/{variant_id}      - Get Market Comparison
 app.include_router(valuation_router, prefix=api_prefix, tags=["Valuation"])
 
-# Price Alignment - /history, /analyze, /align, /trend
+# ─── 4. Price Alignment ───────────────────────────────────────────
+# GET    /api/v1/history                   - Get Price History
+# POST   /api/v1/analyze                   - Analyze Price
+# GET    /api/v1/align                     - Align Prices
+# GET    /api/v1/trend                     - Get Price Trend
 app.include_router(price_alignment_router, prefix=api_prefix, tags=["Price Alignment"])
 
-# Fuel - /prices, /prices/{fuel_type}, /defaults
+# ─── 5. Fuel ──────────────────────────────────────────────────────
+# GET    /api/v1/prices                    - Get Fuel Prices
+# GET    /api/v1/prices/{fuel_type}        - Get Fuel Price
+# GET    /api/v1/defaults                  - Get Default Fuel Prices
 app.include_router(fuel_router, prefix=api_prefix, tags=["Fuel"])
 
-# Admin - /fuel-prices, /dashboard
+# ─── 6. Admin ─────────────────────────────────────────────────────
+# PUT    /api/v1/fuel-prices               - Update Fuel Prices
+# GET    /api/v1/dashboard                 - Get Dashboard Stats
 app.include_router(admin_router, prefix=api_prefix, tags=["Admin"])
 
-# Reports - /valuation, /market-insights, /ownership-cost
+# ─── 7. Reports ───────────────────────────────────────────────────
+# GET    /api/v1/valuation                 - Generate Valuation Report
+# GET    /api/v1/market-insights           - Generate Market Insights Report
+# GET    /api/v1/ownership-cost            - Generate Ownership Cost Report
 app.include_router(reports_router, prefix=api_prefix, tags=["Reports"])
 
-# Service Prices - /, /{service_id}, /types, /summary/pricing, /comparison/types, /price-range, /bulk
+# ─── 8. Service Prices ────────────────────────────────────────────
+# GET    /api/v1/                          - List Services
+# POST   /api/v1/                          - Create Service
+# GET    /api/v1/types                     - Get Service Types
+# GET    /api/v1/summary/pricing           - Pricing Summary
+# GET    /api/v1/comparison/types          - Compare By Type
+# GET    /api/v1/price-range               - Filter By Price Range
+# GET    /api/v1/{service_id}              - Get Service
+# PUT    /api/v1/{service_id}              - Update Service
+# DELETE /api/v1/{service_id}              - Delete Service
+# POST   /api/v1/bulk                      - Bulk Create Services
 app.include_router(services_router, prefix=api_prefix, tags=["Service Prices"])
 
-# Market Data - /insights, /scrape, /location/factors
+# ─── 9. Market Data ───────────────────────────────────────────────
+# GET    /api/v1/insights                  - Get Market Insights
+# POST   /api/v1/scrape                    - Scrape Market Data
+# GET    /api/v1/location/factors          - Get Location Factors
 app.include_router(market_router, prefix=api_prefix, tags=["Market Data"])
 
-# Market Scraper - /run, /autochek, /jiji, /carapi, /status, /sources, /health
+# ─── 10. Market Scraper ───────────────────────────────────────────
+# POST   /api/v1/run                       - Run Scraper
+# POST   /api/v1/autochek                  - Scrape Autochek
+# POST   /api/v1/jiji                      - Scrape Jiji
+# POST   /api/v1/carapi                    - Scrape Carapi
+# GET    /api/v1/status                    - Get Scraper Status
+# GET    /api/v1/sources                   - Get Scraper Sources
+# GET    /api/v1/health                    - Health
 app.include_router(scraper_router, prefix=api_prefix, tags=["Market Scraper"])
 
-# M-Pesa - /mpesa/health, /mpesa/shortcode, /mpesa/services, /mpesa/stkpush, etc.
+# ─── 11. M-Pesa ────────────────────────────────────────────────────
+# GET    /api/v1/mpesa/health                                       - Mpesa Health
+# GET    /api/v1/mpesa/shortcode                                    - Get Shortcode
+# GET    /api/v1/mpesa/services                                     - Get Services
+# GET    /api/v1/mpesa/user/services                                - Get User Services
+# GET    /api/v1/mpesa/user/services/{service_code}/status         - Check Service Status
+# POST   /api/v1/mpesa/stkpush                                     - Initiate Stk Push
+# POST   /api/v1/mpesa/callback                                    - Mpesa Callback
+# GET    /api/v1/mpesa/status/{checkout_request_id}               - Get Payment Status
+# POST   /api/v1/mpesa/confirm/{checkout_request_id}              - Confirm Payment
+# GET    /api/v1/mpesa/payments                                    - Get Payment History
+# GET    /api/v1/mpesa/admin/services                              - Admin Get Services
+# POST   /api/v1/mpesa/admin/services                              - Admin Create Service
+# GET    /api/v1/mpesa/admin/services/{service_id}                - Admin Get Service
+# PUT    /api/v1/mpesa/admin/services/{service_id}                - Admin Update Service
+# DELETE /api/v1/mpesa/admin/services/{service_id}                - Admin Delete Service
+# POST   /api/v1/mpesa/admin/services/{service_id}/restore        - Admin Restore Service
+# GET    /api/v1/mpesa/admin/services/{service_id}/price-history   - Admin Get Price History
+# POST   /api/v1/mpesa/admin/expire-stale                         - Admin Expire Stale
+# GET    /api/v1/mpesa/admin/stats                                - Admin Get Stats
 app.include_router(mpesa_router, prefix=api_prefix, tags=["M-Pesa"])
+
+# ─── 12. Ownership Cost ───────────────────────────────────────────
+# POST   /api/v1/calculate                 - Calculate Ownership Cost
+app.include_router(ownership_router, prefix=api_prefix, tags=["Ownership"])
+
+# ─── 13. Running Cost ─────────────────────────────────────────────
+# GET    /api/v1/ping                      - Running Cost Ping
+app.include_router(running_cost_router, prefix=api_prefix, tags=["Running Cost"])
+
+# ─── 14. Mileage ──────────────────────────────────────────────────
+# POST   /api/v1/mileage/calculate         - Calculate Mileage Rate
+app.include_router(mileage_router, prefix=api_prefix, tags=["Mileage"])
 
 logger.info("✅ All routers registered successfully")
 logger.info(f"📚 API Documentation available at {settings.API_DOCS_URL}")
@@ -393,7 +490,7 @@ async def ping():
 
 @app.get("/")
 async def root():
-    """Root endpoint with API information"""
+    """Root endpoint with complete API information"""
     mpesa_configured = all([
         getattr(settings, "MPESA_CONSUMER_KEY", ""),
         getattr(settings, "MPESA_CONSUMER_SECRET", ""),
@@ -432,28 +529,81 @@ async def root():
                 "vehicle": f"{api_prefix}/{{variant_id}}"
             },
             "valuation": {
+                "ping": f"{api_prefix}/ping",
+                "calculate": f"{api_prefix}/calculate",
                 "variant": f"{api_prefix}/variant/{{variant_id}}",
                 "compare": f"{api_prefix}/compare/{{variant_id}}"
             },
-            "running_cost": {
-                "ping": f"{api_prefix}/ping"
-            },
-            "ownership": {
-                "calculate": f"{api_prefix}/calculate"
+            "price_alignment": {
+                "history": f"{api_prefix}/history",
+                "analyze": f"{api_prefix}/analyze",
+                "align": f"{api_prefix}/align",
+                "trend": f"{api_prefix}/trend"
             },
             "fuel": {
                 "prices": f"{api_prefix}/prices",
                 "price": f"{api_prefix}/prices/{{fuel_type}}",
                 "defaults": f"{api_prefix}/defaults"
             },
+            "admin": {
+                "fuel_prices": f"{api_prefix}/fuel-prices",
+                "dashboard": f"{api_prefix}/dashboard"
+            },
+            "reports": {
+                "valuation": f"{api_prefix}/valuation",
+                "market_insights": f"{api_prefix}/market-insights",
+                "ownership_cost": f"{api_prefix}/ownership-cost"
+            },
+            "services": {
+                "list": f"{api_prefix}/",
+                "create": f"{api_prefix}/",
+                "types": f"{api_prefix}/types",
+                "summary": f"{api_prefix}/summary/pricing",
+                "comparison": f"{api_prefix}/comparison/types",
+                "price_range": f"{api_prefix}/price-range",
+                "service": f"{api_prefix}/{{service_id}}",
+                "bulk": f"{api_prefix}/bulk"
+            },
+            "market": {
+                "insights": f"{api_prefix}/insights",
+                "scrape": f"{api_prefix}/scrape",
+                "location_factors": f"{api_prefix}/location/factors"
+            },
+            "scraper": {
+                "run": f"{api_prefix}/run",
+                "autochek": f"{api_prefix}/autochek",
+                "jiji": f"{api_prefix}/jiji",
+                "carapi": f"{api_prefix}/carapi",
+                "status": f"{api_prefix}/status",
+                "sources": f"{api_prefix}/sources",
+                "health": f"{api_prefix}/health"
+            },
             "mpesa": {
                 "health": f"{api_prefix}/mpesa/health",
+                "shortcode": f"{api_prefix}/mpesa/shortcode",
                 "services": f"{api_prefix}/mpesa/services",
                 "user_services": f"{api_prefix}/mpesa/user/services",
+                "user_service_status": f"{api_prefix}/mpesa/user/services/{{service_code}}/status",
                 "stkpush": f"{api_prefix}/mpesa/stkpush",
+                "callback": f"{api_prefix}/mpesa/callback",
                 "status": f"{api_prefix}/mpesa/status/{{checkout_request_id}}",
                 "confirm": f"{api_prefix}/mpesa/confirm/{{checkout_request_id}}",
-                "payments": f"{api_prefix}/mpesa/payments"
+                "payments": f"{api_prefix}/mpesa/payments",
+                "admin_services": f"{api_prefix}/mpesa/admin/services",
+                "admin_service": f"{api_prefix}/mpesa/admin/services/{{service_id}}",
+                "admin_restore": f"{api_prefix}/mpesa/admin/services/{{service_id}}/restore",
+                "admin_price_history": f"{api_prefix}/mpesa/admin/services/{{service_id}}/price-history",
+                "admin_expire_stale": f"{api_prefix}/mpesa/admin/expire-stale",
+                "admin_stats": f"{api_prefix}/mpesa/admin/stats"
+            },
+            "ownership": {
+                "calculate": f"{api_prefix}/calculate"
+            },
+            "running_cost": {
+                "ping": f"{api_prefix}/ping"
+            },
+            "mileage": {
+                "calculate": f"{api_prefix}/mileage/calculate"
             }
         }
     }
