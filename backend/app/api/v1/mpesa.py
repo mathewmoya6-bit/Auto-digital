@@ -1,6 +1,7 @@
 """
-M-Pesa Routes - Clean Version
+M-Pesa Routes - Production Ready
 All services and prices are pulled from the database dynamically
+Endpoints match OpenAPI spec: /api/v1/mpesa/*
 """
 
 import logging
@@ -8,16 +9,15 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
-# ─── FIX: Use correct import path ──────────────────────────────────────
 from app.core.dependencies import get_current_user
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# ─── FIX: Remove prefix from router - main.py adds /api/v1 ──────────
+# Router - main.py adds /api/v1 prefix
 router = APIRouter(tags=["M-Pesa"])
 
-# ─── FIX: Handle service import gracefully ────────────────────────────
+# ─── Service Imports ──────────────────────────────────────────────
 try:
     from app.services.mpesa_service import mpesa_service
     MPESA_SERVICE_LOADED = True
@@ -27,8 +27,6 @@ except ImportError as e:
     mpesa_service = None
     MPESA_SERVICE_LOADED = False
 
-
-# ─── FIX: Handle payment repo gracefully ─────────────────────────────
 try:
     from app.repositories.payment_repository import PaymentRepository
     payment_repo = PaymentRepository()
@@ -38,16 +36,17 @@ except ImportError as e:
     payment_repo = None
 
 
+# ─── Models ──────────────────────────────────────────────────────
 class STKPushRequest(BaseModel):
     phone: str
-    service_id: str  # CODE from frontend (e.g., "mileage")
+    service_id: str
     description: Optional[str] = None
     user_id: Optional[str] = None
     request_id: Optional[str] = None
-    amount: Optional[float] = None  # FIX: Allow amount from frontend
+    amount: Optional[float] = None
 
 
-# ─── FIX: Check service availability on every endpoint ──────────────
+# ─── Helpers ──────────────────────────────────────────────────────
 def require_mpesa_service():
     if not MPESA_SERVICE_LOADED or mpesa_service is None:
         raise HTTPException(
@@ -66,28 +65,30 @@ def require_payment_repo():
     return True
 
 
-# ─── Public Endpoints ────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════
+# PUBLIC ENDPOINTS
+# ════════════════════════════════════════════════════════════════
 
 @router.get("/mpesa/health")
 async def mpesa_health():
-    """Health check for M-Pesa service"""
+    """GET /api/v1/mpesa/health - Health check"""
     return {
         "status": "ok" if MPESA_SERVICE_LOADED else "degraded",
         "service": "mpesa",
         "loaded": MPESA_SERVICE_LOADED,
-        "shortcode": settings.MPESA_SHORTCODE if hasattr(settings, "MPESA_SHORTCODE") else "4095377"
+        "shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377")
     }
 
 
 @router.get("/mpesa/shortcode")
 async def get_shortcode():
-    """Get M-Pesa shortcode"""
-    return {"shortcode": settings.MPESA_SHORTCODE}
+    """GET /api/v1/mpesa/shortcode - Get M-Pesa shortcode"""
+    return {"shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377")}
 
 
 @router.get("/mpesa/services")
 async def get_services():
-    """Get all available services from database"""
+    """GET /api/v1/mpesa/services - Get all available services"""
     require_mpesa_service()
     try:
         services = await mpesa_service.get_services()
@@ -99,14 +100,14 @@ async def get_services():
 
 @router.get("/mpesa/user/services")
 async def get_user_services(current_user: Dict = Depends(get_current_user)):
-    """Get user's unlocked services"""
+    """GET /api/v1/mpesa/user/services - Get user's unlocked services"""
     require_mpesa_service()
     try:
         services = await mpesa_service.get_user_services(current_user.get("id"))
         return {"services": services}
     except Exception as e:
         logger.error(f"Error fetching user services: {e}")
-        return {"services": []}  # Return empty list on error
+        return {"services": []}
 
 
 @router.get("/mpesa/user/services/{service_code}/status")
@@ -114,7 +115,7 @@ async def check_service_status(
     service_code: str, 
     current_user: Dict = Depends(get_current_user)
 ):
-    """Check if user has access to a service"""
+    """GET /api/v1/mpesa/user/services/{service_code}/status - Check service access"""
     require_mpesa_service()
     try:
         return await mpesa_service.check_service_access(current_user.get("id"), service_code)
@@ -128,22 +129,15 @@ async def initiate_stk_push(
     request: STKPushRequest, 
     current_user: Dict = Depends(get_current_user)
 ):
-    """
-    Initiate STK Push payment
-    """
+    """POST /api/v1/mpesa/stkpush - Initiate STK Push payment"""
     require_mpesa_service()
     
     try:
-        # FIX: Use amount from request if provided, otherwise get from service
         amount = request.amount
         if amount is None:
-            # Fetch service to get price
             services = await mpesa_service.get_services()
             service = next((s for s in services if s.get("code") == request.service_id), None)
-            if service:
-                amount = service.get("price", 0)
-            else:
-                amount = 0
+            amount = service.get("price", 0) if service else 0
         
         result = await mpesa_service.initiate_payment(
             phone=request.phone,
@@ -165,7 +159,7 @@ async def initiate_stk_push(
 
 @router.post("/mpesa/callback")
 async def mpesa_callback(request: Request):
-    """M-Pesa callback endpoint"""
+    """POST /api/v1/mpesa/callback - M-Pesa callback endpoint"""
     require_mpesa_service()
     try:
         data = await request.json()
@@ -179,7 +173,7 @@ async def mpesa_callback(request: Request):
 
 @router.get("/mpesa/status/{checkout_request_id}")
 async def get_payment_status(checkout_request_id: str):
-    """Get payment status"""
+    """GET /api/v1/mpesa/status/{checkout_request_id} - Get payment status"""
     require_mpesa_service()
     try:
         return await mpesa_service.get_payment_status(checkout_request_id)
@@ -193,7 +187,7 @@ async def confirm_payment(
     checkout_request_id: str, 
     current_user: Dict = Depends(get_current_user)
 ):
-    """Manually confirm a payment"""
+    """POST /api/v1/mpesa/confirm/{checkout_request_id} - Confirm payment"""
     require_mpesa_service()
     require_payment_repo()
     
@@ -208,7 +202,6 @@ async def confirm_payment(
         if payment.get("status") == "completed":
             return {"success": True, "status": "already_completed", "message": "Payment already confirmed"}
         
-        # Create synthetic callback
         callback_data = {
             "Body": {
                 "stkCallback": {
@@ -239,7 +232,7 @@ async def confirm_payment(
 
 @router.get("/mpesa/payments")
 async def get_payment_history(current_user: Dict = Depends(get_current_user)):
-    """Get user's payment history"""
+    """GET /api/v1/mpesa/payments - Get user's payment history"""
     require_mpesa_service()
     try:
         payments = await mpesa_service.get_payment_history(current_user.get("id"))
@@ -249,11 +242,13 @@ async def get_payment_history(current_user: Dict = Depends(get_current_user)):
         return {"payments": []}
 
 
-# ─── Admin Routes ────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════
+# ADMIN ENDPOINTS
+# ════════════════════════════════════════════════════════════════
 
 @router.get("/mpesa/admin/services")
 async def admin_get_services(current_user: Dict = Depends(get_current_user)):
-    """Admin: Get all services including inactive"""
+    """GET /api/v1/mpesa/admin/services - Admin: Get all services"""
     require_mpesa_service()
     try:
         services = await mpesa_service.admin_get_all_services(include_inactive=True)
@@ -265,7 +260,7 @@ async def admin_get_services(current_user: Dict = Depends(get_current_user)):
 
 @router.get("/mpesa/admin/services/{service_id}")
 async def admin_get_service(service_id: int, current_user: Dict = Depends(get_current_user)):
-    """Admin: Get service by ID"""
+    """GET /api/v1/mpesa/admin/services/{service_id} - Admin: Get service by ID"""
     require_mpesa_service()
     try:
         service = await mpesa_service.admin_get_service(service_id)
@@ -281,7 +276,7 @@ async def admin_get_service(service_id: int, current_user: Dict = Depends(get_cu
 
 @router.post("/mpesa/admin/services")
 async def admin_create_service(data: Dict, current_user: Dict = Depends(get_current_user)):
-    """Admin: Create a new service"""
+    """POST /api/v1/mpesa/admin/services - Admin: Create a new service"""
     require_mpesa_service()
     try:
         result = await mpesa_service.admin_create_service(
@@ -300,7 +295,7 @@ async def admin_update_service(
     data: Dict, 
     current_user: Dict = Depends(get_current_user)
 ):
-    """Admin: Update a service"""
+    """PUT /api/v1/mpesa/admin/services/{service_id} - Admin: Update a service"""
     require_mpesa_service()
     try:
         result = await mpesa_service.admin_update_service(
@@ -323,7 +318,7 @@ async def admin_delete_service(
     service_id: int, 
     current_user: Dict = Depends(get_current_user)
 ):
-    """Admin: Delete a service"""
+    """DELETE /api/v1/mpesa/admin/services/{service_id} - Admin: Delete a service"""
     require_mpesa_service()
     try:
         success = await mpesa_service.admin_delete_service(
@@ -345,7 +340,7 @@ async def admin_restore_service(
     service_id: int, 
     current_user: Dict = Depends(get_current_user)
 ):
-    """Admin: Restore a service"""
+    """POST /api/v1/mpesa/admin/services/{service_id}/restore - Admin: Restore a service"""
     require_mpesa_service()
     try:
         success = await mpesa_service.admin_restore_service(service_id)
@@ -364,7 +359,7 @@ async def admin_get_price_history(
     service_id: int, 
     current_user: Dict = Depends(get_current_user)
 ):
-    """Admin: Get price history for a service"""
+    """GET /api/v1/mpesa/admin/services/{service_id}/price-history - Admin: Get price history"""
     require_mpesa_service()
     try:
         history = await mpesa_service.admin_get_price_history(service_id)
@@ -379,7 +374,7 @@ async def admin_expire_stale(
     minutes: int = 30, 
     current_user: Dict = Depends(get_current_user)
 ):
-    """Admin: Expire stale pending payments"""
+    """POST /api/v1/mpesa/admin/expire-stale - Admin: Expire stale payments"""
     require_mpesa_service()
     require_payment_repo()
     try:
@@ -392,7 +387,7 @@ async def admin_expire_stale(
 
 @router.get("/mpesa/admin/stats")
 async def admin_get_stats(current_user: Dict = Depends(get_current_user)):
-    """Admin: Get stats"""
+    """GET /api/v1/mpesa/admin/stats - Admin: Get stats"""
     require_mpesa_service()
     
     try:
