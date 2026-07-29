@@ -8,13 +8,14 @@ import sys
 import json
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
+from importlib import import_module
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.core.database import supabase
@@ -46,18 +47,38 @@ logger.info("=" * 60)
 # ─── Helper function to safely import routers ──────────────────────
 def load_router(module_path: str, router_name: str = "router"):
     """
-    Attempt to import a router from a module.
-    If it fails, log the error and raise the exception to stop the app.
+    Attempt to import a router from a module using importlib.
+    If it fails, log the error and raise a clear exception.
     """
     try:
-        module = __import__(module_path, fromlist=[router_name])
+        module = import_module(module_path)
         router = getattr(module, router_name)
         logger.info(f"✅ Router loaded: {module_path}")
         return router
     except Exception as e:
         logger.error(f"❌ Failed to load router from {module_path}: {e}")
         logger.error(traceback.format_exc())
-        raise
+        # Raise a clear error instead of exiting the process
+        raise RuntimeError(f"Router loading failed for {module_path}: {e}")
+
+
+# ─── Helper function to check table exists ──────────────────────────
+def table_exists(table_name: str) -> bool:
+    """Check if a Supabase table exists and has data"""
+    try:
+        response = supabase.table(table_name).select("count", count="exact").limit(1).execute()
+        return True
+    except Exception:
+        return False
+
+
+def get_table_count(table_name: str) -> int:
+    """Get count of records in a Supabase table"""
+    try:
+        response = supabase.table(table_name).select("count", count="exact").limit(1).execute()
+        return response.count if hasattr(response, 'count') else 0
+    except Exception:
+        return 0
 
 
 # ─── Import Routers using the helper ──────────────────────────────
@@ -82,37 +103,9 @@ try:
     logger.info("✅ All routers loaded successfully!")
 
 except Exception as e:
-    logger.critical(f"❌ Application failed to start due to router import error: {e}")
-    sys.exit(1)
-
-
-# ─── Custom CORS Middleware ────────────────────────────────────────
-class CORSHeaderMiddleware(BaseHTTPMiddleware):
-    """Custom middleware to ensure CORS headers are always present"""
-    
-    async def dispatch(self, request: Request, call_next):
-        if request.method == "OPTIONS":
-            response = JSONResponse(
-                status_code=200,
-                content={},
-                headers={
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-                    "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Origin, X-Requested-With",
-                    "Access-Control-Allow-Credentials": "true",
-                    "Access-Control-Max-Age": "86400",
-                }
-            )
-            return response
-        
-        response = await call_next(request)
-        
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
-        
-        return response
+    logger.critical(f"❌ Application failed to start: {e}")
+    # Re-raise so the application fails with a clear error
+    raise
 
 
 # ─── Lifespan Context Manager ──────────────────────────────────────
@@ -122,7 +115,6 @@ async def lifespan(app: FastAPI):
     logger.info(f"🚀 Starting {settings.PROJECT_NAME}...")
     logger.info(f"📍 Environment: {settings.ENVIRONMENT}")
     logger.info(f"🔗 API Base URL: {settings.API_BASE_URL}")
-    logger.info(f"🔗 Supabase URL: {settings.SUPABASE_URL}")
     logger.info(f"📱 M-Pesa Environment: {getattr(settings, 'MPESA_ENV', 'sandbox')}")
     logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
 
@@ -144,27 +136,24 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ M-Pesa configuration incomplete - payment endpoints may not work")
     
-    # Check tables
-    try:
-        response = supabase.table("service_prices").select("count", count="exact").limit(1).execute()
-        count = response.count if hasattr(response, 'count') else 0
-        logger.info(f"✅ Service prices table found: {count} services")
-    except Exception as e:
-        logger.warning(f"⚠️ Service prices table not found: {e}")
+    # Check tables using helper functions
+    service_count = get_table_count("service_prices")
+    if service_count > 0:
+        logger.info(f"✅ Service prices table found: {service_count} services")
+    else:
+        logger.warning("⚠️ Service prices table not found or empty")
     
-    try:
-        response = supabase.table("market_prices").select("count", count="exact").limit(1).execute()
-        count = response.count if hasattr(response, 'count') else 0
-        logger.info(f"✅ Market prices table found: {count} records")
-    except Exception as e:
-        logger.warning(f"⚠️ Market prices table not found: {e}")
+    market_exists = table_exists("market_prices")
+    if market_exists:
+        logger.info("✅ Market prices table found")
+    else:
+        logger.warning("⚠️ Market prices table not found")
     
-    try:
-        response = supabase.table("fuel_prices").select("count", count="exact").limit(1).execute()
-        count = response.count if hasattr(response, 'count') else 0
-        logger.info(f"✅ Fuel prices table found: {count} records")
-    except Exception as e:
-        logger.warning(f"⚠️ Fuel prices table not found: {e}")
+    fuel_exists = table_exists("fuel_prices")
+    if fuel_exists:
+        logger.info("✅ Fuel prices table found")
+    else:
+        logger.warning("⚠️ Fuel prices table not found")
     
     logger.info("=" * 60)
     logger.info("✅ Application is ready to serve requests")
@@ -195,9 +184,11 @@ app = FastAPI(
 
 
 # ─── CORS Configuration ────────────────────────────────────────────
+# Get CORS origins from settings
 cors_origins = settings.get_cors_origins() if hasattr(settings, 'get_cors_origins') else settings.BACKEND_CORS_ORIGINS
 logger.info(f"🔒 Configuring CORS with origins: {cors_origins}")
 
+# Use only FastAPI's CORSMiddleware - remove custom CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -207,8 +198,6 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=settings.CORS_MAX_AGE,
 )
-
-app.add_middleware(CORSHeaderMiddleware)
 
 logger.info("✅ CORS configured successfully")
 
@@ -224,7 +213,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "status": "error",
             "message": "Validation error",
             "errors": exc.errors(),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     )
 
@@ -238,7 +227,7 @@ async def general_exception_handler(request: Request, exc: Exception):
         content={
             "status": "error",
             "message": "An unexpected error occurred",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     )
 
@@ -246,20 +235,23 @@ async def general_exception_handler(request: Request, exc: Exception):
 # ─── Include Routers ───────────────────────────────────────────────
 api_prefix = getattr(settings, "API_V1_PREFIX", "/api/v1")
 
-app.include_router(auth_router, prefix=f"{api_prefix}/auth", tags=["Authentication"])
-app.include_router(vehicles_router, prefix=f"{api_prefix}/vehicles", tags=["Vehicles"])
-app.include_router(valuation_router, prefix=f"{api_prefix}/valuation", tags=["Valuation"])
-app.include_router(mileage_router, prefix=f"{api_prefix}/mileage", tags=["Mileage"])
-app.include_router(running_cost_router, prefix=f"{api_prefix}/running-cost", tags=["Running Cost"])
-app.include_router(ownership_router, prefix=f"{api_prefix}/ownership", tags=["Ownership"])
-app.include_router(fuel_router, prefix=f"{api_prefix}/fuel", tags=["Fuel"])
-app.include_router(admin_router, prefix=f"{api_prefix}/admin", tags=["Admin"])
-app.include_router(reports_router, prefix=f"{api_prefix}/reports", tags=["Reports"])
-app.include_router(services_router, prefix=f"{api_prefix}/services", tags=["Service Prices"])
-app.include_router(price_alignment_router, prefix=f"{api_prefix}/price", tags=["Price Alignment"])
-app.include_router(market_router, prefix=f"{api_prefix}/market", tags=["Market Data"])
-app.include_router(scraper_router, prefix=f"{api_prefix}/scraper", tags=["Market Scraper"])
-app.include_router(mpesa_router, prefix=f"{api_prefix}/mpesa", tags=["M-Pesa"])
+# IMPORTANT: Each router's prefix is defined in the router file itself.
+# DO NOT add duplicate prefixes here - the router file already defines /mpesa, /auth, etc.
+# So we use prefix=api_prefix to add the /api/v1 base, then the router adds its own path.
+app.include_router(auth_router, prefix=api_prefix, tags=["Authentication"])
+app.include_router(vehicles_router, prefix=api_prefix, tags=["Vehicles"])
+app.include_router(valuation_router, prefix=api_prefix, tags=["Valuation"])
+app.include_router(mileage_router, prefix=api_prefix, tags=["Mileage"])
+app.include_router(running_cost_router, prefix=api_prefix, tags=["Running Cost"])
+app.include_router(ownership_router, prefix=api_prefix, tags=["Ownership"])
+app.include_router(fuel_router, prefix=api_prefix, tags=["Fuel"])
+app.include_router(admin_router, prefix=api_prefix, tags=["Admin"])
+app.include_router(reports_router, prefix=api_prefix, tags=["Reports"])
+app.include_router(services_router, prefix=api_prefix, tags=["Service Prices"])
+app.include_router(price_alignment_router, prefix=api_prefix, tags=["Price Alignment"])
+app.include_router(market_router, prefix=api_prefix, tags=["Market Data"])
+app.include_router(scraper_router, prefix=api_prefix, tags=["Market Scraper"])
+app.include_router(mpesa_router, prefix=api_prefix, tags=["M-Pesa"])
 
 logger.info("✅ All routers registered successfully")
 logger.info(f"📚 API Documentation available at {settings.API_DOCS_URL}")
@@ -269,23 +261,54 @@ logger.info(f"📚 API Documentation available at {settings.API_DOCS_URL}")
 @app.get("/health")
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint - supports both /health and /api/health"""
-    supabase_status = "connected"
-    try:
-        response = supabase.table("vehicle_makes").select("count", count="exact").limit(1).execute()
-    except Exception as e:
-        supabase_status = f"error: {str(e)}"
-        logger.error(f"Supabase health check failed: {e}")
-    
+    """
+    Health check endpoint - lightweight, doesn't hit database.
+    This should be fast and always return quickly.
+    """
     mpesa_configured = all([
         getattr(settings, "MPESA_CONSUMER_KEY", ""),
         getattr(settings, "MPESA_CONSUMER_SECRET", ""),
         getattr(settings, "MPESA_PASSKEY", "")
     ])
     
-    # Check if service_prices exist
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "mpesa": "configured" if mpesa_configured else "not_configured",
+        "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
+        "environment": getattr(settings, "ENVIRONMENT", "production"),
+        "version": getattr(settings, "API_VERSION", "4.0.0"),
+        "docs_enabled": settings.ENABLE_DOCS,
+        "docs_url": settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
+    }
+
+
+@app.get("/ready")
+@app.get("/api/ready")
+async def readiness_check():
+    """
+    Readiness check endpoint - checks database connectivity.
+    This is where we do heavier checks.
+    """
+    supabase_status = "connected"
     service_prices_exist = False
     service_count = 0
+    
+    try:
+        response = supabase.table("vehicle_makes").select("count", count="exact").limit(1).execute()
+    except Exception as e:
+        supabase_status = f"error: {str(e)}"
+        logger.error(f"Supabase readiness check failed: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "not_ready",
+                "reason": "Database connection failed",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        )
+    
+    # Check service_prices
     try:
         response = supabase.table("service_prices").select("count", count="exact").limit(1).execute()
         service_prices_exist = True
@@ -293,62 +316,22 @@ async def health_check():
     except Exception:
         pass
     
-    # Check if market_prices exist
-    market_prices_exist = False
-    try:
-        response = supabase.table("market_prices").select("count", count="exact").limit(1).execute()
-        market_prices_exist = True
-    except Exception:
-        pass
-    
-    # Check if fuel_prices exist
-    fuel_prices_exist = False
-    try:
-        response = supabase.table("fuel_prices").select("count", count="exact").limit(1).execute()
-        fuel_prices_exist = True
-    except Exception:
-        pass
-    
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "supabase": supabase_status,
-        "mpesa": "configured" if mpesa_configured else "not_configured",
-        "mpesa_router_loaded": True,
-        "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
-        "service_prices_table": "exists" if service_prices_exist else "not_found",
-        "service_count": service_count,
-        "market_prices_table": "exists" if market_prices_exist else "not_found",
-        "fuel_prices_table": "exists" if fuel_prices_exist else "not_found",
-        "price_alignment_loaded": True,
-        "market_router_loaded": True,
-        "scraper_loaded": True,
-        "services_router_loaded": True,
-        "environment": getattr(settings, "ENVIRONMENT", "production"),
-        "version": getattr(settings, "API_VERSION", "4.0.0"),
-        "docs_enabled": settings.ENABLE_DOCS,
-        "docs_url": settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
-        "data_sources": ["Jiji", "Cheki", "Autochek", "BeepBeep", "PigiaMe"]
-    }
-
-
-@app.get("/ready")
-@app.get("/api/ready")
-async def readiness_check():
-    """Readiness check endpoint"""
     return {
         "status": "ready",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "supabase": supabase_status,
+        "service_prices_table": "exists" if service_prices_exist else "not_found",
+        "service_count": service_count,
     }
 
 
 @app.get("/live")
 @app.get("/api/live")
 async def liveness_check():
-    """Liveness check endpoint"""
+    """Liveness check endpoint - simple and fast"""
     return {
         "status": "alive",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -356,7 +339,7 @@ async def liveness_check():
 async def ping():
     """Simple ping endpoint for testing connectivity"""
     return {
-        "pong": datetime.utcnow().isoformat(),
+        "pong": datetime.now(timezone.utc).isoformat(),
         "status": "alive"
     }
 
@@ -375,48 +358,28 @@ async def root():
         "version": getattr(settings, "API_VERSION", "4.0.0"),
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "status": "operational",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "documentation": settings.API_DOCS_URL if settings.ENABLE_DOCS else "disabled",
         "api_prefix": getattr(settings, "API_V1_PREFIX", "/api/v1"),
-        "data_sources": ["Jiji", "Cheki", "Autochek", "BeepBeep", "PigiaMe"],
         "features": {
             "mpesa": getattr(settings, "ENABLE_MPESA", True),
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
             "mpesa_configured": mpesa_configured,
-            "mpesa_router_loaded": True,
             "price_alignment": True,
             "market_data": True,
             "market_scraper": True,
             "service_prices": True,
-            "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
             "docs": settings.ENABLE_DOCS
-        },
-        "endpoints": {
-            "auth": f"{api_prefix}/auth",
-            "vehicles": f"{api_prefix}/vehicles",
-            "valuation": f"{api_prefix}/valuation",
-            "mileage": f"{api_prefix}/mileage",
-            "ownership": f"{api_prefix}/ownership",
-            "running_cost": f"{api_prefix}/running-cost",
-            "fuel": f"{api_prefix}/fuel",
-            "services": f"{api_prefix}/services",
-            "services_types": f"{api_prefix}/services/types",
-            "services_summary": f"{api_prefix}/services/summary/pricing",
-            "price_align": f"{api_prefix}/price/align",
-            "price_analyze": f"{api_prefix}/price/analyze",
-            "price_history": f"{api_prefix}/price/history",
-            "market_insights": f"{api_prefix}/market/insights",
-            "scrape": f"{api_prefix}/market/scrape",
-            "location_factors": f"{api_prefix}/market/location/factors",
-            "scraper_run": f"{api_prefix}/scraper/run",
-            "scraper_status": f"{api_prefix}/scraper/status"
         }
     }
 
 
 @app.get("/info")
 async def info():
-    """Get application information"""
+    """
+    Get application information.
+    NOTE: Sensitive information like Supabase URL is not exposed.
+    """
     mpesa_configured = all([
         getattr(settings, "MPESA_CONSUMER_KEY", ""),
         getattr(settings, "MPESA_CONSUMER_SECRET", ""),
@@ -429,27 +392,17 @@ async def info():
         "environment": getattr(settings, "ENVIRONMENT", "production"),
         "docs_enabled": settings.ENABLE_DOCS,
         "docs_url": settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
-        "data_sources": ["Jiji", "Cheki", "Autochek", "BeepBeep", "PigiaMe"],
         "features": {
             "mpesa": getattr(settings, "ENABLE_MPESA", True),
             "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
             "mpesa_environment": getattr(settings, "MPESA_ENV", "sandbox"),
             "mpesa_configured": mpesa_configured,
-            "mpesa_router_loaded": True,
             "price_alignment": True,
             "market_data": True,
             "market_scraper": True,
             "service_prices": True,
-            "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
-            "analytics": getattr(settings, "ENABLE_ANALYTICS", True),
-            "caching": getattr(settings, "ENABLE_CACHING", True),
-            "email_notifications": getattr(settings, "ENABLE_EMAIL_NOTIFICATIONS", True),
         },
-        "supabase": {
-            "url": getattr(settings, "SUPABASE_URL", ""),
-            "connected": True
-        },
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
