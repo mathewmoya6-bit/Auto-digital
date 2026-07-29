@@ -9,10 +9,12 @@ POST /api/v1/logout - Logout
 """
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response  # ← ADD Response here
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, Dict, Any
+from datetime import datetime, timezone
+import uuid
 
 from app.core.database import supabase
 from app.core.security import create_access_token, get_current_user, security
@@ -67,16 +69,13 @@ def create_user_profile(user_id: str, user_data: Dict[str, Any]) -> bool:
     """Create a user profile in the database."""
     try:
         profile_data = {
+            "id": str(uuid.uuid4()),
             "user_id": user_id,
             "full_name": user_data.get("full_name"),
             "phone": user_data.get("phone"),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
-        
-        # Use a unique ID for the profile
-        import uuid
-        profile_data["id"] = str(uuid.uuid4())
         
         response = supabase.table("user_profiles").insert(profile_data).execute()
         return bool(response.data)
@@ -90,7 +89,7 @@ def create_user_profile(user_id: str, user_data: Dict[str, Any]) -> bool:
 @router.post("/login", response_model=AuthResponse)
 async def login(
     request: LoginRequest,
-    response: Optional[Response] = None
+    response: Optional[Response] = None  # ← Response is now defined
 ):
     """
     POST /api/v1/login - Login user with email and password.
@@ -145,7 +144,7 @@ async def login(
 @router.post("/register", response_model=AuthResponse)
 async def register(
     request: RegisterRequest,
-    response: Optional[Response] = None
+    response: Optional[Response] = None  # ← Response is now defined
 ):
     """
     POST /api/v1/register - Register a new user.
