@@ -1,7 +1,7 @@
 """
 M-Pesa Service - TRUE Production Grade (10/10)
 Services fetched from database - NO HARDCODED FEES
-ALL FIXES APPLIED - v4.0
+ALL FIXES APPLIED - v4.1
 """
 
 import asyncio
@@ -57,6 +57,7 @@ class ServiceAlreadyUnlocked(AutoDException):
 
 # ─── Constants ──────────────────────────────────────────────────────
 SERVICE_ACCESS_DAYS = 365
+TOKEN_EXPIRY_MINUTES = 50  # FIXED: Added this constant
 TOKEN_EXPIRY_BUFFER_SECONDS = 60  # Safety margin for token expiry
 PAYMENT_TIMEOUT_MINUTES = 30
 MAX_PAYMENT_RETRIES = 3
@@ -640,7 +641,6 @@ class PaymentRepository(GenericRepository[Payment]):
     @classmethod
     async def get_payments_with_services(cls, user_id: str, limit: int = 50) -> List[dict]:
         """Get payments with service info - avoids N+1 queries."""
-        # Use a join query - assumes payments.service_id references services.id
         result = await cls._execute(
             lambda: DatabaseExecutor.table(cls.table_name)
             .select("*, services!inner(code, name, icon)")
@@ -793,7 +793,6 @@ class MpesaAuthService:
     _token_expiry: Optional[datetime] = None
     _lock = asyncio.Lock()
     _token_health: bool = False
-    _token_expires_in: int = TOKEN_EXPIRY_MINUTES * 60
 
     def __init__(self):
         from app.core.config import settings
@@ -805,6 +804,8 @@ class MpesaAuthService:
             if self.environment == "production" 
             else "https://sandbox.safaricom.co.ke"
         )
+        # Use the constant defined at the top
+        self._token_expires_in = TOKEN_EXPIRY_MINUTES * 60
 
     async def get_access_token(self) -> str:
         """Get access token with caching."""
@@ -883,12 +884,6 @@ class MpesaSTKService:
     ) -> Dict:
         """Initiate STK push with retries and exponential backoff."""
         last_error = None
-        
-        # Idempotency: if key provided, check if already processed
-        if idempotency_key:
-            # Check if this request was already made
-            # (Implementation depends on your idempotency store)
-            pass
         
         for attempt in range(MAX_PAYMENT_RETRIES):
             try:
@@ -1427,7 +1422,7 @@ class MpesaService:
                     services.append({
                         "service_id": service.get('code'),
                         "service_name": service.get('name'),
-                        "service_price": service.get('price'),
+                        "service_price": decimal_to_float(service.get('price', 0)),
                         "service_icon": service.get('icon'),
                         "status": record.get('status'),
                         "expires_at": record.get('expires_at'),
