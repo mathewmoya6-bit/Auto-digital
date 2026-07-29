@@ -2,7 +2,7 @@
 Response Schemas for API - COMPLETE
 """
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 
@@ -110,9 +110,9 @@ class RunningCostResponse(BaseModel):
     cost_per_month: float
     breakdown: Dict[str, float]
     components: List[CostComponent]
-    projection: List[Dict[str, Any]] = Field(default=[])
+    projection: List[Dict[str, Any]] = Field(default_factory=list)
     currency: str = "KES"
-    recommendations: List[str] = Field(default=[])
+    recommendations: List[str] = Field(default_factory=list)
 
 
 # ─── MILEAGE RESPONSE SCHEMAS ─────────────────────────────────────
@@ -139,7 +139,7 @@ class MileageRateResponse(BaseModel):
     tyre_per_km: float
     annual_mileage: float
     currency: str = "KES"
-    recommendations: List[str] = Field(default=[])
+    recommendations: List[str] = Field(default_factory=list)
 
 
 # ─── OWNERSHIP RESPONSE SCHEMAS ───────────────────────────────────
@@ -214,12 +214,16 @@ class MarketTrendsResponse(BaseModel):
     timestamp: str
 
 
+# ─── ERROR RESPONSE ──────────────────────────────────────────────
+
 class ErrorResponse(BaseModel):
     """Error response"""
     status: str = "error"
     message: str
     errors: Optional[List[Dict[str, Any]]] = None
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
 
 # ─── EXPORT ALL ─────────────────────────────────────────────────────
