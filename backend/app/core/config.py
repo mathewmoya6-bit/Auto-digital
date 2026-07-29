@@ -1,16 +1,24 @@
 """
 Configuration - Application settings
+Production Ready - Auto-D Kenya
 """
 
 import os
 import json
 from typing import List, Optional, Union, Dict, Any
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, ConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings"""
+    
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore"
+    )
     
     # ─── FastAPI Configuration ──────────────────────────────────────
     PROJECT_NAME: str = "Auto-D Kenya API"
@@ -35,23 +43,38 @@ class Settings(BaseSettings):
         default="https://xgkdbithhlvoqjnqvfmj.supabase.co",
         env="SUPABASE_URL"
     )
-    SUPABASE_KEY: str = Field(..., env="SUPABASE_KEY")
-    SUPABASE_JWT_SECRET: Optional[str] = None
+    SUPABASE_KEY: str = Field(
+        default="",  # Set default empty, will be validated
+        env="SUPABASE_KEY"
+    )
+    SUPABASE_JWT_SECRET: Optional[str] = Field(
+        default=None,
+        env="SUPABASE_JWT_SECRET"
+    )
     
     # ─── Database Configuration ──────────────────────────────────────
-    DATABASE_URL: Optional[str] = None
+    DATABASE_URL: Optional[str] = Field(
+        default=None,
+        env="DATABASE_URL"
+    )
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
     
     # ─── JWT Authentication ──────────────────────────────────────────
-    JWT_SECRET: str = Field(..., env="JWT_SECRET")
+    JWT_SECRET: str = Field(
+        default="",  # Set default empty, will be validated
+        env="JWT_SECRET"
+    )
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     
     # ─── Admin Credentials ──────────────────────────────────────────
     ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: str = Field(default="admin123", env="ADMIN_PASSWORD")
+    ADMIN_PASSWORD: str = Field(
+        default="admin123",
+        env="ADMIN_PASSWORD"
+    )
     ADMIN_EMAIL: str = "admin@auto-d.ke"
     
     # ─── CORS Configuration ──────────────────────────────────────────
@@ -67,9 +90,6 @@ class Settings(BaseSettings):
             "http://localhost:8000",
             "http://127.0.0.1:5500",
             "https://auto-d-kenya.github.io",
-            # Add wildcard for development
-            "http://*.meipressgroup.com",
-            "https://*.meipressgroup.com",
         ],
         env="BACKEND_CORS_ORIGINS"
     )
@@ -85,15 +105,15 @@ class Settings(BaseSettings):
         env="MPESA_ENV"
     )
     MPESA_CONSUMER_KEY: Optional[str] = Field(
-        None,
+        default=None,
         env="MPESA_CONSUMER_KEY"
     )
     MPESA_CONSUMER_SECRET: Optional[str] = Field(
-        None,
+        default=None,
         env="MPESA_CONSUMER_SECRET"
     )
     MPESA_PASSKEY: Optional[str] = Field(
-        None,
+        default=None,
         env="MPESA_PASSKEY"
     )
     MPESA_SHORTCODE: str = Field(
@@ -428,14 +448,7 @@ class Settings(BaseSettings):
     # ─── Cache Control ──────────────────────────────────────────────
     CACHE_CONTROL_MAX_AGE: int = 3600
     CACHE_CONTROL_STALE_WHILE_REVALIDATE: int = 86400
-    
-    class Config:
-        """Pydantic config"""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-        extra = "ignore"
-    
+
     # ─── Field Validators ─────────────────────────────────────────────
     @field_validator('BACKEND_CORS_ORIGINS', mode='before')
     @classmethod
@@ -450,7 +463,9 @@ class Settings(BaseSettings):
             except json.JSONDecodeError:
                 # Parse as comma-separated string
                 origins = [origin.strip() for origin in v.split(",") if origin.strip()]
-                return origins
+                # Remove any wildcard entries (FastAPI doesn't support them)
+                origins = [o for o in origins if not o.startswith("*.")]
+                return origins if origins else []
         return v
     
     @field_validator('SCRAPER_SOURCES', mode='before')
@@ -461,8 +476,8 @@ class Settings(BaseSettings):
             try:
                 return json.loads(v)
             except json.JSONDecodeError:
-                return v
-        return v
+                return {}
+        return v if isinstance(v, dict) else {}
     
     # ─── Helper Methods ──────────────────────────────────────────────
     def get_cors_origins(self) -> List[str]:
@@ -514,6 +529,17 @@ class Settings(BaseSettings):
             self.MPESA_SHORTCODE
         ])
     
+    def validate_required_settings(self) -> List[str]:
+        """Validate required settings and return missing ones"""
+        missing = []
+        if not self.SUPABASE_KEY:
+            missing.append("SUPABASE_KEY")
+        if not self.JWT_SECRET:
+            missing.append("JWT_SECRET")
+        if self.ENABLE_MPESA and not self.is_mpesa_configured():
+            missing.append("MPESA_CONSUMER_KEY, MPESA_CONSUMER_SECRET, MPESA_PASSKEY")
+        return missing
+    
     def get_docs_config(self) -> dict:
         """Get API documentation configuration"""
         return {
@@ -562,7 +588,7 @@ class Settings(BaseSettings):
         return self.SCRAPER_SOURCES.get(source_id)
 
 
-# Create settings instance
+# ─── Create settings instance ─────────────────────────────────────
 settings = Settings()
 
 # ─── FIX: Ensure CORS origins is a list ────────────────────────────
@@ -575,7 +601,7 @@ if isinstance(settings.BACKEND_CORS_ORIGINS, str):
         settings.BACKEND_CORS_ORIGINS = [
             origin.strip() 
             for origin in settings.BACKEND_CORS_ORIGINS.split(",") 
-            if origin.strip()
+            if origin.strip() and not origin.strip().startswith("*.")
         ]
 
 # ─── Ensure scraper sources is a dict ──────────────────────────────
@@ -584,6 +610,14 @@ if isinstance(settings.SCRAPER_SOURCES, str):
         settings.SCRAPER_SOURCES = json.loads(settings.SCRAPER_SOURCES)
     except json.JSONDecodeError:
         settings.SCRAPER_SOURCES = {}
+
+# ─── Validate required settings ────────────────────────────────────
+missing_settings = settings.validate_required_settings()
+if missing_settings:
+    print("⚠️ WARNING: Missing required settings:")
+    for missing in missing_settings:
+        print(f"   - {missing}")
+    print("   Some features may not work properly.")
 
 # ─── Log configuration on startup ──────────────────────────────────
 print("=" * 60)
