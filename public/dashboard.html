@@ -588,23 +588,6 @@
         .list-item .status-badge.failed { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
         .list-item .amount { font-weight: 700; font-family: var(--font-heading); }
 
-        .notification-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 20px;
-            border-bottom: 1px solid var(--border);
-            transition: background 0.2s;
-        }
-        .notification-item:hover { background: rgba(255,255,255,0.02); }
-        .notification-item .notif-icon { font-size: 18px; }
-        .notification-item .notif-content { flex: 1; }
-        .notification-item .notif-content .msg { font-size: 13px; }
-        .notification-item .notif-content .time { font-size: 11px; color: var(--text-muted); }
-        .notification-item .notif-dot { width: 8px; height: 8px; border-radius: 50%; }
-        .notification-item .notif-dot.unread { background: var(--primary); }
-        .notification-item .notif-dot.read { background: var(--text-muted); }
-
         #toastContainer {
             position: fixed;
             bottom: 24px;
@@ -896,7 +879,6 @@
         }
         .service-error-banner .btn-retry:hover { background: var(--primary-hover); }
 
-        /* Mock mode indicator */
         .mock-mode-badge {
             display: none;
             background: rgba(234, 179, 8, 0.15);
@@ -906,7 +888,7 @@
             border-radius: 20px;
             font-size: 10px;
             font-weight: 600;
-            font-family: var(--font-mono, monospace);
+            font-family: monospace;
             letter-spacing: 0.05em;
         }
         .mock-mode-badge.show { display: inline-block; }
@@ -1213,32 +1195,103 @@
 
     <script>
     // ════════════════════════════════════════════════════════════════
-    // AUTO-D KENYA - DASHBOARD (FIXED)
-    // Fixed: Recursive navigateToService loop & toast duplication
+    // AUTO-D KENYA - PRODUCTION DASHBOARD
+    // Corrected endpoints based on OpenAPI spec
+    // Removed duplicate /mpesa/mpesa/ -> /mpesa/
     // ════════════════════════════════════════════════════════════════
 
     (function() {
         'use strict';
 
-        // ─── MOCK MODE ──────────────────────────────────────────────
-        // Set to true when backend is down (Render cold start / 503)
-        // This provides mock services so the UI works for testing
-        const MOCK_MODE = true; // ← Set to false when backend is fixed
+        // ─── PRODUCTION CONFIGURATION ──────────────────────────────
+        // Change this to your actual backend URL
+        const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+        
+        // ─── CORRECT ENDPOINTS (Based on OpenAPI) ──────────────────
+        const ENDPOINTS = {
+            // Auth
+            LOGIN: `${API_BASE}/auth/login`,
+            REGISTER: `${API_BASE}/auth/register`,
+            ME: `${API_BASE}/auth/me`,
+            LOGOUT: `${API_BASE}/auth/logout`,
+            
+            // Services (NOT under /mpesa)
+            SERVICES: `${API_BASE}/services`,
+            SERVICE: (id) => `${API_BASE}/services/${id}`,
+            SERVICE_TYPES: `${API_BASE}/services/types`,
+            
+            // M-Pesa (corrected: /mpesa/ not /mpesa/mpesa/)
+            MPESA_HEALTH: `${API_BASE}/mpesa/health`,
+            MPESA_SHORTCODE: `${API_BASE}/mpesa/shortcode`,
+            MPESA_SERVICES: `${API_BASE}/mpesa/services`,
+            MPESA_USER_SERVICES: `${API_BASE}/mpesa/user/services`,
+            MPESA_USER_SERVICE_STATUS: (code) => `${API_BASE}/mpesa/user/services/${code}/status`,
+            MPESA_STKPUSH: `${API_BASE}/mpesa/stkpush`,
+            MPESA_CALLBACK: `${API_BASE}/mpesa/callback`,
+            MPESA_STATUS: (id) => `${API_BASE}/mpesa/status/${id}`,
+            MPESA_CONFIRM: (id) => `${API_BASE}/mpesa/confirm/${id}`,
+            MPESA_PAYMENTS: `${API_BASE}/mpesa/payments`,
+            
+            // Admin M-Pesa
+            MPESA_ADMIN_SERVICES: `${API_BASE}/mpesa/admin/services`,
+            MPESA_ADMIN_SERVICE: (id) => `${API_BASE}/mpesa/admin/services/${id}`,
+            MPESA_ADMIN_SERVICE_RESTORE: (id) => `${API_BASE}/mpesa/admin/services/${id}/restore`,
+            MPESA_ADMIN_SERVICE_PRICE_HISTORY: (id) => `${API_BASE}/mpesa/admin/services/${id}/price-history`,
+            MPESA_ADMIN_EXPIRE_STALE: `${API_BASE}/mpesa/admin/expire-stale`,
+            MPESA_ADMIN_STATS: `${API_BASE}/mpesa/admin/stats`,
+            
+            // Valuation
+            VALUATION_PING: `${API_BASE}/valuation/ping`,
+            VALUATION_CALCULATE: `${API_BASE}/valuation/calculate`,
+            VALUATION_VARIANT: (id) => `${API_BASE}/valuation/variant/${id}`,
+            VALUATION_HISTORY: `${API_BASE}/valuation/history`,
+            VALUATION_COMPARE: (id) => `${API_BASE}/valuation/compare/${id}`,
+            
+            // Mileage
+            MILEAGE_CALCULATE: `${API_BASE}/mileage/calculate`,
+            
+            // Running Cost
+            RUNNING_COST_PING: `${API_BASE}/running-cost/ping`,
+            RUNNING_COST_CALCULATE: `${API_BASE}/running-cost/calculate`,
+            
+            // Ownership
+            OWNERSHIP_CALCULATE: `${API_BASE}/ownership/calculate`,
+            
+            // Fuel
+            FUEL_PRICES: `${API_BASE}/fuel/prices`,
+            FUEL_PRICE: (type) => `${API_BASE}/fuel/prices/${type}`,
+            FUEL_DEFAULTS: `${API_BASE}/fuel/defaults`,
+            
+            // Vehicles
+            VEHICLES_MAKES: `${API_BASE}/vehicles/makes`,
+            VEHICLES_MODELS: (makeId) => `${API_BASE}/vehicles/models/${makeId}`,
+            VEHICLES_VARIANTS: (modelId) => `${API_BASE}/vehicles/variants/${modelId}`,
+            VEHICLE: (id) => `${API_BASE}/vehicles/${id}`,
+            
+            // Reports
+            REPORT_VALUATION: `${API_BASE}/reports/valuation`,
+            REPORT_MARKET_INSIGHTS: `${API_BASE}/reports/market-insights`,
+            REPORT_OWNERSHIP_COST: `${API_BASE}/reports/ownership-cost`,
+            
+            // Health
+            HEALTH: `${API_BASE}/health`,
+            READY: `${API_BASE}/ready`,
+            LIVE: `${API_BASE}/live`
+        };
 
-        // Mock services data - prices from database would normally be here
+        // ─── MOCK MODE (for testing when backend is down) ──────────
+        const MOCK_MODE = true; // Set to false for production
         const MOCK_SERVICES = [
             { id: '1', code: 'mileage', name: 'Mileage Calculator', price: 100, currency: 'KES', icon: '📈', active: true },
             { id: '2', code: 'valuation', name: 'Instant Vehicle Value', price: 150, currency: 'KES', icon: '💰', active: true },
             { id: '3', code: 'ownership', name: 'Ownership Cost Report', price: 200, currency: 'KES', icon: '📊', active: true }
         ];
 
-        // ─── Configuration ──────────────────────────────────────────
-        const API_BASE = 'https://auto-digital.onrender.com/api/v1';
-        
+        // ─── Supabase Config ──────────────────────────────────────
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-        // ─── Service Routes ──────────────────────────────────────────
+        // ─── Service Routes ──────────────────────────────────────
         const SERVICE_ROUTES = {
             'mileage': '/mileage.html',
             'valuation': '/instant-value.html',
@@ -1251,7 +1304,7 @@
             'ownership': '📊'
         };
 
-        // ─── State ──────────────────────────────────────────────────
+        // ─── State ──────────────────────────────────────────────
         let currentUser = null;
         let supabaseClient = null;
         let dashboardData = null;
@@ -1270,16 +1323,14 @@
         let _lastDashboardLoad = 0;
         let _apiErrorCount = 0;
         let _lastApiErrorTime = 0;
+        let _navigatingToService = false;
+        let _lastToastTime = 0;
+        const TOAST_DEBOUNCE_MS = 3000;
         const DASHBOARD_CACHE_TTL = 30000;
         const MAX_RETRIES = 3;
         const RETRY_DELAY = 2000;
 
-        // ─── FIX: Navigation load guard ────────────────────────────
-        let _navigatingToService = false;
-        let _lastToastTime = 0;
-        const TOAST_DEBOUNCE_MS = 3000;
-
-        // ─── DOM Refs ──────────────────────────────────────────────
+        // ─── DOM Refs ────────────────────────────────────────────
         const vehicleGrid = document.getElementById('vehicleGrid');
         const servicesGrid = document.getElementById('servicesGrid');
         const requestsList = document.getElementById('requestsList');
@@ -1288,20 +1339,19 @@
         const errorText = document.getElementById('serviceErrorText');
         const mockModeBadge = document.getElementById('mockModeBadge');
 
-        // ─── Show mock mode badge ──────────────────────────────────
+        // ─── Show mock mode badge ──────────────────────────────
         if (MOCK_MODE && mockModeBadge) {
             mockModeBadge.classList.add('show');
         }
 
-        // ─── FIX: Override fetch for mock mode ──────────────────────
+        // ─── Override fetch for mock mode ──────────────────────
         if (MOCK_MODE) {
             const originalFetch = window.fetch;
             window.fetch = function(url, options) {
                 const urlStr = typeof url === 'string' ? url : url.url || '';
                 console.log('🔧 MOCK: Intercepting:', urlStr);
                 
-                // Mock services endpoint
-                if (urlStr.includes('/services') || urlStr.includes('/mpesa/mpesa/user/services')) {
+                if (urlStr.includes('/services') && !urlStr.includes('/user/services')) {
                     return Promise.resolve({
                         ok: true,
                         status: 200,
@@ -1309,8 +1359,15 @@
                     });
                 }
                 
-                // Mock payments endpoint
-                if (urlStr.includes('/payments')) {
+                if (urlStr.includes('/mpesa/user/services')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () => Promise.resolve({ services: [] })
+                    });
+                }
+                
+                if (urlStr.includes('/mpesa/payments')) {
                     return Promise.resolve({
                         ok: true,
                         status: 200,
@@ -1318,8 +1375,7 @@
                     });
                 }
                 
-                // Mock STK push endpoint
-                if (urlStr.includes('/stkpush')) {
+                if (urlStr.includes('/mpesa/stkpush')) {
                     return Promise.resolve({
                         ok: true,
                         status: 200,
@@ -1331,8 +1387,7 @@
                     });
                 }
                 
-                // Mock status endpoint
-                if (urlStr.includes('/status/')) {
+                if (urlStr.includes('/mpesa/status/')) {
                     return Promise.resolve({
                         ok: true,
                         status: 200,
@@ -1343,8 +1398,7 @@
                     });
                 }
                 
-                // Mock confirm endpoint
-                if (urlStr.includes('/confirm/')) {
+                if (urlStr.includes('/mpesa/confirm/')) {
                     return Promise.resolve({
                         ok: true,
                         status: 200,
@@ -1355,25 +1409,22 @@
                     });
                 }
                 
-                // Pass through for other URLs (Supabase, etc.)
                 return originalFetch(url, options);
             };
             
-            console.log('🔧 MOCK MODE ENABLED - Using mock data');
+            console.log('🔧 MOCK MODE ENABLED');
             setTimeout(() => {
-                showToast('⚠️ MOCK MODE: Backend is down, using mock data', 'warning');
+                showToast('⚠️ MOCK MODE: Using mock data', 'warning');
             }, 1000);
         }
 
-        // ─── FIX: Debounced toast to prevent duplication ──────────
+        // ─── Debounced Toast ────────────────────────────────────
         function showToast(message, type) {
             type = type || 'info';
-            
-            // Debounce: prevent identical toasts from stacking
             const now = Date.now();
             const toastKey = message + type;
             if (window._lastToastKey === toastKey && (now - _lastToastTime) < TOAST_DEBOUNCE_MS) {
-                return; // Skip duplicate toast
+                return;
             }
             window._lastToastKey = toastKey;
             _lastToastTime = now;
@@ -1381,10 +1432,8 @@
             const container = document.getElementById('toastContainer');
             if (!container) return;
             
-            // Remove existing toasts of the same type to prevent stacking
             const existingToasts = container.querySelectorAll('.toast');
             if (existingToasts.length >= 3) {
-                // Remove oldest toast
                 existingToasts[0].remove();
             }
             
@@ -1406,6 +1455,11 @@
             return String(str).replace(/[&<>]/g, function(m) {
                 return { '&': '&amp;', '<': '&lt;', '>': '&gt;' } [m];
             });
+        }
+
+        function num(v, fallback = 0) {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
         }
 
         function updateWorkflowStep(step) {
@@ -1431,14 +1485,12 @@
 
         // ─── Retry Logic ──────────────────────────────────────────
         async function fetchWithRetry(url, options = {}, maxRetries = MAX_RETRIES) {
-            let lastError;
-            let delay = RETRY_DELAY;
-            
-            // In mock mode, intercept before retry
             if (MOCK_MODE) {
-                // Let the mock fetch handler take over
                 return window.fetch(url, options);
             }
+            
+            let lastError;
+            let delay = RETRY_DELAY;
             
             for (let attempt = 0; attempt < maxRetries; attempt++) {
                 try {
@@ -1479,6 +1531,23 @@
             throw lastError || new Error('All retry attempts failed');
         }
 
+        // ─── Supabase Init ────────────────────────────────────────
+        function initSupabase() {
+            try {
+                if (typeof supabase === 'undefined') {
+                    console.warn('⚠️ Supabase SDK not loaded');
+                    return false;
+                }
+                const { createClient } = supabase;
+                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('✅ Supabase client initialized');
+                return true;
+            } catch (error) {
+                console.error('❌ Supabase init error:', error);
+                return false;
+            }
+        }
+
         // ─── Auth ──────────────────────────────────────────────────
         async function getAuthToken() {
             try {
@@ -1513,24 +1582,6 @@
             return token;
         }
 
-        // ─── Supabase ─────────────────────────────────────────────
-        function initSupabase() {
-            try {
-                if (typeof supabase === 'undefined') {
-                    console.warn('⚠️ Supabase SDK not loaded');
-                    return false;
-                }
-                const { createClient } = supabase;
-                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                console.log('✅ Supabase client initialized');
-                return true;
-            } catch (error) {
-                console.error('❌ Supabase init error:', error);
-                return false;
-            }
-        }
-
-        // ─── Auth ──────────────────────────────────────────────────
         async function checkAuth() {
             try {
                 if (!supabaseClient) {
@@ -1587,18 +1638,6 @@
 
             } catch (error) {
                 console.warn('⚠️ Auth check error:', error.message);
-                try {
-                    const stored = localStorage.getItem('auto_d_user');
-                    if (stored) {
-                        const user = JSON.parse(stored);
-                        if (user) {
-                            console.log('✅ Using stored user session (fallback)');
-                            currentUser = user;
-                            updateUserUI();
-                            return true;
-                        }
-                    }
-                } catch (e) { /* ignore */ }
                 return false;
             }
         }
@@ -1615,13 +1654,12 @@
             if (greetingTextEl) greetingTextEl.textContent = `👋 Welcome back, ${name}!`;
         }
 
-        // ─── FIX: Navigation with guard to prevent recursive loops ──
+        // ─── Navigation ────────────────────────────────────────────
         window.navigateTo = function(section) {
             showToast(`📂 Navigating to ${section}...`, 'info');
         };
 
         window.navigateToService = function(serviceCode) {
-            // FIX: Prevent recursive loops
             if (_navigatingToService) {
                 console.log('⏳ Navigation already in progress, skipping...');
                 return;
@@ -1629,17 +1667,12 @@
             
             console.log('🔍 navigateToService called with:', serviceCode);
             
-            // Check if dashboard data is loaded
             if (!dashboardData || !dashboardData.services || dashboardData.services.length === 0) {
                 console.log('📊 Services not loaded yet, attempting to load...');
-                
-                // Set guard
                 _navigatingToService = true;
                 
-                // Load dashboard and try again
                 loadDashboard(true).then(() => {
                     _navigatingToService = false;
-                    // Only retry if we actually got services
                     if (dashboardData && dashboardData.services && dashboardData.services.length > 0) {
                         setTimeout(() => {
                             window.navigateToService(serviceCode);
@@ -1654,7 +1687,6 @@
                 return;
             }
 
-            // Find the service
             const service = dashboardData.services.find(s => s.code === serviceCode);
             if (!service) {
                 showToast('Service not found', 'error');
@@ -1662,7 +1694,6 @@
                 return;
             }
 
-            // Reset guard before navigation
             _navigatingToService = false;
 
             const isPurchased = service.purchased || service.status === 'active';
@@ -1689,7 +1720,7 @@
 
         window.retryServices = function() {
             showErrorBanner(false);
-            _navigatingToService = false; // Reset guard
+            _navigatingToService = false;
             loadDashboard(true);
         };
 
@@ -1771,7 +1802,6 @@
 
         // ─── Load Services from Database ──────────────────────────
         async function loadServicesFromDB() {
-            // If mock mode is enabled, return mock services immediately
             if (MOCK_MODE) {
                 console.log('🔧 MOCK: Returning mock services');
                 return MOCK_SERVICES;
@@ -1784,9 +1814,9 @@
                     headers['Authorization'] = `Bearer ${token}`;
                 }
 
-                console.log('📡 Fetching services from:', `${API_BASE}/services`);
+                console.log('📡 Fetching services from:', ENDPOINTS.SERVICES);
                 
-                const response = await fetchWithRetry(`${API_BASE}/services`, { headers });
+                const response = await fetchWithRetry(ENDPOINTS.SERVICES, { headers });
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
@@ -1870,22 +1900,17 @@
             }
         }
 
-        function num(v, fallback = 0) {
-            const n = Number(v);
-            return Number.isFinite(n) ? n : fallback;
-        }
-
         // ─── Load User Services ──────────────────────────────────
         async function loadUserServices() {
             if (MOCK_MODE) {
-                return []; // No purchased services in mock mode
+                return [];
             }
 
             try {
                 const token = await getAuthToken();
                 if (!token) return [];
 
-                const response = await fetchWithRetry(`${API_BASE}/mpesa/mpesa/user/services`, {
+                const response = await fetchWithRetry(ENDPOINTS.MPESA_USER_SERVICES, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
 
@@ -1951,7 +1976,7 @@
                     try {
                         const token = await getAuthToken();
                         if (token) {
-                            const payResp = await fetchWithRetry(`${API_BASE}/mpesa/mpesa/payments`, {
+                            const payResp = await fetchWithRetry(ENDPOINTS.MPESA_PAYMENTS, {
                                 headers: { 'Authorization': `Bearer ${token}` }
                             });
                             if (payResp.ok) {
@@ -2494,6 +2519,7 @@
                 overlay.classList.add('open');
             }
 
+            // Using the correct endpoint: /mpesa/stkpush (not /mpesa/mpesa/stkpush)
             const requestBody = {
                 phone: phone,
                 service_id: selectedService.code || selectedService.id,
@@ -2504,9 +2530,10 @@
             };
 
             try {
-                console.log('📤 Sending payment request:', requestBody);
+                console.log('📤 Sending payment request to:', ENDPOINTS.MPESA_STKPUSH);
+                console.log('📤 Request body:', requestBody);
                 
-                const response = await fetchWithRetry(`${API_BASE}/mpesa/mpesa/stkpush`, {
+                const response = await fetchWithRetry(ENDPOINTS.MPESA_STKPUSH, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2635,7 +2662,8 @@
                             headers['Authorization'] = `Bearer ${pollToken}`;
                         }
 
-                        const statusResponse = await fetchWithRetry(`${API_BASE}/mpesa/mpesa/status/${encodeURIComponent(checkoutId)}`, {
+                        // Using correct endpoint: /mpesa/status/{id}
+                        const statusResponse = await fetchWithRetry(ENDPOINTS.MPESA_STATUS(checkoutId), {
                             headers: headers
                         }, 2);
 
@@ -2751,7 +2779,8 @@
                     return false;
                 }
 
-                const response = await fetchWithRetry(`${API_BASE}/mpesa/mpesa/confirm/${encodeURIComponent(checkoutId)}`, {
+                // Using correct endpoint: /mpesa/confirm/{id}
+                const response = await fetchWithRetry(ENDPOINTS.MPESA_CONFIRM(checkoutId), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2988,7 +3017,7 @@
                 try {
                     const token = await getAuthToken();
                     if (token) {
-                        await fetch(`${API_BASE}/auth/logout`, {
+                        await fetch(ENDPOINTS.LOGOUT, {
                             method: 'POST',
                             headers: { 'Authorization': `Bearer ${token}` }
                         });
@@ -3033,11 +3062,10 @@
 
         // ─── Init ────────────────────────────────────────────────
         (async function() {
-            console.log('🚗 Auto-D Kenya Dashboard (FIXED)');
+            console.log('🚗 Auto-D Kenya Dashboard (Production Ready)');
             console.log('🔗 API Base:', API_BASE);
             console.log('🔧 Mock Mode:', MOCK_MODE ? 'ENABLED' : 'DISABLED');
-            console.log('✅ Fixed: navigateToService recursive loop');
-            console.log('✅ Fixed: Toast duplication');
+            console.log('✅ Corrected endpoints: /mpesa/ (not /mpesa/mpesa/)');
             console.log('✅ All prices from database (no hardcoded values)');
 
             initSupabase();
@@ -3081,7 +3109,7 @@
                     try {
                         const token = await getAuthToken();
                         if (token) {
-                            await fetch(`${API_BASE}/mpesa/mpesa/user/services`, {
+                            await fetch(ENDPOINTS.MPESA_USER_SERVICES, {
                                 headers: { 'Authorization': `Bearer ${token}` }
                             });
                         }
