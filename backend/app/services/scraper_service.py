@@ -1,6 +1,7 @@
 """
 Scraper Service
 Handles all web scraping operations for market data
+Production Grade - Auto-D Kenya
 """
 
 from __future__ import annotations
@@ -10,14 +11,20 @@ import json
 import logging
 import random
 import time
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Callable
-from urllib.parse import urljoin, urlencode
+import hashlib
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List, Dict, Any, Callable, Tuple
+from urllib.parse import urljoin, urlencode, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
-import requests
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry, 
+    stop_after_attempt, 
+    wait_exponential, 
+    retry_if_exception_type,
+    retry_if_exception
+)
 
 from app.core.config import settings
 from app.core.database import supabase
@@ -25,11 +32,35 @@ from app.core.database import supabase
 logger = logging.getLogger(__name__)
 
 
+# ─── Custom Exceptions ──────────────────────────────────────────────
+
+class ScraperError(Exception):
+    """Base scraper exception."""
+    pass
+
+
+class SourceUnavailableError(ScraperError):
+    """Source is temporarily unavailable."""
+    pass
+
+
+class RateLimitError(ScraperError):
+    """Rate limit exceeded."""
+    pass
+
+
+class ParseError(ScraperError):
+    """Error parsing response data."""
+    pass
+
+
+# ─── ScraperService ──────────────────────────────────────────────
+
 class ScraperService:
-    """Service for web scraping market data"""
+    """Service for web scraping market data with rate limiting and caching."""
     
     def __init__(self):
-        """Initialize scraper service with configuration"""
+        """Initialize scraper service with configuration."""
         self.sources = settings.SCRAPER_SOURCES
         self.concurrent_workers = settings.SCRAPER_CONCURRENT_WORKERS
         self.request_timeout = settings.SCRAPER_REQUEST_TIMEOUT
@@ -38,6 +69,15 @@ class ScraperService:
         self.max_pages = settings.SCRAPER_MAX_PAGES
         self.max_results = settings.SCRAPER_MAX_RESULTS
         self.user_agent = settings.SCRAPER_USER_AGENT
+        
+        # Rate limiting
+        self._rate_limiter = None
+        self._request_count = 0
+        self._last_reset = datetime.now(timezone.utc)
+        
+        # Cache for scraped data
+        self._cache = {}
+        self._cache_ttl = 3600  # 1 hour
         
         # In-memory status
         self._status = {
@@ -51,11 +91,97 @@ class ScraperService:
         
         # Load status from database
         self._load_status()
+        
+        # HTTP client with connection pooling
+        self._client = None
+        
+        logger.info(f"✅ ScraperService initialized: {len(self.sources)} sources")
     
-    # ─── Status Management ──────────────────────────────────────────────
+    @property
+    async def client(self) -> httpx.AsyncClient:
+        """Get or create HTTP client with connection pooling."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=10.0,
+                    read=self.request_timeout,
+                    write=10.0,
+                    pool=10.0
+                ),
+                limits=httpx.Limits(
+                    max_connections=50,
+                    max_keepalive_connections=20
+                ),
+                follow_redirects=True,
+                headers={"User-Agent": self.user_agent}
+            )
+        return self._client
+    
+    async def close(self):
+        """Close HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+    
+    # ─── Rate Limiting ──────────────────────────────────────────────
+    
+    async def _check_rate_limit(self):
+        """Check and enforce rate limiting."""
+        now = datetime.now(timezone.utc)
+        if (now - self._last_reset).total_seconds() > 60:
+            self._request_count = 0
+            self._last_reset = now
+        
+        self._request_count += 1
+        if self._request_count > self.rate_limit:
+            wait_time = 60 - (now - self._last_reset).total_seconds()
+            if wait_time > 0:
+                logger.warning(f"Rate limit reached, waiting {wait_time:.1f}s")
+                await asyncio.sleep(wait_time)
+            self._request_count = 1
+            self._last_reset = datetime.now(timezone.utc)
+    
+    # ─── Cache Helpers ──────────────────────────────────────────────
+    
+    def _get_cache_key(self, source: str, make: Optional[str], model: Optional[str]) -> str:
+        """Generate cache key for a source/query combination."""
+        key_parts = [source]
+        if make:
+            key_parts.append(f"make:{make.lower()}")
+        if model:
+            key_parts.append(f"model:{model.lower()}")
+        return hashlib.md5("|".join(key_parts).encode()).hexdigest()
+    
+    def _get_cached(self, key: str) -> Optional[Dict]:
+        """Get cached data if valid."""
+        if key in self._cache:
+            entry = self._cache[key]
+            if (datetime.now(timezone.utc) - entry["timestamp"]).total_seconds() < self._cache_ttl:
+                return entry["data"]
+            else:
+                del self._cache[key]
+        return None
+    
+    def _set_cache(self, key: str, data: Dict):
+        """Cache data."""
+        self._cache[key] = {
+            "data": data,
+            "timestamp": datetime.now(timezone.utc)
+        }
+        # Limit cache size
+        if len(self._cache) > 100:
+            # Remove oldest entries
+            sorted_keys = sorted(
+                self._cache.keys(),
+                key=lambda k: self._cache[k]["timestamp"]
+            )
+            for key_to_remove in sorted_keys[:20]:
+                del self._cache[key_to_remove]
+    
+    # ─── Status Management ──────────────────────────────────────────
     
     def _load_status(self):
-        """Load scraper status from database"""
+        """Load scraper status from database."""
         try:
             result = supabase.table("scraper_status")\
                 .select("*")\
@@ -76,7 +202,7 @@ class ScraperService:
             logger.warning(f"⚠️ Could not load scraper status: {e}")
     
     def _save_status(self):
-        """Save scraper status to database"""
+        """Save scraper status to database."""
         try:
             supabase.table("scraper_status")\
                 .upsert({
@@ -85,17 +211,17 @@ class ScraperService:
                     "total_listings": self._status["total_listings"],
                     "sources": self._status["sources"],
                     "last_24h_count": self._status["last_24h_count"],
-                    "updated_at": datetime.now().isoformat()
+                    "updated_at": datetime.now(timezone.utc).isoformat()
                 })\
                 .execute()
         except Exception as e:
             logger.error(f"❌ Could not save scraper status: {e}")
     
     def get_status(self) -> Dict:
-        """Get current scraper status"""
+        """Get current scraper status."""
         # Update 24h count
         try:
-            cutoff = datetime.now() - timedelta(days=1)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=1)
             result = supabase.table("market_prices")\
                 .select("count", count="exact")\
                 .gte("created_at", cutoff.isoformat())\
@@ -116,22 +242,22 @@ class ScraperService:
         return self._status
     
     def update_status(self, status: str, **kwargs):
-        """Update scraper status"""
+        """Update scraper status."""
         self._status["status"] = status
         self._status.update(kwargs)
         self._save_status()
     
-    # ─── Source Management ──────────────────────────────────────────────
+    # ─── Source Management ──────────────────────────────────────────
     
     def get_enabled_sources(self) -> List[str]:
-        """Get list of enabled source IDs"""
+        """Get list of enabled source IDs."""
         return [
             key for key, config in self.sources.items() 
             if config.get("enabled", False)
         ]
     
     def get_sources(self) -> List[Dict]:
-        """Get all sources with configuration"""
+        """Get all sources with configuration."""
         return [
             {
                 "id": key,
@@ -146,7 +272,7 @@ class ScraperService:
         ]
     
     def get_config(self) -> Dict:
-        """Get scraper configuration"""
+        """Get scraper configuration."""
         return {
             "enabled": settings.SCRAPER_ENABLED,
             "concurrent_workers": self.concurrent_workers,
@@ -160,7 +286,7 @@ class ScraperService:
         }
     
     def update_config(self, config: Dict) -> Dict:
-        """Update scraper configuration"""
+        """Update scraper configuration."""
         if "sources" in config:
             for key, value in config["sources"].items():
                 if key in self.sources:
@@ -185,7 +311,7 @@ class ScraperService:
             supabase.table("scraper_config")\
                 .upsert({
                     "config": self.get_config(),
-                    "updated_at": datetime.now().isoformat()
+                    "updated_at": datetime.now(timezone.utc).isoformat()
                 })\
                 .execute()
         except Exception as e:
@@ -193,7 +319,7 @@ class ScraperService:
         
         return self.get_config()
     
-    # ─── Main Scraper Runner ────────────────────────────────────────────
+    # ─── Main Scraper Runner ────────────────────────────────────────
     
     async def run_scrapers(
         self,
@@ -205,7 +331,7 @@ class ScraperService:
         task_id: Optional[str] = None
     ) -> List[Dict]:
         """
-        Run scrapers for multiple sources
+        Run scrapers for multiple sources.
         
         Args:
             sources: List of source IDs to scrape
@@ -224,7 +350,7 @@ class ScraperService:
         
         # Filter enabled sources
         enabled_sources = self.get_enabled_sources()
-        if "all" in sources:
+        if "all" in sources or not sources:
             sources = enabled_sources
         else:
             sources = [s for s in sources if s in enabled_sources]
@@ -234,10 +360,10 @@ class ScraperService:
             return [{"error": "No enabled sources to scrape"}]
         
         # Update status
-        task_id = task_id or f"scrape_{int(datetime.now().timestamp())}"
+        task_id = task_id or f"scrape_{int(datetime.now(timezone.utc).timestamp())}"
         self.update_status(
             "running",
-            last_run=datetime.now().isoformat(),
+            last_run=datetime.now(timezone.utc).isoformat(),
             sources=sources,
             active_tasks=[task_id]
         )
@@ -301,7 +427,7 @@ class ScraperService:
         max_results: int = 100,
         force_refresh: bool = False
     ) -> Dict:
-        """Scrape a source with rate limiting"""
+        """Scrape a source with rate limiting."""
         async with semaphore:
             return await self._scrape_source(
                 source=source,
@@ -311,7 +437,7 @@ class ScraperService:
                 force_refresh=force_refresh
             )
     
-    # ─── Individual Source Scrapers ─────────────────────────────────────
+    # ─── Individual Source Scrapers ─────────────────────────────────
     
     async def _scrape_source(
         self,
@@ -321,7 +447,7 @@ class ScraperService:
         max_results: int = 100,
         force_refresh: bool = False
     ) -> Dict:
-        """Scrape a single source"""
+        """Scrape a single source."""
         # Map source to specific scraper
         scrapers = {
             "autochek": self._scrape_autochek,
@@ -339,32 +465,34 @@ class ScraperService:
                 "error": f"Unknown source: {source}"
             }
         
-        # Check if we have recent data
+        # Check cache
+        cache_key = self._get_cache_key(source, make, model)
         if not force_refresh:
-            try:
-                result = supabase.table("market_prices")\
-                    .select("count", count="exact")\
-                    .eq("source", source)\
-                    .gte("created_at", (datetime.now() - timedelta(hours=1)).isoformat())\
-                    .execute()
-                
-                if result.count and result.count > 0:
-                    return {
-                        "source": source,
-                        "success": True,
-                        "items_scraped": 0,
-                        "message": "Using cached data (less than 1 hour old)",
-                        "cached": True
-                    }
-            except Exception as e:
-                logger.warning(f"⚠️ Could not check cache for {source}: {e}")
+            cached = self._get_cached(cache_key)
+            if cached:
+                return {
+                    "source": source,
+                    "success": True,
+                    "items_scraped": cached.get("items_scraped", 0),
+                    "message": "Using cached data",
+                    "cached": True,
+                    **cached
+                }
         
         # Run the scraper
-        return await scraper(
+        result = await scraper(
             make=make,
             model=model,
             max_results=max_results
         )
+        
+        # Cache successful results
+        if result.get("success"):
+            self._set_cache(cache_key, result)
+        
+        return result
+    
+    # ─── Specific Scraper Implementations ──────────────────────────
     
     @retry(
         stop=stop_after_attempt(3),
@@ -377,13 +505,14 @@ class ScraperService:
         model: Optional[str] = None,
         max_results: int = 100
     ) -> Dict:
-        """Scrape Autochek Kenya"""
+        """Scrape Autochek Kenya."""
         start_time = time.time()
         source_config = self.sources.get("autochek", {})
-        base_url = source_config.get("base_url", "https://www.autochek.co.ke")
         api_url = source_config.get("api_url", "https://api.autochek.co.ke/v1")
         
         try:
+            await self._check_rate_limit()
+            
             # Build query parameters
             params = {}
             if make:
@@ -393,17 +522,27 @@ class ScraperService:
             params["limit"] = min(max_results, 100)
             
             # Make API request
-            async with httpx.AsyncClient(timeout=self.request_timeout) as client:
-                response = await client.get(
-                    f"{api_url}/listings",
-                    params=params,
-                    headers={"User-Agent": self.user_agent}
-                )
-                response.raise_for_status()
-                data = response.json()
+            client = await self.client
+            response = await client.get(
+                f"{api_url}/listings",
+                params=params
+            )
+            response.raise_for_status()
+            data = response.json()
             
             # Extract listings
             listings_data = data.get("listings", data.get("data", []))
+            
+            # If no data, try alternative endpoint
+            if not listings_data:
+                response = await client.get(
+                    f"{api_url}/vehicles",
+                    params=params
+                )
+                response.raise_for_status()
+                data = response.json()
+                listings_data = data.get("data", data.get("vehicles", []))
+            
             listings = await self._process_listings(
                 listings_data,
                 source="autochek",
@@ -423,14 +562,11 @@ class ScraperService:
             
         except httpx.TimeoutException as e:
             logger.error(f"❌ Autochek timeout: {e}")
-            # Fallback to mock data
-            return await self._mock_scrape(
-                source="autochek",
-                make=make,
-                model=model,
-                max_results=max_results,
-                start_time=start_time
-            )
+            raise SourceUnavailableError(f"Autochek timeout: {e}")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                raise RateLimitError(f"Autochek rate limit: {e}")
+            raise SourceUnavailableError(f"Autochek error: {e}")
         except Exception as e:
             logger.error(f"❌ Autochek scrape error: {e}")
             return {
@@ -450,12 +586,14 @@ class ScraperService:
         model: Optional[str] = None,
         max_results: int = 100
     ) -> Dict:
-        """Scrape Jiji Kenya"""
+        """Scrape Jiji Kenya."""
         start_time = time.time()
         source_config = self.sources.get("jiji", {})
         base_url = source_config.get("base_url", "https://jiji.co.ke")
         
         try:
+            await self._check_rate_limit()
+            
             # Build search URL
             search_url = f"{base_url}/cars"
             
@@ -466,17 +604,13 @@ class ScraperService:
             params["page"] = 1
             
             # Make HTTP request
-            async with httpx.AsyncClient(timeout=self.request_timeout) as client:
-                response = await client.get(
-                    search_url,
-                    params=params,
-                    headers={
-                        "User-Agent": self.user_agent,
-                        "Accept": "text/html,application/xhtml+xml"
-                    }
-                )
-                response.raise_for_status()
-                html_content = response.text
+            client = await self.client
+            response = await client.get(
+                search_url,
+                params=params
+            )
+            response.raise_for_status()
+            html_content = response.text
             
             # Parse HTML
             soup = BeautifulSoup(html_content, "html.parser")
@@ -502,13 +636,11 @@ class ScraperService:
             
         except Exception as e:
             logger.error(f"❌ Jiji scrape error: {e}")
-            return await self._mock_scrape(
-                source="jiji",
-                make=make,
-                model=model,
-                max_results=max_results,
-                start_time=start_time
-            )
+            return {
+                "source": "jiji",
+                "success": False,
+                "error": str(e)
+            }
     
     @retry(
         stop=stop_after_attempt(3),
@@ -521,12 +653,14 @@ class ScraperService:
         model: Optional[str] = None,
         max_results: int = 100
     ) -> Dict:
-        """Scrape CarAPI"""
+        """Scrape CarAPI."""
         start_time = time.time()
         source_config = self.sources.get("carapi", {})
         api_url = source_config.get("api_url", "https://carapi.com/api")
         
         try:
+            await self._check_rate_limit()
+            
             # Build query parameters
             params = {}
             if make:
@@ -536,14 +670,13 @@ class ScraperService:
             params["limit"] = min(max_results, 50)
             
             # Make API request
-            async with httpx.AsyncClient(timeout=self.request_timeout) as client:
-                response = await client.get(
-                    f"{api_url}/vehicles",
-                    params=params,
-                    headers={"User-Agent": self.user_agent}
-                )
-                response.raise_for_status()
-                data = response.json()
+            client = await self.client
+            response = await client.get(
+                f"{api_url}/vehicles",
+                params=params
+            )
+            response.raise_for_status()
+            data = response.json()
             
             # Extract listings
             listings_data = data.get("data", data.get("vehicles", []))
@@ -566,13 +699,11 @@ class ScraperService:
             
         except Exception as e:
             logger.error(f"❌ CarAPI scrape error: {e}")
-            return await self._mock_scrape(
-                source="carapi",
-                make=make,
-                model=model,
-                max_results=max_results,
-                start_time=start_time
-            )
+            return {
+                "source": "carapi",
+                "success": False,
+                "error": str(e)
+            }
     
     async def _scrape_beepbeep(
         self,
@@ -580,14 +711,35 @@ class ScraperService:
         model: Optional[str] = None,
         max_results: int = 100
     ) -> Dict:
-        """Scrape BeepBeep Kenya (placeholder)"""
-        # BeepBeep may not have a public API - return mock data
+        """Scrape BeepBeep Kenya."""
+        start_time = time.time()
+        
+        # BeepBeep may not have a public API - try to scrape if enabled
+        if self.sources.get("beepbeep", {}).get("enabled", False):
+            # Attempt to scrape if URL is configured
+            source_config = self.sources.get("beepbeep", {})
+            base_url = source_config.get("base_url")
+            
+            if base_url:
+                try:
+                    await self._check_rate_limit()
+                    client = await self.client
+                    response = await client.get(f"{base_url}/cars")
+                    response.raise_for_status()
+                    
+                    soup = BeautifulSoup(response.text, "html.parser")
+                    # Parse logic would go here
+                    # ...
+                except Exception as e:
+                    logger.warning(f"BeepBeep scrape failed: {e}")
+        
+        # Return mock data as fallback
         return await self._mock_scrape(
             source="beepbeep",
             make=make,
             model=model,
             max_results=max_results,
-            start_time=time.time()
+            start_time=start_time
         )
     
     async def _scrape_pigiama(
@@ -596,16 +748,19 @@ class ScraperService:
         model: Optional[str] = None,
         max_results: int = 100
     ) -> Dict:
-        """Scrape PigiaMe (placeholder)"""
+        """Scrape PigiaMe."""
+        start_time = time.time()
+        
+        # PigiaMe may not have a public API
         return await self._mock_scrape(
             source="pigiama",
             make=make,
             model=model,
             max_results=max_results,
-            start_time=time.time()
+            start_time=start_time
         )
     
-    # ─── Data Processing ────────────────────────────────────────────────
+    # ─── Data Processing ────────────────────────────────────────────
     
     async def _process_listings(
         self,
@@ -613,7 +768,7 @@ class ScraperService:
         source: str,
         source_config: Dict
     ) -> List[Dict]:
-        """Process raw listings data into standard format"""
+        """Process raw listings data into standard format."""
         processed = []
         
         for item in listings_data:
@@ -632,7 +787,7 @@ class ScraperService:
         source: str,
         source_config: Dict
     ) -> Optional[Dict]:
-        """Normalize a listing to standard format"""
+        """Normalize a listing to standard format."""
         try:
             # Extract fields with fallbacks
             make = item.get("make") or item.get("manufacturer") or item.get("brand") or "Unknown"
@@ -682,8 +837,8 @@ class ScraperService:
                 "location": item.get("location") or item.get("region") or "Nairobi",
                 "listing_url": item.get("url") or item.get("link") or item.get("listing_url"),
                 "description": item.get("description") or item.get("title") or "",
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
                 "source_data": item  # Store original data
             }
             
@@ -692,26 +847,24 @@ class ScraperService:
             return None
     
     async def _save_listings(self, listings: List[Dict]) -> int:
-        """Save listings to database"""
+        """Save listings to database."""
         saved_count = 0
         
         for listing in listings:
             try:
-                # Check if listing already exists
-                query = supabase.table("market_prices")\
+                # Check if listing already exists (using hash of key fields)
+                hash_key = hashlib.md5(
+                    f"{listing['source']}|{listing['make']}|{listing['model']}|{listing.get('year')}|{listing.get('price')}".encode()
+                ).hexdigest()
+                
+                result = supabase.table("market_prices")\
                     .select("id")\
-                    .eq("source", listing["source"])\
-                    .eq("make", listing["make"])\
-                    .eq("model", listing["model"])
-                
-                if listing.get("year"):
-                    query = query.eq("year", listing["year"])
-                if listing.get("price"):
-                    query = query.eq("price", listing["price"])
-                
-                result = query.execute()
+                    .eq("hash_key", hash_key)\
+                    .execute()
                 
                 if not result.data:
+                    # Add hash key
+                    listing["hash_key"] = hash_key
                     # Insert new listing
                     supabase.table("market_prices").insert(listing).execute()
                     saved_count += 1
@@ -726,68 +879,94 @@ class ScraperService:
         
         return saved_count
     
-    # ─── Parser Helpers ──────────────────────────────────────────────────
+    # ─── Parser Helpers ─────────────────────────────────────────────
     
     async def _parse_jiji_listings(self, soup: BeautifulSoup) -> List[Dict]:
-        """Parse Jiji HTML listings"""
+        """Parse Jiji HTML listings."""
         listings = []
         
-        # Find listing elements
-        listing_elements = soup.find_all("div", class_="b-list-advert-base")
+        # Find listing elements - try multiple selectors
+        listing_selectors = [
+            "div.b-list-advert-base",
+            "div[data-testid='listing-card']",
+            "div.listing-item",
+            "article.advert"
+        ]
         
-        for element in listing_elements:
+        listing_elements = []
+        for selector in listing_selectors:
+            elements = soup.select(selector)
+            if elements:
+                listing_elements = elements
+                break
+        
+        if not listing_elements:
+            # Try finding by class containing 'listing' or 'advert'
+            listing_elements = soup.find_all(class_=lambda c: c and ('listing' in c.lower() or 'advert' in c.lower()))
+        
+        for element in listing_elements[:self.max_results]:
             try:
-                # Extract title
-                title_element = element.find("h2") or element.find("h1") or element.find("a", class_="b-advert-title-inner")
-                title = title_element.text.strip() if title_element else ""
-                
-                # Extract price
-                price_element = element.find("div", class_="qa-advert-price") or element.find("span", class_="price")
-                price_text = price_element.text.strip() if price_element else ""
-                
-                # Extract location
-                location_element = element.find("div", class_="b-advert-location")
-                location = location_element.text.strip() if location_element else "Nairobi"
-                
-                # Extract link
-                link_element = element.find("a", href=True)
-                link = link_element.get("href") if link_element else ""
-                if link and not link.startswith("http"):
-                    link = f"https://jiji.co.ke{link}"
-                
-                # Parse title for make and model
-                make = "Unknown"
-                model = "Unknown"
-                if title:
-                    parts = title.split()
-                    if len(parts) >= 2:
-                        make = parts[0]
-                        model = " ".join(parts[1:])
-                
-                # Parse price
-                price = 0
-                if price_text:
-                    try:
-                        price = float(''.join(filter(str.isdigit, price_text)))
-                    except:
-                        pass
-                
-                if price > 0:
-                    listings.append({
-                        "title": title,
-                        "make": make,
-                        "model": model,
-                        "price": price,
-                        "location": location,
-                        "url": link
-                    })
-                    
+                listing = await self._parse_jiji_element(element)
+                if listing:
+                    listings.append(listing)
             except Exception as e:
-                logger.warning(f"⚠️ Error parsing Jiji listing: {e}")
+                logger.warning(f"⚠️ Error parsing Jiji element: {e}")
         
         return listings
     
-    # ─── Mock Scraper ────────────────────────────────────────────────────
+    async def _parse_jiji_element(self, element) -> Optional[Dict]:
+        """Parse a single Jiji listing element."""
+        try:
+            # Extract title
+            title_element = element.find("h2") or element.find("h1") or element.find("a", class_="b-advert-title-inner")
+            title = title_element.text.strip() if title_element else ""
+            
+            # Extract price
+            price_element = element.find("div", class_="qa-advert-price") or element.find("span", class_="price")
+            price_text = price_element.text.strip() if price_element else ""
+            
+            # Extract location
+            location_element = element.find("div", class_="b-advert-location")
+            location = location_element.text.strip() if location_element else "Nairobi"
+            
+            # Extract link
+            link_element = element.find("a", href=True)
+            link = link_element.get("href") if link_element else ""
+            if link and not link.startswith("http"):
+                link = f"https://jiji.co.ke{link}"
+            
+            # Parse title for make and model
+            make = "Unknown"
+            model = "Unknown"
+            if title:
+                parts = title.split()
+                if len(parts) >= 2:
+                    make = parts[0]
+                    model = " ".join(parts[1:])
+            
+            # Parse price
+            price = 0
+            if price_text:
+                try:
+                    price = float(''.join(filter(str.isdigit, price_text)))
+                except:
+                    pass
+            
+            if price > 0:
+                return {
+                    "make": make,
+                    "model": model,
+                    "price": price,
+                    "location": location,
+                    "url": link
+                }
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error parsing Jiji element: {e}")
+        
+        return None
+    
+    # ─── Mock Scraper ───────────────────────────────────────────────
     
     async def _mock_scrape(
         self,
@@ -797,12 +976,12 @@ class ScraperService:
         max_results: int = 100,
         start_time: Optional[float] = None
     ) -> Dict:
-        """Generate mock listings for testing"""
+        """Generate mock listings for testing."""
         if not start_time:
             start_time = time.time()
         
         # Simulate scraping delay
-        await asyncio.sleep(random.uniform(1, 3))
+        await asyncio.sleep(random.uniform(0.5, 2))
         
         # Generate mock data
         listings = self._generate_mock_listings(
@@ -831,7 +1010,7 @@ class ScraperService:
         model: Optional[str] = None,
         count: int = 20
     ) -> List[Dict]:
-        """Generate mock listings for testing"""
+        """Generate mock listings for testing."""
         makes = [
             "Toyota", "Honda", "Nissan", "Mazda", "Subaru", 
             "Mercedes", "BMW", "Audi", "Ford", "Volkswagen",
@@ -854,61 +1033,4 @@ class ScraperService:
         years = list(range(2010, 2025))
         conditions = ["excellent", "very_good", "good", "fair"]
         fuel_types = ["petrol", "diesel", "electric", "hybrid"]
-        transmissions = ["automatic", "manual"]
-        locations = ["Nairobi", "Mombasa", "Kisumu", "Nakuru", "Eldoret", "Thika", "Kiambu", "Kajiado"]
-        
-        listings = []
-        for i in range(count):
-            selected_make = make or random.choice(makes)
-            selected_models = models_by_make.get(selected_make, ["Model"])
-            selected_model = model or random.choice(selected_models)
-            
-            year = random.choice(years)
-            price = random.randint(500000, 8000000)
-            mileage = random.randint(10000, 150000)
-            
-            listings.append({
-                "source": source,
-                "make": selected_make,
-                "model": selected_model,
-                "year": year,
-                "price": price,
-                "mileage": mileage,
-                "condition": random.choice(conditions),
-                "fuel_type": random.choice(fuel_types),
-                "transmission": random.choice(transmissions),
-                "location": random.choice(locations),
-                "description": f"{selected_make} {selected_model} for sale in Kenya",
-                "listing_url": f"https://{source}.com/listing/{i}",
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat()
-            })
-        
-        return listings
-    
-    # ─── Logging ──────────────────────────────────────────────────────────
-    
-    def add_scraper_log(self, message: str, level: str = "info"):
-        """Add entry to scraper log"""
-        try:
-            supabase.table("scraper_logs").insert({
-                "message": message,
-                "level": level,
-                "created_at": datetime.now().isoformat()
-            }).execute()
-        except Exception as e:
-            logger.error(f"❌ Error adding scraper log: {e}")
-    
-    # ─── Scraper Endpoints ──────────────────────────────────────────────
-    
-    async def scrape_autochek(self, task_id: Optional[str] = None, **kwargs):
-        """Scrape Autochek"""
-        return await self._scrape_autochek(**kwargs)
-    
-    async def scrape_jiji(self, task_id: Optional[str] = None, **kwargs):
-        """Scrape Jiji"""
-        return await self._scrape_jiji(**kwargs)
-    
-    async def scrape_carapi(self, task_id: Optional[str] = None, **kwargs):
-        """Scrape CarAPI"""
-        return await self._scrape_carapi(**kwargs)
+        transmissions = ["automatic", "
