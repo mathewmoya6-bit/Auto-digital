@@ -1,239 +1,167 @@
+# backend/app/api/v1/valuation.py
+
 """
-Valuation API - Vehicle valuation endpoints
+Valuation Routes
+GET /api/v1/ping - Valuation Ping
+POST /api/v1/calculate - Calculate Valuation
+GET /api/v1/variant/{variant_id} - Get Variant
+GET /api/v1/compare/{variant_id} - Get Market Comparison
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query
-from datetime import datetime
-from typing import Optional, Dict, Any, List
 import logging
+from typing import Optional, Dict, Any
+from fastapi import APIRouter, HTTPException, Depends, Request, status
+from pydantic import BaseModel, Field
 
+from app.core.dependencies import get_current_user, get_optional_user
+from app.services.valuation_service import get_valuation_service
 from app.schemas.request import ValuationRequest
 from app.schemas.response import ValuationResponse
-from app.engines.valuation_engine import ValuationEngine
-from app.core.database import supabase
-from app.core.dependencies import get_current_user
 
-# ─── Router ──────────────────────────────────────────────────────────
-router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# ─── Engine ──────────────────────────────────────────────────────────
-valuation_engine = ValuationEngine()
+router = APIRouter(tags=["Valuation"])
 
 
-# ─── Test Endpoint ──────────────────────────────────────────────────
+# ─── Request Models ──────────────────────────────────────────────
+
+class CalculateValuationRequest(BaseModel):
+    """Request model for valuation calculation"""
+    variant_id: str = Field(..., description="Vehicle variant ID")
+    year: int = Field(..., description="Year of manufacture", ge=1980, le=2026)
+    mileage: float = Field(..., description="Current mileage in km", ge=0)
+    condition: str = Field("good", description="Vehicle condition: excellent, very_good, good, fair, poor")
+    accident_history: str = Field("none", description="Accident history: none, minor, major, total_loss")
+    previous_owners: int = Field(1, description="Number of previous owners", ge=0)
+    location: str = Field("nairobi", description="Vehicle location")
+    service_history: bool = Field(True, description="Has service history")
+    images: Optional[list] = Field(None, description="Vehicle images")
+
+
+# ─── Endpoints ──────────────────────────────────────────────────
+
 @router.get("/ping")
 async def valuation_ping():
-    """Test endpoint to verify valuation router is working"""
+    """
+    GET /api/v1/ping - Valuation service ping.
+    Returns service status.
+    """
     return {
         "status": "ok",
-        "message": "Valuation router is active",
-        "timestamp": datetime.utcnow().isoformat()
+        "service": "valuation",
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
-# ─── Helpers ──────────────────────────────────────────────────────
-async def get_variant_from_supabase(variant_id: int) -> Optional[Dict[str, Any]]:
-    """Fetch a vehicle variant from Supabase."""
-    try:
-        response = (
-            supabase
-            .table("vehicle_variants")
-            .select("*")
-            .eq("id", int(variant_id))
-            .single()
-            .execute()
-        )
-
-        if not response.data:
-            return None
-
-        row = response.data
-
-        fuel_lookup = {
-            1: "diesel",
-            2: "petrol",
-            3: "hybrid",
-            4: "electric",
-        }
-
-        transmission_lookup = {
-            1: "manual",
-            2: "automatic",
-            3: "cvt",
-        }
-
-        return {
-            "id": row["id"],
-            "name": row.get("name", "Unknown"),
-            "generation_id": row.get("generation_id"),
-            "engine_cc": row.get("engine_size_cc", 0),
-            "power_hp": row.get("power_hp", 0),
-            "torque_nm": row.get("torque_nm", 0),
-            "fuel_type": fuel_lookup.get(row.get("fuel_type_id"), "petrol"),
-            "transmission": transmission_lookup.get(row.get("transmission_type_id"), "automatic"),
-            "body_type": row.get("body_type", "SUV"),
-            "market_value": row.get("market_value", 2800000),
-            "depreciation_class": row.get("depreciation_class", "SUV_D"),
-            "fuel_consumption_combined": row.get("fuel_consumption_combined", 8.0),
-            "seats": row.get("seats", 5),
-            "doors": row.get("doors", 4),
-        }
-
-    except Exception as e:
-        logger.error(f"Error fetching variant {variant_id}: {e}")
-        return None
-
-
-# ─── Calculate Valuation ──────────────────────────────────────────
-@router.post("/calculate")
+@router.post("/calculate", response_model=None)  # ← FIX: Disable response model
 async def calculate_valuation(
-    request: ValuationRequest,
+    request: Request,  # ← This is now properly handled
+    valuation_request: CalculateValuationRequest,
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Calculate vehicle valuation.
+    POST /api/v1/calculate - Calculate vehicle valuation.
     
-    Uses scraped market data and database values for accurate pricing.
+    Returns comprehensive valuation including market value, trade value, retail value,
+    and confidence score based on vehicle data and market conditions.
     """
     try:
-        logger.info(f"Valuation request for variant {request.variant_id}")
-
-        # Get variant from database
-        variant = await get_variant_from_supabase(request.variant_id)
-
-        if variant is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Vehicle variant '{request.variant_id}' not found."
-            )
-
-        logger.info(f"Variant found: {variant.get('name', 'Unknown')}")
-
-        # ─── Extract modifications safely ──────────────────────────
-        modifications = []
-        if hasattr(request, 'modifications') and request.modifications:
-            modifications = request.modifications
+        service = get_valuation_service()
         
-        custom_adjustments = {}
-        if hasattr(request, 'custom_adjustments') and request.custom_adjustments:
-            custom_adjustments = request.custom_adjustments
-
-        # ─── Calculate valuation ──────────────────────────────────
-        result = valuation_engine.calculate_valuation(
-            variant=variant,
-            year=request.year,
-            mileage=request.mileage,
-            condition=request.condition,
-            accident_history=request.accident_history,
-            previous_owners=request.previous_owners,
-            location=request.location,
-            service_history=request.service_history,
-            modifications=modifications,
-            custom_adjustments=custom_adjustments
+        # Convert to service request format
+        service_request = ValuationRequest(
+            variant_id=valuation_request.variant_id,
+            year=valuation_request.year,
+            mileage=valuation_request.mileage,
+            condition=valuation_request.condition,
+            accident_history=valuation_request.accident_history,
+            previous_owners=valuation_request.previous_owners,
+            location=valuation_request.location,
+            service_history=valuation_request.service_history,
+            images=valuation_request.images,
+            user_id=current_user.get("id")
         )
-
-        # ─── Build response ────────────────────────────────────────
-        return {
-            "status": "success",
-            "message": "Valuation calculated successfully",
-            "timestamp": datetime.utcnow().isoformat(),
-            "data": result,
-            "user_id": current_user.get("id") if current_user else None
-        }
-
+        
+        result = service.calculate_valuation(service_request)
+        
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Valuation calculation failed"
+            )
+        
+        return result
+        
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Valuation calculation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Valuation calculation failed: {str(e)}"
+        )
 
 
-# ─── Variant Lookup ──────────────────────────────────────────────────
 @router.get("/variant/{variant_id}")
-async def get_variant(variant_id: int):
-    """Get vehicle variant details"""
+async def get_variant(
+    variant_id: str,
+    current_user: Optional[Dict] = Depends(get_optional_user)
+):
+    """
+    GET /api/v1/variant/{variant_id} - Get variant details.
+    
+    Returns detailed specifications for a vehicle variant.
+    """
     try:
-        variant = await get_variant_from_supabase(variant_id)
-
-        if variant is None:
+        service = get_valuation_service()
+        variant = service.get_variant(variant_id)
+        
+        if not variant:
             raise HTTPException(
-                status_code=404,
-                detail="Variant not found"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Variant with ID {variant_id} not found"
             )
-
-        return {
-            "status": "success",
-            "timestamp": datetime.utcnow().isoformat(),
-            "data": variant
-        }
+        
+        return variant
+        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching variant {variant_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error getting variant {variant_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch variant details"
+        )
 
 
-# ─── Valuation History ──────────────────────────────────────────────
-@router.get("/history")
-async def get_valuation_history(
-    limit: int = Query(10, ge=1, le=100),
-    current_user: dict = Depends(get_current_user)
-):
-    """Get valuation history for current user"""
-    try:
-        if not current_user:
-            raise HTTPException(status_code=401, detail="Authentication required")
-
-        response = supabase.table("valuation_reports")\
-            .select("*")\
-            .eq("user_id", current_user.get("id"))\
-            .order("created_at", desc=True)\
-            .limit(limit)\
-            .execute()
-
-        return {
-            "status": "success",
-            "timestamp": datetime.utcnow().isoformat(),
-            "data": response.data or []
-        }
-
-    except Exception as e:
-        logger.error(f"Error fetching valuation history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ─── Market Comparison ──────────────────────────────────────────────
 @router.get("/compare/{variant_id}")
 async def get_market_comparison(
-    variant_id: int,
-    current_user: dict = Depends(get_current_user)
+    variant_id: str,
+    current_user: Optional[Dict] = Depends(get_optional_user)
 ):
-    """Get market comparison for a vehicle"""
+    """
+    GET /api/v1/compare/{variant_id} - Get market comparison.
+    
+    Returns market comparison including average price, price range,
+    and comparable vehicles for a variant.
+    """
     try:
-        variant = await get_variant_from_supabase(variant_id)
-        if variant is None:
-            raise HTTPException(status_code=404, detail="Variant not found")
-
-        # Get similar vehicles from market data
-        response = supabase.table("market_prices")\
-            .select("*")\
-            .ilike("make", f"%{variant.get('name', '').split()[0]}%")\
-            .limit(20)\
-            .execute()
-
-        similar_listings = response.data or []
-
-        return {
-            "status": "success",
-            "timestamp": datetime.utcnow().isoformat(),
-            "data": {
-                "vehicle": variant,
-                "similar_listings": similar_listings,
-                "total_similar": len(similar_listings)
-            }
-        }
-
+        service = get_valuation_service()
+        comparison = service.get_market_comparison(variant_id)
+        
+        if not comparison:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Market data for variant {variant_id} not found"
+            )
+        
+        return comparison
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error fetching market comparison: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error getting market comparison for {variant_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch market comparison"
+        )
