@@ -814,11 +814,11 @@ class ScraperService:
                 except:
                     year = None
 
-            # Mileage extraction
+            # Mileage extraction - FIXED: proper string replacement
             mileage = item.get("mileage") or item.get("odometer")
             if mileage:
                 try:
-                    mileage = int(str(mileage).replace(", ""))
+                    mileage = int(str(mileage).replace(",", ""))
                 except:
                     mileage = None
 
