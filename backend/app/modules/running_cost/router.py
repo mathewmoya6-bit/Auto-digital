@@ -7,7 +7,6 @@ from datetime import datetime
 
 from app.core.database import get_supabase
 from app.modules.auth.dependencies import get_current_user
-from app.modules.running_cost.service import RunningCostService
 
 router = APIRouter()
 
@@ -87,6 +86,8 @@ async def calculate_running_cost(
     - Monthly/Annual projections
     - 5-year cost analysis
     """
+    # Import service here to avoid circular import
+    from app.modules.running_cost.service import RunningCostService
     service = RunningCostService()
     return await service.calculate_running_cost(request, current_user["id"])
 
