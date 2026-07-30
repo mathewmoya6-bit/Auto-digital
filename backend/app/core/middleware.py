@@ -6,7 +6,6 @@
 import time
 import logging
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -19,37 +18,40 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """Middleware for logging requests and response times."""
     
     async def dispatch(self, request: Request, call_next):
+        # Skip logging for health checks to reduce noise
+        if request.url.path.startswith("/health") or request.url.path.startswith("/ready") or request.url.path.startswith("/live"):
+            return await call_next(request)
+        
         start_time = time.time()
         
         # Log request
         logger.info(f"→ {request.method} {request.url.path}")
         
-        # Process request
-        response = await call_next(request)
-        
-        # Log response time
-        duration = time.time() - start_time
-        logger.info(f"← {request.method} {request.url.path} → {response.status_code} ({duration:.3f}s)")
-        
-        return response
+        # Process request with error handling
+        try:
+            response = await call_next(request)
+            
+            # Log response time
+            duration = time.time() - start_time
+            logger.info(f"← {request.method} {request.url.path} → {response.status_code} ({duration:.3f}s)")
+            
+            return response
+            
+        except Exception as e:
+            logger.exception(f"Unhandled error in request: {request.method} {request.url.path}")
+            raise
 
 
 def setup_middleware(app: FastAPI) -> None:
     """
     Configure all middleware for the application.
     
+    ⚠️ IMPORTANT: CORS middleware is configured in main.py (FIRST middleware)
+    ⚠️ All other middleware goes here (AFTER CORS)
+    
     Args:
         app: FastAPI application instance
     """
-    # CORS Middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.get_cors_origins(),
-        allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
-        allow_methods=settings.get_cors_methods(),
-        allow_headers=settings.get_cors_headers(),
-        max_age=settings.CORS_MAX_AGE
-    )
     
     # Trusted Host Middleware (production only)
     if settings.ENVIRONMENT == "production":
@@ -64,6 +66,8 @@ def setup_middleware(app: FastAPI) -> None:
                 "127.0.0.1"
             ]
         )
+        logger.info("✅ TrustedHostMiddleware configured")
     
     # Request Logging Middleware
     app.add_middleware(RequestLoggingMiddleware)
+    logger.info("✅ RequestLoggingMiddleware configured")
