@@ -96,3 +96,20 @@ class JijiScraper(BaseScraper):
             
             # Generate source ID
             source_id = urlparse(url).path.strip("/").split("/")[-1]
+            
+            return {
+                "listing_id": source_id,
+                "title": title,
+                "price": price,
+                "mileage": self._parse_mileage(details.get("mileage")),
+                "year": self._parse_year(details.get("year")),
+                "make": details.get("make"),
+                "model": details.get("model"),
+                "location": details.get("location"),
+                "url": url,
+                "image_url": image_url
+            }
+            
+        except Exception as e:
+            logger.error(f"Error parsing listing {url}: {str(e)}")
+            return {}
