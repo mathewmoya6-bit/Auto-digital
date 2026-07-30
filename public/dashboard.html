@@ -787,6 +787,11 @@
                 ownershipCalculate: '/ownership/calculate',
             };
 
+            // M-Pesa description field constraint (Daraja-side, not enforced by
+            // the Pydantic schema) — keep well under the limit that's bitten
+            // this project before.
+            const MPESA_DESCRIPTION_MAX = 36;
+
             // ─── TOAST ──────────────────────────────────────────────────
             function showToast(message, type) {
                 type = type || 'info';
@@ -816,6 +821,14 @@
             function num(v) {
                 const n = parseFloat(v);
                 return isNaN(n) ? 0 : n;
+            }
+
+            // Keep M-Pesa STK push descriptions within Daraja's field limit.
+            function buildDescription(prefix, name) {
+                const full = `${prefix}${name || ''}`;
+                if (full.length <= MPESA_DESCRIPTION_MAX) return full;
+                // Reserve room for a trailing ellipsis marker.
+                return full.slice(0, MPESA_DESCRIPTION_MAX - 1) + '…';
             }
 
             // ─── SUPABASE CLIENT ──────────────────────────────────────
@@ -1476,7 +1489,7 @@
                         body: JSON.stringify({
                             phone: phone,
                             service_id: selectedService.code || selectedService.id,
-                            description: `Auto-D: ${selectedService.name}`,
+                            description: buildDescription('Auto-D: ', selectedService.name),
                             user_id: currentUser.id,
                             amount: num(selectedService.price)
                         })
@@ -1491,8 +1504,12 @@
 
                     showToast('📱 STK Push sent! Check your phone.', 'info');
 
-                    const success = await waitForPayment(checkoutRequestId);
-                    if (success) {
+                    // Fetch the token once up front rather than re-fetching on
+                    // every poll tick — avoids silently sending unauthenticated
+                    // requests mid-poll if getAuthToken() ever returns null.
+                    const result = await waitForPayment(checkoutRequestId, token);
+
+                    if (result === 'success') {
                         document.getElementById('paymentStatusText').textContent = '✅ Payment Successful!';
                         document.getElementById('paymentStatusDetail').textContent = 'Service unlocked!';
                         setTimeout(() => {
@@ -1501,6 +1518,14 @@
                             showSuccessOverlay(selectedService?.code, selectedService?.name);
                             loadDashboard();
                         }, 1500);
+                    } else if (result === 'auth_error') {
+                        document.getElementById('paymentStatusText').textContent = '🔒 Session Expired';
+                        document.getElementById('paymentStatusDetail').textContent = 'Please sign in again and retry.';
+                        setTimeout(() => {
+                            overlay.classList.remove('open');
+                            closePaymentModal();
+                            showToast('Session expired — please sign in again', 'error');
+                        }, 2000);
                     } else {
                         document.getElementById('paymentStatusText').textContent = '❌ Payment Failed';
                         document.getElementById('paymentStatusDetail').textContent = 'Please try again.';
@@ -1520,23 +1545,38 @@
                 }
             };
 
-            async function waitForPayment(checkoutId, maxAttempts = 60) {
+            // Returns 'success' | 'failed' | 'auth_error'.
+            // 'paid' means Safaricom's callback confirmed the transaction;
+            // confirm_payment() on the backend is what actually flips it to
+            // 'completed' and unlocks the service, so both statuses trigger
+            // the confirm call here.
+            async function waitForPayment(checkoutId, token, maxAttempts = 60) {
                 return new Promise((resolve) => {
                     let attempts = 0;
                     if (pollTimer) { clearInterval(pollTimer); }
                     pollTimer = setInterval(async () => {
                         attempts++;
                         try {
-                            const token = await getAuthToken();
-                            const headers = { 'Accept': 'application/json' };
-                            if (token) headers['Authorization'] = `Bearer ${token}`;
-                            
                             // GET /api/v1/mpesa/status/{checkout_request_id}
-                            const response = await fetch(API_BASE + API.mpesaStatus(checkoutId), { headers });
+                            const response = await fetch(API_BASE + API.mpesaStatus(checkoutId), {
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'Authorization': `Bearer ${token}`
+                                }
+                            });
+
+                            if (response.status === 401) {
+                                clearInterval(pollTimer);
+                                pollTimer = null;
+                                resolve('auth_error');
+                                return;
+                            }
+
                             if (response.ok) {
                                 const data = await response.json();
                                 const status = (data.status || '').toString().toLowerCase();
-                                if (status === 'completed' || status === 'success' || data.success === true) {
+
+                                if (status === 'paid' || status === 'completed' || status === 'success' || data.success === true) {
                                     clearInterval(pollTimer);
                                     pollTimer = null;
                                     // POST /api/v1/mpesa/confirm/{checkout_request_id}
@@ -1544,24 +1584,21 @@
                                         method: 'POST',
                                         headers: { 'Authorization': `Bearer ${token}` }
                                     });
-                                    if (confirmResp.ok) {
-                                        resolve(true);
-                                    } else {
-                                        resolve(true);
-                                    }
+                                    resolve(confirmResp.ok ? 'success' : 'failed');
                                     return;
                                 } else if (status === 'failed' || status === 'cancelled') {
                                     clearInterval(pollTimer);
                                     pollTimer = null;
-                                    resolve(false);
+                                    resolve('failed');
                                     return;
                                 }
+                                // status still "pending" — keep polling
                             }
                         } catch (e) { console.warn('Polling error:', e); }
                         if (attempts >= maxAttempts) {
                             clearInterval(pollTimer);
                             pollTimer = null;
-                            resolve(false);
+                            resolve('failed');
                         }
                     }, 2000);
                 });
