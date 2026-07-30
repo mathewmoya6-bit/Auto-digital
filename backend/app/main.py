@@ -280,8 +280,8 @@ async def root():
             },
             "mpesa": {
                 "stk_push": f"{settings.API_V1_PREFIX}/mpesa/stkpush",
-                "status": f"{settings.API_V1_PREFIX}/mpesa/status/{{checkout_id}}",
-                "confirm": f"{settings.API_V1_PREFIX}/mpesa/confirm/{{checkout_id}}",
+                "status": f"{settings.API_V1_PREFIX}/mpesa/status/{{checkout_request_id}}",
+                "confirm": f"{settings.API_V1_PREFIX}/mpesa/confirm/{{checkout_request_id}}",
                 "callback": f"{settings.API_V1_PREFIX}/mpesa/callback",
                 "payments": f"{settings.API_V1_PREFIX}/mpesa/payments",
                 "services": f"{settings.API_V1_PREFIX}/mpesa/services",
@@ -291,13 +291,22 @@ async def root():
             "reports": {
                 "valuation": f"{settings.API_V1_PREFIX}/reports/valuation",
                 "running_cost": f"{settings.API_V1_PREFIX}/reports/running-cost",
-                "history": f"{settings.API_V1_PREFIX}/reports/history"
+                "history": f"{settings.API_V1_PREFIX}/reports/history",
+                # NEW: Mileage and running cost endpoints
+                "mileage_rate": f"{settings.API_V1_PREFIX}/reports/mileage-rate",
+                "ownership_cost": f"{settings.API_V1_PREFIX}/reports/ownership-cost",
+                "fuel_prices": f"{settings.API_V1_PREFIX}/reports/fuel-prices",
+                "service_cost": f"{settings.API_V1_PREFIX}/reports/service-cost",
+                "comparison": f"{settings.API_V1_PREFIX}/reports/comparison",
+                "valuation_history": f"{settings.API_V1_PREFIX}/reports/valuation-history",
+                "market_comparison": f"{settings.API_V1_PREFIX}/reports/market-comparison"
             },
             "scraper": {
                 "run": f"{settings.API_V1_PREFIX}/scraper/run",
                 "status": f"{settings.API_V1_PREFIX}/scraper/status",
                 "sources": f"{settings.API_V1_PREFIX}/scraper/sources",
-                "health": f"{settings.API_V1_PREFIX}/scraper/health"
+                "health": f"{settings.API_V1_PREFIX}/scraper/health",
+                "history": f"{settings.API_V1_PREFIX}/scraper/history"
             },
             "market": {
                 "insights": f"{settings.API_V1_PREFIX}/market/insights",
