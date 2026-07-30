@@ -5,6 +5,7 @@
 
 import jwt
 import bcrypt
+import random
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from passlib.context import CryptContext
@@ -44,7 +45,6 @@ def decode_token(token: str) -> Dict[str, Any]:
 
 def generate_otp() -> str:
     """Generate a 6-digit OTP."""
-    import random
     return f"{random.randint(100000, 999999)}"
 
 
