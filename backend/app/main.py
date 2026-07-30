@@ -17,7 +17,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import local modules - using app. prefix for absolute imports
-from app.config import settings
+from app.core.config import settings
 from app.routes import (
     auth_routes,
     vehicle_routes,
