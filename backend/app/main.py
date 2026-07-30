@@ -68,16 +68,16 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description=settings.DESCRIPTION,
-    docs_url="/docs" if settings.ENVIRONMENT == "development" else None,
-    redoc_url="/redoc" if settings.ENVIRONMENT == "development" else None,
-    openapi_url="/openapi.json" if settings.ENVIRONMENT == "development" else None,
+    # ✅ ENABLED: Docs are now accessible in all environments
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
     lifespan=lifespan
 )
 
 
 # ─── CORS MIDDLEWARE ─────────────────────────────────────────────
 # ⚠️ CRITICAL: CORS MUST be the FIRST middleware registered
-# ⚠️ Only ONE CORS middleware should exist
 
 cors_origins = settings.get_cors_origins()
 logger.info(f"CORS Origins configured: {cors_origins}")
@@ -86,15 +86,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["*"],
-    max_age=86400,  # 24 hours
+    max_age=86400,
 )
 
 
 # ─── MIDDLEWARE ──────────────────────────────────────────────────
-# All other middleware goes AFTER CORS
 
 setup_middleware(app)
 
@@ -268,7 +267,7 @@ async def root():
         "environment": settings.ENVIRONMENT,
         "api_prefix": settings.API_V1_PREFIX,
         "base_url": settings.API_BASE_URL,
-        "docs_url": f"{settings.API_BASE_URL}/docs" if settings.ENVIRONMENT == "development" else None,
+        "docs_url": f"{settings.API_BASE_URL}/docs",
         "cors_origins": settings.get_cors_origins(),
     }
 
