@@ -1,13 +1,11 @@
 # app/modules/ownership/router.py
 """Ownership (TCO) routes for Auto-D Kenya"""
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from datetime import datetime
 
-from app.core.database import get_supabase
 from app.modules.auth.dependencies import get_current_user
-from app.modules.ownership.service import OwnershipService
 
 router = APIRouter()
 
@@ -42,8 +40,8 @@ class TCOResponse(BaseModel):
     monthly_cost: float
     monthly_payment: float
     total_interest: float
-    components: list
-    yearly_breakdown: list
+    components: List[TCOComponent]
+    yearly_breakdown: List[dict]
     loan_details: dict
     vehicle_details: dict
     currency: str = "KES"
@@ -65,6 +63,8 @@ async def calculate_tco(
     - Loan details
     - Year-by-year analysis
     """
+    # Import service here to avoid circular import
+    from app.modules.ownership.service import OwnershipService
     service = OwnershipService()
     return await service.calculate_tco(request, current_user["id"])
 
