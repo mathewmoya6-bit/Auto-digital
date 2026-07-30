@@ -6,7 +6,8 @@
 
 from .config import settings
 from .database import get_supabase
-from .security import create_access_token, get_current_user, hash_password, verify_password
+from .security import create_access_token, hash_password, verify_password, decode_token
+from .dependencies import get_current_user, get_current_user_optional
 from .exceptions import AppException, NotFoundException, UnauthorizedException, ForbiddenException, ValidationException
 
 __all__ = [
@@ -14,8 +15,10 @@ __all__ = [
     "get_supabase",
     "create_access_token",
     "get_current_user",
+    "get_current_user_optional",
     "hash_password",
     "verify_password",
+    "decode_token",
     "AppException",
     "NotFoundException",
     "UnauthorizedException",
