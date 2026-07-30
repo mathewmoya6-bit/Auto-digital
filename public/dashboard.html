@@ -1182,7 +1182,22 @@
     // ════════════════════════════════════════════════════════════════
     // AUTO-D KENYA - PRODUCTION DASHBOARD
     // ALL endpoints match the /api/v1 OpenAPI spec exactly.
-    // Every endpoint is called directly by its full path.
+    // ────────────────────────────────────────────────────────────────
+    // CORRECT ENDPOINTS:
+    //   GET  /api/v1/makes
+    //   GET  /api/v1/models/{make_id}
+    //   GET  /api/v1/generations/{model_id}
+    //   GET  /api/v1/variants/{generation_id}
+    //   GET  /api/v1/variant/{variant_id}
+    //   POST /api/v1/mpesa/stkpush
+    //   GET  /api/v1/mpesa/status/{checkout_request_id}
+    //   POST /api/v1/mpesa/confirm/{checkout_request_id}
+    //   GET  /api/v1/mpesa/user/services
+    //   GET  /api/v1/mpesa/services
+    //   GET  /api/v1/mpesa/payments
+    //   POST /api/v1/valuation/calculate
+    //   POST /api/v1/running-cost/calculate
+    //   POST /api/v1/ownership/calculate
     // ════════════════════════════════════════════════════════════════
 
     (function() {
@@ -1191,61 +1206,8 @@
         // ─── PRODUCTION CONFIGURATION ──────────────────────────────
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
 
-        // ─── API Client (centralized) ──────────────────────────────
-        class ApiClient {
-            constructor(baseUrl) {
-                this.baseUrl = baseUrl;
-            }
-
-            async _request(method, path, options = {}) {
-                const url = `${this.baseUrl}${path}`;
-                const token = await getAuthToken();
-
-                const headers = {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                    ...options.headers
-                };
-
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
-
-                const response = await fetch(url, {
-                    method,
-                    headers,
-                    body: options.body ? JSON.stringify(options.body) : undefined,
-                    signal: options.signal
-                });
-
-                if (!response.ok) {
-                    const error = await response.json().catch(() => ({}));
-                    throw new Error(error.message || error.detail || `HTTP ${response.status}`);
-                }
-
-                return response.json();
-            }
-
-            get(path, options = {}) {
-                return this._request('GET', path, options);
-            }
-
-            post(path, body, options = {}) {
-                return this._request('POST', path, { ...options, body });
-            }
-
-            put(path, body, options = {}) {
-                return this._request('PUT', path, { ...options, body });
-            }
-
-            delete(path, options = {}) {
-                return this._request('DELETE', path, options);
-            }
-        }
-
         // ─── ENDPOINT DEFINITIONS ──────────────────────────────────
-        // Every dashboard widget calls its own endpoint.
-        // Never use fetch(API_BASE) - always use specific endpoints.
+        // All endpoints match the OpenAPI spec exactly
         // ─────────────────────────────────────────────────────────────
 
         const API = {
@@ -1258,63 +1220,38 @@
             // Vehicles
             makes: '/makes',
             models: (makeId) => `/models/${makeId}`,
-            variants: (modelId) => `/variants/${modelId}`,
-            vehicle: (id) => `/${id}`,
+            generations: (modelId) => `/generations/${modelId}`,
+            variants: (generationId) => `/variants/${generationId}`,
+            variant: (id) => `/variant/${id}`,
+            vehicles: '/vehicles',
+            vehicle: (id) => `/vehicles/${id}`,
             search: '/search',
 
             // Valuation
-            variant: (id) => `/variant/${id}`,
-            compare: (id) => `/compare/${id}`,
+            valuationCalculate: '/valuation/calculate',
 
-            // M-Pesa
-            mpesaHealth: '/mpesa/health',
-            mpesaShortcode: '/mpesa/shortcode',
+            // M-Pesa - CORRECT endpoints from OpenAPI spec
+            mpesaStkPush: '/mpesa/stkpush',
+            mpesaStatus: (id) => `/mpesa/status/${id}`,
+            mpesaConfirm: (id) => `/mpesa/confirm/${id}`,
+            mpesaCallback: '/mpesa/callback',
+            mpesaPayments: '/mpesa/payments',
+            mpesaUserServices: '/mpesa/user/services',
             mpesaServices: '/mpesa/services',
-            userServices: '/mpesa/user/services',
-            userServiceStatus: (code) => `/mpesa/user/services/${code}/status`,
-            stkPush: '/mpesa/stkpush',
-            callback: '/mpesa/callback',
-            paymentStatus: (id) => `/mpesa/status/${id}`,
-            confirmPayment: (id) => `/mpesa/confirm/${id}`,
-            payments: '/mpesa/payments',
+            mpesaHealth: '/mpesa/health',
 
-            // M-Pesa Admin
-            adminServices: '/mpesa/admin/services',
-            adminService: (id) => `/mpesa/admin/services/${id}`,
-            adminRestore: (id) => `/mpesa/admin/services/${id}/restore`,
-            adminPriceHistory: (id) => `/mpesa/admin/services/${id}/price-history`,
-            adminExpireStale: '/mpesa/admin/expire-stale',
-            adminStats: '/mpesa/admin/stats',
+            // Reports - CORRECT endpoints from OpenAPI spec
+            reportValuation: '/reports/valuation',
+            reportRunningCost: '/reports/running-cost',
+            reportHistory: '/reports/history',
 
-            // Fuel
-            fuelPrices: '/prices',
-            fuelPrice: (type) => `/prices/${type}`,
-            fuelDefaults: '/defaults',
+            // Running Cost - CORRECT endpoints from OpenAPI spec
+            runningCostCalculate: '/running-cost/calculate',
+            runningCostHealth: '/running-cost/health',
 
-            // Reports
-            reportValuation: '/valuation',
-            reportMarketInsights: '/market-insights',
-            reportOwnershipCost: '/ownership-cost',
-
-            // Mileage
-            mileageCalculate: '/calculate',
-
-            // Running Cost
-            runningCostPing: '/ping',
-
-            // Market
-            insights: '/insights',
-            scrape: '/scrape',
-            locationFactors: '/location/factors',
-
-            // Scraper
-            scraperRun: '/run',
-            scraperAutochek: '/autochek',
-            scraperJiji: '/jiji',
-            scraperCarapi: '/carapi',
-            scraperStatus: '/status',
-            scraperSources: '/sources',
-            scraperHealth: '/health',
+            // Ownership - CORRECT endpoints from OpenAPI spec
+            ownershipCalculate: '/ownership/calculate',
+            ownershipHealth: '/ownership/health',
 
             // Health (outside /api/v1)
             health: 'https://auto-digital.onrender.com/health',
@@ -1350,11 +1287,6 @@
         let _backendDown = false;
         const TOAST_DEBOUNCE_MS = 3000;
         const DASHBOARD_CACHE_TTL = 30000;
-        const MAX_RETRIES = 3;
-        const RETRY_DELAY = 2000;
-
-        // ─── API Client Instance ──────────────────────────────────
-        const api = new ApiClient(API_BASE);
 
         // ─── DOM Refs ────────────────────────────────────────────
         const vehicleGrid = document.getElementById('vehicleGrid');
@@ -1725,6 +1657,7 @@
                     headers['Authorization'] = `Bearer ${token}`;
                 }
 
+                // CORRECT endpoint: /api/v1/mpesa/services
                 console.log('📡 Fetching services from:', API_BASE + API.mpesaServices);
 
                 const response = await fetch(API_BASE + API.mpesaServices, { headers });
@@ -1790,7 +1723,8 @@
                 const token = await getAuthToken();
                 if (!token) return [];
 
-                const response = await fetch(API_BASE + API.userServices, {
+                // CORRECT endpoint: /api/v1/mpesa/user/services
+                const response = await fetch(API_BASE + API.mpesaUserServices, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
 
@@ -1855,7 +1789,8 @@
                 try {
                     const token = await getAuthToken();
                     if (token) {
-                        const payResp = await fetch(API_BASE + API.payments, {
+                        // CORRECT endpoint: /api/v1/mpesa/payments
+                        const payResp = await fetch(API_BASE + API.mpesaPayments, {
                             headers: { 'Authorization': `Bearer ${token}` }
                         });
                         if (payResp.ok) {
@@ -2407,10 +2342,11 @@
             };
 
             try {
-                console.log('📤 Sending payment request to:', API_BASE + API.stkPush);
+                // CORRECT endpoint: /api/v1/mpesa/stkpush
+                console.log('📤 Sending payment request to:', API_BASE + API.mpesaStkPush);
                 console.log('📤 Request body:', requestBody);
 
-                const response = await fetch(API_BASE + API.stkPush, {
+                const response = await fetch(API_BASE + API.mpesaStkPush, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2539,7 +2475,8 @@
                             headers['Authorization'] = `Bearer ${pollToken}`;
                         }
 
-                        const statusResponse = await fetch(API_BASE + API.paymentStatus(checkoutId), {
+                        // CORRECT endpoint: /api/v1/mpesa/status/{checkout_request_id}
+                        const statusResponse = await fetch(API_BASE + API.mpesaStatus(checkoutId), {
                             headers: headers
                         });
 
@@ -2655,7 +2592,8 @@
                     return false;
                 }
 
-                const response = await fetch(API_BASE + API.confirmPayment(checkoutId), {
+                // CORRECT endpoint: /api/v1/mpesa/confirm/{checkout_request_id}
+                const response = await fetch(API_BASE + API.mpesaConfirm(checkoutId), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2939,9 +2877,11 @@
         (async function() {
             console.log('🚗 Auto-D Kenya Dashboard (Production)');
             console.log('🔗 API Base:', API_BASE);
-            console.log('✅ All endpoints point to specific paths - no generic /api/v1 calls');
-            console.log('✅ All prices from database (no hardcoded values)');
-            console.log('✅ Supabase connected for auth and vehicles');
+            console.log('✅ All endpoints match the OpenAPI spec');
+            console.log('✅ M-Pesa endpoints: /mpesa/stkpush, /mpesa/status/{id}, /mpesa/confirm/{id}');
+            console.log('✅ Reports endpoints: /reports/valuation, /reports/running-cost');
+            console.log('✅ Running Cost: /running-cost/calculate');
+            console.log('✅ Ownership: /ownership/calculate');
 
             initSupabase();
 
@@ -2983,7 +2923,7 @@
                 try {
                     const token = await getAuthToken();
                     if (token) {
-                        await fetch(API_BASE + API.userServices, {
+                        await fetch(API_BASE + API.mpesaUserServices, {
                             headers: { 'Authorization': `Bearer ${token}` }
                         });
                     }
@@ -3006,6 +2946,5 @@
 
     })();
     </script>
-
 </body>
 </html>
