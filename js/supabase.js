@@ -21,7 +21,13 @@ function initSupabase() {
         
         if (!supabaseClient) {
             const { createClient } = supabase;
-            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                auth: {
+                    persistSession: true,
+                    autoRefreshToken: true,
+                    detectSessionInUrl: true
+                }
+            });
             console.log('✅ Supabase client initialized');
         }
         return supabaseClient;
@@ -45,6 +51,7 @@ async function getCurrentUser() {
         const client = getSupabaseClient();
         if (!client) return null;
 
+        // First try to get session from Supabase
         const { data: { session }, error } = await client.auth.getSession();
         if (error) throw error;
 
@@ -54,13 +61,25 @@ async function getCurrentUser() {
             return currentUser;
         }
 
+        // Fallback to stored user
         const stored = localStorage.getItem('auto_d_user');
         if (stored) {
             try {
                 const user = JSON.parse(stored);
-                currentUser = user;
-                return user;
-            } catch (e) { /* ignore */ }
+                // Verify the stored user is still valid
+                const { data: { user: verifiedUser }, error: verifyError } = await client.auth.getUser();
+                if (!verifyError && verifiedUser) {
+                    currentUser = verifiedUser;
+                    localStorage.setItem('auto_d_user', JSON.stringify(verifiedUser));
+                    return verifiedUser;
+                }
+                // If verification fails, stored user is invalid
+                localStorage.removeItem('auto_d_user');
+                return null;
+            } catch (e) {
+                localStorage.removeItem('auto_d_user');
+                return null;
+            }
         }
 
         return null;
@@ -108,6 +127,34 @@ async function signOut() {
     }
 }
 
+// ─── Sign Up ──────────────────────────────────────────────────────
+async function signUp(email, password, fullName = null) {
+    try {
+        const client = getSupabaseClient();
+        if (!client) throw new Error('Supabase not initialized');
+
+        const { data, error } = await client.auth.signUp({
+            email: email.toLowerCase().trim(),
+            password: password,
+            options: {
+                data: {
+                    full_name: fullName || email.split('@')[0]
+                }
+            }
+        });
+
+        if (error) throw error;
+
+        if (data.user) {
+            return { success: true, user: data.user };
+        }
+        return { success: false, error: 'Registration failed' };
+    } catch (error) {
+        console.error('❌ Sign up error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 // ─── Check if user is admin ──────────────────────────────────────
 async function isAdmin(userId) {
     try {
@@ -134,29 +181,90 @@ async function query(table, select = '*', filters = {}, order = null, limit = nu
         const client = getSupabaseClient();
         if (!client) throw new Error('Supabase not initialized');
 
-        let query = client.from(table).select(select);
+        let queryBuilder = client.from(table).select(select);
 
+        // Apply filters
         Object.keys(filters).forEach(key => {
-            if (Array.isArray(filters[key])) {
-                query = query.in(key, filters[key]);
+            const value = filters[key];
+            if (value === null) {
+                queryBuilder = queryBuilder.is(key, null);
+            } else if (Array.isArray(value)) {
+                queryBuilder = queryBuilder.in(key, value);
+            } else if (typeof value === 'object' && value !== null) {
+                // Handle operators like { operator: 'gt', value: 100 }
+                if (value.operator && value.value !== undefined) {
+                    queryBuilder = queryBuilder.filter(key, value.operator, value.value);
+                } else {
+                    queryBuilder = queryBuilder.eq(key, value);
+                }
             } else {
-                query = query.eq(key, filters[key]);
+                queryBuilder = queryBuilder.eq(key, value);
             }
         });
 
         if (order) {
-            query = query.order(order.column, { ascending: order.ascending || false });
+            queryBuilder = queryBuilder.order(order.column, { 
+                ascending: order.ascending !== false 
+            });
         }
 
         if (limit) {
-            query = query.limit(limit);
+            queryBuilder = queryBuilder.limit(limit);
         }
 
-        const { data, error } = await query;
+        const { data, error } = await queryBuilder;
         if (error) throw error;
         return { success: true, data };
     } catch (error) {
         console.error(`❌ Query error (${table}):`, error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ─── Insert Helper ──────────────────────────────────────────────────
+async function insert(table, data) {
+    try {
+        const client = getSupabaseClient();
+        if (!client) throw new Error('Supabase not initialized');
+
+        const { data: result, error } = await client
+            .from(table)
+            .insert({
+                ...data,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .select();
+
+        if (error) throw error;
+        return { success: true, data: result };
+    } catch (error) {
+        console.error(`❌ Insert error (${table}):`, error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ─── Update Helper ──────────────────────────────────────────────────
+async function update(table, data, match) {
+    try {
+        const client = getSupabaseClient();
+        if (!client) throw new Error('Supabase not initialized');
+
+        let queryBuilder = client.from(table).update({
+            ...data,
+            updated_at: new Date().toISOString()
+        });
+
+        Object.keys(match).forEach(key => {
+            queryBuilder = queryBuilder.eq(key, match[key]);
+        });
+
+        const { data: result, error } = await queryBuilder.select();
+
+        if (error) throw error;
+        return { success: true, data: result };
+    } catch (error) {
+        console.error(`❌ Update error (${table}):`, error);
         return { success: false, error: error.message };
     }
 }
@@ -179,6 +287,28 @@ async function upsert(table, data, conflictKey = 'id') {
         return { success: true, data: result };
     } catch (error) {
         console.error(`❌ Upsert error (${table}):`, error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ─── Delete Helper ──────────────────────────────────────────────────
+async function remove(table, match) {
+    try {
+        const client = getSupabaseClient();
+        if (!client) throw new Error('Supabase not initialized');
+
+        let queryBuilder = client.from(table).delete();
+
+        Object.keys(match).forEach(key => {
+            queryBuilder = queryBuilder.eq(key, match[key]);
+        });
+
+        const { data, error } = await queryBuilder.select();
+
+        if (error) throw error;
+        return { success: true, data };
+    } catch (error) {
+        console.error(`❌ Delete error (${table}):`, error);
         return { success: false, error: error.message };
     }
 }
@@ -264,13 +394,15 @@ async function getEngineSettings() {
             .single();
 
         if (error) {
+            // Return default settings if not found
             return { 
                 success: true, 
                 data: {
                     depreciation_rate: 0.15,
                     insurance_rate: 0.045,
                     annual_mileage: 20000,
-                    tyre_lifespan: 45000
+                    tyre_lifespan: 45000,
+                    service_interval: 10000
                 } 
             };
         }
@@ -284,7 +416,8 @@ async function getEngineSettings() {
                 depreciation_rate: 0.15,
                 insurance_rate: 0.045,
                 annual_mileage: 20000,
-                tyre_lifespan: 45000
+                tyre_lifespan: 45000,
+                service_interval: 10000
             } 
         };
     }
@@ -344,26 +477,27 @@ async function getDashboardStats() {
         const user = await getCurrentUser();
         if (!user) throw new Error('User not authenticated');
 
-        const { count: vehicles } = await client
+        const { count: vehicles, error: vehiclesError } = await client
             .from('vehicles')
             .select('*', { count: 'exact', head: true })
             .eq('user_id', user.id);
 
-        const { count: reports } = await client
+        const { count: reports, error: reportsError } = await client
             .from('reports')
             .select('*', { count: 'exact', head: true })
             .eq('user_id', user.id);
 
-        const { count: services } = await client
+        const { count: services, error: servicesError } = await client
             .from('service_access')
             .select('*', { count: 'exact', head: true })
             .eq('user_id', user.id)
             .eq('status', 'active');
 
-        const { data: payments } = await client
+        const { data: payments, error: paymentsError } = await client
             .from('payments')
             .select('amount')
-            .eq('user_id', user.id);
+            .eq('user_id', user.id)
+            .eq('status', 'completed');
         
         const totalSpent = payments ? payments.reduce((sum, p) => sum + (p.amount || 0), 0) : 0;
 
@@ -373,7 +507,13 @@ async function getDashboardStats() {
                 vehicles: vehicles || 0,
                 reports: reports || 0,
                 active_services: services || 0,
-                amount_spent: totalSpent
+                amount_spent: totalSpent,
+                errors: {
+                    vehicles: vehiclesError?.message,
+                    reports: reportsError?.message,
+                    services: servicesError?.message,
+                    payments: paymentsError?.message
+                }
             }
         };
     } catch (error) {
@@ -382,33 +522,120 @@ async function getDashboardStats() {
     }
 }
 
+// ─── Add Vehicle ──────────────────────────────────────────────────
+async function addVehicle(vehicleData) {
+    try {
+        const user = await getCurrentUser();
+        if (!user) throw new Error('User not authenticated');
+
+        const result = await insert('vehicles', {
+            user_id: user.id,
+            ...vehicleData,
+            plate: vehicleData.plate?.toUpperCase().trim(),
+            verified: false
+        });
+
+        return result;
+    } catch (error) {
+        console.error('❌ Add vehicle error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ─── Get User Vehicles ──────────────────────────────────────────
+async function getUserVehicles() {
+    try {
+        const user = await getCurrentUser();
+        if (!user) throw new Error('User not authenticated');
+
+        return await query(
+            'vehicles',
+            '*',
+            { user_id: user.id },
+            { column: 'created_at', ascending: false }
+        );
+    } catch (error) {
+        console.error('❌ Get vehicles error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+// ─── Delete Vehicle ──────────────────────────────────────────────
+async function deleteVehicle(vehicleId) {
+    try {
+        const user = await getCurrentUser();
+        if (!user) throw new Error('User not authenticated');
+
+        return await remove('vehicles', { 
+            id: vehicleId, 
+            user_id: user.id 
+        });
+    } catch (error) {
+        console.error('❌ Delete vehicle error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 // ─── Expose to window ──────────────────────────────────────────
 const AutoDClient = {
+    // Client
     init: initSupabase,
     getClient: getSupabaseClient,
+    
+    // Auth
     getCurrentUser,
     signIn,
     signOut,
+    signUp,
     isAdmin,
+    
+    // CRUD
     query,
+    insert,
+    update,
     upsert,
+    remove,
+    
+    // Vehicles
+    addVehicle,
+    getUserVehicles,
+    deleteVehicle,
+    
+    // Fuel
     getFuelPrices,
     updateFuelPrice,
+    
+    // Services
     getServicePrices,
     updateServicePrice,
+    
+    // Settings
     getEngineSettings,
     updateEngineSettings,
+    
+    // Admin
     addAdminLog,
     getAdminLogs,
+    
+    // Dashboard
     getDashboardStats,
+    
+    // Constants
     SUPABASE_URL,
     SUPABASE_ANON_KEY
 };
 
-window.AutoDClient = AutoDClient;
+// ─── Browser / Global ──────────────────────────────────────────
+if (typeof window !== 'undefined') {
+    window.AutoDClient = AutoDClient;
+}
 
+// ─── Node / CommonJS ────────────────────────────────────────────
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = AutoDClient;
 }
 
 console.log('🚗 Auto-D Kenya Supabase Client initialized');
+console.log('📦 Version: 2.0.0');
+console.log('🔐 Auth: Supabase + JWT');
+console.log('📊 Tables: vehicles, reports, services, payments, settings');
