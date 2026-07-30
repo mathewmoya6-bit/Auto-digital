@@ -170,4 +170,82 @@ class ChekiScraper(BaseScraper):
                 "model": details.get("model", ""),
                 "variant": details.get("trim", "") or details.get("variant", ""),
                 "trim": details.get("trim", ""),
-                "location": details
+                "location": details.get("location", ""),
+                "url": url,
+                "image_url": image_url,
+                "fuel_type": self._parse_fuel_type(details.get("fuel type", "")),
+                "transmission": self._parse_transmission(details.get("transmission", "")),
+                "body_type": self._parse_body_type(details.get("body type", "")),
+                "engine_size": self._parse_engine_size(details.get("engine", "")),
+                "description": self._extract_description(soup),
+                "seller": details.get("seller", ""),
+                "scraped_at": datetime.utcnow().isoformat()
+            }
+            
+            return listing
+            
+        except Exception as e:
+            logger.error(f"Error parsing listing {url}: {str(e)}")
+            return None
+    
+    def _extract_details(self, soup: BeautifulSoup) -> Dict[str, str]:
+        """
+        Extract vehicle details from listing page.
+        
+        Args:
+            soup: BeautifulSoup object of the listing page
+            
+        Returns:
+            Dict of attribute key-value pairs
+        """
+        details = {}
+        
+        # Extract from listing details section
+        detail_items = soup.select(".listing-details .detail-item")
+        if not detail_items:
+            detail_items = soup.select(".details .detail")
+        if not detail_items:
+            detail_items = soup.select(".specifications .spec")
+        
+        for item in detail_items:
+            label_elem = item.select_one(".detail-label")
+            value_elem = item.select_one(".detail-value")
+            
+            if not label_elem or not value_elem:
+                label_elem = item.select_one(".label")
+                value_elem = item.select_one(".value")
+            
+            if label_elem and value_elem:
+                key = label_elem.get_text(strip=True).lower()
+                value = value_elem.get_text(strip=True)
+                details[key] = value
+        
+        # Extract from data fields
+        data_fields = soup.select("[data-field]")
+        for field in data_fields:
+            key = field.get("data-field", "")
+            if key:
+                value = field.get_text(strip=True)
+                details[key] = value
+        
+        return details
+    
+    def _extract_description(self, soup: BeautifulSoup) -> Optional[str]:
+        """
+        Extract description from listing page.
+        
+        Args:
+            soup: BeautifulSoup object of the listing page
+            
+        Returns:
+            Description text or None
+        """
+        desc_elem = soup.select_one(self.listing_selectors["description"])
+        if desc_elem:
+            return desc_elem.get_text(strip=True)
+        
+        desc_elem = soup.select_one(".description .text")
+        if desc_elem:
+            return desc_elem.get_text(strip=True)
+        
+        return None
