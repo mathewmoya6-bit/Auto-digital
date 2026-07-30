@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
+        /* ─── CSS Variables ────────────────────────────────────────── */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -941,6 +942,9 @@
                     AI-powered vehicle valuation for the Kenyan market<br />
                     <span style="font-size:12px;color:var(--text-muted);">⚡ Real-time estimates · Market-driven · High accuracy</span>
                 </p>
+                <a href="/dashboard.html" class="dashboard-link" style="display:inline-flex;align-items:center;gap:8px;padding:8px 18px;background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.2);border-radius:8px;color:#eab308;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;text-decoration:none;transition:all 0.3s ease;margin-top:8px;">
+                    <span class="arrow">←</span> Back to Dashboard
+                </a>
             </div>
             <div class="header-right">
                 <div class="version">Version <span>2026.07</span> <span class="auto-d-badge">Auto-D</span></div>
@@ -1239,7 +1243,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> AI Valuation · Real-time Market Data<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.4
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.5
             </div>
         </footer>
     </div>
@@ -1247,36 +1251,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK
-        // Version 4.4
-        //
-        // Endpoints verified against Auto-D Kenya API spec — all correct:
-        //   GET  /api/v1/mpesa/mpesa/user/services
-        //   POST /api/v1/mpesa/mpesa/stkpush
-        //   GET  /api/v1/mpesa/mpesa/status/{checkout_request_id}
-        //   POST /api/v1/mpesa/mpesa/confirm/{checkout_request_id}
-        //   POST /api/v1/valuation/calculate
-        //
-        // Bug fixes in this version:
-        //  1. checkServiceAccess() now detects the locked→unlocked transition
-        //     and automatically reloads the vehicle selector chain
-        //     (populateCategories) at that moment. Previously, signing in or
-        //     completing an M-Pesa payment flipped the "unlocked" badge but
-        //     left the Category/Make/Model/Generation/Variant dropdowns stuck
-        //     disabled until a manual page refresh.
-        //  2. signOut() now calls updateServiceUI() so the unlock badge and
-        //     purchase button correctly reset immediately after logout,
-        //     instead of visually showing stale "unlocked" state.
-        //  3. apiRequest()'s hard-401 path (session truly expired) now also
-        //     resets isUnlocked and refreshes the service UI, instead of only
-        //     resetting auth state.
-        //  4. updateServiceUI() no longer enables "Get AI Valuation" the
-        //     instant the service unlocks — it now also requires a vehicle
-        //     variant to already be selected, matching the button's actual
-        //     precondition in valuate().
-        //  5. The periodic 30s auth-recheck had a dead no-op stub
-        //     ("// Update UI"); checkAuth() now unconditionally re-runs
-        //     checkServiceAccess() so the UI is always kept in sync, and a
-        //     toast now fires if the session is found to have expired.
+        // Version 4.5 - Fixed: Correct view name and API endpoint
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1286,7 +1261,7 @@
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                VIEW_NAME: 'vehicle_full_specs',
+                VIEW_NAME: 'vehicle_master_specs',  // Fixed: correct view name
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html'
             };
@@ -1503,10 +1478,6 @@
                         console.warn('Session refresh check failed:', e);
                     }
 
-                    // FIX: a hard 401 (session truly invalid) means the service
-                    // is no longer accessible either — reset isUnlocked and
-                    // refresh the service UI, not just the auth UI, so the
-                    // unlock badge/purchase button don't show stale state.
                     clearTokens();
                     isAuthenticated = false;
                     isUnlocked = false;
@@ -1551,9 +1522,6 @@
                     setTokens(data.session);
                     
                     updateAuthUI();
-                    // checkServiceAccess() will detect this is a new unlock (if
-                    // the account already has the service) and automatically
-                    // (re)load the vehicle selector chain.
                     await checkServiceAccess();
                     
                     showToast('✅ Signed in successfully!', 'success');
@@ -1588,9 +1556,6 @@
                     serviceAccess = null;
                     isUnlocked = false;
                     updateAuthUI();
-                    // FIX: previously updateServiceUI() was never called here,
-                    // so the "unlocked" badge and purchase button kept showing
-                    // stale state after signing out.
                     updateServiceUI();
                     showToast('🔓 Signed out', 'info');
                     return true;
@@ -1618,13 +1583,6 @@
                     }
 
                     updateAuthUI();
-
-                    // FIX: checkServiceAccess() used to only be called when
-                    // isAuthenticated was true, so signing out (or a session
-                    // expiring) between checks never reset isUnlocked/the
-                    // service UI. It's now called unconditionally — internally
-                    // it already handles both the authenticated and
-                    // unauthenticated cases correctly.
                     await checkServiceAccess();
 
                     if (wasAuthenticated && !isAuthenticated) {
@@ -1668,16 +1626,6 @@
                     
                     updateServiceUI();
 
-                    // FIX: this is the core bug fix. Previously, unlocking the
-                    // service (via sign-in or a completed payment) only ever
-                    // flipped the badge/purchase button — it never reloaded
-                    // the Category/Make/Model/Generation/Variant dropdowns,
-                    // which had failed to populate earlier while the user was
-                    // still locked out. That left the tool looking "unlocked"
-                    // but functionally unusable until a manual page refresh.
-                    // We only do this on the locked->unlocked transition (not
-                    // on every periodic recheck) so an already-unlocked user's
-                    // in-progress selection isn't wiped out every 30 seconds.
                     if (isUnlocked && !wasUnlocked) {
                         await populateCategories();
                     }
@@ -1791,9 +1739,6 @@
 
                     if (confirmed) {
                         showToast('✅ Payment confirmed! Valuation unlocked.', 'success');
-                        // checkServiceAccess() will detect the locked->unlocked
-                        // transition here and automatically (re)load the
-                        // vehicle selector chain — see the FIX note above.
                         await checkServiceAccess();
                         return true;
                     }
@@ -1812,10 +1757,6 @@
                     el.serviceBadge.textContent = '✅ Valuation Unlocked';
                     el.serviceBadge.className = 'auth-status service-unlocked';
                     el.btnPurchase.style.display = 'none';
-                    // FIX: only enable "Get AI Valuation" once a vehicle
-                    // variant is actually selected — previously this enabled
-                    // the button the instant the service unlocked, before the
-                    // user had chosen anything to valuate.
                     if (el.valuateBtn) el.valuateBtn.disabled = !el.variantSelect.value;
                 } else if (isAuthenticated && !isUnlocked) {
                     el.serviceStatus.style.display = 'block';
@@ -1867,11 +1808,11 @@
             async function loadCategories() {
                 try {
                     setStatus('info', 'Loading categories...');
-                    const data = await queryView('category_id, category', null, { column: 'category', ascending: true });
+                    const data = await queryView('category_id, category_name', null, { column: 'category_name', ascending: true });
                     const unique = {};
                     data.forEach(item => {
                         if (item.category_id && !unique[item.category_id]) {
-                            unique[item.category_id] = { id: item.category_id, name: item.category };
+                            unique[item.category_id] = { id: item.category_id, name: item.category_name };
                         }
                     });
                     return Object.values(unique);
@@ -1886,14 +1827,14 @@
                 try {
                     setStatus('info', 'Loading makes...');
                     const data = await queryView(
-                        'make_id, make, country',
+                        'make_id, make_name, make_country',
                         { column: 'category_id', value: categoryId },
-                        { column: 'make', ascending: true }
+                        { column: 'make_name', ascending: true }
                     );
                     const unique = {};
                     data.forEach(item => {
                         if (item.make_id && !unique[item.make_id]) {
-                            unique[item.make_id] = { id: item.make_id, name: item.make, country: item.country };
+                            unique[item.make_id] = { id: item.make_id, name: item.make_name, country: item.make_country };
                         }
                     });
                     return Object.values(unique);
@@ -1908,14 +1849,14 @@
                 try {
                     setStatus('info', 'Loading models...');
                     const data = await queryView(
-                        'model_id, model, model_body_type',
+                        'model_id, model_name, model_body_type',
                         { column: 'make_id', value: makeId },
-                        { column: 'model', ascending: true }
+                        { column: 'model_name', ascending: true }
                     );
                     const unique = {};
                     data.forEach(item => {
                         if (item.model_id && !unique[item.model_id]) {
-                            unique[item.model_id] = { id: item.model_id, name: item.model, body_type: item.model_body_type };
+                            unique[item.model_id] = { id: item.model_id, name: item.model_name, body_type: item.model_body_type };
                         }
                     });
                     return Object.values(unique);
@@ -1930,9 +1871,9 @@
                 try {
                     setStatus('info', 'Loading generations...');
                     const data = await queryView(
-                        'generation_id, generation_code, start_year, end_year',
+                        'generation_id, generation_code, generation_start_year, generation_end_year',
                         { column: 'model_id', value: modelId },
-                        { column: 'start_year', ascending: false }
+                        { column: 'generation_start_year', ascending: false }
                     );
                     const unique = {};
                     data.forEach(item => {
@@ -1940,8 +1881,8 @@
                             unique[item.generation_id] = {
                                 id: item.generation_id,
                                 code: item.generation_code,
-                                start_year: item.start_year,
-                                end_year: item.end_year
+                                start_year: item.generation_start_year,
+                                end_year: item.generation_end_year
                             };
                         }
                     });
@@ -1957,11 +1898,11 @@
                 try {
                     setStatus('info', 'Loading variants...');
                     const data = await queryView(
-                        `variant_id, variant, trim_level, engine_size_cc, power_hp, torque_nm, 
-                         fuel_consumption_combined, co2_emissions, seats, doors, fuel_type, 
-                         transmission, drive_type, body_type`,
+                        `variant_id, variant_name, trim_level, engine_size_cc, power_hp, torque_nm, 
+                         fuel_consumption_combined, co2_emissions, seats, doors, fuel_type_name, 
+                         transmission_type_name, drive_type_name, body_type_name`,
                         { column: 'generation_id', value: generationId },
-                        { column: 'variant', ascending: true }
+                        { column: 'variant_name', ascending: true }
                     );
                     return data;
                 } catch (error) {
@@ -2122,7 +2063,7 @@
                 const seen = new Map();
 
                 variants.forEach(v => {
-                    let label = v.variant || 'Variant';
+                    let label = v.variant_name || 'Variant';
                     
                     const parts = label.split(' ');
                     if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
@@ -2140,8 +2081,8 @@
                     let displayLabel = label;
                     if (v.engine_size_cc) displayLabel += ` ${v.engine_size_cc}cc`;
                     if (v.power_hp) displayLabel += ` ${v.power_hp}hp`;
-                    if (v.fuel_type) displayLabel += ` (${v.fuel_type})`;
-                    if (v.transmission) displayLabel += ` ${v.transmission}`;
+                    if (v.fuel_type_name) displayLabel += ` (${v.fuel_type_name})`;
+                    if (v.transmission_type_name) displayLabel += ` ${v.transmission_type_name}`;
                     
                     opt.textContent = displayLabel;
                     select.appendChild(opt);
@@ -2154,16 +2095,16 @@
             // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
             function displayVehicleInfo(variant) {
                 const label = getVehicleName(
-                    variant.make || '',
-                    variant.model || '',
-                    variant.variant || ''
+                    variant.make_name || '',
+                    variant.model_name || '',
+                    variant.variant_name || ''
                 );
                 
-                const cleanBody = cleanBodyType(variant.body_type || variant.model_body_type || '');
+                const cleanBody = cleanBodyType(variant.body_type_name || variant.model_body_type || '');
                 
                 el.vehicleLabel.textContent = label || 'Unnamed variant';
-                el.fuelPill.textContent = variant.fuel_type || '—';
-                el.transmissionPill.textContent = variant.transmission || '—';
+                el.fuelPill.textContent = variant.fuel_type_name || '—';
+                el.transmissionPill.textContent = variant.transmission_type_name || '—';
 
                 const engineCC = variant.engine_size_cc || null;
                 if (engineCC) {
@@ -2182,7 +2123,7 @@
                     { label: '💺', value: `${variant.seats || 5} seats` },
                     { label: '🚪', value: `${variant.doors || 4} doors` },
                     { label: '🚗', value: cleanBody || '—' },
-                    { label: '🏷️', value: variant.category || '—' }
+                    { label: '🏷️', value: variant.category_name || '—' }
                 ];
 
                 el.vehicleSpecs.innerHTML = specItems.map(item =>
@@ -2326,6 +2267,11 @@
                     location: formData.location || 'nairobi',
                     images: images.length > 0 ? images : undefined
                 };
+
+                // CORRECT ENDPOINT: /api/v1/valuation/calculate
+                const url = `${CONFIG.API_BASE}/valuation/calculate`;
+                console.log('📤 Valuation Request URL:', url);
+                console.log('📦 Payload:', JSON.stringify(payload, null, 2));
 
                 const response = await apiRequest('/valuation/calculate', {
                     method: 'POST',
@@ -2780,11 +2726,6 @@
                     }
                 });
 
-                // FIX: this previously had a dead "// Update UI" stub that did
-                // nothing when auth state changed. checkAuth() now always
-                // re-runs checkServiceAccess() (which always calls
-                // updateServiceUI()), so the UI stays correctly in sync on
-                // every periodic recheck without any extra code needed here.
                 setInterval(async () => {
                     await checkAuth();
                 }, 30000);
@@ -2804,11 +2745,6 @@
                     }
 
                     await checkAuth();
-                    // If checkAuth() already found the service unlocked, it will
-                    // have called populateCategories() itself via
-                    // checkServiceAccess(). If the user isn't unlocked yet, this
-                    // call simply shows the "locked" empty state, which is
-                    // correct and matches prior behavior.
                     await populateCategories();
 
                     if (el.categorySelect.options.length > 1) {
@@ -2825,6 +2761,7 @@
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔓 Service Unlocked: ${isUnlocked ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Base: ${CONFIG.API_BASE}`);
+                    console.log(`📊 View: ${CONFIG.VIEW_NAME}`);
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
