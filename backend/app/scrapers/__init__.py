@@ -9,7 +9,6 @@ from .jiji import JijiScraper
 from .cheki import ChekiScraper
 from .autochek import AutochekScraper
 from .beepbeep import BeepBeepScraper
-from .pigiame import PigiameScraper
 
 __all__ = [
     "BaseScraper",
@@ -17,5 +16,4 @@ __all__ = [
     "ChekiScraper",
     "AutochekScraper",
     "BeepBeepScraper",
-    "PigiameScraper"
 ]
