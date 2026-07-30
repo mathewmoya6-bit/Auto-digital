@@ -26,6 +26,12 @@ from app.modules.market.router import router as market_router
 from app.modules.notifications.router import router as notifications_router
 from app.modules.admin.router import router as admin_router
 
+# ─── NEW MODULES ──────────────────────────────────────────────────
+
+# Import new Running Cost and Ownership modules
+from app.modules.running_cost.router import router as running_cost_router
+from app.modules.ownership.router import router as ownership_router
+
 # ─── LOGGING ──────────────────────────────────────────────────────
 
 logger = logging.getLogger(__name__)
@@ -69,8 +75,7 @@ async def lifespan(app: FastAPI):
 
 # ─── CREATE APP ──────────────────────────────────────────────────
 
-# Always enable docs for debugging, but you can conditionally disable in production
-# if you really need to
+# Always enable docs for debugging
 ENABLE_DOCS = True  # Set to False to disable docs
 
 app = FastAPI(
@@ -157,6 +162,22 @@ app.include_router(
     admin_router,
     prefix=settings.API_V1_PREFIX,
     tags=["Admin"]
+)
+
+# ─── NEW ROUTES ──────────────────────────────────────────────────
+
+# Running Cost Routes (Mileage & Running Cost Calculator)
+app.include_router(
+    running_cost_router,
+    prefix=settings.API_V1_PREFIX,
+    tags=["Running Cost"]
+)
+
+# Ownership Routes (Total Cost of Ownership - TCO)
+app.include_router(
+    ownership_router,
+    prefix=settings.API_V1_PREFIX,
+    tags=["Ownership"]
 )
 
 
@@ -292,7 +313,6 @@ async def root():
                 "valuation": f"{settings.API_V1_PREFIX}/reports/valuation",
                 "running_cost": f"{settings.API_V1_PREFIX}/reports/running-cost",
                 "history": f"{settings.API_V1_PREFIX}/reports/history",
-                # NEW: Mileage and running cost endpoints
                 "mileage_rate": f"{settings.API_V1_PREFIX}/reports/mileage-rate",
                 "ownership_cost": f"{settings.API_V1_PREFIX}/reports/ownership-cost",
                 "fuel_prices": f"{settings.API_V1_PREFIX}/reports/fuel-prices",
@@ -324,6 +344,15 @@ async def root():
                 "stats": f"{settings.API_V1_PREFIX}/admin/stats",
                 "users": f"{settings.API_V1_PREFIX}/admin/users",
                 "payments": f"{settings.API_V1_PREFIX}/admin/payments"
+            },
+            # ─── NEW ENDPOINTS ──────────────────────────────────────
+            "running_cost": {
+                "calculate": f"{settings.API_V1_PREFIX}/running-cost/calculate",
+                "health": f"{settings.API_V1_PREFIX}/running-cost/health"
+            },
+            "ownership": {
+                "calculate": f"{settings.API_V1_PREFIX}/ownership/calculate",
+                "health": f"{settings.API_V1_PREFIX}/ownership/health"
             }
         },
         "health": {
