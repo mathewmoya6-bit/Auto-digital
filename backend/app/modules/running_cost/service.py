@@ -6,6 +6,7 @@ from datetime import datetime
 import math
 
 from app.core.database import get_supabase
+# Import the schema from router
 from app.modules.running_cost.router import RunningCostRequest
 
 logger = logging.getLogger(__name__)
@@ -117,9 +118,6 @@ class RunningCostService:
         monthly_tyre = tyre_cost_per_km * monthly_mileage
         monthly_insurance = annual_insurance / 12
         monthly_depreciation = (purchase_price * depreciation_rate) / 12
-        monthly_total = monthly_fuel + monthly_service + monthly_tyre + monthly_insurance + monthly_depreciation
-        
-        annual_total = monthly_total * 12
         
         # 5-year projection
         five_year_data = self._calculate_five_year_data(
