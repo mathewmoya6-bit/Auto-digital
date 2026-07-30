@@ -4,7 +4,9 @@
 # TYPE: SERVICE - Configuration management
 
 import os
+import json
 from typing import List, Optional, Union
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -252,7 +254,9 @@ class Settings(BaseSettings):
     # ─── FILE UPLOAD LIMITS ──────────────────────────────────────
     MAX_UPLOAD_SIZE: int = 10485760  # 10MB
     MAX_PHOTO_UPLOADS: int = 8
-    ALLOWED_IMAGE_TYPES: List[str] = ["image/jpeg", "image/png", "image/webp", "image/gif"]
+    
+    # ─── FIX: ALLOWED_IMAGE_TYPES - Use string and parse ────────
+    ALLOWED_IMAGE_TYPES_STR: str = "image/jpeg,image/png,image/webp,image/gif"
     
     # ─── LOGGING ──────────────────────────────────────────────────
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
@@ -357,6 +361,60 @@ class Settings(BaseSettings):
     # ─── CACHE CONTROL ────────────────────────────────────────────
     CACHE_CONTROL_MAX_AGE: int = 3600
     CACHE_CONTROL_STALE_WHILE_REVALIDATE: int = 86400
+    
+    # ─── VALIDATORS ───────────────────────────────────────────────
+    
+    @field_validator("ALLOWED_IMAGE_TYPES_STR", mode="before")
+    @classmethod
+    def parse_allowed_image_types(cls, v):
+        """Parse string to list for image types."""
+        if isinstance(v, str):
+            return v
+        return v
+    
+    @property
+    def ALLOWED_IMAGE_TYPES(self) -> List[str]:
+        """Get allowed image types as list."""
+        if isinstance(self.ALLOWED_IMAGE_TYPES_STR, str):
+            return [x.strip() for x in self.ALLOWED_IMAGE_TYPES_STR.split(",") if x.strip()]
+        return self.ALLOWED_IMAGE_TYPES_STR
+    
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS origins from string or list."""
+        if isinstance(v, str):
+            try:
+                # Try JSON parsing
+                return json.loads(v)
+            except json.JSONDecodeError:
+                # Try comma-separated
+                return [x.strip() for x in v.split(",") if x.strip()]
+        return v
+    
+    @field_validator("CORS_ALLOW_METHODS", mode="before")
+    @classmethod
+    def parse_cors_methods(cls, v):
+        """Parse CORS methods from string or list."""
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return v
+    
+    @field_validator("CORS_ALLOW_HEADERS", mode="before")
+    @classmethod
+    def parse_cors_headers(cls, v):
+        """Parse CORS headers from string or list."""
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return v
+    
+    @field_validator("COMPRESS_MIMETYPES", mode="before")
+    @classmethod
+    def parse_compress_mimetypes(cls, v):
+        """Parse compress mimetypes from string or list."""
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return v
     
     class Config:
         """Pydantic config for Settings."""
