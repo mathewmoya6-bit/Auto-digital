@@ -1,4 +1,4 @@
-# main.py
+# app/main.py
 # Auto-D Kenya - FastAPI Application Entry Point
 # ================================================================
 # TYPE: ROUTES - Application entry point and route registration
@@ -13,12 +13,12 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from datetime import datetime
 
-# Add the current directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add the parent directory to path for module resolution
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import local modules
-from config import settings
-from routes import (
+# Import local modules - using app. prefix for absolute imports
+from app.config import settings
+from app.routes import (
     auth_routes,
     vehicle_routes,
     service_routes,
@@ -50,14 +50,26 @@ async def lifespan(app: FastAPI):
     logger.info(f"{settings.PROJECT_NAME} starting up...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"API Base URL: {settings.API_BASE_URL}")
+    logger.info(f"Port: {settings.PORT}")
     
     # Initialize database connection
     try:
-        from database import get_supabase
+        from app.database import get_supabase
         client = get_supabase()
+        # Test connection
+        response = client.table("services").select("count").limit(1).execute()
         logger.info("✅ Supabase connection established")
     except Exception as e:
         logger.error(f"❌ Supabase connection failed: {str(e)}")
+    
+    # Initialize M-Pesa service
+    try:
+        from app.mpesa import MpesaService
+        mpesa = MpesaService()
+        token = await mpesa._get_access_token()
+        logger.info("✅ M-Pesa service initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ M-Pesa service initialization failed: {str(e)}")
     
     yield
     
@@ -80,6 +92,14 @@ app = FastAPI(
     - Mileage and Fuel Cost Calculator
     - M-Pesa Integration for payments
     - Vehicle Data Scraping from Kenyan marketplaces
+    
+    ## API Documentation
+    - Base URL: https://auto-digital.meipressgroup.com
+    - API Prefix: /api/v1
+    
+    ## Authentication
+    Most endpoints require JWT authentication via Bearer token.
+    Get your token from the /api/v1/login endpoint.
     """,
     docs_url="/docs" if settings.ENVIRONMENT == "development" else None,
     redoc_url="/redoc" if settings.ENVIRONMENT == "development" else None,
@@ -97,10 +117,9 @@ app.add_middleware(
     allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
     allow_methods=settings.get_cors_methods(),
     allow_headers=settings.get_cors_headers(),
-    expose_headers=["X-Total-Count", "X-Page", "X-Limit"],
+    expose_headers=["X-Total-Count", "X-Page", "X-Limit", "X-Request-ID"],
     max_age=settings.CORS_MAX_AGE
 )
-
 
 # Trusted Host Middleware (only in production)
 if settings.ENVIRONMENT == "production":
@@ -121,14 +140,56 @@ if settings.ENVIRONMENT == "production":
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler for all unhandled exceptions."""
+    """
+    Global exception handler for all unhandled exceptions.
+    """
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    
+    # Log request details for debugging
+    logger.error(f"Request: {request.method} {request.url.path}")
+    if request.headers.get("x-request-id"):
+        logger.error(f"Request ID: {request.headers.get('x-request-id')}")
+    
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal Server Error",
-            "message": str(exc) if settings.DEBUG else "An unexpected error occurred",
-            "timestamp": datetime.utcnow().isoformat()
+            "message": str(exc) if settings.DEBUG else "An unexpected error occurred. Please try again later.",
+            "timestamp": datetime.utcnow().isoformat(),
+            "path": request.url.path,
+            "method": request.method
+        }
+    )
+
+
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc: Exception):
+    """
+    404 Not Found handler.
+    """
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "Not Found",
+            "message": f"The endpoint {request.method} {request.url.path} does not exist",
+            "timestamp": datetime.utcnow().isoformat(),
+            "path": request.url.path
+        }
+    )
+
+
+@app.exception_handler(405)
+async def method_not_allowed_handler(request: Request, exc: Exception):
+    """
+    405 Method Not Allowed handler.
+    """
+    return JSONResponse(
+        status_code=405,
+        content={
+            "error": "Method Not Allowed",
+            "message": f"Method {request.method} not allowed for {request.url.path}",
+            "timestamp": datetime.utcnow().isoformat(),
+            "path": request.url.path
         }
     )
 
@@ -146,15 +207,16 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat(),
         "environment": settings.ENVIRONMENT,
         "version": "1.0.0",
-        "service": settings.PROJECT_NAME
+        "service": settings.PROJECT_NAME,
+        "uptime": "N/A"  # Could be tracked with a startup time variable
     }
     
     # Check Supabase connection
     try:
-        from database import get_supabase
+        from app.database import get_supabase
         client = get_supabase()
         # Test connection with a simple query
-        response = client.table("services").select("count").limit(1).execute()
+        response = client.table("services").select("*").limit(1).execute()
         health_status["supabase"] = "connected"
         health_status["supabase_status"] = "healthy"
     except Exception as e:
@@ -166,7 +228,7 @@ async def health_check():
     
     # Check M-Pesa service
     try:
-        from mpesa import MpesaService
+        from app.mpesa import MpesaService
         mpesa = MpesaService()
         token = await mpesa._get_access_token()
         health_status["mpesa"] = "connected"
@@ -188,10 +250,23 @@ async def readiness_check():
     Readiness check endpoint.
     Indicates whether the API is ready to accept traffic.
     """
-    return {
+    readiness_status = {
         "status": "ready",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "environment": settings.ENVIRONMENT
     }
+    
+    # Check all dependencies are ready
+    try:
+        from app.database import get_supabase
+        client = get_supabase()
+        client.table("services").select("count").limit(1).execute()
+        readiness_status["supabase"] = "ready"
+    except Exception as e:
+        readiness_status["supabase"] = "not_ready"
+        readiness_status["status"] = "not_ready"
+    
+    return readiness_status
 
 
 @app.get("/live", tags=["Health"])
@@ -202,7 +277,8 @@ async def liveness_check():
     """
     return {
         "status": "alive",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "environment": settings.ENVIRONMENT
     }
 
 
@@ -220,19 +296,58 @@ async def root():
         "api_prefix": settings.API_V1_PREFIX,
         "base_url": settings.API_BASE_URL,
         "endpoints": {
-            "auth": f"{settings.API_V1_PREFIX}/login",
-            "vehicles": f"{settings.API_V1_PREFIX}/vehicles",
-            "services": f"{settings.API_V1_PREFIX}/mpesa/services",
-            "valuation": f"{settings.API_V1_PREFIX}/valuation/calculate",
-            "running_cost": f"{settings.API_V1_PREFIX}/running-cost/calculate",
-            "ownership": f"{settings.API_V1_PREFIX}/ownership/calculate",
-            "mileage": f"{settings.API_V1_PREFIX}/mileage/calculate"
+            "auth": {
+                "login": f"{settings.API_V1_PREFIX}/login",
+                "register": f"{settings.API_V1_PREFIX}/register",
+                "logout": f"{settings.API_V1_PREFIX}/logout",
+                "me": f"{settings.API_V1_PREFIX}/me"
+            },
+            "vehicles": {
+                "list": f"{settings.API_V1_PREFIX}/vehicles",
+                "add": f"{settings.API_V1_PREFIX}/vehicles",
+                "makes": f"{settings.API_V1_PREFIX}/makes",
+                "models": f"{settings.API_V1_PREFIX}/models/{{make_id}}",
+                "generations": f"{settings.API_V1_PREFIX}/generations/{{model_id}}",
+                "variants": f"{settings.API_V1_PREFIX}/variants/{{generation_id}}",
+                "variant": f"{settings.API_V1_PREFIX}/variant/{{variant_id}}",
+                "search": f"{settings.API_V1_PREFIX}/search"
+            },
+            "services": {
+                "list": f"{settings.API_V1_PREFIX}/mpesa/services",
+                "user_services": f"{settings.API_V1_PREFIX}/mpesa/user/services",
+                "requests": f"{settings.API_V1_PREFIX}/service-requests"
+            },
+            "payments": {
+                "stk_push": f"{settings.API_V1_PREFIX}/mpesa/stkpush",
+                "status": f"{settings.API_V1_PREFIX}/mpesa/status/{{checkout_id}}",
+                "confirm": f"{settings.API_V1_PREFIX}/mpesa/confirm/{{checkout_id}}",
+                "callback": f"{settings.API_V1_PREFIX}/mpesa/callback",
+                "history": f"{settings.API_V1_PREFIX}/mpesa/payments"
+            },
+            "valuation": {
+                "calculate": f"{settings.API_V1_PREFIX}/valuation/calculate",
+                "history": f"{settings.API_V1_PREFIX}/valuation/history"
+            },
+            "running_cost": {
+                "calculate": f"{settings.API_V1_PREFIX}/running-cost/calculate",
+                "history": f"{settings.API_V1_PREFIX}/running-cost/history"
+            },
+            "ownership": {
+                "calculate": f"{settings.API_V1_PREFIX}/ownership/calculate",
+                "history": f"{settings.API_V1_PREFIX}/ownership/history"
+            },
+            "mileage": {
+                "calculate": f"{settings.API_V1_PREFIX}/mileage/calculate",
+                "history": f"{settings.API_V1_PREFIX}/mileage/history"
+            }
         },
         "health": {
             "health": "/health",
             "ready": "/ready",
             "live": "/live"
-        }
+        },
+        "repository": "https://github.com/yourusername/auto-d-kenya-backend",
+        "documentation": f"{settings.API_BASE_URL}/docs" if settings.ENVIRONMENT == "development" else None
     }
 
 
@@ -300,15 +415,19 @@ app.include_router(
 if __name__ == "__main__":
     import uvicorn
     
+    logger.info("=" * 60)
     logger.info(f"🚀 Starting {settings.PROJECT_NAME}")
     logger.info(f"📡 API Base URL: {settings.API_BASE_URL}")
     logger.info(f"🔧 Environment: {settings.ENVIRONMENT}")
     logger.info(f"🔌 Port: {settings.PORT}")
+    logger.info(f"📚 Documentation: {settings.API_BASE_URL}/docs" if settings.ENVIRONMENT == "development" else "📚 Documentation disabled in production")
+    logger.info("=" * 60)
     
     uvicorn.run(
-        "main:app",
+        "app.main:app",
         host="0.0.0.0",
         port=settings.PORT,
         reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
+        log_level=settings.LOG_LEVEL.lower(),
+        workers=settings.WORKERS if settings.ENVIRONMENT == "production" else 1
     )
