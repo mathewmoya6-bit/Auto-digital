@@ -1,59 +1,73 @@
-# Auto-D Kenya — M-Pesa backend
+# 🚗 Auto-D Kenya Backend
 
-Flask service that triggers M-Pesa STK Push payments via Safaricom's Daraja API,
-and receives the payment result on a callback endpoint.
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104.1-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python)](https://python.org)
+[![Supabase](https://img.shields.io/badge/Supabase-2.5.3-3ECF8E?style=flat-square&logo=supabase)](https://supabase.com)
+[![Render](https://img.shields.io/badge/Render-Deployed-46E3B7?style=flat-square&logo=render)](https://render.com)
 
-## ⚠️ First: rotate your credentials
+**Vehicle cost analysis and valuation system for Kenya.**
 
-Any M-Pesa Consumer Key/Secret, Passkey, or Short Code that has ever been pasted into
-a chat, ticket, email, or shared doc should be treated as compromised. Before deploying
-this:
+Auto-D Kenya provides vehicle valuation, running cost calculation, ownership cost analysis, and M-Pesa payment integration for the Kenyan automotive market.
 
-1. Log into the [Daraja portal](https://developer.safaricom.co.ke/).
-2. Regenerate the Consumer Key/Secret for this app.
-3. Confirm the Passkey for your paybill with Safaricom if you suspect it's been exposed.
-4. Only ever put the new values in a local `.env` file (or your host's secret manager) —
-   never in code, never in chat, never committed to git.
+---
 
-## Setup
+## 📋 Table of Contents
 
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env
-# edit .env with your real credentials
-python app.py
-```
+- [Features](#-features)
+- [Technology Stack](#-technology-stack)
+- [Project Structure](#-project-structure)
+- [Installation](#-installation)
+- [Configuration](#-configuration)
+- [Running the Application](#-running-the-application)
+- [API Documentation](#-api-documentation)
+- [API Endpoints](#-api-endpoints)
+- [M-Pesa Integration](#-mpesa-integration)
+- [Scrapers](#-scrapers)
+- [Deployment](#-deployment)
+- [Testing](#-testing)
+- [Contributing](#-contributing)
+- [License](#-license)
 
-The server starts on `http://localhost:5000` by default.
+---
 
-## Environment variables
+## ✨ Features
 
-See `.env.example` for the full list. Key ones:
+### Core Features
+- **User Authentication** - JWT-based authentication with Supabase
+- **Vehicle Management** - CRUD operations for user vehicles
+- **Vehicle Valuation** - AI-powered market value estimation
+- **Running Cost Calculator** - Trip cost and 5-year projections
+- **Ownership Cost Analysis** - Total cost of ownership with loan amortization
+- **M-Pesa Integration** - STK Push payments via Safaricom Daraja API
+- **Market Data Scraping** - Automatic scraping from Kenyan marketplaces
+- **Report Generation** - PDF and Excel reports
 
-| Variable | Purpose |
-|---|---|
-| `MPESA_ENV` | `sandbox` while testing, `production` when live |
-| `MPESA_CONSUMER_KEY` / `MPESA_CONSUMER_SECRET` | App credentials from Daraja |
-| `MPESA_SHORTCODE` | Your paybill/till number |
-| `MPESA_PASSKEY` | Lipa Na M-Pesa Online passkey for that shortcode |
-| `MPESA_CALLBACK_URL` | Public HTTPS URL Safaricom posts results to — **must be internet-reachable**, not `localhost` |
+### Technical Features
+- ✅ Async/await support for high performance
+- ✅ CORS configured for production
+- ✅ Comprehensive error handling
+- ✅ Structured logging
+- ✅ Rate limiting support
+- ✅ OpenAPI/Swagger documentation
+- ✅ Type hints for better code quality
 
-For local testing, expose your machine with a tool like `ngrok http 5000` and put the
-ngrok HTTPS URL + `/api/mpesa/callback` into `MPESA_CALLBACK_URL`.
+---
 
-## Endpoints
+## 🛠 Technology Stack
 
-- `POST /api/mpesa/stkpush` — body `{ "phone": "0712345678", "amount": 100, "account_reference": "AUTO-D-1234", "description": "Vehicle valuation" }`. Triggers the STK push prompt on the customer's phone and returns a `checkout_request_id`.
-- `POST /api/mpesa/callback` — Safaricom calls this automatically once the customer completes (or cancels) the prompt.
-- `GET /api/mpesa/status/<checkout_request_id>` — frontend polls this to find out if the payment succeeded.
-- `GET /api/health` — health check.
+| Component | Technology |
+|-----------|------------|
+| **Framework** | FastAPI 0.104.1 |
+| **Database** | Supabase (PostgreSQL) |
+| **Authentication** | Supabase Auth + JWT |
+| **Payment Integration** | Safaricom Daraja API |
+| **HTTP Client** | httpx 0.27.2 |
+| **Web Scraping** | BeautifulSoup4, lxml, httpx |
+| **PDF Generation** | ReportLab 4.2.0 |
+| **Excel Generation** | openpyxl |
+| **Async Support** | uvicorn + asyncio |
+| **Deployment** | Render.com |
 
-## Production notes
+---
 
-- Replace the in-memory `transactions` dict with a real database — it doesn't persist across restarts and won't work with multiple worker processes.
-- Run behind `gunicorn` + HTTPS (e.g. `gunicorn -w 4 -b 0.0.0.0:5000 app:app`), fronted by nginx or your platform's HTTPS termination.
-- Restrict CORS (`origins=[...]`) to your real frontend domain instead of allowing all origins.
-- Log and alert on repeated `MpesaAPIError`s — usually a sign of an expired/incorrect credential or a shortcode/passkey mismatch.
+## 📁 Project Structure
