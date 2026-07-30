@@ -22,6 +22,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/health") or request.url.path.startswith("/ready") or request.url.path.startswith("/live"):
             return await call_next(request)
         
+        # Skip logging for OPTIONS requests (CORS preflight)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        
         start_time = time.time()
         
         # Log request
@@ -38,7 +42,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             return response
             
         except Exception as e:
-            logger.exception(f"Unhandled error in request: {request.method} {request.url.path}")
+            # Log detailed error information for debugging
+            logger.error(f"❌ Unhandled error in request: {request.method} {request.url.path}")
+            logger.error(f"   Error: {str(e)}")
+            logger.error(f"   Headers: {dict(request.headers)}")
+            logger.exception("Full traceback:")
             raise
 
 
@@ -53,21 +61,29 @@ def setup_middleware(app: FastAPI) -> None:
         app: FastAPI application instance
     """
     
-    # Trusted Host Middleware (production only)
+    # ─── TRUSTED HOST MIDDLEWARE ──────────────────────────────────
+    # TEMPORARILY DISABLED for debugging CORS issues
+    # In production, re-enable with proper host list
+    
     if settings.ENVIRONMENT == "production":
+        # Temporarily allow all hosts for debugging
+        # TODO: Restrict to specific domains after CORS is fixed
         app.add_middleware(
             TrustedHostMiddleware,
-            allowed_hosts=[
-                "auto-digital.meipressgroup.com",
-                "auto-d.meipressgroup.com",
-                "auto-digital.onrender.com",
-                "auto-d.onrender.com",
-                "localhost",
-                "127.0.0.1"
-            ]
+            allowed_hosts=["*"]  # Allow all hosts temporarily for debugging
         )
-        logger.info("✅ TrustedHostMiddleware configured")
+        logger.info("✅ TrustedHostMiddleware configured (ALLOW_ALL_HOSTS - DEBUGGING MODE)")
+    else:
+        logger.info("⏭️ TrustedHostMiddleware skipped (development environment)")
     
-    # Request Logging Middleware
+    # ─── REQUEST LOGGING MIDDLEWARE ──────────────────────────────
     app.add_middleware(RequestLoggingMiddleware)
     logger.info("✅ RequestLoggingMiddleware configured")
+    
+    # ─── STARTUP LOGGING ──────────────────────────────────────────
+    logger.info("=" * 60)
+    logger.info("Middleware Configuration Summary:")
+    logger.info(f"  Environment: {settings.ENVIRONMENT}")
+    logger.info(f"  TrustedHostMiddleware: {'ENABLED (ALLOW_ALL)' if settings.ENVIRONMENT == 'production' else 'DISABLED'}")
+    logger.info(f"  RequestLoggingMiddleware: ENABLED")
+    logger.info("=" * 60)
