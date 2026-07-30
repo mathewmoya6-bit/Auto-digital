@@ -531,3 +531,52 @@ class RunningCostEngine:
             annual_fuel = (annual_mileage / fuel_consumption) * fuel_price
             annual_service = annual_mileage * service_rate if include_maintenance else 0
             annual_tyre = annual_mileage * tyre_rate if include_tyres else 0
+            annual_insurance = purchase_price * insurance_rate if include_insurance else 0
+            annual_depreciation = purchase_price * depreciation_rate if include_depreciation else 0
+            
+            # Apply usage factor
+            annual_fuel *= usage_factor
+            annual_service *= usage_factor
+            annual_tyre *= usage_factor
+            
+            # Add loan payments if financed
+            annual_loan_payment = monthly_payment * 12 if financed and year <= loan_term else 0
+            
+            # Calculate total for year
+            year_total = (
+                annual_fuel +
+                annual_service +
+                annual_tyre +
+                annual_insurance +
+                annual_depreciation +
+                annual_loan_payment
+            )
+            
+            # Update current value
+            if include_depreciation:
+                current_value -= annual_depreciation
+                current_value = max(current_value, purchase_price * 0.10)
+            else:
+                current_value = purchase_price
+            
+            yearly_data.append({
+                "year": year,
+                "fuel": round(annual_fuel, 2),
+                "service": round(annual_service, 2),
+                "tyres": round(annual_tyre, 2),
+                "insurance": round(annual_insurance, 2),
+                "depreciation": round(annual_depreciation, 2),
+                "loan_payment": round(annual_loan_payment, 2),
+                "total": round(year_total, 2),
+                "value": round(current_value, 2)
+            })
+            
+            total_cost += year_total
+        
+        return {
+            "yearly_data": yearly_data,
+            "total_cost": round(total_cost, 2),
+            "remaining_value": round(current_value, 2),
+            "age_adjusted_cost": round(total_cost / years, 2),
+            "loan_details": loan_details
+        }
