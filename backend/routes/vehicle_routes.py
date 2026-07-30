@@ -168,3 +168,44 @@ async def add_vehicle(
             detail=str(e)
         )
 
+
+@router.get("/vehicles")
+async def get_user_vehicles(current_user: dict = Depends(get_current_user)):
+    """Get all vehicles for the current user."""
+    try:
+        supabase = get_supabase()
+        response = supabase.table("vehicles").select("*").eq("user_id", current_user["id"]).order("created_at", desc=True).execute()
+        return {"data": response.data, "count": len(response.data)}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.delete("/vehicles/{vehicle_id}")
+async def delete_vehicle(
+    vehicle_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a vehicle."""
+    try:
+        supabase = get_supabase()
+        
+        response = supabase.table("vehicles").select("*").eq("id", vehicle_id).eq("user_id", current_user["id"]).execute()
+        if not response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Vehicle not found"
+            )
+        
+        supabase.table("vehicles").delete().eq("id", vehicle_id).execute()
+        return {"message": "Vehicle deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
