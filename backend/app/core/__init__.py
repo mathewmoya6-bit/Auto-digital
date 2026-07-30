@@ -1,6 +1,4 @@
-# app/core/__init__.py
-
-"""Core package for Auto-D Kenya."""
+# backend/app/core/__init__.py
 
 from .config import settings
 from .database import get_supabase
@@ -39,4 +37,25 @@ __all__ = [
     "UnauthorizedException",
     "ForbiddenException",
     "ValidationException",
+]
+
+
+2. backend/app/scrapers/__init__.py
+
+Replace with:
+
+# backend/app/scrapers/__init__.py
+
+from .base_scraper import BaseScraper
+from .jiji import JijiScraper
+from .cheki import ChekiScraper
+from .autochek import AutochekScraper
+from .beepbeep import BeepBeepScraper
+
+__all__ = [
+    "BaseScraper",
+    "JijiScraper",
+    "ChekiScraper",
+    "AutochekScraper",
+    "BeepBeepScraper",
 ]
