@@ -90,15 +90,15 @@ app = FastAPI(
 
 # ─── MIDDLEWARE ───────────────────────────────────────────────────
 
-# CORS Middleware
+# CORS Middleware - Using helper methods from config
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_origins=settings.get_cors_origins(),
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_methods=settings.get_cors_methods(),
+    allow_headers=settings.get_cors_headers(),
     expose_headers=["X-Total-Count", "X-Page", "X-Limit"],
-    max_age=86400
+    max_age=settings.CORS_MAX_AGE
 )
 
 
