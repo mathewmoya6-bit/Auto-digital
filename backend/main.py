@@ -3,6 +3,8 @@
 # ================================================================
 # TYPE: ROUTES - Application entry point and route registration
 
+import os
+import sys
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -11,6 +13,10 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from datetime import datetime
 
+# Add the current directory to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import local modules
 from config import settings
 from routes import (
     auth_routes,
