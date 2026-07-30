@@ -1,15 +1,15 @@
-# routes/auth_routes.py
+# app/routes/auth_routes.py
 # Auto-D Kenya - Authentication Routes
 # ================================================================
 # TYPE: ROUTES - Authentication endpoints
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from datetime import datetime
 
-from config import settings
-from database import get_supabase
-from schemas import LoginRequest, RegisterRequest, TokenResponse, UserResponse
-from auth import create_access_token
+from app.config import settings
+from app.database import get_supabase
+from app.schemas import LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from app.auth import create_access_token, get_current_user
 
 router = APIRouter()
 
