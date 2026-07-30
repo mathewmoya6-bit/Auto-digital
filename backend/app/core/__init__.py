@@ -1,12 +1,10 @@
 # app/core/__init__.py
-# ================================================================
-# Auto-D Kenya - Core Package
-# ================================================================
 
 """Core package for Auto-D Kenya."""
 
 from .config import settings
 from .database import get_supabase
+
 from .security import (
     create_access_token,
     decode_token,
@@ -16,7 +14,7 @@ from .security import (
 
 from .dependencies import (
     get_current_user,
-    get_optional_user,
+    get_current_user_optional,
 )
 
 from .exceptions import (
@@ -35,7 +33,7 @@ __all__ = [
     "hash_password",
     "verify_password",
     "get_current_user",
-    "get_optional_user",
+    "get_current_user_optional",
     "AppException",
     "NotFoundException",
     "UnauthorizedException",
