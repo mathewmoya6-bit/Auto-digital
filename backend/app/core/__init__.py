@@ -1,4 +1,6 @@
-# backend/app/core/__init__.py
+"""
+Auto-D Kenya Core Package
+"""
 
 from .config import settings
 from .database import get_supabase
@@ -13,6 +15,7 @@ from .security import (
 from .dependencies import (
     get_current_user,
     get_current_user_optional,
+    get_supabase_client,
 )
 
 from .exceptions import (
@@ -32,30 +35,10 @@ __all__ = [
     "verify_password",
     "get_current_user",
     "get_current_user_optional",
+    "get_supabase_client",
     "AppException",
     "NotFoundException",
     "UnauthorizedException",
     "ForbiddenException",
     "ValidationException",
-]
-
-
-2. backend/app/scrapers/__init__.py
-
-Replace with:
-
-# backend/app/scrapers/__init__.py
-
-from .base_scraper import BaseScraper
-from .jiji import JijiScraper
-from .cheki import ChekiScraper
-from .autochek import AutochekScraper
-from .beepbeep import BeepBeepScraper
-
-__all__ = [
-    "BaseScraper",
-    "JijiScraper",
-    "ChekiScraper",
-    "AutochekScraper",
-    "BeepBeepScraper",
 ]
