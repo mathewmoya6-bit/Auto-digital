@@ -6,7 +6,8 @@ from datetime import datetime
 import math
 
 from app.core.database import get_supabase
-from app.modules.ownership.router import TCORequest, TCOResponse, TCOComponent
+# Import the schema from router
+from app.modules.ownership.router import TCORequest
 
 logger = logging.getLogger(__name__)
 
@@ -111,47 +112,64 @@ class OwnershipService:
         if request.include_depreciation:
             total_ownership_cost += annual_depreciation * request.loan_term_years
         
-        monthly_total = total_ownership_cost / term_months
+        monthly_total = total_ownership_cost / term_months if term_months > 0 else 0
         
         # Components breakdown
         components = []
-        components.append(TCOComponent(
-            name="Purchase Price",
-            amount=request.purchase_price,
-            percentage=(request.purchase_price / total_ownership_cost) * 100
-        ))
-        components.append(TCOComponent(
-            name="Loan Interest",
-            amount=total_interest,
-            percentage=(total_interest / total_ownership_cost) * 100
-        ))
-        components.append(TCOComponent(
-            name="Fuel",
-            amount=annual_fuel * request.loan_term_years,
-            percentage=(annual_fuel * request.loan_term_years / total_ownership_cost) * 100
-        ))
-        components.append(TCOComponent(
-            name="Maintenance",
-            amount=annual_maintenance * request.loan_term_years,
-            percentage=(annual_maintenance * request.loan_term_years / total_ownership_cost) * 100
-        ))
-        components.append(TCOComponent(
-            name="Tyres",
-            amount=annual_tyres * request.loan_term_years,
-            percentage=(annual_tyres * request.loan_term_years / total_ownership_cost) * 100
-        ))
-        components.append(TCOComponent(
-            name="Insurance",
-            amount=annual_insurance * request.loan_term_years,
-            percentage=(annual_insurance * request.loan_term_years / total_ownership_cost) * 100
-        ))
+        
+        # Purchase Price component
+        components.append({
+            "name": "Purchase Price",
+            "amount": round(request.purchase_price, 2),
+            "percentage": round((request.purchase_price / total_ownership_cost) * 100, 1) if total_ownership_cost > 0 else 0
+        })
+        
+        # Loan Interest component
+        components.append({
+            "name": "Loan Interest",
+            "amount": round(total_interest, 2),
+            "percentage": round((total_interest / total_ownership_cost) * 100, 1) if total_ownership_cost > 0 else 0
+        })
+        
+        # Fuel component
+        fuel_total = annual_fuel * request.loan_term_years
+        components.append({
+            "name": "Fuel",
+            "amount": round(fuel_total, 2),
+            "percentage": round((fuel_total / total_ownership_cost) * 100, 1) if total_ownership_cost > 0 else 0
+        })
+        
+        # Maintenance component
+        maintenance_total = annual_maintenance * request.loan_term_years
+        components.append({
+            "name": "Maintenance",
+            "amount": round(maintenance_total, 2),
+            "percentage": round((maintenance_total / total_ownership_cost) * 100, 1) if total_ownership_cost > 0 else 0
+        })
+        
+        # Tyres component
+        tyres_total = annual_tyres * request.loan_term_years
+        components.append({
+            "name": "Tyres",
+            "amount": round(tyres_total, 2),
+            "percentage": round((tyres_total / total_ownership_cost) * 100, 1) if total_ownership_cost > 0 else 0
+        })
+        
+        # Insurance component
+        insurance_total = annual_insurance * request.loan_term_years
+        components.append({
+            "name": "Insurance",
+            "amount": round(insurance_total, 2),
+            "percentage": round((insurance_total / total_ownership_cost) * 100, 1) if total_ownership_cost > 0 else 0
+        })
         
         if request.include_depreciation:
-            components.append(TCOComponent(
-                name="Depreciation",
-                amount=annual_depreciation * request.loan_term_years,
-                percentage=(annual_depreciation * request.loan_term_years / total_ownership_cost) * 100
-            ))
+            depreciation_total = annual_depreciation * request.loan_term_years
+            components.append({
+                "name": "Depreciation",
+                "amount": round(depreciation_total, 2),
+                "percentage": round((depreciation_total / total_ownership_cost) * 100, 1) if total_ownership_cost > 0 else 0
+            })
         
         # Yearly breakdown
         yearly_breakdown = self._calculate_yearly_breakdown(
@@ -165,7 +183,7 @@ class OwnershipService:
             "monthly_cost": round(monthly_total, 2),
             "monthly_payment": round(monthly_loan_payment, 2),
             "total_interest": round(total_interest, 2),
-            "components": [c.dict() for c in components],
+            "components": components,
             "yearly_breakdown": yearly_breakdown,
             "loan_details": {
                 "principal": round(loan_principal, 2),
