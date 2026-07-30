@@ -4,7 +4,7 @@
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, UTC
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -61,6 +61,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info(f"{settings.PROJECT_NAME} shutting down...")
 
+
 # ─── CREATE APP ──────────────────────────────────────────────────
 
 app = FastAPI(
@@ -73,31 +74,35 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# ─── CORS MIDDLEWARE ─────────────────────────────────────────────
 
-# Configure CORS properly for production
+# ─── CORS MIDDLEWARE ─────────────────────────────────────────────
+# ⚠️ CRITICAL: CORS MUST be the FIRST middleware registered
+# ⚠️ Only ONE CORS middleware should exist
+
+cors_origins = settings.get_cors_origins()
+logger.info(f"CORS Origins configured: {cors_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.get_cors_origins(),
-    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
-    allow_methods=settings.get_cors_methods(),
-    allow_headers=settings.get_cors_headers(),
-    expose_headers=["Content-Length", "Content-Range"],
-    max_age=settings.CORS_MAX_AGE,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"],
+    max_age=86400,  # 24 hours
 )
 
-# Log CORS configuration
-logger.info(f"CORS Origins: {settings.get_cors_origins()}")
-logger.info(f"CORS Methods: {settings.get_cors_methods()}")
-logger.info(f"CORS Headers: {settings.get_cors_headers()}")
 
 # ─── MIDDLEWARE ──────────────────────────────────────────────────
+# All other middleware goes AFTER CORS
 
 setup_middleware(app)
+
 
 # ─── EXCEPTION HANDLERS ──────────────────────────────────────────
 
 setup_exception_handlers(app)
+
 
 # ─── ROUTES ──────────────────────────────────────────────────────
 
@@ -178,6 +183,7 @@ app.include_router(
     tags=["Ownership"]
 )
 
+
 # ─── HEALTH CHECK ENDPOINTS ─────────────────────────────────────
 
 @app.get("/health", tags=["Health"])
@@ -188,27 +194,29 @@ async def health_check():
         "environment": settings.ENVIRONMENT,
         "version": settings.VERSION,
         "service": settings.PROJECT_NAME,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(UTC).isoformat(),
+        "dependencies": {}
     }
     
     # Check Supabase connection
     try:
         client = get_supabase()
         client.table("services").select("*", count="exact").limit(1).execute()
-        health_status["supabase"] = "connected"
+        health_status["dependencies"]["supabase"] = "connected"
     except Exception as e:
-        health_status["supabase"] = "disconnected"
-        health_status["supabase_error"] = str(e)
+        health_status["dependencies"]["supabase"] = "disconnected"
+        health_status["dependencies"]["supabase_error"] = str(e)
         health_status["status"] = "degraded"
     
     return health_status
+
 
 @app.get("/ready", tags=["Health"])
 async def readiness_check():
     """Readiness check endpoint"""
     readiness_status = {
         "status": "ready",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "environment": settings.ENVIRONMENT
     }
     
@@ -222,29 +230,34 @@ async def readiness_check():
     
     return readiness_status
 
+
 @app.get("/live", tags=["Health"])
 async def liveness_check():
     """Liveness check endpoint"""
     return {
         "status": "alive",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "environment": settings.ENVIRONMENT
     }
+
 
 @app.get("/api/health", tags=["Health"])
 async def api_health_check():
     """API Health check endpoint (for Render.com compatibility)"""
     return await health_check()
 
+
 @app.get("/api/ready", tags=["Health"])
 async def api_readiness_check():
     """API Readiness check endpoint (for Render.com compatibility)"""
     return await readiness_check()
 
+
 @app.get("/api/live", tags=["Health"])
 async def api_liveness_check():
     """API Liveness check endpoint (for Render.com compatibility)"""
     return await liveness_check()
+
 
 @app.get("/", tags=["Health"])
 async def root():
@@ -256,7 +269,9 @@ async def root():
         "api_prefix": settings.API_V1_PREFIX,
         "base_url": settings.API_BASE_URL,
         "docs_url": f"{settings.API_BASE_URL}/docs" if settings.ENVIRONMENT == "development" else None,
+        "cors_origins": settings.get_cors_origins(),
     }
+
 
 # ─── STARTUP ──────────────────────────────────────────────────────
 
