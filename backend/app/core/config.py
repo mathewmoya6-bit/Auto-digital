@@ -4,7 +4,8 @@
 # TYPE: CORE - Configuration management
 
 import os
-from typing import List
+import json
+from typing import List, Union
 from pydantic_settings import BaseSettings
 
 
@@ -17,7 +18,7 @@ class Settings(BaseSettings):
     DESCRIPTION: str = "Vehicle cost analysis and valuation system for Kenya"
     API_V1_PREFIX: str = "/api/v1"
     PORT: int = 10000
-    ENVIRONMENT: str = "production"
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
     DEBUG: bool = False
     
     # ─── SUPABASE ──────────────────────────────────────────────────
@@ -32,20 +33,18 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     
     # ─── CORS ──────────────────────────────────────────────────────
-    # IMPORTANT: Add all domains that need to access your API
-    BACKEND_CORS_ORIGINS: str = os.getenv(
-        "BACKEND_CORS_ORIGINS",
+    # ⚠️ CRITICAL: This must match the environment variable name in Render
+    BACKEND_CORS_ORIGINS: Union[str, List[str]] = os.getenv(
+        "CORS_ORIGINS",
         "https://auto-d.meipressgroup.com,"
-        "https://auto-digital.meipressgroup.com,"
         "https://auto-digital.onrender.com,"
-        "https://auto-d.onrender.com,"
         "http://localhost:3000,"
         "http://localhost:8000,"
         "http://127.0.0.1:3000,"
         "http://127.0.0.1:8000"
     )
     CORS_ALLOW_METHODS: str = "GET,POST,PUT,DELETE,OPTIONS,PATCH"
-    CORS_ALLOW_HEADERS: str = "Authorization,Content-Type,Accept,Origin,X-Requested-With,Access-Control-Allow-Origin,Access-Control-Allow-Headers,Access-Control-Allow-Methods"
+    CORS_ALLOW_HEADERS: str = "Authorization,Content-Type,Accept,Origin,X-Requested-With"
     CORS_ALLOW_CREDENTIALS: bool = True
     CORS_MAX_AGE: int = 86400  # 24 hours
     
@@ -80,12 +79,43 @@ class Settings(BaseSettings):
     # ─── HELPERS ──────────────────────────────────────────────────
     
     def get_cors_origins(self) -> List[str]:
-        """Get CORS origins as list."""
-        origins = [x.strip() for x in self.BACKEND_CORS_ORIGINS.split(",") if x.strip()]
-        # Always include the API base URL
-        if self.API_BASE_URL and self.API_BASE_URL not in origins:
-            origins.append(self.API_BASE_URL)
-        return origins
+        """
+        Parse CORS origins from environment variable.
+        
+        Supports:
+        - JSON array: ["https://domain1.com", "https://domain2.com"]
+        - Comma-separated: https://domain1.com,https://domain2.com
+        - Single string: https://domain1.com
+        """
+        origins = self.BACKEND_CORS_ORIGINS
+        
+        # If it's already a list
+        if isinstance(origins, list):
+            result = [x.strip() for x in origins if x and x.strip()]
+            print(f"🔍 CORS Origins (List): {result}")
+            return result
+        
+        # If it's a string, parse it
+        if isinstance(origins, str):
+            # Try to parse as JSON array
+            try:
+                parsed = json.loads(origins)
+                if isinstance(parsed, list):
+                    result = [x.strip() for x in parsed if x and x.strip()]
+                    print(f"🔍 CORS Origins (JSON): {result}")
+                    return result
+            except json.JSONDecodeError:
+                pass
+            
+            # Fallback: comma-separated
+            result = [x.strip() for x in origins.split(",") if x.strip()]
+            print(f"🔍 CORS Origins (CSV): {result}")
+            return result
+        
+        # Default fallback
+        default = ["https://auto-d.meipressgroup.com"]
+        print(f"🔍 CORS Origins (Default): {default}")
+        return default
     
     def get_cors_methods(self) -> List[str]:
         """Get CORS methods as list."""
