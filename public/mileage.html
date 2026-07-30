@@ -1340,7 +1340,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v6.4
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v6.5
             </div>
         </footer>
     </div>
@@ -1348,8 +1348,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 6.4 - Fixed: real Supabase auth token used for API calls
-        //                Fixed: fuel-type filter now filters variants, not makes
+        // Version 6.5 - Fixed: Correct API endpoint /api/v1/running-cost/calculate
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1360,7 +1359,6 @@
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
-                TCO_VIEW: 'vehicle_ownership_cost_complete',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html'
             };
@@ -1371,12 +1369,10 @@
             let currentUser = null;
             let isFinanced = false;
             let currentVariantData = null;
-            let currentTCOData = null;
             let routes = [];
             let debounceTimer = null;
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
-            let authCheckInterval = null;
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1505,19 +1501,6 @@
                 el.progressContainer.classList.remove('show');
             }
 
-            // ─── DEBUG HELPER ──────────────────────────────────────────
-            function debugPayload(payload) {
-                console.log('🔍 Payload Validation:');
-                const required = ['variant_id', 'distance', 'annual_mileage', 'fuel_price', 'trip_type', 'driving_style'];
-                required.forEach(field => {
-                    if (payload[field] === undefined || payload[field] === null) {
-                        console.warn(`⚠️ Missing field: ${field}`);
-                    } else {
-                        console.log(`✅ ${field}: ${payload[field]}`);
-                    }
-                });
-            }
-
             // ─── SUPABASE ──────────────────────────────────────────────
             function initSupabase() {
                 try {
@@ -1534,7 +1517,7 @@
                 }
             }
 
-            // ─── AUTH TOKEN ──────────────────────────────────────────────
+            // ─── AUTH ──────────────────────────────────────────────────
             async function getAccessToken() {
                 try {
                     const { data, error } = await supabaseClient.auth.getSession();
@@ -1546,7 +1529,6 @@
                 }
             }
 
-            // ─── AUTH ──────────────────────────────────────────────────
             async function signIn(email, password) {
                 try {
                     const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -1632,10 +1614,8 @@
                 }
             }
 
-            // ─── API: QUERY THE VIEW ──────────────────────────────────
-            // FIX: Remove the authentication check so vehicle data loads even when not signed in
+            // ─── API: QUERY VIEW ──────────────────────────────────
             async function queryView(select, filter, order) {
-                // Allow public access to vehicle data
                 let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
                 if (filter) query = query.eq(filter.column, filter.value);
                 if (order) query = query.order(order.column, { ascending: order.ascending !== false });
@@ -1769,21 +1749,6 @@
                 } catch (error) {
                     console.error('Error loading variant details:', error);
                     setStatus('error', error.message);
-                    return null;
-                }
-            }
-
-            async function loadTCOData(variantId) {
-                try {
-                    const { data, error } = await supabaseClient
-                        .from(CONFIG.TCO_VIEW)
-                        .select('*')
-                        .eq('variant_id', variantId);
-                    if (error) throw error;
-                    if (data && data.length > 0) return data[0];
-                    return null;
-                } catch (error) {
-                    console.warn('⚠️ TCO data load failed:', error.message);
                     return null;
                 }
             }
@@ -1944,7 +1909,7 @@
             }
 
             // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
-            function displayVehicleInfo(variant, tcoData) {
+            function displayVehicleInfo(variant) {
                 const label = getVehicleName(
                     variant.make_name || '',
                     variant.model_name || '',
@@ -1955,8 +1920,6 @@
                 el.transmissionPill.textContent = variant.transmission_type_name || '—';
                 const engineCC = variant.engine_size_cc || null;
                 el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
-                const price = tcoData?.purchase_price || 0;
-                const costPerKm = tcoData?.cost_per_km || 0;
                 const specItems = [
                     { label: '🔧', value: variant.trim_level || 'Standard' },
                     { label: '⚡', value: `${variant.power_hp || 0} HP` },
@@ -1967,12 +1930,6 @@
                     { label: '🚗', value: variant.body_type_name || variant.model_body_type || '—' },
                     { label: '🏷️', value: variant.category_name || '—' }
                 ];
-                if (price > 0) {
-                    specItems.push({ label: '💰 New Price', value: `KES ${formatCurrency(price)}` });
-                }
-                if (costPerKm > 0) {
-                    specItems.push({ label: '📊 Cost/km', value: `KES ${formatCurrency(costPerKm)}/km` });
-                }
                 el.vehicleSpecs.innerHTML = specItems.map(item =>
                     `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
                 ).join('');
@@ -2023,21 +1980,22 @@
 
             // ─── RUNNING COST API CALL ─────────────────────────────────
             async function calculateRunningCostFromAPI(formData) {
+                // Build payload matching the backend schema
                 const payload = {
-                    variant_id: formData.variant_id,
-                    distance: formData.distance || 150,
-                    annual_mileage: formData.annual_km || 20000,
-                    fuel_price: formData.fuel_price || 200,
+                    variant_id: parseInt(formData.variant_id),
+                    distance: parseFloat(formData.distance) || 150,
+                    annual_mileage: parseFloat(formData.annual_km) || 20000,
+                    fuel_price: parseFloat(formData.fuel_price) || 200,
                     trip_type: formData.trip_type || 'mixed',
                     driving_style: formData.driving_style || 'normal',
                     usage_type: formData.usage_type || 'private',
                     location: formData.location || 'nairobi',
                     condition: 'good',
-                    year: formData.year || 2024,
+                    year: parseInt(formData.year) || 2024,
                     financed: formData.financed || false,
-                    down_payment: formData.down_payment_percent || 30,
-                    interest_rate: formData.interest_rate || 16,
-                    loan_term: formData.loan_term || 4,
+                    down_payment: parseFloat(formData.down_payment_percent) || 30,
+                    interest_rate: parseFloat(formData.interest_rate) || 16,
+                    loan_term: parseInt(formData.loan_term) || 4,
                     years: 5,
                     include_insurance: true,
                     include_maintenance: true,
@@ -2056,11 +2014,12 @@
                     console.warn('⚠️ No access token available — request will be sent unauthenticated');
                 }
 
-                console.log('📤 Sending running cost request to:', `${CONFIG.API_BASE}/running-cost/calculate`);
+                // CORRECT ENDPOINT: /api/v1/running-cost/calculate
+                const url = `${CONFIG.API_BASE}/running-cost/calculate`;
+                console.log('📤 Sending running cost request to:', url);
                 console.log('📦 Payload:', JSON.stringify(payload, null, 2));
-                debugPayload(payload);
 
-                const response = await fetch(`${CONFIG.API_BASE}/running-cost/calculate`, {
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: headers,
                     body: JSON.stringify(payload),
@@ -2107,12 +2066,6 @@
                 }
 
                 showProgress(10, 'Loading vehicle data...');
-                let tcoData = null;
-                if (variant.variant_id) {
-                    showProgress(30, 'Fetching ownership data...');
-                    tcoData = await loadTCOData(variant.variant_id);
-                    if (tcoData) currentTCOData = tcoData;
-                }
 
                 const inputs = {
                     variant_id: variant.variant_id,
@@ -2136,9 +2089,8 @@
                     const result = await calculateRunningCostFromAPI(inputs);
                     showProgress(90, 'Rendering results...');
                     
-                    if (result && (result.data || result.tripTotal)) {
-                        const data = result.data || result;
-                        renderResults(data, variant, tcoData);
+                    if (result) {
+                        renderResults(result, variant);
                         showProgress(100, 'Complete!');
                         setTimeout(hideProgress, 500);
                         showToast('✅ Running cost calculated!', 'success');
@@ -2156,7 +2108,7 @@
             }
 
             // ─── RENDER RESULTS ─────────────────────────────────────────
-            function renderResults(result, variant, tcoData) {
+            function renderResults(result, variant) {
                 if (!result) return;
 
                 const tripTotal = result.tripTotal || result.total_cost || 0;
@@ -2214,14 +2166,14 @@
 
                 const fiveYearData = result.fiveYearData || [];
                 const total5Year = result.total5YearCost || result.five_year_total || 0;
-                const originalCost = result.originalCost || tcoData?.purchase_price || 0;
+                const originalCost = result.originalCost || 2500000;
                 const remainingValue = result.remainingValue || result.resale_value || 0;
                 const valueRetention = originalCost > 0 ? Math.round((remainingValue / originalCost) * 100) : 0;
 
                 el.fiveYearStats.innerHTML = `
                     <div class="stat-card-sm">
                         <div class="label">Original Price</div>
-                        <div class="num amber">KES ${formatCurrency(originalCost || 2500000)}</div>
+                        <div class="num amber">KES ${formatCurrency(originalCost)}</div>
                     </div>
                     <div class="stat-card-sm">
                         <div class="label">Current Value</div>
@@ -2373,9 +2325,7 @@
                         return;
                     }
                     currentVariantData = variantData;
-                    const tcoData = await loadTCOData(variantId);
-                    currentTCOData = tcoData;
-                    displayVehicleInfo(variantData, tcoData);
+                    displayVehicleInfo(variantData);
                     await calculateAndRender(variantData);
                 } catch (error) {
                     console.error('Error loading variant:', error);
@@ -2562,14 +2512,12 @@
                 });
 
                 supabaseClient.auth.onAuthStateChange((_event, session) => {
-                    const wasAuthenticated = isAuthenticated;
                     currentUser = session;
                     isAuthenticated = !!session;
                     updateAuthUI();
                 });
 
-                authCheckInterval = setInterval(async () => {
-                    const wasAuthenticated = isAuthenticated;
+                setInterval(async () => {
                     await checkAuth();
                 }, 30000);
             }
@@ -2611,7 +2559,7 @@
 
                     console.log('✅ Auto-D Kenya Mileage Calculator initialized');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
-                    console.log(`🔗 API Base: ${CONFIG.API_BASE}`);
+                    console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/running-cost/calculate`);
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
