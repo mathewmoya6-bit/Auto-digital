@@ -4,9 +4,7 @@
 # TYPE: SERVICE - Configuration management
 
 import os
-import json
 from typing import List, Optional, Union
-from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -21,38 +19,34 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # ─── SUPABASE ──────────────────────────────────────────────────
-    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "https://xgkdbithhlvoqjnqvfmj.supabase.co")
-    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y")
-    SUPABASE_JWT_SECRET: str = os.getenv("SUPABASE_JWT_SECRET", "UGf98/D/Y7WQO8WZDYfPULTLcUUYMl3exPhoEutu2gizMebMiZAUJln7UMbGbdtqoYnOOd5n6N7hm8RbPR7gCg==")
+    SUPABASE_URL: str = "https://xgkdbithhlvoqjnqvfmj.supabase.co"
+    SUPABASE_KEY: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y"
+    SUPABASE_JWT_SECRET: str = "UGf98/D/Y7WQO8WZDYfPULTLcUUYMl3exPhoEutu2gizMebMiZAUJln7UMbGbdtqoYnOOd5n6N7hm8RbPR7gCg=="
     
     # ─── DATABASE ──────────────────────────────────────────────────
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    DATABASE_URL: str = ""
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
     
     # ─── JWT AUTHENTICATION ───────────────────────────────────────
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
+    JWT_SECRET: str = "your-secret-key-change-in-production"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     
     # ─── CORS ──────────────────────────────────────────────────────
-    BACKEND_CORS_ORIGINS: List[str] = [
-        "https://auto-digital.meipressgroup.com",
-        "https://auto-d.meipressgroup.com",
-        "https://auto-digital.onrender.com",
-        "https://auto-d.onrender.com",
-        "http://localhost:3000",
-        "http://localhost:5000",
-        "http://localhost:5173",
-        "http://localhost:8000"
-    ]
+    # Use simple string format - parse in validators
+    BACKEND_CORS_ORIGINS: str = "https://auto-digital.meipressgroup.com,https://auto-d.meipressgroup.com,https://auto-digital.onrender.com,https://auto-d.onrender.com"
+    CORS_ALLOW_METHODS: str = "GET,POST,PUT,DELETE,OPTIONS,PATCH"
+    CORS_ALLOW_HEADERS: str = "Authorization,Content-Type,Accept,Origin,X-Requested-With"
+    CORS_ALLOW_CREDENTIALS: bool = True
+    CORS_MAX_AGE: int = 86400
     
     # ─── M-PESA DARAJA API ────────────────────────────────────────
-    MPESA_CONSUMER_KEY: str = os.getenv("MPESA_CONSUMER_KEY", "LI2gcJZEheN8qCfXHEXV4gdYXvOBHVnv")
-    MPESA_CONSUMER_SECRET: str = os.getenv("MPESA_CONSUMER_SECRET", "aGGo8AuPJVpsZLcs")
-    MPESA_PASSKEY: str = os.getenv("MPESA_PASSKEY", "7eb17a031bdfd5b4251863a1ddb72c5b9cd14f3385aa6a258c1442a0116e8277")
-    MPESA_SHORTCODE: str = os.getenv("MPESA_SHORTCODE", "4095377")
+    MPESA_CONSUMER_KEY: str = "LI2gcJZEheN8qCfXHEXV4gdYXvOBHVnv"
+    MPESA_CONSUMER_SECRET: str = "aGGo8AuPJVpsZLcs"
+    MPESA_PASSKEY: str = "7eb17a031bdfd5b4251863a1ddb72c5b9cd14f3385aa6a258c1442a0116e8277"
+    MPESA_SHORTCODE: str = "4095377"
     MPESA_ENVIRONMENT: str = "production"
     MPESA_CALLBACK_URL: str = "https://auto-digital.meipressgroup.com/api/v1/mpesa/callback"
     MPESA_RESULT_URL: str = "https://auto-digital.meipressgroup.com/api/v1/mpesa/result"
@@ -234,13 +228,13 @@ class Settings(BaseSettings):
     API_BASE_URL: str = "https://auto-digital.meipressgroup.com"
     
     # ─── EMAIL CONFIGURATION ──────────────────────────────────────
-    SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
-    SMTP_USER: str = os.getenv("SMTP_USER", "notifications@auto-d.ke")
-    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = "notifications@auto-d.ke"
+    SMTP_PASSWORD: str = ""
     SMTP_USE_TLS: bool = True
-    SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "notifications@auto-d.ke")
-    SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "Auto-D Kenya")
+    SMTP_FROM_EMAIL: str = "notifications@auto-d.ke"
+    SMTP_FROM_NAME: str = "Auto-D Kenya"
     
     # ─── SECURITY ─────────────────────────────────────────────────
     SESSION_COOKIE_SECURE: bool = True
@@ -254,12 +248,10 @@ class Settings(BaseSettings):
     # ─── FILE UPLOAD LIMITS ──────────────────────────────────────
     MAX_UPLOAD_SIZE: int = 10485760  # 10MB
     MAX_PHOTO_UPLOADS: int = 8
-    
-    # ─── FIX: ALLOWED_IMAGE_TYPES - Use string and parse ────────
-    ALLOWED_IMAGE_TYPES_STR: str = "image/jpeg,image/png,image/webp,image/gif"
+    ALLOWED_IMAGE_TYPES: str = "image/jpeg,image/png,image/webp,image/gif"
     
     # ─── LOGGING ──────────────────────────────────────────────────
-    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "auto-d.log"
     LOG_MAX_BYTES: int = 10485760
     LOG_BACKUP_COUNT: int = 5
@@ -323,12 +315,6 @@ class Settings(BaseSettings):
     SWAGGER_CONTACT_EMAIL: str = "support@auto-d.ke"
     SWAGGER_LICENSE_NAME: str = "Proprietary"
     
-    # ─── ADDITIONAL CORS ──────────────────────────────────────────
-    CORS_ALLOW_CREDENTIALS: bool = True
-    CORS_MAX_AGE: int = 86400
-    CORS_ALLOW_METHODS: List[str] = ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
-    CORS_ALLOW_HEADERS: List[str] = ["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"]
-    
     # ─── SESSION ──────────────────────────────────────────────────
     SESSION_TYPE: str = "filesystem"
     PERMANENT_SESSION_LIFETIME: int = 86400
@@ -350,71 +336,43 @@ class Settings(BaseSettings):
     
     # ─── COMPRESSION ──────────────────────────────────────────────
     COMPRESS_ENABLED: bool = True
-    COMPRESS_MIMETYPES: List[str] = [
-        "application/json",
-        "application/javascript",
-        "text/css",
-        "text/html",
-        "text/plain"
-    ]
+    COMPRESS_MIMETYPES: str = "application/json,application/javascript,text/css,text/html,text/plain"
     
     # ─── CACHE CONTROL ────────────────────────────────────────────
     CACHE_CONTROL_MAX_AGE: int = 3600
     CACHE_CONTROL_STALE_WHILE_REVALIDATE: int = 86400
     
-    # ─── VALIDATORS ───────────────────────────────────────────────
+    # ─── HELPER METHODS ────────────────────────────────────────────
     
-    @field_validator("ALLOWED_IMAGE_TYPES_STR", mode="before")
-    @classmethod
-    def parse_allowed_image_types(cls, v):
-        """Parse string to list for image types."""
-        if isinstance(v, str):
-            return v
-        return v
+    def get_cors_origins(self) -> List[str]:
+        """Get CORS origins as list."""
+        if isinstance(self.BACKEND_CORS_ORIGINS, str):
+            return [x.strip() for x in self.BACKEND_CORS_ORIGINS.split(",") if x.strip()]
+        return self.BACKEND_CORS_ORIGINS
     
-    @property
-    def ALLOWED_IMAGE_TYPES(self) -> List[str]:
+    def get_cors_methods(self) -> List[str]:
+        """Get CORS methods as list."""
+        if isinstance(self.CORS_ALLOW_METHODS, str):
+            return [x.strip() for x in self.CORS_ALLOW_METHODS.split(",") if x.strip()]
+        return self.CORS_ALLOW_METHODS
+    
+    def get_cors_headers(self) -> List[str]:
+        """Get CORS headers as list."""
+        if isinstance(self.CORS_ALLOW_HEADERS, str):
+            return [x.strip() for x in self.CORS_ALLOW_HEADERS.split(",") if x.strip()]
+        return self.CORS_ALLOW_HEADERS
+    
+    def get_allowed_image_types(self) -> List[str]:
         """Get allowed image types as list."""
-        if isinstance(self.ALLOWED_IMAGE_TYPES_STR, str):
-            return [x.strip() for x in self.ALLOWED_IMAGE_TYPES_STR.split(",") if x.strip()]
-        return self.ALLOWED_IMAGE_TYPES_STR
+        if isinstance(self.ALLOWED_IMAGE_TYPES, str):
+            return [x.strip() for x in self.ALLOWED_IMAGE_TYPES.split(",") if x.strip()]
+        return self.ALLOWED_IMAGE_TYPES
     
-    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v):
-        """Parse CORS origins from string or list."""
-        if isinstance(v, str):
-            try:
-                # Try JSON parsing
-                return json.loads(v)
-            except json.JSONDecodeError:
-                # Try comma-separated
-                return [x.strip() for x in v.split(",") if x.strip()]
-        return v
-    
-    @field_validator("CORS_ALLOW_METHODS", mode="before")
-    @classmethod
-    def parse_cors_methods(cls, v):
-        """Parse CORS methods from string or list."""
-        if isinstance(v, str):
-            return [x.strip() for x in v.split(",") if x.strip()]
-        return v
-    
-    @field_validator("CORS_ALLOW_HEADERS", mode="before")
-    @classmethod
-    def parse_cors_headers(cls, v):
-        """Parse CORS headers from string or list."""
-        if isinstance(v, str):
-            return [x.strip() for x in v.split(",") if x.strip()]
-        return v
-    
-    @field_validator("COMPRESS_MIMETYPES", mode="before")
-    @classmethod
-    def parse_compress_mimetypes(cls, v):
-        """Parse compress mimetypes from string or list."""
-        if isinstance(v, str):
-            return [x.strip() for x in v.split(",") if x.strip()]
-        return v
+    def get_compress_mimetypes(self) -> List[str]:
+        """Get compress mimetypes as list."""
+        if isinstance(self.COMPRESS_MIMETYPES, str):
+            return [x.strip() for x in self.COMPRESS_MIMETYPES.split(",") if x.strip()]
+        return self.COMPRESS_MIMETYPES
     
     class Config:
         """Pydantic config for Settings."""
