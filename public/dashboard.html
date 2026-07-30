@@ -739,7 +739,8 @@
 
     <script>
         // ════════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - WORKING DASHBOARD
+        // AUTO-D KENYA - DASHBOARD
+        // Supabase Auth + FastAPI Payment Flow
         // ════════════════════════════════════════════════════════════════
 
         (function() {
@@ -762,18 +763,25 @@
 
             // ─── API ENDPOINTS ─────────────────────────────────────────
             const API = {
+                // Auth (FastAPI)
                 login: '/login',
                 register: '/register',
                 logout: '/logout',
                 me: '/me',
+                
+                // Vehicles
                 makes: '/makes',
                 vehicles: '/vehicles',
+                
+                // M-Pesa (FastAPI Payment Flow)
                 mpesaStkPush: '/mpesa/stkpush',
                 mpesaStatus: (id) => `/mpesa/status/${id}`,
                 mpesaConfirm: (id) => `/mpesa/confirm/${id}`,
                 mpesaPayments: '/mpesa/payments',
                 mpesaUserServices: '/mpesa/user/services',
                 mpesaServices: '/mpesa/services',
+                
+                // Services
                 valuationCalculate: '/valuation/calculate',
                 runningCostCalculate: '/running-cost/calculate',
                 ownershipCalculate: '/ownership/calculate',
@@ -810,7 +818,7 @@
                 return isNaN(n) ? 0 : n;
             }
 
-            // ─── SUPABASE ──────────────────────────────────────────────
+            // ─── SUPABASE CLIENT ──────────────────────────────────────
             function initSupabase() {
                 try {
                     if (typeof supabase === 'undefined') {
@@ -829,7 +837,7 @@
                 }
             }
 
-            // ─── AUTH ──────────────────────────────────────────────────
+            // ─── AUTH (Supabase + FastAPI JWT) ──────────────────────
             async function getAuthToken() {
                 try {
                     if (!supabaseClient) initSupabase();
@@ -903,7 +911,7 @@
                 }
             }
 
-            // ─── LOGIN / REGISTER ─────────────────────────────────────
+            // ─── LOGIN / REGISTER (FastAPI) ──────────────────────────
             window.showLoginModal = function() {
                 document.getElementById('loginModal').classList.add('open');
             };
@@ -943,7 +951,12 @@
                     if (!response.ok) {
                         throw new Error(data.detail || 'Login failed');
                     }
-                    localStorage.setItem('auto_d_user', JSON.stringify({ email, access_token: data.access_token }));
+                    // Store the JWT token from FastAPI
+                    localStorage.setItem('auto_d_user', JSON.stringify({ 
+                        email, 
+                        access_token: data.access_token,
+                        expires_in: data.expires_in
+                    }));
                     showToast('✅ Login successful!', 'success');
                     closeLoginModal();
                     await checkAuth();
@@ -989,7 +1002,10 @@
                 try {
                     const token = await getAuthToken();
                     if (token) {
-                        await fetch(API_BASE + API.logout, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+                        await fetch(API_BASE + API.logout, { 
+                            method: 'POST', 
+                            headers: { 'Authorization': `Bearer ${token}` } 
+                        });
                     }
                 } catch (e) {}
                 if (supabaseClient) await supabaseClient.auth.signOut();
@@ -1002,13 +1018,14 @@
                 showToast('🔓 Logged out', 'info');
             };
 
-            // ─── DASHBOARD ──────────────────────────────────────────────
+            // ─── DASHBOARD DATA ──────────────────────────────────────
             async function loadServicesFromDB() {
                 try {
                     const token = await getAuthToken();
                     const headers = { 'Accept': 'application/json' };
                     if (token) headers['Authorization'] = `Bearer ${token}`;
                     
+                    // GET /api/v1/mpesa/services
                     const response = await fetch(API_BASE + API.mpesaServices, { headers });
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
@@ -1047,6 +1064,7 @@
                     const token = await getAuthToken();
                     if (!token) return [];
                     
+                    // GET /api/v1/mpesa/user/services
                     const response = await fetch(API_BASE + API.mpesaUserServices, {
                         headers: { 'Authorization': `Bearer ${token}` }
                     });
@@ -1081,6 +1099,7 @@
                         status: (purchasedCodes.has(s.code) || purchasedCodes.has(s.id)) ? 'active' : 'locked'
                     }));
 
+                    // Load vehicles from Supabase
                     let vehicles = [];
                     try {
                         if (currentUser && supabaseClient) {
@@ -1094,10 +1113,12 @@
                         console.warn('Could not fetch vehicles:', e.message); 
                     }
 
+                    // Load payments from FastAPI
                     let payments = [];
                     try {
                         const token = await getAuthToken();
                         if (token) {
+                            // GET /api/v1/mpesa/payments
                             const payResp = await fetch(API_BASE + API.mpesaPayments, {
                                 headers: { 
                                     'Authorization': `Bearer ${token}`,
@@ -1109,7 +1130,6 @@
                                 const payJson = await payResp.json();
                                 payments = payJson.payments || [];
                             } else if (payResp.status === 404) {
-                                // Endpoint doesn't exist
                                 payments = [];
                             } else if (payResp.status === 401) {
                                 await checkAuth();
@@ -1120,6 +1140,7 @@
                         payments = [];
                     }
 
+                    // Load requests from Supabase
                     let requests = [];
                     try {
                         if (currentUser && supabaseClient) {
@@ -1305,6 +1326,7 @@
                             <div class="meta">
                                 <span>📅 ${new Date(p.created_at).toLocaleDateString()}</span>
                                 <span>📱 ${escapeHtml(p.phone || '—')}</span>
+                                <span>🔑 ${escapeHtml(p.checkout_request_id || '—')}</span>
                             </div>
                         </div>
                         <div style="display:flex;align-items:center;gap:12px;">
@@ -1315,7 +1337,7 @@
                 `).join('');
             }
 
-            // ─── VEHICLE CRUD ──────────────────────────────────────────
+            // ─── VEHICLE CRUD (Supabase) ─────────────────────────────
             window.openAddVehicleModal = function() {
                 document.getElementById('addVehicleModal').classList.add('open');
             };
@@ -1400,7 +1422,7 @@
                 }
             };
 
-            // ─── PAYMENT ──────────────────────────────────────────────
+            // ─── PAYMENT (FastAPI M-Pesa Flow) ───────────────────────
             window.openPaymentModal = function(service) {
                 document.getElementById('paymentServiceName').textContent = service.name;
                 const price = num(service.price).toLocaleString();
@@ -1444,6 +1466,7 @@
                 overlay.classList.add('open');
 
                 try {
+                    // POST /api/v1/mpesa/stkpush
                     const response = await fetch(API_BASE + API.mpesaStkPush, {
                         method: 'POST',
                         headers: {
@@ -1508,6 +1531,7 @@
                             const headers = { 'Accept': 'application/json' };
                             if (token) headers['Authorization'] = `Bearer ${token}`;
                             
+                            // GET /api/v1/mpesa/status/{checkout_request_id}
                             const response = await fetch(API_BASE + API.mpesaStatus(checkoutId), { headers });
                             if (response.ok) {
                                 const data = await response.json();
@@ -1515,6 +1539,7 @@
                                 if (status === 'completed' || status === 'success' || data.success === true) {
                                     clearInterval(pollTimer);
                                     pollTimer = null;
+                                    // POST /api/v1/mpesa/confirm/{checkout_request_id}
                                     const confirmResp = await fetch(API_BASE + API.mpesaConfirm(checkoutId), {
                                         method: 'POST',
                                         headers: { 'Authorization': `Bearer ${token}` }
@@ -1587,6 +1612,8 @@
             (async function() {
                 console.log('🚗 Auto-D Kenya Dashboard');
                 console.log('🔗 API Base:', API_BASE);
+                console.log('🔐 Auth: Supabase + FastAPI JWT');
+                console.log('💳 Payments: FastAPI M-Pesa Flow');
 
                 initSupabase();
                 await checkAuth();
