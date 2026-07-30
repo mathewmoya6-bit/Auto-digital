@@ -6,11 +6,12 @@
 
 from .core.config import settings
 from .core.database import get_supabase
-from .core.security import create_access_token, get_current_user
+from .core.security import create_access_token
+from .core.dependencies import get_current_user
 
 __all__ = [
     "settings",
     "get_supabase",
     "create_access_token",
-    "get_current_user"
+    "get_current_user",
 ]
