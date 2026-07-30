@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.core.database import init_db
+from app.core.database import init_db, get_supabase
 from app.core.middleware import setup_middleware
 from app.core.exceptions import setup_exception_handlers
 
@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Port: {settings.PORT}")
     logger.info("=" * 60)
     
-    # Initialize logging first
+    # Initialize logging
     try:
         setup_logging()
         logger.info("✅ Logging configured successfully")
@@ -69,13 +69,17 @@ async def lifespan(app: FastAPI):
 
 # ─── CREATE APP ──────────────────────────────────────────────────
 
+# Always enable docs for debugging, but you can conditionally disable in production
+# if you really need to
+ENABLE_DOCS = True  # Set to False to disable docs
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description=settings.DESCRIPTION,
-    docs_url="/docs" if settings.ENVIRONMENT == "development" else None,
-    redoc_url="/redoc" if settings.ENVIRONMENT == "development" else None,
-    openapi_url="/openapi.json" if settings.ENVIRONMENT == "development" else None,
+    docs_url="/docs" if ENABLE_DOCS else None,
+    redoc_url="/redoc" if ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if ENABLE_DOCS else None,
     lifespan=lifespan
 )
 
@@ -158,7 +162,6 @@ app.include_router(
 
 # ─── HEALTH CHECK ENDPOINTS ─────────────────────────────────────
 
-# Health check endpoints at root level (no prefix)
 @app.get("/health", tags=["Health"])
 async def health_check():
     """
@@ -175,7 +178,6 @@ async def health_check():
     
     # Check Supabase connection
     try:
-        from app.core.database import get_supabase
         client = get_supabase()
         client.table("services").select("*", count="exact").limit(1).execute()
         health_status["supabase"] = "connected"
@@ -201,7 +203,6 @@ async def readiness_check():
     
     # Check all dependencies are ready
     try:
-        from app.core.database import get_supabase
         client = get_supabase()
         client.table("services").select("*", count="exact").limit(1).execute()
         readiness_status["supabase"] = "ready"
@@ -225,29 +226,22 @@ async def liveness_check():
     }
 
 
-# ALSO support /api/health for Render.com compatibility
+# Also support /api/health for Render.com compatibility
 @app.get("/api/health", tags=["Health"])
 async def api_health_check():
-    """
-    API Health check endpoint (for Render.com compatibility).
-    Returns the status of the API and its dependencies.
-    """
+    """API Health check endpoint (for Render.com compatibility)"""
     return await health_check()
 
 
 @app.get("/api/ready", tags=["Health"])
 async def api_readiness_check():
-    """
-    API Readiness check endpoint (for Render.com compatibility).
-    """
+    """API Readiness check endpoint (for Render.com compatibility)"""
     return await readiness_check()
 
 
 @app.get("/api/live", tags=["Health"])
 async def api_liveness_check():
-    """
-    API Liveness check endpoint (for Render.com compatibility).
-    """
+    """API Liveness check endpoint (for Render.com compatibility)"""
     return await liveness_check()
 
 
@@ -263,7 +257,7 @@ async def root():
         "environment": settings.ENVIRONMENT,
         "api_prefix": settings.API_V1_PREFIX,
         "base_url": settings.API_BASE_URL,
-        "docs_url": f"{settings.API_BASE_URL}/docs" if settings.ENVIRONMENT == "development" else None,
+        "docs_url": f"{settings.API_BASE_URL}/docs" if ENABLE_DOCS else None,
         "endpoints": {
             "auth": {
                 "login": f"{settings.API_V1_PREFIX}/login",
