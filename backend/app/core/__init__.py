@@ -1,4 +1,5 @@
 # app/core/__init__.py
+# ================================================================
 # Auto-D Kenya - Core Package
 # ================================================================
 
@@ -6,22 +7,38 @@
 
 from .config import settings
 from .database import get_supabase
-from .security import create_access_token, hash_password, verify_password, decode_token
-from .dependencies import get_current_user, get_current_user_optional
-from .exceptions import AppException, NotFoundException, UnauthorizedException, ForbiddenException, ValidationException
+from .security import (
+    create_access_token,
+    decode_token,
+    hash_password,
+    verify_password,
+)
+
+from .dependencies import (
+    get_current_user,
+    get_optional_user,
+)
+
+from .exceptions import (
+    AppException,
+    NotFoundException,
+    UnauthorizedException,
+    ForbiddenException,
+    ValidationException,
+)
 
 __all__ = [
     "settings",
     "get_supabase",
     "create_access_token",
-    "get_current_user",
-    "get_current_user_optional",
+    "decode_token",
     "hash_password",
     "verify_password",
-    "decode_token",
+    "get_current_user",
+    "get_optional_user",
     "AppException",
     "NotFoundException",
     "UnauthorizedException",
     "ForbiddenException",
-    "ValidationException"
+    "ValidationException",
 ]
