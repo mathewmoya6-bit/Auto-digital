@@ -627,12 +627,10 @@
         'use strict';
 
         // ─── PRODUCTION CONFIG ──────────────────────────────────────
-        // Supabase credentials
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
         // ─── PRODUCTION API BASE ────────────────────────────────────
-        // Updated to your actual production API URL
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
 
         const SERVICE_PRICE = 150;
@@ -791,7 +789,14 @@
                     throw new Error(errorMessage);
                 }
 
-                return response.json();
+                // Handle empty responses
+                const text = await response.text();
+                if (!text) return { status: 'ok' };
+                try {
+                    return JSON.parse(text);
+                } catch {
+                    return { status: 'ok', raw: text };
+                }
             } catch (err) {
                 // If it's a network error or the API is unreachable, use fallback
                 if (err.message.includes('fetch') || err.message.includes('network')) {
@@ -855,12 +860,22 @@
         async function fetchUserServices() {
             try {
                 const data = await apiCall('/mpesa/user/services');
-                if (data.services && Array.isArray(data.services)) {
+                // Handle different response formats
+                let services = [];
+                if (Array.isArray(data)) {
+                    services = data;
+                } else if (data.services && Array.isArray(data.services)) {
+                    services = data.services;
+                } else if (data.data && Array.isArray(data.data)) {
+                    services = data.data;
+                }
+
+                if (services.length > 0) {
                     const newPaid = {};
                     Object.keys(SERVICE_IDS).forEach(key => {
                         const apiId = SERVICE_IDS[key];
-                        newPaid[key] = data.services.some(s =>
-                            s.service_id === apiId && (s.status === 'active' || s.status === 'paid')
+                        newPaid[key] = services.some(s =>
+                            s.service_id === apiId && (s.status === 'active' || s.status === 'paid' || s.status === 'completed')
                         );
                     });
                     paidServices = newPaid;
@@ -868,7 +883,8 @@
                     updateAllPaymentUI();
                     return paidServices;
                 }
-                // If no services array, treat as no paid services
+
+                // If no services, treat as no paid services
                 paidServices = {};
                 localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
                 updateAllPaymentUI();
@@ -988,11 +1004,14 @@
             mpesaConfirmBtn.innerHTML = '<span class="loading-spinner"></span> Initiating...';
 
             try {
+                // ─── MATCHING YOUR API SPEC ──────────────────────────
                 const stkData = {
-                    phone_number: phone,
-                    amount: SERVICE_PRICE,
+                    phone: phone,
                     service_id: SERVICE_IDS[pendingService],
-                    description: `${SERVICE_NAMES[pendingService]} - Auto-D Kenya`
+                    description: `${SERVICE_NAMES[pendingService]} - Auto-D Kenya`,
+                    user_id: currentUser?.id || 'anonymous',
+                    request_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+                    amount: SERVICE_PRICE
                 };
 
                 const response = await apiCall('/mpesa/stkpush', {
@@ -1000,19 +1019,36 @@
                     body: JSON.stringify(stkData)
                 });
 
+                // ─── HANDLE RESPONSE ──────────────────────────────────
                 checkoutRequestId = response.checkout_request_id || response.id || response.checkoutRequestID;
+                const status = response.status || 'pending';
+                const message = response.message || 'Payment initiated';
+
+                if (status === 'success' || status === 'completed' || status === 'paid') {
+                    // Payment was already successful
+                    paidServices[pendingService] = true;
+                    localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
+                    updatePaymentUI(pendingService);
+                    showToast(`✅ ${SERVICE_NAMES[pendingService]} unlocked!`, 'success');
+                    closeMpesa();
+                    switchService(pendingService);
+                    await fetchUserServices();
+                    mpesaConfirmBtn.disabled = false;
+                    mpesaConfirmBtn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm Payment';
+                    return;
+                }
+
                 if (!checkoutRequestId) {
-                    // If no checkout ID, simulate success for development
-                    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                        showToast('📱 [DEV] Payment simulated successfully!', 'success');
-                        paidServices[pendingService] = true;
-                        localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
-                        updatePaymentUI(pendingService);
-                        closeMpesa();
-                        switchService(pendingService);
-                        await fetchUserServices();
-                        mpesaConfirmBtn.disabled = false;
-                        mpesaConfirmBtn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm Payment';
+                    // If no checkout ID but status is pending, wait for callback
+                    if (status === 'pending') {
+                        showToast('📱 Payment request sent. Please check your phone.', 'info');
+                        mpesaConfirmBtn.innerHTML = '<span class="loading-spinner"></span> Waiting for confirmation...';
+                        // Wait for callback (simplified - in production you'd use webhooks)
+                        setTimeout(() => {
+                            showToast('⏰ Please check your M-Pesa for the payment prompt.', 'warning');
+                            mpesaConfirmBtn.disabled = false;
+                            mpesaConfirmBtn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm Payment';
+                        }, 15000);
                         return;
                     }
                     throw new Error('No checkout request ID returned from server');
@@ -1021,7 +1057,7 @@
                 showToast('📱 Payment request sent. Please check your phone.', 'info');
                 mpesaConfirmBtn.innerHTML = '<span class="loading-spinner"></span> Waiting for confirmation...';
 
-                // Poll for status
+                // ─── POLL FOR STATUS ──────────────────────────────────
                 if (statusPollInterval) clearInterval(statusPollInterval);
                 let attempts = 0;
                 const maxAttempts = 30;
@@ -1029,10 +1065,13 @@
                 statusPollInterval = setInterval(async () => {
                     attempts++;
                     try {
-                        const statusData = await apiCall(`/mpesa/status/${checkoutRequestId}`);
-                        const status = statusData.status || statusData.state || 'pending';
+                        const statusResponse = await apiCall(`/mpesa/status/${checkoutRequestId}`);
+                        // Handle different response formats
+                        const currentStatus = typeof statusResponse === 'string'
+                            ? statusResponse
+                            : statusResponse.status || statusResponse.state || 'pending';
 
-                        if (status === 'completed' || status === 'success' || status === 'paid') {
+                        if (currentStatus === 'completed' || currentStatus === 'success' || currentStatus === 'paid') {
                             clearInterval(statusPollInterval);
                             statusPollInterval = null;
                             paidServices[pendingService] = true;
@@ -1051,7 +1090,7 @@
                             closeMpesa();
                             switchService(pendingService);
                             await fetchUserServices();
-                        } else if (status === 'failed' || status === 'cancelled' || status === 'error') {
+                        } else if (currentStatus === 'failed' || currentStatus === 'cancelled' || currentStatus === 'error') {
                             clearInterval(statusPollInterval);
                             statusPollInterval = null;
                             showToast('❌ Payment failed or cancelled. Please try again.', 'error');
