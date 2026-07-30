@@ -47,19 +47,19 @@ async def lifespan(app: FastAPI):
     logger.info(f"Port: {settings.PORT}")
     logger.info("=" * 60)
     
+    # Initialize logging first
+    try:
+        setup_logging()
+        logger.info("✅ Logging configured successfully")
+    except Exception as e:
+        print(f"❌ Logging configuration failed: {str(e)}")
+    
     # Initialize database
     try:
         await init_db()
         logger.info("✅ Database initialized successfully")
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {str(e)}")
-    
-    # Initialize logging
-    try:
-        setup_logging()
-        logger.info("✅ Logging configured successfully")
-    except Exception as e:
-        logger.error(f"❌ Logging configuration failed: {str(e)}")
     
     yield
     
@@ -158,6 +158,7 @@ app.include_router(
 
 # ─── HEALTH CHECK ENDPOINTS ─────────────────────────────────────
 
+# Health check endpoints at root level (no prefix)
 @app.get("/health", tags=["Health"])
 async def health_check():
     """
@@ -176,23 +177,12 @@ async def health_check():
     try:
         from app.core.database import get_supabase
         client = get_supabase()
-        client.table("services").select("count").limit(1).execute()
+        client.table("services").select("*", count="exact").limit(1).execute()
         health_status["supabase"] = "connected"
     except Exception as e:
         health_status["supabase"] = "disconnected"
         health_status["supabase_error"] = str(e)
         health_status["status"] = "degraded"
-    
-    # Check M-Pesa service
-    try:
-        from app.modules.mpesa.service import MpesaService
-        mpesa = MpesaService()
-        health_status["mpesa"] = "connected"
-    except Exception as e:
-        health_status["mpesa"] = "disconnected"
-        health_status["mpesa_error"] = str(e)
-        if health_status["status"] == "healthy":
-            health_status["status"] = "degraded"
     
     return health_status
 
@@ -213,7 +203,7 @@ async def readiness_check():
     try:
         from app.core.database import get_supabase
         client = get_supabase()
-        client.table("services").select("count").limit(1).execute()
+        client.table("services").select("*", count="exact").limit(1).execute()
         readiness_status["supabase"] = "ready"
     except Exception:
         readiness_status["supabase"] = "not_ready"
@@ -233,6 +223,32 @@ async def liveness_check():
         "timestamp": datetime.utcnow().isoformat(),
         "environment": settings.ENVIRONMENT
     }
+
+
+# ALSO support /api/health for Render.com compatibility
+@app.get("/api/health", tags=["Health"])
+async def api_health_check():
+    """
+    API Health check endpoint (for Render.com compatibility).
+    Returns the status of the API and its dependencies.
+    """
+    return await health_check()
+
+
+@app.get("/api/ready", tags=["Health"])
+async def api_readiness_check():
+    """
+    API Readiness check endpoint (for Render.com compatibility).
+    """
+    return await readiness_check()
+
+
+@app.get("/api/live", tags=["Health"])
+async def api_liveness_check():
+    """
+    API Liveness check endpoint (for Render.com compatibility).
+    """
+    return await liveness_check()
 
 
 @app.get("/", tags=["Health"])
@@ -310,7 +326,10 @@ async def root():
         "health": {
             "health": "/health",
             "ready": "/ready",
-            "live": "/live"
+            "live": "/live",
+            "api_health": "/api/health",
+            "api_ready": "/api/ready",
+            "api_live": "/api/live"
         }
     }
 
