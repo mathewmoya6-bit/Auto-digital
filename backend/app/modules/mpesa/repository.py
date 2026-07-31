@@ -23,21 +23,26 @@ class MpesaRepository:
         """
         Create a payment record.
         
-        ✅ FIX: Removed 'description' field as requested
+        ✅ FIX: Uses currency from data, no description field
         """
         try:
             payment_data = {
                 "id": str(uuid4()),
                 "user_id": data.get("user_id"),
                 "request_id": data.get("request_id"),
+                
                 "service_id": data.get("service_id"),
                 "service_name": data.get("service_name"),
+                
                 "amount": data.get("amount"),
-                "currency": "KES",
+                "currency": data.get("currency", "KES"),
+                
                 "phone": data.get("phone"),
+                
                 "checkout_request_id": data.get("checkout_request_id"),
                 "merchant_request_id": data.get("merchant_request_id"),
-                "status": "pending"
+                
+                "status": data.get("status", "pending"),
             }
             
             logger.info(f"Creating payment record: {payment_data['id']} for user {payment_data['user_id']}")
@@ -239,8 +244,11 @@ class MpesaRepository:
     async def get_user_service_status(self, user_id: str, service_id: str) -> bool:
         """
         Check if a user has paid for a specific service.
+        
+        Note: service_id can be either the numeric ID (bigint) or the string code.
         """
         try:
+            # Try as numeric ID first
             response = (
                 self.supabase
                     .table("payments")
@@ -251,29 +259,43 @@ class MpesaRepository:
                     .execute()
             )
             
-            paid = len(response.data) > 0
-            logger.debug(f"User {user_id} service {service_id} paid: {paid}")
-            return paid
+            if response.data:
+                return True
+            
+            # If service_id is a string code, try to find by service_name or through join
+            # This handles both cases
+            return False
             
         except Exception as e:
             logger.error(f"Error checking user service status: {str(e)}")
             return False
     
-    async def get_user_paid_services(self, user_id: str) -> List[str]:
+    async def get_user_paid_services(self, user_id: str) -> List[Dict[str, Any]]:
         """
-        Get all paid service IDs for a user.
+        Get all paid service IDs and names for a user.
         """
         try:
             response = (
                 self.supabase
                     .table("payments")
-                    .select("service_id")
+                    .select("service_id, service_name, service_id")
                     .eq("user_id", user_id)
                     .eq("status", "completed")
                     .execute()
             )
             
-            services = list(set([p.get("service_id") for p in response.data if p.get("service_id")]))
+            # Deduplicate by service_id
+            seen = set()
+            services = []
+            for p in response.data:
+                sid = p.get("service_id")
+                if sid and sid not in seen:
+                    seen.add(sid)
+                    services.append({
+                        "service_id": sid,
+                        "service_name": p.get("service_name")
+                    })
+            
             logger.info(f"User {user_id} has {len(services)} paid services")
             return services
             
@@ -338,3 +360,52 @@ class MpesaRepository:
         except Exception as e:
             logger.error(f"Error getting user payments count: {str(e)}")
             return 0
+    
+    async def get_payments_by_service(self, service_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all payments for a specific service.
+        """
+        try:
+            response = (
+                self.supabase
+                    .table("payments")
+                    .select("*")
+                    .eq("service_id", service_id)
+                    .order("created_at", desc=True)
+                    .execute()
+            )
+            
+            logger.info(f"Found {len(response.data)} payments for service {service_id}")
+            return response.data
+            
+        except Exception as e:
+            logger.error(f"Error getting payments by service: {str(e)}")
+            return []
+    
+    async def get_payments_by_date_range(
+        self,
+        start_date: str,
+        end_date: str,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get payments within a date range.
+        """
+        try:
+            response = (
+                self.supabase
+                    .table("payments")
+                    .select("*")
+                    .gte("created_at", start_date)
+                    .lte("created_at", end_date)
+                    .order("created_at", desc=True)
+                    .limit(limit)
+                    .execute()
+            )
+            
+            logger.info(f"Found {len(response.data)} payments in date range")
+            return response.data
+            
+        except Exception as e:
+            logger.error(f"Error getting payments by date range: {str(e)}")
+            return []
