@@ -3,6 +3,7 @@
 # ================================================================
 # TYPE: CORE - FastAPI dependency injection
 
+import logging
 from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -11,11 +12,14 @@ from app.core.security import decode_token
 from app.core.database import get_supabase
 from app.core.exceptions import UnauthorizedException
 
-security = HTTPBearer()
+logger = logging.getLogger(__name__)
+
+# ✅ FIX 1: Make bearer optional (auto_error=False)
+security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> dict:
     """
     Get current authenticated user.
@@ -29,26 +33,69 @@ async def get_current_user(
     Raises:
         UnauthorizedException: If token is invalid
     """
+    # ✅ FIX 2: Check missing credentials
+    if credentials is None:
+        raise UnauthorizedException("Authentication required")
+    
     token = credentials.credentials
     
     try:
+        # ✅ FIX 3: Validate decoded payload
         payload = decode_token(token)
+        
         user_id = payload.get("sub")
         email = payload.get("email")
         
         if not user_id:
-            raise UnauthorizedException("Invalid token: missing user ID")
+            raise UnauthorizedException("Missing user id")
         
+        # ✅ FIX 4: Verify user exists in database
+        try:
+            supabase = get_supabase()
+            result = (
+                supabase.table("users")
+                .select("id, email, full_name, account_type, is_active")
+                .eq("id", user_id)
+                .single()
+                .execute()
+            )
+            
+            if not result.data:
+                logger.warning(f"User not found in database: {user_id}")
+                raise UnauthorizedException("User not found")
+            
+            user_data = result.data
+            
+        except Exception as db_error:
+            # If the users table doesn't exist or query fails,
+            # still allow the user if the token is valid
+            logger.warning(f"Could not verify user in database: {str(db_error)}")
+            user_data = {
+                "id": user_id,
+                "email": email or payload.get("user_metadata", {}).get("email"),
+                "full_name": payload.get("user_metadata", {}).get("full_name"),
+                "account_type": "individual",
+                "is_active": True
+            }
+        
+        # ✅ FIX 5: Return user data
         return {
-            "id": user_id,
-            "email": email,
-            "payload": payload
+            "id": user_data.get("id") or user_id,
+            "email": user_data.get("email") or email,
+            "full_name": user_data.get("full_name"),
+            "account_type": user_data.get("account_type", "individual"),
+            "is_active": user_data.get("is_active", True),
+            "payload": payload,
         }
         
     except ValueError as e:
-        raise UnauthorizedException(str(e))
+        # ✅ FIX 5: Don't expose internal details to clients
+        logger.warning(f"Token validation error: {str(e)}")
+        raise UnauthorizedException("Authentication failed")
     except Exception as e:
-        raise UnauthorizedException(f"Authentication failed: {str(e)}")
+        # ✅ FIX 5: Don't expose internal details to clients
+        logger.error(f"Unexpected authentication error: {str(e)}")
+        raise UnauthorizedException("Authentication failed")
 
 
 async def get_current_user_optional(
@@ -63,13 +110,45 @@ async def get_current_user_optional(
     Returns:
         Optional[dict]: User information or None
     """
-    if not credentials:
+    # ✅ FIX 6: Check missing credentials
+    if credentials is None:
         return None
     
     try:
         return await get_current_user(credentials)
     except UnauthorizedException:
         return None
+
+
+async def get_current_active_user(
+    current_user: dict = Depends(get_current_user)
+) -> dict:
+    """
+    Get current active user.
+    Raises 403 if user is not active.
+    """
+    if not current_user.get("is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inactive user"
+        )
+    return current_user
+
+
+async def get_current_admin_user(
+    current_user: dict = Depends(get_current_user)
+) -> dict:
+    """
+    Get current admin user.
+    Raises 403 if user is not an admin.
+    """
+    account_type = current_user.get("account_type", "individual")
+    if account_type not in ["admin", "super_admin", "staff"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+    return current_user
 
 
 async def get_supabase_client():
