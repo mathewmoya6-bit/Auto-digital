@@ -8,7 +8,8 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from app.core.security import decode_token
+# ✅ FIX: Import decode_token from app.modules.auth.dependencies
+from app.modules.auth.dependencies import decode_token
 from app.core.database import get_supabase
 from app.core.exceptions import UnauthorizedException
 
@@ -40,8 +41,12 @@ async def get_current_user(
     token = credentials.credentials
     
     try:
-        # ✅ FIX 3: Validate decoded payload
-        payload = decode_token(token)
+        # ✅ FIX: Use await since decode_token is async
+        payload = await decode_token(token)
+        
+        # Check if token validation failed
+        if payload is None:
+            raise UnauthorizedException("Invalid or expired token")
         
         user_id = payload.get("sub")
         email = payload.get("email")
@@ -70,11 +75,12 @@ async def get_current_user(
             # If the users table doesn't exist or query fails,
             # still allow the user if the token is valid
             logger.warning(f"Could not verify user in database: {str(db_error)}")
+            user_metadata = payload.get("user_metadata", {})
             user_data = {
                 "id": user_id,
-                "email": email or payload.get("user_metadata", {}).get("email"),
-                "full_name": payload.get("user_metadata", {}).get("full_name"),
-                "account_type": "individual",
+                "email": email or user_metadata.get("email"),
+                "full_name": user_metadata.get("full_name"),
+                "account_type": user_metadata.get("account_type", "individual"),
                 "is_active": True
             }
         
@@ -88,6 +94,9 @@ async def get_current_user(
             "payload": payload,
         }
         
+    except UnauthorizedException:
+        # Re-raise UnauthorizedException
+        raise
     except ValueError as e:
         # ✅ FIX 5: Don't expose internal details to clients
         logger.warning(f"Token validation error: {str(e)}")
