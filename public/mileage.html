@@ -1340,7 +1340,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v6.5
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v7.1
             </div>
         </footer>
     </div>
@@ -1348,7 +1348,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 7.0 - Updated to use services table schema
+        // Version 7.1 - FIXED: Using vehicle_master_specs view
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1358,8 +1358,7 @@
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                // ─── UPDATED: Using services table ──────────────────
-                SERVICES_TABLE: 'services',
+                VIEW_NAME: 'vehicle_master_specs',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html'
             };
@@ -1374,7 +1373,6 @@
             let debounceTimer = null;
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
-            let availableServices = [];
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1480,12 +1478,17 @@
                 if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
             }
 
-            function getServiceDisplayName(service) {
-                const parts = [];
-                if (service.make_name) parts.push(service.make_name);
-                if (service.model_name) parts.push(service.model_name);
-                if (service.variant_name) parts.push(service.variant_name);
-                return parts.join(' ') || service.name || 'Service';
+            function getVehicleName(make, model, variant) {
+                const cleanMake = (make || '').trim();
+                const cleanModel = (model || '').trim();
+                const cleanVariant = (variant || '').trim();
+                if (!cleanVariant) return `${cleanMake} ${cleanModel}`.trim();
+                const variantWords = cleanVariant.split(/\s+/);
+                const firstWord = variantWords[0] || '';
+                if (firstWord.toLowerCase() === cleanModel.toLowerCase()) {
+                    return `${cleanMake} ${cleanVariant}`.trim();
+                }
+                return `${cleanMake} ${cleanModel} ${cleanVariant}`.trim();
             }
 
             function showProgress(percent, label) {
@@ -1611,21 +1614,25 @@
                 }
             }
 
-            // ─── SERVICES TABLE QUERIES ──────────────────────────────
+            // ─── API: QUERY VIEW ──────────────────────────────────
+            async function queryView(select, filter, order) {
+                let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
+                if (filter) query = query.eq(filter.column, filter.value);
+                if (order) query = query.order(order.column, { ascending: order.ascending !== false });
+                const { data, error } = await query;
+                if (error) throw error;
+                return data;
+            }
+
+            // ─── LOAD DATA ─────────────────────────────────────────────
             async function loadCategories() {
                 try {
                     setStatus('info', 'Loading categories...');
-                    const { data, error } = await supabaseClient
-                        .from(CONFIG.SERVICES_TABLE)
-                        .select('category_id, category_name')
-                        .order('category_name', { ascending: true });
-
-                    if (error) throw error;
-
+                    const data = await queryView('category_id, category_name', null, { column: 'category_name', ascending: true });
                     const unique = {};
                     data.forEach(item => {
                         if (item.category_id && !unique[item.category_id]) {
-                            unique[item.category_id] = { id: item.category_id, name: item.category_name || 'Uncategorized' };
+                            unique[item.category_id] = { id: item.category_id, name: item.category_name };
                         }
                     });
                     return Object.values(unique);
@@ -1639,19 +1646,15 @@
             async function loadMakes(categoryId) {
                 try {
                     setStatus('info', 'Loading makes...');
-                    const { data, error } = await supabaseClient
-                        .from(CONFIG.SERVICES_TABLE)
-                        .select('make_id, make_name, make_country')
-                        .eq('category_id', categoryId)
-                        .eq('is_active', true)
-                        .order('make_name', { ascending: true });
-
-                    if (error) throw error;
-
+                    const data = await queryView(
+                        'make_id, make_name, make_country',
+                        { column: 'category_id', value: categoryId },
+                        { column: 'make_name', ascending: true }
+                    );
                     const unique = {};
                     data.forEach(item => {
                         if (item.make_id && !unique[item.make_id]) {
-                            unique[item.make_id] = { id: item.make_id, name: item.make_name || 'Unknown', country: item.make_country };
+                            unique[item.make_id] = { id: item.make_id, name: item.make_name, country: item.make_country };
                         }
                     });
                     return Object.values(unique);
@@ -1665,19 +1668,15 @@
             async function loadModels(makeId) {
                 try {
                     setStatus('info', 'Loading models...');
-                    const { data, error } = await supabaseClient
-                        .from(CONFIG.SERVICES_TABLE)
-                        .select('model_id, model_name, model_body_type')
-                        .eq('make_id', makeId)
-                        .eq('is_active', true)
-                        .order('model_name', { ascending: true });
-
-                    if (error) throw error;
-
+                    const data = await queryView(
+                        'model_id, model_name, model_body_type',
+                        { column: 'make_id', value: makeId },
+                        { column: 'model_name', ascending: true }
+                    );
                     const unique = {};
                     data.forEach(item => {
                         if (item.model_id && !unique[item.model_id]) {
-                            unique[item.model_id] = { id: item.model_id, name: item.model_name || 'Unknown', body_type: item.model_body_type };
+                            unique[item.model_id] = { id: item.model_id, name: item.model_name, body_type: item.model_body_type };
                         }
                     });
                     return Object.values(unique);
@@ -1691,21 +1690,17 @@
             async function loadGenerations(modelId) {
                 try {
                     setStatus('info', 'Loading generations...');
-                    const { data, error } = await supabaseClient
-                        .from(CONFIG.SERVICES_TABLE)
-                        .select('generation_id, generation_code, generation_start_year, generation_end_year')
-                        .eq('model_id', modelId)
-                        .eq('is_active', true)
-                        .order('generation_start_year', { ascending: false });
-
-                    if (error) throw error;
-
+                    const data = await queryView(
+                        'generation_id, generation_code, generation_start_year, generation_end_year',
+                        { column: 'model_id', value: modelId },
+                        { column: 'generation_start_year', ascending: false }
+                    );
                     const unique = {};
                     data.forEach(item => {
                         if (item.generation_id && !unique[item.generation_id]) {
                             unique[item.generation_id] = {
                                 id: item.generation_id,
-                                code: item.generation_code || 'Gen',
+                                code: item.generation_code,
                                 start_year: item.generation_start_year,
                                 end_year: item.generation_end_year
                             };
@@ -1722,25 +1717,22 @@
             async function loadVariants(generationId) {
                 try {
                     setStatus('info', 'Loading variants...');
-                    let query = supabaseClient
-                        .from(CONFIG.SERVICES_TABLE)
-                        .select('*')
-                        .eq('generation_id', generationId)
-                        .eq('is_active', true)
-                        .order('name', { ascending: true });
-
-                    const { data, error } = await query;
-                    if (error) throw error;
-
-                    // Filter by fuel type if selected
-                    let filtered = data;
-                    if (selectedFuelFilter !== 'all') {
-                        filtered = data.filter(v => 
-                            (v.fuel_type_name || '').toLowerCase() === selectedFuelFilter
-                        );
-                    }
-
-                    return filtered;
+                    const data = await queryView(
+                        `variant_id, variant_name, trim_level, engine_size_cc, power_hp, torque_nm, 
+                         fuel_consumption_combined, co2_emissions, seats, doors, fuel_type_name, 
+                         transmission_type_name, drive_type_name, body_type_name`,
+                        { column: 'generation_id', value: generationId },
+                        { column: 'variant_name', ascending: true }
+                    );
+                    return data.map(v => {
+                        let name = v.variant_name || 'Variant';
+                        const parts = name.split(' ');
+                        if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
+                            parts.splice(0, 1);
+                            name = parts.join(' ');
+                        }
+                        return { ...v, clean_name: name };
+                    });
                 } catch (error) {
                     console.error('Error loading variants:', error);
                     setStatus('error', error.message);
@@ -1748,16 +1740,10 @@
                 }
             }
 
-            async function loadVariantDetails(serviceId) {
+            async function loadVariantDetails(variantId) {
                 try {
                     setStatus('info', 'Loading vehicle details...');
-                    const { data, error } = await supabaseClient
-                        .from(CONFIG.SERVICES_TABLE)
-                        .select('*')
-                        .eq('id', serviceId)
-                        .eq('is_active', true);
-
-                    if (error) throw error;
+                    const data = await queryView('*', { column: 'variant_id', value: variantId });
                     if (data && data.length > 0) return data[0];
                     return null;
                 } catch (error) {
@@ -1893,6 +1879,10 @@
                 if (!generationId) return;
                 let variants = await loadVariants(generationId);
 
+                if (selectedFuelFilter !== 'all') {
+                    variants = variants.filter(v => (v.fuel_type_name || '').toLowerCase() === selectedFuelFilter);
+                }
+
                 if (!variants || variants.length === 0) {
                     select.innerHTML = '<option value="">No variants match this filter</option>';
                     setStatus('warning', 'No variants match the selected fuel type');
@@ -1900,12 +1890,12 @@
                 }
                 const seen = new Map();
                 variants.forEach(v => {
-                    let label = v.variant_name || v.name || 'Variant';
+                    let label = v.clean_name || v.variant_name || 'Variant';
                     const key = label.trim().toLowerCase();
                     if (seen.has(key)) return;
                     seen.set(key, true);
                     const opt = document.createElement('option');
-                    opt.value = v.id;
+                    opt.value = v.variant_id;
                     let displayLabel = label;
                     if (v.engine_size_cc) displayLabel += ` ${v.engine_size_cc}cc`;
                     if (v.power_hp) displayLabel += ` ${v.power_hp}hp`;
@@ -1920,7 +1910,11 @@
 
             // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
             function displayVehicleInfo(variant) {
-                const label = getServiceDisplayName(variant);
+                const label = getVehicleName(
+                    variant.make_name || '',
+                    variant.model_name || '',
+                    variant.variant_name || ''
+                );
                 el.vehicleLabel.textContent = label || 'Unnamed variant';
                 el.fuelPill.textContent = variant.fuel_type_name || '—';
                 el.transmissionPill.textContent = variant.transmission_type_name || '—';
@@ -2015,6 +2009,8 @@
                 };
                 if (token) {
                     headers['Authorization'] = `Bearer ${token}`;
+                } else {
+                    console.warn('⚠️ No access token available — request will be sent unauthenticated');
                 }
 
                 const url = `${CONFIG.API_BASE}/running-cost/calculate`;
@@ -2028,17 +2024,25 @@
                     signal: AbortSignal.timeout(15000)
                 });
 
+                console.log('📥 Response status:', response.status);
+
                 if (!response.ok) {
                     let errorData;
                     try {
                         errorData = await response.json();
+                        if (errorData.detail) {
+                            console.error('❌ Validation errors:', JSON.stringify(errorData.detail, null, 2));
+                            throw new Error(JSON.stringify(errorData.detail, null, 2));
+                        }
                     } catch (e) {
                         errorData = { message: `HTTP ${response.status}` };
                     }
                     throw new Error(errorData.message || errorData.detail || `HTTP ${response.status}`);
                 }
 
-                return response.json();
+                const result = await response.json();
+                console.log('📥 Response data:', result);
+                return result;
             }
 
             // ─── MAIN CALCULATION ──────────────────────────────────────
@@ -2062,7 +2066,7 @@
                 showProgress(10, 'Loading vehicle data...');
 
                 const inputs = {
-                    variant_id: variant.id || variant.variant_id,
+                    variant_id: variant.variant_id,
                     distance: distance,
                     annual_km: annualKm,
                     fuel_price: fuelPrice,
@@ -2324,14 +2328,14 @@
             }
 
             // ─── LOAD VARIANT AND CALCULATE ────────────────────────────
-            async function loadVariantAndCalculate(serviceId) {
-                if (!serviceId) return;
+            async function loadVariantAndCalculate(variantId) {
+                if (!variantId) return;
                 el.calculateBtn.disabled = true;
                 el.calculateBtn.innerHTML = '<span class="spinner"></span> Loading...';
                 showProgress(5, 'Loading vehicle details...');
 
                 try {
-                    const variantData = await loadVariantDetails(serviceId);
+                    const variantData = await loadVariantDetails(variantId);
                     if (!variantData) {
                         showToast('Failed to load vehicle details', 'error');
                         el.calculateBtn.disabled = false;
@@ -2436,9 +2440,9 @@
                 });
 
                 el.variantSelect.addEventListener('change', function() {
-                    const serviceId = this.value;
-                    if (serviceId) {
-                        loadVariantAndCalculate(serviceId);
+                    const variantId = this.value;
+                    if (variantId) {
+                        loadVariantAndCalculate(variantId);
                     } else {
                         currentVariantData = null;
                         el.calculateBtn.disabled = true;
@@ -2557,7 +2561,7 @@
                     await loadRoutes();
                     renderRouteChips();
                     
-                    showProgress(60, 'Loading vehicle data from services table...');
+                    showProgress(60, 'Loading vehicle data from view...');
                     await populateCategories();
 
                     if (el.categorySelect.options.length > 1) {
@@ -2573,7 +2577,7 @@
                     setTimeout(hideProgress, 500);
 
                     console.log('✅ Auto-D Kenya Mileage Calculator initialized');
-                    console.log('📊 Using services table: ' + CONFIG.SERVICES_TABLE);
+                    console.log('📊 Using view: ' + CONFIG.VIEW_NAME);
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/running-cost/calculate`);
 
