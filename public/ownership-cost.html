@@ -3,18 +3,19 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cost of Vehicle Ownership — Auto-D Kenya</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E">
+    <title>Auto-D Kenya - Total Cost of Ownership Calculator</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E%F0%9F%9A%97%3C/text%3E%3C/svg%3E">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        /* ─── Minimal Styles ───────────────────────────────────── */
         :root {
             --amber: #eab308;
+            --amber-dark: #ca8a04;
             --bg: #0a0c15;
             --bg-panel: #111827;
+            --bg-card: #1a1a2e;
             --text-primary: #f8fafc;
             --text-secondary: #cbd5e1;
             --text-muted: #64748b;
@@ -22,29 +23,55 @@
             --font-heading: 'Space Grotesk', sans-serif;
             --font-body: 'Inter', sans-serif;
             --font-mono: 'JetBrains Mono', monospace;
+            --radius: 12px;
+            --shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Inter', sans-serif; background: #0a0c15; color: #f8fafc; min-height: 100vh; }
-        .wrap { max-width: 1440px; margin: 0 auto; padding: 28px 32px 60px; }
-        
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-body);
+            background: var(--bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--amber); border-radius: 3px; }
+
+        .wrap {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 24px 32px 60px;
+        }
+
+        /* ─── Header ──────────────────────────────────────── */
         .report-header {
-            background: linear-gradient(135deg, #111827, #0a0c15);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 28px 32px;
+            background: linear-gradient(135deg, var(--bg-panel), var(--bg));
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px 32px;
             margin-bottom: 28px;
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
             flex-wrap: wrap;
-            gap: 20px;
+            gap: 16px;
         }
+
         .header-left .badge {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             font-size: 10px;
             letter-spacing: 0.12em;
             text-transform: uppercase;
-            color: #eab308;
+            color: var(--amber);
             background: rgba(234, 179, 8, 0.12);
             padding: 4px 14px;
             border-radius: 20px;
@@ -52,32 +79,43 @@
             margin-bottom: 8px;
             border: 1px solid rgba(234, 179, 8, 0.15);
         }
+
         .header-left h1 {
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: var(--font-heading);
             font-size: 30px;
             font-weight: 700;
-            color: #f8fafc;
             letter-spacing: -0.02em;
             line-height: 1.2;
         }
-        .header-left h1 span { color: #eab308; }
-        .header-left .subtitle { font-size: 14px; color: #cbd5e1; margin-top: 4px; }
+        .header-left h1 span { color: var(--amber); }
+        .header-left .subtitle {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
         .header-right {
             text-align: right;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             font-size: 12px;
-            color: #64748b;
+            color: var(--text-muted);
             line-height: 1.9;
             flex-shrink: 0;
         }
         .header-right .auth-status {
             font-size: 10px;
-            padding: 2px 10px;
+            padding: 2px 12px;
             border-radius: 12px;
             display: inline-block;
         }
-        .header-right .auth-status.authenticated { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
-        .header-right .auth-status.unauthenticated { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+        .header-right .auth-status.authenticated {
+            background: rgba(34, 197, 94, 0.15);
+            color: #22c55e;
+        }
+        .header-right .auth-status.unauthenticated {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+        }
 
         .dashboard-link {
             display: inline-flex;
@@ -87,8 +125,8 @@
             background: rgba(234, 179, 8, 0.12);
             border: 1px solid rgba(234, 179, 8, 0.2);
             border-radius: 8px;
-            color: #eab308;
-            font-family: 'Inter', sans-serif;
+            color: var(--amber);
+            font-family: var(--font-body);
             font-size: 13px;
             font-weight: 600;
             text-decoration: none;
@@ -97,7 +135,7 @@
         }
         .dashboard-link:hover {
             background: rgba(234, 179, 8, 0.2);
-            border-color: #eab308;
+            border-color: var(--amber);
             transform: translateY(-2px);
             box-shadow: 0 4px 20px rgba(234, 179, 8, 0.15);
         }
@@ -109,38 +147,74 @@
             transform: translateX(-4px);
         }
 
-        .main-grid { display: grid; grid-template-columns: 420px 1fr; gap: 28px; }
-        @media (max-width: 1024px) { .main-grid { grid-template-columns: 1fr; } }
+        /* ─── Main Grid ──────────────────────────────────────── */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 440px 1fr;
+            gap: 28px;
+        }
+        @media (max-width: 1024px) {
+            .main-grid { grid-template-columns: 1fr; }
+        }
 
+        /* ─── Calculator Panel ──────────────────────────────── */
         .calculator-panel {
-            background: #111827;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
             padding: 24px;
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+            box-shadow: var(--shadow);
             height: fit-content;
             position: sticky;
             top: 20px;
             max-height: calc(100vh - 40px);
             overflow-y: auto;
-            position: relative;
+            scroll-behavior: smooth;
+        }
+        .calculator-panel::-webkit-scrollbar { width: 4px; }
+
+        .panel-label {
+            font-family: var(--font-heading);
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--amber);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            margin-top: 18px;
+        }
+        .panel-label:first-of-type { margin-top: 0; }
+        .panel-label .num {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text-muted);
         }
 
+        /* ─── Auth Section ──────────────────────────────────── */
         .auth-section {
-            background: rgba(255,255,255,0.03);
+            background: rgba(255, 255, 255, 0.03);
             border: 1px solid var(--border);
             border-radius: 8px;
-            padding: 12px;
+            padding: 12px 14px;
             margin-bottom: 12px;
+        }
+        .auth-section .user-email {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-secondary);
+            padding: 2px 0 6px;
         }
         .auth-section .auth-buttons {
             display: flex;
             gap: 8px;
-            margin-top: 8px;
+            margin-top: 6px;
+            flex-wrap: wrap;
         }
         .auth-section .auth-buttons button {
-            flex: 1;
-            padding: 6px 12px;
+            padding: 6px 14px;
             border: 1px solid var(--border);
             border-radius: 6px;
             background: transparent;
@@ -150,61 +224,165 @@
             cursor: pointer;
             transition: all 0.3s;
         }
-        .auth-section .auth-buttons button:hover { border-color: var(--amber); color: var(--amber); }
-        .auth-section .auth-buttons button.primary { background: var(--amber); color: #0a0c10; border-color: var(--amber); }
-        .auth-section .auth-buttons button.primary:hover { background: var(--amber-dark); }
-        .auth-section .user-email { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); padding: 4px 0; }
-
-        .panel-label {
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 600;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: #eab308;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 12px;
-            margin-top: 16px;
+        .auth-section .auth-buttons button:hover {
+            border-color: var(--amber);
+            color: var(--amber);
         }
-        .panel-label:first-of-type { margin-top: 0; }
+        .auth-section .auth-buttons button.primary {
+            background: var(--amber);
+            color: #0a0c10;
+            border-color: var(--amber);
+        }
+        .auth-section .auth-buttons button.primary:hover {
+            background: var(--amber-dark);
+        }
+        #authForms {
+            display: none;
+            margin-top: 8px;
+        }
+        #authForms input {
+            width: 100%;
+            background: var(--bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-family: var(--font-body);
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+        #authForms input:focus {
+            outline: 2px solid var(--amber);
+            outline-offset: 1px;
+        }
+        #authForms .auth-form-actions {
+            display: flex;
+            gap: 6px;
+        }
+        #authForms .auth-form-actions button {
+            flex: 1;
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        #authForms .auth-form-actions button.primary {
+            background: var(--amber);
+            color: #0a0c10;
+            border-color: var(--amber);
+        }
+        #authForms .auth-form-actions button.primary:hover {
+            background: var(--amber-dark);
+        }
+        #authForms .auth-form-actions button:hover {
+            border-color: var(--amber);
+            color: var(--amber);
+        }
 
-        .form-group { margin-bottom: 12px; }
-        label {
+        /* ─── Form Elements ──────────────────────────────────── */
+        .form-group {
+            margin-bottom: 12px;
+        }
+        .form-group label {
             display: block;
             font-size: 9px;
-            color: #cbd5e1;
+            color: var(--text-secondary);
             margin-bottom: 3px;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             letter-spacing: 0.04em;
             text-transform: uppercase;
         }
-        select, input[type="number"], input[type="text"], input[type="password"], input[type="range"] {
+        .form-group select,
+        .form-group input[type="number"],
+        .form-group input[type="text"],
+        .form-group input[type="password"] {
             width: 100%;
-            background: #f0ece4;
-            color: #0a0c10;
-            border: none;
+            background: var(--bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
             border-radius: 6px;
             padding: 8px 12px;
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-body);
             font-size: 12px;
             font-weight: 500;
             appearance: none;
+            transition: border-color 0.3s;
         }
-        select:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
-        select:focus, input:focus { outline: 2px solid #eab308; outline-offset: 1px; }
-        input[type="range"] { padding: 0; accent-color: var(--amber); }
-        .range-value { color: var(--amber); font-weight: 600; font-size: 12px; font-family: var(--font-mono); }
+        .form-group select:focus,
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--amber);
+        }
+        .form-group select:disabled,
+        .form-group input:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .form-group select option {
+            background: var(--bg-panel);
+            color: var(--text-primary);
+        }
 
+        .form-group input[type="range"] {
+            width: 100%;
+            padding: 0;
+            accent-color: var(--amber);
+            background: transparent;
+            border: none;
+            cursor: pointer;
+        }
+        .range-value {
+            color: var(--amber);
+            font-weight: 600;
+            font-size: 12px;
+            font-family: var(--font-mono);
+            float: right;
+        }
+
+        /* ─── Toggle Buttons ────────────────────────────────── */
+        .toggle-group {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 4px;
+        }
+        .toggle-btn {
+            flex: 1;
+            min-width: 70px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 10px;
+            font-weight: 600;
+            padding: 6px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+        .toggle-btn:hover {
+            border-color: var(--text-muted);
+        }
+        .toggle-btn.active {
+            background: rgba(234, 179, 8, 0.12);
+            border-color: rgba(234, 179, 8, 0.4);
+            color: var(--amber);
+        }
+
+        /* ─── Calculate Button ──────────────────────────────── */
         .calc-btn {
             width: 100%;
-            padding: 12px;
-            background: #eab308;
+            padding: 12px 16px;
+            background: var(--amber);
             color: #0a0c10;
             border: none;
             border-radius: 6px;
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: var(--font-heading);
             font-size: 13px;
             font-weight: 700;
             cursor: pointer;
@@ -212,11 +390,15 @@
             margin-top: 8px;
         }
         .calc-btn:hover:not(:disabled) {
-            background: #ca8a04;
+            background: var(--amber-dark);
             transform: translateY(-2px);
             box-shadow: 0 4px 20px rgba(234, 179, 8, 0.3);
         }
-        .calc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .calc-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
         .calc-btn .spinner {
             display: inline-block;
             width: 14px;
@@ -228,167 +410,56 @@
             margin-right: 8px;
             vertical-align: middle;
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        .toggle-group {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin-top: 4px;
-        }
-        .toggle-btn {
-            flex: 1;
-            min-width: 80px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            color: #64748b;
-            font-size: 10px;
-            font-weight: 600;
-            padding: 6px 8px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .toggle-btn.active {
-            background: rgba(234, 179, 8, 0.12);
-            border-color: rgba(234, 179, 8, 0.4);
-            color: #eab308;
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
 
-        .debug-panel {
-            background: #1a1a2e;
-            border: 1px solid #eab308;
-            border-radius: 8px;
-            padding: 16px;
-            margin: 16px 0;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
-            max-height: 300px;
-            overflow: auto;
-            white-space: pre-wrap;
-            word-break: break-all;
-        }
-        .debug-panel .label { color: #eab308; font-weight: 600; }
-        .debug-panel .success { color: #22c55e; }
-        .debug-panel .error { color: #ef4444; }
-
-        .result-card {
-            background: #111827;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 16px 20px;
-            margin-bottom: 16px;
-        }
-        .result-card .card-title {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 13px;
-            font-weight: 600;
-            color: #eab308;
-            margin-bottom: 12px;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 12px;
-        }
-        @media (max-width: 700px) { .stats-grid { grid-template-columns: 1fr 1fr; } }
-        
-        .stat-card {
-            background: #0a0c15;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 8px;
-            padding: 14px 16px;
-        }
-        .stat-card .label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-        .stat-card .num {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 22px;
-            font-weight: 700;
-            margin-top: 2px;
-        }
-        .stat-card .num.amber { color: #eab308; }
-        .stat-card .num.green { color: #22c55e; }
-        .stat-card .num.blue { color: #3b82f6; }
-
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            border-radius: 8px;
-            z-index: 9999;
-            font-weight: 500;
-            animation: slideIn .3s ease;
-            max-width: 380px;
-            font-size: 12px;
-        }
-        .toast-success { background: #22c55e; color: #000; }
-        .toast-error { background: #ef4444; color: #fff; }
-        .toast-info { background: #3b82f6; color: #fff; }
-        .toast-warning { background: #eab308; color: #000; }
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateX(80px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-
-        .loading-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(10, 12, 21, 0.85);
-            z-index: 99999;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-            gap: 20px;
-        }
-        .loading-overlay.active { display: flex; }
-        .loading-overlay .spinner-large {
-            width: 50px;
-            height: 50px;
-            border: 4px solid rgba(234, 179, 8, 0.2);
-            border-top: 4px solid #eab308;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        .loading-overlay .loading-text { color: #eab308; font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 600; }
-
+        /* ─── Status / Progress ────────────────────────────── */
         .status-message {
-            padding: 12px 16px;
+            padding: 10px 14px;
             border-radius: 8px;
             margin-bottom: 12px;
-            font-size: 13px;
+            font-size: 12px;
             display: flex;
             align-items: center;
             gap: 10px;
         }
-        .status-message.error { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; }
-        .status-message.success { background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.2); color: #22c55e; }
-        .status-message.info { background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .status-message.error {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+        .status-message.success {
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+        .status-message.info {
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+        }
+        .status-message.warning {
+            background: rgba(234, 179, 8, 0.12);
+            border: 1px solid rgba(234, 179, 8, 0.2);
+            color: var(--amber);
+        }
 
         .progress-container {
             display: none;
-            margin: 12px 0;
-            padding: 8px 12px;
-            background: rgba(255,255,255,0.03);
+            margin: 8px 0 12px;
+            padding: 6px 12px 10px;
+            background: rgba(255, 255, 255, 0.02);
             border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.06);
+            border: 1px solid var(--border);
         }
-        .progress-container.show { display: block; }
+        .progress-container.show {
+            display: block;
+        }
         .progress-bar-track {
             width: 100%;
             height: 4px;
-            background: rgba(255,255,255,0.06);
+            background: rgba(255, 255, 255, 0.06);
             border-radius: 4px;
             overflow: hidden;
         }
@@ -409,59 +480,284 @@
 
         .disclaimer {
             font-size: 10px;
-            color: #64748b;
+            color: var(--text-muted);
             margin-top: 12px;
             padding: 8px 12px;
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
-            line-height: 1.5;
+            border-top: 1px solid var(--border);
+            line-height: 1.6;
         }
-        .disclaimer strong { color: #eab308; }
+        .disclaimer strong {
+            color: var(--amber);
+        }
 
-        @media (max-width: 768px) {
-            .wrap { padding: 16px 12px 40px; }
-            .main-grid { gap: 16px; }
-            .calculator-panel { position: static; max-height: none; }
+        /* ─── Debug Panel ────────────────────────────────────── */
+        .debug-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--amber);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin: 12px 0;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            max-height: 200px;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            display: none;
+        }
+        .debug-panel .label {
+            color: var(--amber);
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        /* ─── Results Panel ──────────────────────────────────── */
+        .result-card {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px 22px;
+            margin-bottom: 16px;
+        }
+        .result-card .card-title {
+            font-family: var(--font-heading);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--amber);
+            margin-bottom: 12px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+        @media (max-width: 700px) {
             .stats-grid { grid-template-columns: 1fr 1fr; }
         }
         @media (max-width: 480px) {
             .stats-grid { grid-template-columns: 1fr; }
         }
 
+        .stat-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+        }
+        .stat-card .label {
+            font-family: var(--font-mono);
+            font-size: 9px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .stat-card .num {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            font-weight: 700;
+            margin-top: 2px;
+        }
+        .stat-card .num.amber { color: var(--amber); }
+        .stat-card .num.green { color: #22c55e; }
+        .stat-card .num.blue { color: #3b82f6; }
+        .stat-card .num.purple { color: #a855f7; }
+
+        #vehicleLabel {
+            font-family: var(--font-heading);
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .vehicle-specs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 16px;
+            margin-top: 6px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .vehicle-specs .pill {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 2px 10px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        .vehicle-specs .pill.highlight {
+            border-color: var(--amber);
+            color: var(--amber);
+        }
+
+        #componentsList {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        #componentsList .comp-item {
+            padding: 4px 0;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+        }
+        #componentsList .comp-item:last-child {
+            border-bottom: none;
+        }
+        #componentsList .comp-name {
+            color: var(--text-secondary);
+        }
+        #componentsList .comp-amount {
+            color: var(--amber);
+            font-weight: 600;
+        }
+        #componentsList .comp-percent {
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+
+        /* ─── Toast ──────────────────────────────────────────── */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            z-index: 9999;
+            font-weight: 500;
+            animation: slideIn 0.3s ease;
+            max-width: 400px;
+            font-size: 12px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+        }
+        .toast-success {
+            background: #22c55e;
+            color: #000;
+        }
+        .toast-error {
+            background: #ef4444;
+            color: #fff;
+        }
+        .toast-info {
+            background: #3b82f6;
+            color: #fff;
+        }
+        .toast-warning {
+            background: var(--amber);
+            color: #000;
+        }
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(80px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* ─── Loading Overlay ────────────────────────────────── */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(10, 12, 21, 0.92);
+            z-index: 99999;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .loading-overlay.active {
+            display: flex;
+        }
+        .loading-overlay .spinner-large {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(234, 179, 8, 0.2);
+            border-top: 4px solid var(--amber);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        .loading-overlay .loading-text {
+            color: var(--amber);
+            font-family: var(--font-heading);
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        /* ─── Responsive ──────────────────────────────────────── */
+        @media (max-width: 768px) {
+            .wrap {
+                padding: 16px 12px 40px;
+            }
+            .main-grid {
+                gap: 16px;
+            }
+            .calculator-panel {
+                position: static;
+                max-height: none;
+            }
+            .report-header {
+                padding: 16px 20px;
+            }
+            .header-left h1 {
+                font-size: 22px;
+            }
+            .stats-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
         @media print {
-            .calculator-panel, .dashboard-link { display: none !important; }
+            .calculator-panel,
+            .dashboard-link,
+            .loading-overlay {
+                display: none !important;
+            }
+            .result-card {
+                break-inside: avoid;
+                border: 1px solid #333;
+            }
         }
     </style>
 </head>
 <body>
 
+    <!-- ─── Loading Overlay ──────────────────────────────────── -->
     <div class="loading-overlay" id="loadingOverlay">
         <div class="spinner-large"></div>
         <div class="loading-text">Loading Vehicle Data...</div>
     </div>
 
+    <!-- ─── Main Content ─────────────────────────────────────── -->
     <div class="wrap" id="main-content">
 
+        <!-- Header -->
         <header class="report-header">
             <div class="header-left">
-                <div class="badge">💰 Auto-D <span style="color:var(--amber);font-weight:700;">TCO</span></div>
-                <h1>Auto-D <span>Kenya</span><br />Cost of Vehicle Ownership</h1>
-                <p class="subtitle">Complete year-by-year ownership cost breakdown</p>
+                <div class="badge">🚗 Auto-D <span style="color:var(--amber);font-weight:700;">TCO</span></div>
+                <h1>Auto-D <span>Kenya</span><br />Total Cost of Ownership</h1>
+                <p class="subtitle">Complete year-by-year ownership cost breakdown for any vehicle</p>
                 <a href="/dashboard.html" class="dashboard-link">
                     <span class="arrow">←</span> Back to Dashboard
                 </a>
             </div>
             <div class="header-right">
-                <div>Version <span style="color:#eab308;">v6.3</span></div>
+                <div>Version <span style="color:var(--amber);">v7.0</span></div>
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus">🔓 Not Authenticated</span>
                 </div>
             </div>
         </header>
 
+        <!-- Main Grid -->
         <div class="main-grid">
 
+            <!-- ─── Calculator Panel ──────────────────────────── -->
             <section class="calculator-panel">
 
+                <!-- Authentication -->
                 <div class="panel-label"><span class="num">🔐</span> Authentication</div>
                 <div class="auth-section">
                     <div id="authMessage" class="user-email">Sign in to access the calculator</div>
@@ -469,24 +765,24 @@
                         <button class="primary" id="btnSignIn">🔑 Sign In</button>
                         <button id="btnSignOut" style="display:none;">🚪 Sign Out</button>
                     </div>
-                    <div id="authForms" style="display:none;margin-top:8px;">
-                        <input type="email" id="authEmail" placeholder="Email" style="margin-bottom:6px;" />
-                        <input type="password" id="authPassword" placeholder="Password" style="margin-bottom:6px;" />
-                        <div style="display:flex;gap:6px;">
-                            <button class="primary" id="btnLogin" style="flex:1;padding:6px;border:none;border-radius:4px;background:var(--amber);color:#0a0c10;font-weight:600;cursor:pointer;">Login</button>
-                            <button id="btnSignup" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;">Sign Up</button>
-                            <button id="btnCancelAuth" style="padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;">Cancel</button>
+                    <div id="authForms">
+                        <input type="email" id="authEmail" placeholder="Email" />
+                        <input type="password" id="authPassword" placeholder="Password" />
+                        <div class="auth-form-actions">
+                            <button class="primary" id="btnLogin">Login</button>
+                            <button id="btnSignup">Sign Up</button>
+                            <button id="btnCancelAuth">Cancel</button>
                         </div>
                     </div>
                 </div>
 
-                <div class="panel-label"><span class="num">01</span> Vehicle Details</div>
-
+                <!-- Status -->
                 <div id="statusMessage" class="status-message info">
                     <span>⏳</span>
                     <span id="statusMessageText">Loading categories...</span>
                 </div>
 
+                <!-- Progress -->
                 <div class="progress-container" id="progressContainer">
                     <div class="progress-bar-track">
                         <div class="progress-fill" id="progressFill"></div>
@@ -496,6 +792,9 @@
                         <span id="progressPercent">0%</span>
                     </div>
                 </div>
+
+                <!-- Vehicle Selection -->
+                <div class="panel-label"><span class="num">01</span> Vehicle Details</div>
 
                 <div class="form-group">
                     <label for="categorySelect">Vehicle Category</label>
@@ -522,14 +821,17 @@
                     <select id="variantSelect" disabled><option value="">Select a generation first</option></select>
                 </div>
 
+                <!-- Financial Inputs -->
+                <div class="panel-label"><span class="num">02</span> Financial Details</div>
+
                 <div class="form-group">
                     <label for="purchasePrice">Purchase Price (KES)</label>
-                    <input type="number" id="purchasePrice" value="4500000" />
+                    <input type="number" id="purchasePrice" value="4500000" min="100000" step="10000" />
                 </div>
 
                 <div class="form-group">
                     <label for="downPayment">Down Payment (KES)</label>
-                    <input type="number" id="downPayment" value="1000000" />
+                    <input type="number" id="downPayment" value="1000000" min="0" step="10000" />
                 </div>
 
                 <div class="form-group">
@@ -538,11 +840,12 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Interest Rate <span class="range-value" id="valInterestRate">14%</span></label>
+                    <label>Interest Rate <span class="range-value" id="valInterestRate">14.0%</span></label>
                     <input type="range" id="interestRateRange" min="5" max="28" step="0.5" value="14" />
                 </div>
 
-                <div class="panel-label"><span class="num">02</span> Usage Profile</div>
+                <!-- Usage Profile -->
+                <div class="panel-label"><span class="num">03</span> Usage Profile</div>
 
                 <div class="form-group">
                     <label>Annual Distance <span class="range-value" id="valMileage">20,000 km</span></label>
@@ -551,11 +854,11 @@
 
                 <div class="form-group">
                     <label for="fuelPriceInput">Fuel Price (KES/L)</label>
-                    <input type="number" id="fuelPriceInput" value="200" />
+                    <input type="number" id="fuelPriceInput" value="200" min="50" step="5" />
                 </div>
 
                 <div class="form-group">
-                    <label>Insurance Rate <span class="range-value" id="valInsuranceRate">3%</span></label>
+                    <label>Insurance Rate <span class="range-value" id="valInsuranceRate">3.0%</span></label>
                     <input type="range" id="insuranceRange" min="1" max="8" step="0.5" value="3" />
                 </div>
 
@@ -569,39 +872,49 @@
                     <input type="range" id="tyreRange" min="0.2" max="2" step="0.1" value="0.8" />
                 </div>
 
+                <!-- Toggles -->
                 <div class="form-group">
                     <label>Include Components</label>
                     <div class="toggle-group">
-                        <button type="button" class="toggle-btn active" id="btnDepreciation">✅ Depreciation</button>
-                        <button type="button" class="toggle-btn active" id="btnInsurance">✅ Insurance</button>
-                        <button type="button" class="toggle-btn active" id="btnMaintenance">✅ Maintenance</button>
-                        <button type="button" class="toggle-btn active" id="btnTyres">✅ Tyres</button>
+                        <button type="button" class="toggle-btn active" id="btnDepreciation">📉 Depreciation</button>
+                        <button type="button" class="toggle-btn active" id="btnInsurance">🛡️ Insurance</button>
+                        <button type="button" class="toggle-btn active" id="btnMaintenance">🔧 Maintenance</button>
+                        <button type="button" class="toggle-btn active" id="btnTyres">🔄 Tyres</button>
                     </div>
                 </div>
 
+                <!-- Calculate -->
                 <button class="calc-btn" id="calculateBtn" disabled>🚀 Calculate Ownership Cost</button>
 
                 <div class="disclaimer">
-                    ⚠️ <strong>Disclaimer:</strong> All figures are estimates. Use as a guide only — <strong>not financial advice</strong>.
+                    ⚠️ <strong>Disclaimer:</strong> All figures are estimates based on Auto-D recommended Kenyan market rates. Use as a guide only — <strong>not financial advice</strong>.
                 </div>
 
-                <div class="debug-panel" id="debugPanel" style="display:none;">
+                <!-- Debug -->
+                <div class="debug-panel" id="debugPanel">
                     <div class="label">🔍 DEBUG INFO</div>
                     <div id="debugContent"></div>
                 </div>
+
             </section>
 
+            <!-- ─── Results Panel ──────────────────────────────── -->
             <div class="results-panel" id="resultsPanel">
 
+                <!-- Vehicle Profile -->
                 <div class="result-card">
                     <div class="card-title">📋 Vehicle Profile</div>
                     <div id="vehicleLabel">Select a vehicle to begin</div>
-                    <div style="margin-top:6px;font-size:11px;color:var(--text-muted);">
-                        <span id="fuelPill">—</span> · <span id="transmissionPill">—</span> · <span id="engineCCDisplay">—</span>
+                    <div class="vehicle-specs" id="vehicleSpecs">
+                        <span class="pill" id="fuelPill">—</span>
+                        <span class="pill" id="transmissionPill">—</span>
+                        <span class="pill" id="engineCCDisplay">—</span>
+                        <span class="pill" id="bodyTypePill">—</span>
                     </div>
-                    <div id="vehicleSpecs" style="margin-top:6px;font-size:10px;color:var(--text-muted);"></div>
+                    <div id="vehicleExtraSpecs" style="margin-top:6px;font-size:11px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:4px 16px;"></div>
                 </div>
 
+                <!-- Summary -->
                 <div class="result-card">
                     <div class="card-title">💰 Ownership Summary</div>
                     <div class="stats-grid">
@@ -612,904 +925,1008 @@
                     </div>
                 </div>
 
+                <!-- Cost Components -->
                 <div class="result-card">
                     <div class="card-title">📊 Cost Components</div>
-                    <div id="componentsList" style="font-size:12px;color:var(--text-muted);">No data yet</div>
+                    <div id="componentsList">No data yet</div>
                 </div>
 
+                <!-- Year-by-Year -->
+                <div class="result-card" id="yearlyBreakdownCard" style="display:none;">
+                    <div class="card-title">📆 Year-by-Year Breakdown</div>
+                    <div id="yearlyBreakdown"></div>
+                </div>
+
+                <!-- Disclaimer -->
                 <div class="result-card" style="border-color: rgba(239, 68, 68, 0.2);">
                     <div style="font-size:10px;color:var(--text-muted);line-height:1.6;">
-                        ⚠️ <strong style="color:var(--amber);">Disclaimer:</strong> All figures are estimates based on Auto-D recommended Kenyan market rates.
+                        ⚠️ <strong style="color:var(--amber);">Disclaimer:</strong> All figures are estimates based on Auto-D recommended Kenyan market rates. Actual costs may vary based on individual circumstances, market conditions, and vehicle condition.
                     </div>
                 </div>
+
             </div>
+
         </div>
     </div>
 
+    <!-- ─── JavaScript ────────────────────────────────────────── -->
     <script>
-    // ═══════════════════════════════════════════════════════════════
-    // AUTO-D KENYA - TCO CALCULATOR v6.3
-    // Fixed: Correct API endpoint and response handling
-    // ═══════════════════════════════════════════════════════════════
+        (function() {
+            'use strict';
 
-    (function() {
-        'use strict';
+            // ─── Configuration ────────────────────────────────────
+            const CONFIG = {
+                SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
+                SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
+                VIEW_NAME: 'vehicle_master_specs',
+                API_BASE: 'https://auto-digital.onrender.com/api/v1'
+            };
 
-        const CONFIG = {
-            SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
-            SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-            VIEW_NAME: 'vehicle_master_specs',
-            API_BASE: 'https://auto-digital.onrender.com/api/v1'
-        };
+            let supabaseClient = null;
+            let isAuthenticated = false;
+            let currentUser = null;
 
-        let supabaseClient = null;
-        let isAuthenticated = false;
-        let currentUser = null;
+            // ─── Toggle States ────────────────────────────────────
+            let includeDepreciation = true;
+            let includeInsurance = true;
+            let includeMaintenance = true;
+            let includeTyres = true;
 
-        // State for toggles
-        let includeDepreciation = true;
-        let includeInsurance = true;
-        let includeMaintenance = true;
-        let includeTyres = true;
+            // ─── DOM Refs ──────────────────────────────────────────
+            const el = {
+                categorySelect: document.getElementById('categorySelect'),
+                makeSelect: document.getElementById('makeSelect'),
+                modelSelect: document.getElementById('modelSelect'),
+                generationSelect: document.getElementById('generationSelect'),
+                variantSelect: document.getElementById('variantSelect'),
+                purchasePrice: document.getElementById('purchasePrice'),
+                downPayment: document.getElementById('downPayment'),
+                loanTermRange: document.getElementById('loanTermRange'),
+                interestRateRange: document.getElementById('interestRateRange'),
+                mileageRange: document.getElementById('mileageRange'),
+                fuelPriceInput: document.getElementById('fuelPriceInput'),
+                insuranceRange: document.getElementById('insuranceRange'),
+                maintenanceRange: document.getElementById('maintenanceRange'),
+                tyreRange: document.getElementById('tyreRange'),
+                valLoanTerm: document.getElementById('valLoanTerm'),
+                valInterestRate: document.getElementById('valInterestRate'),
+                valMileage: document.getElementById('valMileage'),
+                valInsuranceRate: document.getElementById('valInsuranceRate'),
+                valMaintenance: document.getElementById('valMaintenance'),
+                valTyre: document.getElementById('valTyre'),
+                btnDepreciation: document.getElementById('btnDepreciation'),
+                btnInsurance: document.getElementById('btnInsurance'),
+                btnMaintenance: document.getElementById('btnMaintenance'),
+                btnTyres: document.getElementById('btnTyres'),
+                calculateBtn: document.getElementById('calculateBtn'),
+                vehicleLabel: document.getElementById('vehicleLabel'),
+                fuelPill: document.getElementById('fuelPill'),
+                transmissionPill: document.getElementById('transmissionPill'),
+                engineCCDisplay: document.getElementById('engineCCDisplay'),
+                bodyTypePill: document.getElementById('bodyTypePill'),
+                vehicleSpecs: document.getElementById('vehicleSpecs'),
+                vehicleExtraSpecs: document.getElementById('vehicleExtraSpecs'),
+                outTotal: document.getElementById('outTotal'),
+                outMonthly: document.getElementById('outMonthly'),
+                outPayment: document.getElementById('outPayment'),
+                outInterest: document.getElementById('outInterest'),
+                componentsList: document.getElementById('componentsList'),
+                yearlyBreakdownCard: document.getElementById('yearlyBreakdownCard'),
+                yearlyBreakdown: document.getElementById('yearlyBreakdown'),
+                loadingOverlay: document.getElementById('loadingOverlay'),
+                statusMessage: document.getElementById('statusMessage'),
+                statusMessageText: document.getElementById('statusMessageText'),
+                authStatus: document.getElementById('authStatus'),
+                authMessage: document.getElementById('authMessage'),
+                authButtons: document.getElementById('authButtons'),
+                authForms: document.getElementById('authForms'),
+                authEmail: document.getElementById('authEmail'),
+                authPassword: document.getElementById('authPassword'),
+                btnSignIn: document.getElementById('btnSignIn'),
+                btnSignOut: document.getElementById('btnSignOut'),
+                btnLogin: document.getElementById('btnLogin'),
+                btnSignup: document.getElementById('btnSignup'),
+                btnCancelAuth: document.getElementById('btnCancelAuth'),
+                progressContainer: document.getElementById('progressContainer'),
+                progressFill: document.getElementById('progressFill'),
+                progressLabel: document.getElementById('progressLabel'),
+                progressPercent: document.getElementById('progressPercent'),
+                debugPanel: document.getElementById('debugPanel'),
+                debugContent: document.getElementById('debugContent')
+            };
 
-        // ─── DOM REFS ────────────────────────────────────────────
-        const el = {
-            categorySelect: document.getElementById('categorySelect'),
-            makeSelect: document.getElementById('makeSelect'),
-            modelSelect: document.getElementById('modelSelect'),
-            generationSelect: document.getElementById('generationSelect'),
-            variantSelect: document.getElementById('variantSelect'),
-            purchasePrice: document.getElementById('purchasePrice'),
-            downPayment: document.getElementById('downPayment'),
-            loanTermRange: document.getElementById('loanTermRange'),
-            interestRateRange: document.getElementById('interestRateRange'),
-            mileageRange: document.getElementById('mileageRange'),
-            fuelPriceInput: document.getElementById('fuelPriceInput'),
-            insuranceRange: document.getElementById('insuranceRange'),
-            maintenanceRange: document.getElementById('maintenanceRange'),
-            tyreRange: document.getElementById('tyreRange'),
-            valLoanTerm: document.getElementById('valLoanTerm'),
-            valInterestRate: document.getElementById('valInterestRate'),
-            valMileage: document.getElementById('valMileage'),
-            valInsuranceRate: document.getElementById('valInsuranceRate'),
-            valMaintenance: document.getElementById('valMaintenance'),
-            valTyre: document.getElementById('valTyre'),
-            btnDepreciation: document.getElementById('btnDepreciation'),
-            btnInsurance: document.getElementById('btnInsurance'),
-            btnMaintenance: document.getElementById('btnMaintenance'),
-            btnTyres: document.getElementById('btnTyres'),
-            calculateBtn: document.getElementById('calculateBtn'),
-            vehicleLabel: document.getElementById('vehicleLabel'),
-            fuelPill: document.getElementById('fuelPill'),
-            transmissionPill: document.getElementById('transmissionPill'),
-            engineCCDisplay: document.getElementById('engineCCDisplay'),
-            vehicleSpecs: document.getElementById('vehicleSpecs'),
-            outTotal: document.getElementById('outTotal'),
-            outMonthly: document.getElementById('outMonthly'),
-            outPayment: document.getElementById('outPayment'),
-            outInterest: document.getElementById('outInterest'),
-            componentsList: document.getElementById('componentsList'),
-            loadingOverlay: document.getElementById('loadingOverlay'),
-            statusMessage: document.getElementById('statusMessage'),
-            statusMessageText: document.getElementById('statusMessageText'),
-            authStatus: document.getElementById('authStatus'),
-            authMessage: document.getElementById('authMessage'),
-            authButtons: document.getElementById('authButtons'),
-            authForms: document.getElementById('authForms'),
-            authEmail: document.getElementById('authEmail'),
-            authPassword: document.getElementById('authPassword'),
-            btnSignIn: document.getElementById('btnSignIn'),
-            btnSignOut: document.getElementById('btnSignOut'),
-            btnLogin: document.getElementById('btnLogin'),
-            btnSignup: document.getElementById('btnSignup'),
-            btnCancelAuth: document.getElementById('btnCancelAuth'),
-            progressContainer: document.getElementById('progressContainer'),
-            progressFill: document.getElementById('progressFill'),
-            progressLabel: document.getElementById('progressLabel'),
-            progressPercent: document.getElementById('progressPercent'),
-            debugPanel: document.getElementById('debugPanel'),
-            debugContent: document.getElementById('debugContent')
-        };
-
-        // ─── HELPERS ──────────────────────────────────────────────
-        function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
-        function fmt(v) { 
-            if (v === undefined || v === null || isNaN(v)) return 'KES 0';
-            return "KES " + Math.round(v).toLocaleString("en-KE"); 
-        }
-        
-        function showToast(message, type = 'info') {
-            const existing = document.querySelector('.toast');
-            if (existing) existing.remove();
-            const toast = document.createElement('div');
-            toast.className = `toast toast-${type}`;
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 4000);
-        }
-
-        function setStatus(type, message) {
-            el.statusMessage.className = `status-message ${type}`;
-            const icons = { error: '❌', warning: '⚠️', success: '✅', info: '⏳' };
-            el.statusMessageText.textContent = message;
-            const iconSpan = el.statusMessage.querySelector('span:first-child');
-            if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
-        }
-
-        function showProgress(percent, label) {
-            el.progressContainer.classList.add('show');
-            el.progressFill.style.width = `${Math.min(percent, 100)}%`;
-            el.progressLabel.textContent = label || 'Loading...';
-            el.progressPercent.textContent = `${Math.min(percent, 100)}%`;
-        }
-        function hideProgress() { el.progressContainer.classList.remove('show'); }
-
-        function debugLog(data) {
-            el.debugPanel.style.display = 'block';
-            el.debugContent.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-        }
-
-        function getVehicleName(make, model, variant) {
-            const cleanMake = (make || '').trim();
-            const cleanModel = (model || '').trim();
-            const cleanVariant = (variant || '').trim();
-            if (!cleanVariant) return `${cleanMake} ${cleanModel}`.trim();
-            const variantWords = cleanVariant.split(/\s+/);
-            const firstWord = variantWords[0] || '';
-            if (firstWord.toLowerCase() === cleanModel.toLowerCase()) {
-                return `${cleanMake} ${cleanVariant}`.trim();
+            // ─── Helpers ──────────────────────────────────────────
+            function num(v) {
+                const n = parseFloat(v);
+                return isNaN(n) ? 0 : n;
             }
-            return `${cleanMake} ${cleanModel} ${cleanVariant}`.trim();
-        }
 
-        // ─── SUPABASE ──────────────────────────────────────────────
-        function initSupabase() {
-            try {
-                if (typeof supabase === 'undefined') throw new Error('Supabase SDK not loaded');
-                const { createClient } = supabase;
-                supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
-                    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
-                });
-                console.log('✅ Supabase client initialized');
-                return true;
-            } catch (error) {
-                console.warn('⚠️ Supabase init failed:', error.message);
-                return false;
+            function fmt(v) {
+                if (v === undefined || v === null || isNaN(v)) return 'KES 0';
+                return 'KES ' + Math.round(v).toLocaleString('en-KE');
             }
-        }
 
-        // ─── AUTH ──────────────────────────────────────────────────
-        async function signIn(email, password) {
-            try {
-                const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-                if (error) throw error;
-                currentUser = data.session;
-                isAuthenticated = true;
-                updateAuthUI();
-                enableControls();
-                showToast('✅ Signed in successfully!', 'success');
-                return true;
-            } catch (error) {
-                showToast('❌ Sign in failed: ' + error.message, 'error');
-                return false;
+            function fmtCompact(v) {
+                if (v === undefined || v === null || isNaN(v)) return '0';
+                if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+                if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
+                return v.toFixed(0);
             }
-        }
 
-        async function signUp(email, password) {
-            try {
-                const { data, error } = await supabaseClient.auth.signUp({ email, password });
-                if (error) throw error;
-                if (data.user) {
-                    showToast('✅ Account created! Please check your email.', 'success');
-                    return true;
+            function showToast(message, type = 'info') {
+                const existing = document.querySelector('.toast');
+                if (existing) existing.remove();
+                const toast = document.createElement('div');
+                toast.className = `toast toast-${type}`;
+                toast.textContent = message;
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 4000);
+            }
+
+            function setStatus(type, message) {
+                el.statusMessage.className = `status-message ${type}`;
+                const icons = { error: '❌', warning: '⚠️', success: '✅', info: '⏳' };
+                el.statusMessageText.textContent = message;
+                const iconSpan = el.statusMessage.querySelector('span:first-child');
+                if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
+            }
+
+            function showProgress(percent, label) {
+                el.progressContainer.classList.add('show');
+                el.progressFill.style.width = `${Math.min(percent, 100)}%`;
+                el.progressLabel.textContent = label || 'Loading...';
+                el.progressPercent.textContent = `${Math.min(percent, 100)}%`;
+            }
+
+            function hideProgress() {
+                el.progressContainer.classList.remove('show');
+            }
+
+            function debugLog(data) {
+                el.debugPanel.style.display = 'block';
+                el.debugContent.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+            }
+
+            function getVehicleName(make, model, variant) {
+                const cleanMake = (make || '').trim();
+                const cleanModel = (model || '').trim();
+                const cleanVariant = (variant || '').trim();
+                if (!cleanVariant) return `${cleanMake} ${cleanModel}`.trim();
+                const variantWords = cleanVariant.split(/\s+/);
+                const firstWord = variantWords[0] || '';
+                if (firstWord.toLowerCase() === cleanModel.toLowerCase()) {
+                    return `${cleanMake} ${cleanVariant}`.trim();
                 }
-                return false;
-            } catch (error) {
-                showToast('❌ Sign up failed: ' + error.message, 'error');
-                return false;
+                return `${cleanMake} ${cleanModel} ${cleanVariant}`.trim();
             }
-        }
 
-        async function signOut() {
-            try {
-                await supabaseClient.auth.signOut();
-                currentUser = null;
-                isAuthenticated = false;
-                updateAuthUI();
-                disableControls();
-                showToast('🔓 Signed out', 'info');
-                return true;
-            } catch (error) {
-                showToast('❌ Sign out failed: ' + error.message, 'error');
-                return false;
+            // ─── Supabase ─────────────────────────────────────────
+            function initSupabase() {
+                try {
+                    if (typeof supabase === 'undefined') throw new Error('Supabase SDK not loaded');
+                    const { createClient } = supabase;
+                    supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
+                        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+                    });
+                    console.log('✅ Supabase client initialized');
+                    return true;
+                } catch (error) {
+                    console.warn('⚠️ Supabase init failed:', error.message);
+                    return false;
+                }
             }
-        }
 
-        async function checkAuth() {
-            try {
-                const { data, error } = await supabaseClient.auth.getSession();
-                if (error) throw error;
-                if (data.session) {
+            // ─── Auth ─────────────────────────────────────────────
+            async function signIn(email, password) {
+                try {
+                    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+                    if (error) throw error;
                     currentUser = data.session;
                     isAuthenticated = true;
-                } else {
+                    updateAuthUI();
+                    enableControls();
+                    await loadInitialData();
+                    showToast('✅ Signed in successfully!', 'success');
+                    return true;
+                } catch (error) {
+                    showToast('❌ Sign in failed: ' + error.message, 'error');
+                    return false;
+                }
+            }
+
+            async function signUp(email, password) {
+                try {
+                    const { data, error } = await supabaseClient.auth.signUp({ email, password });
+                    if (error) throw error;
+                    if (data.user) {
+                        showToast('✅ Account created! Please check your email.', 'success');
+                        return true;
+                    }
+                    return false;
+                } catch (error) {
+                    showToast('❌ Sign up failed: ' + error.message, 'error');
+                    return false;
+                }
+            }
+
+            async function signOut() {
+                try {
+                    await supabaseClient.auth.signOut();
                     currentUser = null;
                     isAuthenticated = false;
-                }
-                updateAuthUI();
-                if (isAuthenticated) {
-                    enableControls();
-                } else {
+                    updateAuthUI();
                     disableControls();
+                    showToast('🔓 Signed out', 'info');
+                    return true;
+                } catch (error) {
+                    showToast('❌ Sign out failed: ' + error.message, 'error');
+                    return false;
                 }
-                return isAuthenticated;
-            } catch (error) {
-                console.warn('⚠️ Auth check failed:', error.message);
-                currentUser = null;
-                isAuthenticated = false;
-                updateAuthUI();
-                disableControls();
-                return false;
-            }
-        }
-
-        function updateAuthUI() {
-            if (isAuthenticated && currentUser) {
-                const email = currentUser.user?.email || 'user';
-                el.authStatus.textContent = `🔒 ${email}`;
-                el.authStatus.className = 'auth-status authenticated';
-                el.authMessage.textContent = `✅ Signed in as ${email}`;
-                el.btnSignIn.style.display = 'none';
-                el.btnSignOut.style.display = 'inline-block';
-                el.authForms.style.display = 'none';
-            } else {
-                el.authStatus.textContent = '🔓 Not Authenticated';
-                el.authStatus.className = 'auth-status unauthenticated';
-                el.authMessage.textContent = 'Sign in to access the calculator';
-                el.btnSignIn.style.display = 'inline-block';
-                el.btnSignOut.style.display = 'none';
-            }
-        }
-
-        function enableControls() {
-            document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach(el => {
-                if (el.id !== 'makeSelect' && el.id !== 'modelSelect' &&
-                    el.id !== 'generationSelect' && el.id !== 'variantSelect') {
-                    el.disabled = false;
-                }
-            });
-            if (el.categorySelect.value) el.makeSelect.disabled = false;
-            if (el.makeSelect.value) el.modelSelect.disabled = false;
-            if (el.modelSelect.value) el.generationSelect.disabled = false;
-            if (el.generationSelect.value) el.variantSelect.disabled = false;
-            if (el.variantSelect.value) el.calculateBtn.disabled = false;
-        }
-
-        function disableControls() {
-            document.querySelectorAll('.calculator-panel select, .calculator-panel input, .calc-btn').forEach(el => {
-                el.disabled = true;
-            });
-            el.calculateBtn.disabled = true;
-        }
-
-        // ─── API: QUERY VIEW ──────────────────────────────────────
-        async function queryView(select, filter, order) {
-            if (!isAuthenticated) {
-                setStatus('warning', 'Please sign in to load vehicle data');
-                return [];
-            }
-            let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
-            if (filter) query = query.eq(filter.column, filter.value);
-            if (order) query = query.order(order.column, { ascending: order.ascending !== false });
-            const { data, error } = await query;
-            if (error) throw error;
-            return data;
-        }
-
-        // ─── LOAD DATA ─────────────────────────────────────────────
-        async function loadCategories() {
-            try {
-                setStatus('info', 'Loading categories...');
-                const data = await queryView('category_id, category_name', null, { column: 'category_name', ascending: true });
-                const unique = {};
-                data.forEach(item => {
-                    if (item.category_id && !unique[item.category_id]) {
-                        unique[item.category_id] = { id: item.category_id, name: item.category_name };
-                    }
-                });
-                return Object.values(unique);
-            } catch (error) {
-                console.error('Error loading categories:', error);
-                setStatus('error', 'Failed to load categories');
-                return [];
-            }
-        }
-
-        async function loadMakes(categoryId) {
-            try {
-                setStatus('info', 'Loading makes...');
-                const data = await queryView(
-                    'make_id, make_name, make_country',
-                    { column: 'category_id', value: categoryId },
-                    { column: 'make_name', ascending: true }
-                );
-                const unique = {};
-                data.forEach(item => {
-                    if (item.make_id && !unique[item.make_id]) {
-                        unique[item.make_id] = { id: item.make_id, name: item.make_name, country: item.make_country };
-                    }
-                });
-                return Object.values(unique);
-            } catch (error) {
-                console.error('Error loading makes:', error);
-                setStatus('error', 'Failed to load makes');
-                return [];
-            }
-        }
-
-        async function loadModels(makeId) {
-            try {
-                setStatus('info', 'Loading models...');
-                const data = await queryView(
-                    'model_id, model_name, model_body_type',
-                    { column: 'make_id', value: makeId },
-                    { column: 'model_name', ascending: true }
-                );
-                const unique = {};
-                data.forEach(item => {
-                    if (item.model_id && !unique[item.model_id]) {
-                        unique[item.model_id] = { id: item.model_id, name: item.model_name, body_type: item.model_body_type };
-                    }
-                });
-                return Object.values(unique);
-            } catch (error) {
-                console.error('Error loading models:', error);
-                setStatus('error', 'Failed to load models');
-                return [];
-            }
-        }
-
-        async function loadGenerations(modelId) {
-            try {
-                setStatus('info', 'Loading generations...');
-                const data = await queryView(
-                    'generation_id, generation_code, generation_start_year, generation_end_year',
-                    { column: 'model_id', value: modelId },
-                    { column: 'generation_start_year', ascending: false }
-                );
-                const unique = {};
-                data.forEach(item => {
-                    if (item.generation_id && !unique[item.generation_id]) {
-                        unique[item.generation_id] = {
-                            id: item.generation_id,
-                            code: item.generation_code,
-                            start_year: item.generation_start_year,
-                            end_year: item.generation_end_year
-                        };
-                    }
-                });
-                return Object.values(unique);
-            } catch (error) {
-                console.error('Error loading generations:', error);
-                setStatus('error', 'Failed to load generations');
-                return [];
-            }
-        }
-
-        async function loadVariants(generationId) {
-            try {
-                setStatus('info', 'Loading variants...');
-                const data = await queryView(
-                    `variant_id, variant_name, trim_level, engine_size_cc, power_hp, torque_nm, 
-                     fuel_consumption_combined, co2_emissions, seats, doors, fuel_type_name, 
-                     transmission_type_name, drive_type_name, body_type_name`,
-                    { column: 'generation_id', value: generationId },
-                    { column: 'variant_name', ascending: true }
-                );
-                return data;
-            } catch (error) {
-                console.error('Error loading variants:', error);
-                setStatus('error', 'Failed to load variants');
-                return [];
-            }
-        }
-
-        async function loadVariantDetails(variantId) {
-            try {
-                setStatus('info', 'Loading vehicle details...');
-                const data = await queryView('*', { column: 'variant_id', value: variantId });
-                if (data && data.length > 0) return data[0];
-                return null;
-            } catch (error) {
-                console.error('Error loading variant details:', error);
-                setStatus('error', 'Failed to load vehicle details');
-                return null;
-            }
-        }
-
-        // ─── UI POPULATION ─────────────────────────────────────────
-        async function populateCategories() {
-            const select = el.categorySelect;
-            select.innerHTML = '<option value="">Select Category...</option>';
-            select.disabled = true;
-            const categories = await loadCategories();
-            if (!categories || categories.length === 0) {
-                select.innerHTML = '<option value="">No categories available</option>';
-                setStatus('warning', 'No categories found');
-                return;
-            }
-            categories.forEach(cat => {
-                const opt = document.createElement('option');
-                opt.value = cat.id;
-                opt.textContent = cat.name;
-                select.appendChild(opt);
-            });
-            select.disabled = !isAuthenticated;
-            setStatus('success', `✅ Loaded ${categories.length} categories`);
-        }
-
-        async function populateMakes(categoryId) {
-            const select = el.makeSelect;
-            select.innerHTML = '<option value="">Select Make...</option>';
-            select.disabled = true;
-            el.modelSelect.innerHTML = '<option value="">Select a make first</option>';
-            el.modelSelect.disabled = true;
-            el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
-            el.generationSelect.disabled = true;
-            el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-            el.variantSelect.disabled = true;
-            el.calculateBtn.disabled = true;
-            if (!categoryId || !isAuthenticated) return;
-            const makes = await loadMakes(categoryId);
-            if (!makes || makes.length === 0) {
-                select.innerHTML = '<option value="">No makes available</option>';
-                return;
-            }
-            makes.forEach(make => {
-                const opt = document.createElement('option');
-                opt.value = make.id;
-                let label = make.name;
-                if (make.country) label += ` (${make.country})`;
-                opt.textContent = label;
-                select.appendChild(opt);
-            });
-            select.disabled = false;
-            setStatus('success', `✅ Loaded ${makes.length} makes`);
-        }
-
-        async function populateModels(makeId) {
-            const select = el.modelSelect;
-            select.innerHTML = '<option value="">Select Model...</option>';
-            select.disabled = true;
-            el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
-            el.generationSelect.disabled = true;
-            el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-            el.variantSelect.disabled = true;
-            el.calculateBtn.disabled = true;
-            if (!makeId || !isAuthenticated) return;
-            const models = await loadModels(makeId);
-            if (!models || models.length === 0) {
-                select.innerHTML = '<option value="">No models available</option>';
-                return;
-            }
-            models.forEach(model => {
-                const opt = document.createElement('option');
-                opt.value = model.id;
-                let label = model.name;
-                if (model.body_type) label += ` (${model.body_type})`;
-                opt.textContent = label;
-                select.appendChild(opt);
-            });
-            select.disabled = false;
-            setStatus('success', `✅ Loaded ${models.length} models`);
-        }
-
-        async function populateGenerations(modelId) {
-            const select = el.generationSelect;
-            select.innerHTML = '<option value="">Select Generation...</option>';
-            select.disabled = true;
-            el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-            el.variantSelect.disabled = true;
-            el.calculateBtn.disabled = true;
-            if (!modelId || !isAuthenticated) return;
-            const generations = await loadGenerations(modelId);
-            if (!generations || generations.length === 0) {
-                select.innerHTML = '<option value="">No generations available</option>';
-                return;
-            }
-            generations.forEach(gen => {
-                const opt = document.createElement('option');
-                opt.value = gen.id;
-                const label = `${gen.code || 'Gen'} (${gen.start_year} - ${gen.end_year || 'Present'})`;
-                opt.textContent = label;
-                select.appendChild(opt);
-            });
-            select.disabled = false;
-            setStatus('success', `✅ Loaded ${generations.length} generations`);
-        }
-
-        async function populateVariants(generationId) {
-            const select = el.variantSelect;
-            select.innerHTML = '<option value="">Select Variant...</option>';
-            select.disabled = true;
-            el.calculateBtn.disabled = true;
-            if (!generationId || !isAuthenticated) return;
-            const variants = await loadVariants(generationId);
-            if (!variants || variants.length === 0) {
-                select.innerHTML = '<option value="">No variants available</option>';
-                return;
-            }
-            const seen = new Map();
-            variants.forEach(v => {
-                let label = v.variant_name || 'Variant';
-                const parts = label.split(' ');
-                if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
-                    parts.splice(0, 1);
-                    label = parts.join(' ');
-                }
-                const key = label.trim().toLowerCase();
-                if (seen.has(key)) return;
-                seen.set(key, true);
-                const opt = document.createElement('option');
-                opt.value = v.variant_id;
-                let displayLabel = label;
-                if (v.engine_size_cc) displayLabel += ` ${v.engine_size_cc}cc`;
-                if (v.power_hp) displayLabel += ` ${v.power_hp}hp`;
-                if (v.fuel_type_name) displayLabel += ` (${v.fuel_type_name})`;
-                if (v.transmission_type_name) displayLabel += ` ${v.transmission_type_name}`;
-                opt.textContent = displayLabel;
-                select.appendChild(opt);
-            });
-            select.disabled = false;
-            setStatus('success', `✅ Loaded ${seen.size} unique variants`);
-        }
-
-        // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
-        function displayVehicleInfo(variant) {
-            const label = getVehicleName(
-                variant.make_name || '',
-                variant.model_name || '',
-                variant.variant_name || ''
-            );
-            el.vehicleLabel.textContent = label || 'Unnamed variant';
-            el.fuelPill.textContent = variant.fuel_type_name || '—';
-            el.transmissionPill.textContent = variant.transmission_type_name || '—';
-            const engineCC = variant.engine_size_cc || null;
-            el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
-            const specItems = [
-                { label: '🔧', value: variant.trim_level || 'Standard' },
-                { label: '⚡', value: `${variant.power_hp || 0} HP` },
-                { label: '🔄', value: `${variant.torque_nm || 0} Nm` },
-                { label: '⛽', value: `${variant.fuel_consumption_combined || 0} km/L` },
-                { label: '💺', value: `${variant.seats || 5} seats` },
-                { label: '🚪', value: `${variant.doors || 4} doors` },
-                { label: '🚗', value: variant.body_type_name || variant.model_body_type || '—' },
-            ];
-            el.vehicleSpecs.innerHTML = specItems.map(item =>
-                `<span style="margin-right:12px;">${item.label} <span style="color:var(--text-secondary);">${item.value}</span></span>`
-            ).join('');
-        }
-
-        // ─── TCO CALCULATION ──────────────────────────────────────
-        function buildTCOPayload(formData) {
-            return {
-                variant_id: parseInt(formData.variant_id),
-                purchase_price: parseFloat(formData.purchase_price),
-                down_payment: parseFloat(formData.down_payment),
-                loan_term_years: parseInt(formData.loan_term_years),
-                interest_rate: parseFloat(formData.interest_rate),
-                annual_mileage: parseFloat(formData.annual_mileage),
-                fuel_price: parseFloat(formData.fuel_price),
-                insurance_rate: parseFloat(formData.insurance_rate),
-                maintenance_cost_per_km: parseFloat(formData.maintenance_cost_per_km),
-                tyre_cost_per_km: parseFloat(formData.tyre_cost_per_km),
-                include_depreciation: formData.include_depreciation === true,
-                include_insurance: formData.include_insurance === true,
-                include_maintenance: formData.include_maintenance === true,
-                include_tyres: formData.include_tyres === true
-            };
-        }
-
-        async function calculateTCO(formData) {
-            const payload = buildTCOPayload(formData);
-            
-            const { data: { session } } = await supabaseClient.auth.getSession();
-            const token = session?.access_token;
-            if (!token) {
-                throw new Error('Your session has expired. Please sign in again.');
             }
 
-            const headers = { 
-                'Content-Type': 'application/json', 
-                'Accept': 'application/json',
-                'Authorization': `Bearer ${token}`
-            };
-
-            // CORRECT ENDPOINT: /api/v1/ownership/calculate
-            const url = `${CONFIG.API_BASE}/ownership/calculate`;
-            
-            console.log('📤 TCO Request URL:', url);
-            console.log('📦 TCO Payload:', JSON.stringify(payload, null, 2));
-            debugLog(`📤 Sending to: ${url}\n\n📦 Payload:\n${JSON.stringify(payload, null, 2)}`);
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify(payload),
-                signal: AbortSignal.timeout(30000)
-            });
-
-            if (!response.ok) {
-                let errorData;
+            async function checkAuth() {
                 try {
-                    errorData = await response.json();
-                } catch (e) {
-                    errorData = { message: `HTTP ${response.status}` };
+                    const { data, error } = await supabaseClient.auth.getSession();
+                    if (error) throw error;
+                    if (data.session) {
+                        currentUser = data.session;
+                        isAuthenticated = true;
+                    } else {
+                        currentUser = null;
+                        isAuthenticated = false;
+                    }
+                    updateAuthUI();
+                    if (isAuthenticated) {
+                        enableControls();
+                    } else {
+                        disableControls();
+                    }
+                    return isAuthenticated;
+                } catch (error) {
+                    console.warn('⚠️ Auth check failed:', error.message);
+                    currentUser = null;
+                    isAuthenticated = false;
+                    updateAuthUI();
+                    disableControls();
+                    return false;
                 }
-                console.error('❌ API Error Response:', errorData);
-                debugLog(`❌ ERROR RESPONSE (${response.status}):\n${JSON.stringify(errorData, null, 2)}`);
-                
-                let errorMsg = errorData.message || errorData.detail || `HTTP ${response.status}`;
-                if (errorData.detail && Array.isArray(errorData.detail)) {
-                    errorMsg = errorData.detail.map(d => `${d.loc?.join('.') || ''}: ${d.msg}`).join('\n');
-                }
-                throw new Error(errorMsg);
             }
 
-            const result = await response.json();
-            debugLog(`✅ SUCCESS:\n${JSON.stringify(result, null, 2)}`);
-            return result;
-        }
-
-        // ─── MAIN CALCULATION ──────────────────────────────────────
-        async function calculate() {
-            if (!isAuthenticated) {
-                showToast('⚠️ Please sign in to access the calculator', 'warning');
-                return;
-            }
-
-            const variantId = el.variantSelect.value;
-            if (!variantId) {
-                showToast('Please select a vehicle variant', 'error');
-                return;
-            }
-
-            showProgress(10, 'Loading vehicle details...');
-            const variant = await loadVariantDetails(variantId);
-            if (!variant) {
-                showToast('Failed to load vehicle details', 'error');
-                hideProgress();
-                return;
-            }
-
-            displayVehicleInfo(variant);
-
-            const formData = {
-                variant_id: variantId,
-                purchase_price: num(el.purchasePrice.value) || 4500000,
-                down_payment: num(el.downPayment.value) || 1000000,
-                loan_term_years: parseInt(el.loanTermRange.value) || 3,
-                interest_rate: num(el.interestRateRange.value) || 14,
-                annual_mileage: num(el.mileageRange.value) || 20000,
-                fuel_price: num(el.fuelPriceInput.value) || 200,
-                insurance_rate: num(el.insuranceRange.value) || 3,
-                maintenance_cost_per_km: num(el.maintenanceRange.value) || 1.5,
-                tyre_cost_per_km: num(el.tyreRange.value) || 0.8,
-                include_depreciation: includeDepreciation,
-                include_insurance: includeInsurance,
-                include_maintenance: includeMaintenance,
-                include_tyres: includeTyres
-            };
-
-            el.calculateBtn.disabled = true;
-            el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
-            showProgress(50, 'Calculating ownership costs...');
-
-            try {
-                const result = await calculateTCO(formData);
-                showProgress(90, 'Rendering results...');
-                renderResults(result);
-                showProgress(100, 'Complete!');
-                setTimeout(hideProgress, 500);
-                showToast('✅ TCO calculated successfully!', 'success');
-            } catch (error) {
-                hideProgress();
-                console.error('❌ Calculation error:', error);
-                showToast('❌ ' + error.message, 'error');
-            }
-
-            el.calculateBtn.disabled = false;
-            el.calculateBtn.innerHTML = '🚀 Calculate Ownership Cost';
-        }
-
-        // ─── RENDER RESULTS ─────────────────────────────────────────
-        function renderResults(result) {
-            if (!result) return;
-
-            const totalCost = result.total_cost || 0;
-            const monthlyCost = result.monthly_cost || 0;
-            const monthlyPayment = result.monthly_payment || 0;
-            const totalInterest = result.total_interest || 0;
-
-            el.outTotal.textContent = fmt(totalCost);
-            el.outMonthly.textContent = fmt(monthlyCost);
-            el.outPayment.textContent = fmt(monthlyPayment);
-            el.outInterest.textContent = fmt(totalInterest);
-
-            const components = result.components || [];
-            const componentsList = el.componentsList;
-            componentsList.innerHTML = '';
-            
-            if (components.length > 0) {
-                components.forEach(comp => {
-                    const div = document.createElement('div');
-                    div.style.cssText = 'padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);';
-                    div.innerHTML = `
-                        <span style="color:var(--text-secondary);">${comp.name || 'Unknown'}</span>
-                        <span style="float:right;color:var(--amber);">${fmt(comp.amount || 0)} (${(comp.percentage || 0).toFixed(1)}%)</span>
-                    `;
-                    componentsList.appendChild(div);
-                });
-            } else {
-                componentsList.textContent = 'No components data available';
-            }
-        }
-
-        // ─── EVENT LISTENERS ─────────────────────────────────────────
-        function initEventListeners() {
-            el.btnSignIn.addEventListener('click', () => {
-                el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
-            });
-            el.btnCancelAuth.addEventListener('click', () => { el.authForms.style.display = 'none'; });
-            el.btnLogin.addEventListener('click', async () => {
-                const email = el.authEmail.value.trim();
-                const password = el.authPassword.value;
-                if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
-                await signIn(email, password);
-                el.authForms.style.display = 'none';
-                el.authEmail.value = '';
-                el.authPassword.value = '';
-            });
-            el.btnSignup.addEventListener('click', async () => {
-                const email = el.authEmail.value.trim();
-                const password = el.authPassword.value;
-                if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
-                if (password.length < 6) { showToast('Password must be at least 6 characters', 'warning'); return; }
-                await signUp(email, password);
-                el.authForms.style.display = 'none';
-                el.authEmail.value = '';
-                el.authPassword.value = '';
-            });
-            el.btnSignOut.addEventListener('click', signOut);
-
-            el.categorySelect.addEventListener('change', async function() {
-                const catId = this.value;
-                if (catId && isAuthenticated) {
-                    await populateMakes(catId);
-                }
-            });
-
-            el.makeSelect.addEventListener('change', async function() {
-                const makeId = this.value;
-                if (makeId && isAuthenticated) {
-                    await populateModels(makeId);
-                }
-            });
-
-            el.modelSelect.addEventListener('change', async function() {
-                const modelId = this.value;
-                if (modelId && isAuthenticated) {
-                    await populateGenerations(modelId);
-                }
-            });
-
-            el.generationSelect.addEventListener('change', async function() {
-                const genId = this.value;
-                if (genId && isAuthenticated) {
-                    await populateVariants(genId);
-                }
-            });
-
-            el.variantSelect.addEventListener('change', function() {
-                if (this.value && isAuthenticated) {
-                    el.calculateBtn.disabled = false;
+            function updateAuthUI() {
+                if (isAuthenticated && currentUser) {
+                    const email = currentUser.user?.email || 'user';
+                    el.authStatus.textContent = `🔒 ${email}`;
+                    el.authStatus.className = 'auth-status authenticated';
+                    el.authMessage.textContent = `✅ Signed in as ${email}`;
+                    el.btnSignIn.style.display = 'none';
+                    el.btnSignOut.style.display = 'inline-block';
+                    el.authForms.style.display = 'none';
                 } else {
-                    el.calculateBtn.disabled = true;
+                    el.authStatus.textContent = '🔓 Not Authenticated';
+                    el.authStatus.className = 'auth-status unauthenticated';
+                    el.authMessage.textContent = 'Sign in to access the calculator';
+                    el.btnSignIn.style.display = 'inline-block';
+                    el.btnSignOut.style.display = 'none';
                 }
-            });
+            }
 
-            el.calculateBtn.addEventListener('click', calculate);
+            function enableControls() {
+                document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach(el => {
+                    if (el.id !== 'makeSelect' && el.id !== 'modelSelect' &&
+                        el.id !== 'generationSelect' && el.id !== 'variantSelect') {
+                        el.disabled = false;
+                    }
+                });
+                if (el.categorySelect.value) el.makeSelect.disabled = false;
+                if (el.makeSelect.value) el.modelSelect.disabled = false;
+                if (el.modelSelect.value) el.generationSelect.disabled = false;
+                if (el.generationSelect.value) el.variantSelect.disabled = false;
+                if (el.variantSelect.value) el.calculateBtn.disabled = false;
+            }
 
-            // Range inputs
-            el.loanTermRange.addEventListener('input', function() {
-                el.valLoanTerm.textContent = this.value + ' years';
-            });
-            el.interestRateRange.addEventListener('input', function() {
-                el.valInterestRate.textContent = parseFloat(this.value).toFixed(1) + '%';
-            });
-            el.mileageRange.addEventListener('input', function() {
-                el.valMileage.textContent = parseInt(this.value).toLocaleString() + ' km';
-            });
-            el.insuranceRange.addEventListener('input', function() {
-                el.valInsuranceRate.textContent = parseFloat(this.value).toFixed(1) + '%';
-            });
-            el.maintenanceRange.addEventListener('input', function() {
-                el.valMaintenance.textContent = 'KES ' + parseFloat(this.value).toFixed(2);
-            });
-            el.tyreRange.addEventListener('input', function() {
-                el.valTyre.textContent = 'KES ' + parseFloat(this.value).toFixed(2);
-            });
+            function disableControls() {
+                document.querySelectorAll('.calculator-panel select, .calculator-panel input, .calc-btn').forEach(el => {
+                    el.disabled = true;
+                });
+                el.calculateBtn.disabled = true;
+            }
 
-            // Toggle buttons
-            el.btnDepreciation.addEventListener('click', function() {
-                includeDepreciation = !includeDepreciation;
-                this.classList.toggle('active');
-                this.textContent = includeDepreciation ? '✅ Depreciation' : '❌ Depreciation';
-            });
-            el.btnInsurance.addEventListener('click', function() {
-                includeInsurance = !includeInsurance;
-                this.classList.toggle('active');
-                this.textContent = includeInsurance ? '✅ Insurance' : '❌ Insurance';
-            });
-            el.btnMaintenance.addEventListener('click', function() {
-                includeMaintenance = !includeMaintenance;
-                this.classList.toggle('active');
-                this.textContent = includeMaintenance ? '✅ Maintenance' : '❌ Maintenance';
-            });
-            el.btnTyres.addEventListener('click', function() {
-                includeTyres = !includeTyres;
-                this.classList.toggle('active');
-                this.textContent = includeTyres ? '✅ Tyres' : '❌ Tyres';
-            });
-        }
+            // ─── API: Query View ──────────────────────────────────
+            async function queryView(select, filter, order) {
+                if (!isAuthenticated) {
+                    setStatus('warning', 'Please sign in to load vehicle data');
+                    return [];
+                }
+                let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
+                if (filter) query = query.eq(filter.column, filter.value);
+                if (order) query = query.order(order.column, { ascending: order.ascending !== false });
+                const { data, error } = await query;
+                if (error) throw error;
+                return data;
+            }
 
-        // ─── INIT ──────────────────────────────────────────────────
-        async function init() {
-            el.loadingOverlay.classList.add('active');
+            // ─── Load Data ────────────────────────────────────────
+            async function loadCategories() {
+                try {
+                    setStatus('info', 'Loading categories...');
+                    const data = await queryView('category_id, category_name', null, { column: 'category_name',
+                        ascending: true });
+                    const unique = {};
+                    data.forEach(item => {
+                        if (item.category_id && !unique[item.category_id]) {
+                            unique[item.category_id] = { id: item.category_id, name: item.category_name };
+                        }
+                    });
+                    return Object.values(unique);
+                } catch (error) {
+                    console.error('Error loading categories:', error);
+                    setStatus('error', 'Failed to load categories');
+                    return [];
+                }
+            }
 
-            try {
-                const supabaseOk = initSupabase();
-                if (!supabaseOk) {
-                    setStatus('error', '❌ Failed to initialize Supabase');
-                    showToast('Failed to initialize Supabase', 'error');
-                    el.loadingOverlay.classList.remove('active');
+            async function loadMakes(categoryId) {
+                try {
+                    setStatus('info', 'Loading makes...');
+                    const data = await queryView(
+                        'make_id, make_name, make_country',
+                        { column: 'category_id', value: categoryId },
+                        { column: 'make_name', ascending: true }
+                    );
+                    const unique = {};
+                    data.forEach(item => {
+                        if (item.make_id && !unique[item.make_id]) {
+                            unique[item.make_id] = { id: item.make_id, name: item.make_name, country: item
+                                    .make_country };
+                        }
+                    });
+                    return Object.values(unique);
+                } catch (error) {
+                    console.error('Error loading makes:', error);
+                    setStatus('error', 'Failed to load makes');
+                    return [];
+                }
+            }
+
+            async function loadModels(makeId) {
+                try {
+                    setStatus('info', 'Loading models...');
+                    const data = await queryView(
+                        'model_id, model_name, model_body_type',
+                        { column: 'make_id', value: makeId },
+                        { column: 'model_name', ascending: true }
+                    );
+                    const unique = {};
+                    data.forEach(item => {
+                        if (item.model_id && !unique[item.model_id]) {
+                            unique[item.model_id] = { id: item.model_id, name: item.model_name, body_type: item
+                                    .model_body_type };
+                        }
+                    });
+                    return Object.values(unique);
+                } catch (error) {
+                    console.error('Error loading models:', error);
+                    setStatus('error', 'Failed to load models');
+                    return [];
+                }
+            }
+
+            async function loadGenerations(modelId) {
+                try {
+                    setStatus('info', 'Loading generations...');
+                    const data = await queryView(
+                        'generation_id, generation_code, generation_start_year, generation_end_year',
+                        { column: 'model_id', value: modelId },
+                        { column: 'generation_start_year', ascending: false }
+                    );
+                    const unique = {};
+                    data.forEach(item => {
+                        if (item.generation_id && !unique[item.generation_id]) {
+                            unique[item.generation_id] = {
+                                id: item.generation_id,
+                                code: item.generation_code,
+                                start_year: item.generation_start_year,
+                                end_year: item.generation_end_year
+                            };
+                        }
+                    });
+                    return Object.values(unique);
+                } catch (error) {
+                    console.error('Error loading generations:', error);
+                    setStatus('error', 'Failed to load generations');
+                    return [];
+                }
+            }
+
+            async function loadVariants(generationId) {
+                try {
+                    setStatus('info', 'Loading variants...');
+                    const data = await queryView(
+                        `variant_id, variant_name, trim_level, engine_size_cc, power_hp, torque_nm, 
+                         fuel_consumption_combined, co2_emissions, seats, doors, fuel_type_name, 
+                         transmission_type_name, drive_type_name, body_type_name`,
+                        { column: 'generation_id', value: generationId },
+                        { column: 'variant_name', ascending: true }
+                    );
+                    return data;
+                } catch (error) {
+                    console.error('Error loading variants:', error);
+                    setStatus('error', 'Failed to load variants');
+                    return [];
+                }
+            }
+
+            async function loadVariantDetails(variantId) {
+                try {
+                    setStatus('info', 'Loading vehicle details...');
+                    const data = await queryView('*', { column: 'variant_id', value: variantId });
+                    if (data && data.length > 0) return data[0];
+                    return null;
+                } catch (error) {
+                    console.error('Error loading variant details:', error);
+                    setStatus('error', 'Failed to load vehicle details');
+                    return null;
+                }
+            }
+
+            // ─── Populate UI ──────────────────────────────────────
+            async function populateCategories() {
+                const select = el.categorySelect;
+                select.innerHTML = '<option value="">Select Category...</option>';
+                select.disabled = true;
+                const categories = await loadCategories();
+                if (!categories || categories.length === 0) {
+                    select.innerHTML = '<option value="">No categories available</option>';
+                    setStatus('warning', 'No categories found');
+                    return;
+                }
+                categories.forEach(cat => {
+                    const opt = document.createElement('option');
+                    opt.value = cat.id;
+                    opt.textContent = cat.name;
+                    select.appendChild(opt);
+                });
+                select.disabled = !isAuthenticated;
+                setStatus('success', `✅ Loaded ${categories.length} categories`);
+            }
+
+            async function populateMakes(categoryId) {
+                const select = el.makeSelect;
+                select.innerHTML = '<option value="">Select Make...</option>';
+                select.disabled = true;
+                el.modelSelect.innerHTML = '<option value="">Select a make first</option>';
+                el.modelSelect.disabled = true;
+                el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
+                el.generationSelect.disabled = true;
+                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.variantSelect.disabled = true;
+                el.calculateBtn.disabled = true;
+                if (!categoryId || !isAuthenticated) return;
+                const makes = await loadMakes(categoryId);
+                if (!makes || makes.length === 0) {
+                    select.innerHTML = '<option value="">No makes available</option>';
+                    return;
+                }
+                makes.forEach(make => {
+                    const opt = document.createElement('option');
+                    opt.value = make.id;
+                    let label = make.name;
+                    if (make.country) label += ` (${make.country})`;
+                    opt.textContent = label;
+                    select.appendChild(opt);
+                });
+                select.disabled = false;
+                setStatus('success', `✅ Loaded ${makes.length} makes`);
+            }
+
+            async function populateModels(makeId) {
+                const select = el.modelSelect;
+                select.innerHTML = '<option value="">Select Model...</option>';
+                select.disabled = true;
+                el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
+                el.generationSelect.disabled = true;
+                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.variantSelect.disabled = true;
+                el.calculateBtn.disabled = true;
+                if (!makeId || !isAuthenticated) return;
+                const models = await loadModels(makeId);
+                if (!models || models.length === 0) {
+                    select.innerHTML = '<option value="">No models available</option>';
+                    return;
+                }
+                models.forEach(model => {
+                    const opt = document.createElement('option');
+                    opt.value = model.id;
+                    let label = model.name;
+                    if (model.body_type) label += ` (${model.body_type})`;
+                    opt.textContent = label;
+                    select.appendChild(opt);
+                });
+                select.disabled = false;
+                setStatus('success', `✅ Loaded ${models.length} models`);
+            }
+
+            async function populateGenerations(modelId) {
+                const select = el.generationSelect;
+                select.innerHTML = '<option value="">Select Generation...</option>';
+                select.disabled = true;
+                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.variantSelect.disabled = true;
+                el.calculateBtn.disabled = true;
+                if (!modelId || !isAuthenticated) return;
+                const generations = await loadGenerations(modelId);
+                if (!generations || generations.length === 0) {
+                    select.innerHTML = '<option value="">No generations available</option>';
+                    return;
+                }
+                generations.forEach(gen => {
+                    const opt = document.createElement('option');
+                    opt.value = gen.id;
+                    const label = `${gen.code || 'Gen'} (${gen.start_year} - ${gen.end_year || 'Present'})`;
+                    opt.textContent = label;
+                    select.appendChild(opt);
+                });
+                select.disabled = false;
+                setStatus('success', `✅ Loaded ${generations.length} generations`);
+            }
+
+            async function populateVariants(generationId) {
+                const select = el.variantSelect;
+                select.innerHTML = '<option value="">Select Variant...</option>';
+                select.disabled = true;
+                el.calculateBtn.disabled = true;
+                if (!generationId || !isAuthenticated) return;
+                const variants = await loadVariants(generationId);
+                if (!variants || variants.length === 0) {
+                    select.innerHTML = '<option value="">No variants available</option>';
+                    return;
+                }
+                const seen = new Map();
+                variants.forEach(v => {
+                    let label = v.variant_name || 'Variant';
+                    const parts = label.split(' ');
+                    if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
+                        parts.splice(0, 1);
+                        label = parts.join(' ');
+                    }
+                    const key = label.trim().toLowerCase();
+                    if (seen.has(key)) return;
+                    seen.set(key, true);
+                    const opt = document.createElement('option');
+                    opt.value = v.variant_id;
+                    let displayLabel = label;
+                    if (v.engine_size_cc) displayLabel += ` ${v.engine_size_cc}cc`;
+                    if (v.power_hp) displayLabel += ` ${v.power_hp}hp`;
+                    if (v.fuel_type_name) displayLabel += ` (${v.fuel_type_name})`;
+                    if (v.transmission_type_name) displayLabel += ` ${v.transmission_type_name}`;
+                    opt.textContent = displayLabel;
+                    select.appendChild(opt);
+                });
+                select.disabled = false;
+                setStatus('success', `✅ Loaded ${seen.size} unique variants`);
+            }
+
+            async function loadInitialData() {
+                if (isAuthenticated) {
+                    await populateCategories();
+                }
+            }
+
+            // ─── Display Vehicle Info ─────────────────────────────
+            function displayVehicleInfo(variant) {
+                const label = getVehicleName(
+                    variant.make_name || '',
+                    variant.model_name || '',
+                    variant.variant_name || ''
+                );
+                el.vehicleLabel.textContent = label || 'Unnamed variant';
+
+                el.fuelPill.textContent = variant.fuel_type_name || '—';
+                el.transmissionPill.textContent = variant.transmission_type_name || '—';
+                const engineCC = variant.engine_size_cc || null;
+                el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
+                el.bodyTypePill.textContent = variant.body_type_name || variant.model_body_type || '—';
+
+                const extraSpecs = [
+                    { label: 'Trim', value: variant.trim_level || 'Standard' },
+                    { label: 'Power', value: `${variant.power_hp || 0} HP` },
+                    { label: 'Torque', value: `${variant.torque_nm || 0} Nm` },
+                    { label: 'Fuel Economy', value: `${variant.fuel_consumption_combined || 0} km/L` },
+                    { label: 'Seats', value: `${variant.seats || 5}` },
+                    { label: 'Doors', value: `${variant.doors || 4}` },
+                    { label: 'Drive', value: variant.drive_type_name || '—' },
+                ];
+
+                el.vehicleExtraSpecs.innerHTML = extraSpecs
+                    .filter(s => s.value && s.value !== '—' && s.value !== '0' && s.value !== '0 HP')
+                    .map(s =>
+                        `<span><span style="color:var(--text-muted);">${s.label}:</span> <span style="color:var(--text-secondary);">${s.value}</span></span>`
+                    ).join('');
+
+                // Update fuel price default if fuel type is diesel
+                if (variant.fuel_type_name && variant.fuel_type_name.toLowerCase().includes('diesel')) {
+                    el.fuelPriceInput.value = 190;
+                } else if (variant.fuel_type_name && variant.fuel_type_name.toLowerCase().includes('electric')) {
+                    el.fuelPriceInput.value = 0;
+                } else {
+                    el.fuelPriceInput.value = 200;
+                }
+            }
+
+            // ─── TCO Calculation ──────────────────────────────────
+            function buildTCOPayload(formData) {
+                return {
+                    variant_id: parseInt(formData.variant_id),
+                    purchase_price: parseFloat(formData.purchase_price),
+                    down_payment: parseFloat(formData.down_payment),
+                    loan_term_years: parseInt(formData.loan_term_years),
+                    interest_rate: parseFloat(formData.interest_rate),
+                    annual_mileage: parseFloat(formData.annual_mileage),
+                    fuel_price: parseFloat(formData.fuel_price),
+                    insurance_rate: parseFloat(formData.insurance_rate),
+                    maintenance_cost_per_km: parseFloat(formData.maintenance_cost_per_km),
+                    tyre_cost_per_km: parseFloat(formData.tyre_cost_per_km),
+                    include_depreciation: formData.include_depreciation === true,
+                    include_insurance: formData.include_insurance === true,
+                    include_maintenance: formData.include_maintenance === true,
+                    include_tyres: formData.include_tyres === true
+                };
+            }
+
+            async function calculateTCO(formData) {
+                const payload = buildTCOPayload(formData);
+
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                const token = session?.access_token;
+                if (!token) {
+                    throw new Error('Your session has expired. Please sign in again.');
+                }
+
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                };
+
+                const url = `${CONFIG.API_BASE}/ownership/calculate`;
+
+                console.log('📤 TCO Request URL:', url);
+                console.log('📦 TCO Payload:', JSON.stringify(payload, null, 2));
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(30000)
+                });
+
+                if (!response.ok) {
+                    let errorData;
+                    try {
+                        errorData = await response.json();
+                    } catch (e) {
+                        errorData = { message: `HTTP ${response.status}` };
+                    }
+                    console.error('❌ API Error Response:', errorData);
+
+                    let errorMsg = errorData.message || errorData.detail || `HTTP ${response.status}`;
+                    if (errorData.detail && Array.isArray(errorData.detail)) {
+                        errorMsg = errorData.detail.map(d => `${d.loc?.join('.') || ''}: ${d.msg}`).join('\n');
+                    }
+                    throw new Error(errorMsg);
+                }
+
+                const result = await response.json();
+                debugLog(`✅ SUCCESS:\n${JSON.stringify(result, null, 2)}`);
+                return result;
+            }
+
+            // ─── Main Calculate ────────────────────────────────────
+            async function calculate() {
+                if (!isAuthenticated) {
+                    showToast('⚠️ Please sign in to access the calculator', 'warning');
                     return;
                 }
 
-                showProgress(10, 'Checking authentication...');
-                await checkAuth();
-
-                showProgress(60, 'Loading vehicle data...');
-                await populateCategories();
-
-                if (isAuthenticated) {
-                    showToast('✅ Calculator ready! Select a vehicle to begin.', 'success');
-                } else {
-                    showToast('🔐 Please sign in to use the calculator', 'info');
+                const variantId = el.variantSelect.value;
+                if (!variantId) {
+                    showToast('Please select a vehicle variant', 'error');
+                    return;
                 }
 
-                initEventListeners();
-                el.loadingOverlay.classList.remove('active');
+                showProgress(10, 'Loading vehicle details...');
+                const variant = await loadVariantDetails(variantId);
+                if (!variant) {
+                    showToast('Failed to load vehicle details', 'error');
+                    hideProgress();
+                    return;
+                }
 
-                console.log('✅ Auto-D Kenya TCO Calculator v6.3');
-                console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
-                console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/ownership/calculate`);
+                displayVehicleInfo(variant);
 
-            } catch (error) {
-                console.error('❌ Initialization error:', error);
-                showToast('❌ Failed to initialize: ' + error.message, 'error');
-                el.loadingOverlay.classList.remove('active');
-                hideProgress();
+                const formData = {
+                    variant_id: variantId,
+                    purchase_price: num(el.purchasePrice.value) || 4500000,
+                    down_payment: num(el.downPayment.value) || 1000000,
+                    loan_term_years: parseInt(el.loanTermRange.value) || 3,
+                    interest_rate: num(el.interestRateRange.value) || 14,
+                    annual_mileage: num(el.mileageRange.value) || 20000,
+                    fuel_price: num(el.fuelPriceInput.value) || 200,
+                    insurance_rate: num(el.insuranceRange.value) || 3,
+                    maintenance_cost_per_km: num(el.maintenanceRange.value) || 1.5,
+                    tyre_cost_per_km: num(el.tyreRange.value) || 0.8,
+                    include_depreciation: includeDepreciation,
+                    include_insurance: includeInsurance,
+                    include_maintenance: includeMaintenance,
+                    include_tyres: includeTyres
+                };
+
+                el.calculateBtn.disabled = true;
+                el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
+                showProgress(50, 'Calculating ownership costs...');
+
+                try {
+                    const result = await calculateTCO(formData);
+                    showProgress(90, 'Rendering results...');
+                    renderResults(result);
+                    showProgress(100, 'Complete!');
+                    setTimeout(hideProgress, 500);
+                    showToast('✅ TCO calculated successfully!', 'success');
+                } catch (error) {
+                    hideProgress();
+                    console.error('❌ Calculation error:', error);
+                    showToast('❌ ' + error.message, 'error');
+                }
+
+                el.calculateBtn.disabled = false;
+                el.calculateBtn.innerHTML = '🚀 Calculate Ownership Cost';
             }
-        }
 
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', init);
-        } else {
-            init();
-        }
+            // ─── Render Results ────────────────────────────────────
+            function renderResults(result) {
+                if (!result) return;
 
-    })();
+                const totalCost = result.total_cost || 0;
+                const monthlyCost = result.monthly_cost || 0;
+                const monthlyPayment = result.monthly_payment || 0;
+                const totalInterest = result.total_interest || 0;
+
+                el.outTotal.textContent = fmt(totalCost);
+                el.outMonthly.textContent = fmt(monthlyCost);
+                el.outPayment.textContent = fmt(monthlyPayment);
+                el.outInterest.textContent = fmt(totalInterest);
+
+                // Components
+                const components = result.components || [];
+                const componentsList = el.componentsList;
+                componentsList.innerHTML = '';
+
+                if (components.length > 0) {
+                    components.forEach(comp => {
+                        const div = document.createElement('div');
+                        div.className = 'comp-item';
+                        div.innerHTML = `
+                            <span class="comp-name">${comp.name || 'Unknown'}</span>
+                            <span>
+                                <span class="comp-amount">${fmt(comp.amount || 0)}</span>
+                                <span class="comp-percent">(${(comp.percentage || 0).toFixed(1)}%)</span>
+                            </span>
+                        `;
+                        componentsList.appendChild(div);
+                    });
+                } else {
+                    componentsList.textContent = 'No components data available';
+                    componentsList.style.color = 'var(--text-muted)';
+                }
+
+                // Yearly breakdown
+                const yearlyData = result.yearly_breakdown || result.yearly || [];
+                if (yearlyData && yearlyData.length > 0) {
+                    el.yearlyBreakdownCard.style.display = 'block';
+                    const container = el.yearlyBreakdown;
+                    container.innerHTML = '';
+                    const table = document.createElement('table');
+                    table.style.cssText =
+                        'width:100%;font-size:11px;border-collapse:collapse;color:var(--text-secondary);';
+                    table.innerHTML = `
+                        <thead>
+                            <tr style="border-bottom:1px solid var(--border);">
+                                <th style="text-align:left;padding:6px 4px;font-family:var(--font-mono);font-size:9px;text-transform:uppercase;color:var(--text-muted);">Year</th>
+                                <th style="text-align:right;padding:6px 4px;font-family:var(--font-mono);font-size:9px;text-transform:uppercase;color:var(--text-muted);">Total Cost</th>
+                                <th style="text-align:right;padding:6px 4px;font-family:var(--font-mono);font-size:9px;text-transform:uppercase;color:var(--text-muted);">Depreciation</th>
+                                <th style="text-align:right;padding:6px 4px;font-family:var(--font-mono);font-size:9px;text-transform:uppercase;color:var(--text-muted);">Running</th>
+                                <th style="text-align:right;padding:6px 4px;font-family:var(--font-mono);font-size:9px;text-transform:uppercase;color:var(--text-muted);">Insurance</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                    `;
+                    yearlyData.forEach(year => {
+                        const row = document.createElement('tr');
+                        row.style.borderBottom = '1px solid var(--border)';
+                        row.innerHTML = `
+                            <td style="padding:6px 4px;font-weight:600;color:var(--text-primary);">Year ${year.year || '?'}</td>
+                            <td style="text-align:right;padding:6px 4px;color:var(--amber);">${fmt(year.total_cost || 0)}</td>
+                            <td style="text-align:right;padding:6px 4px;">${fmt(year.depreciation || 0)}</td>
+                            <td style="text-align:right;padding:6px 4px;">${fmt(year.running_cost || 0)}</td>
+                            <td style="text-align:right;padding:6px 4px;">${fmt(year.insurance || 0)}</td>
+                        `;
+                        table.querySelector('tbody').appendChild(row);
+                    });
+                    table.innerHTML += '</tbody></table>';
+                    container.appendChild(table);
+                } else {
+                    el.yearlyBreakdownCard.style.display = 'none';
+                }
+            }
+
+            // ─── Event Listeners ──────────────────────────────────
+            function initEventListeners() {
+                // Auth
+                el.btnSignIn.addEventListener('click', () => {
+                    el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
+                });
+                el.btnCancelAuth.addEventListener('click', () => {
+                    el.authForms.style.display = 'none';
+                });
+                el.btnLogin.addEventListener('click', async () => {
+                    const email = el.authEmail.value.trim();
+                    const password = el.authPassword.value;
+                    if (!email || !password) {
+                        showToast('Please enter email and password', 'warning');
+                        return;
+                    }
+                    await signIn(email, password);
+                    el.authForms.style.display = 'none';
+                    el.authEmail.value = '';
+                    el.authPassword.value = '';
+                });
+                el.btnSignup.addEventListener('click', async () => {
+                    const email = el.authEmail.value.trim();
+                    const password = el.authPassword.value;
+                    if (!email || !password) {
+                        showToast('Please enter email and password', 'warning');
+                        return;
+                    }
+                    if (password.length < 6) {
+                        showToast('Password must be at least 6 characters', 'warning');
+                        return;
+                    }
+                    await signUp(email, password);
+                    el.authForms.style.display = 'none';
+                    el.authEmail.value = '';
+                    el.authPassword.value = '';
+                });
+                el.btnSignOut.addEventListener('click', signOut);
+
+                // Vehicle selection cascading
+                el.categorySelect.addEventListener('change', async function() {
+                    const catId = this.value;
+                    if (catId && isAuthenticated) {
+                        await populateMakes(catId);
+                    }
+                });
+
+                el.makeSelect.addEventListener('change', async function() {
+                    const makeId = this.value;
+                    if (makeId && isAuthenticated) {
+                        await populateModels(makeId);
+                    }
+                });
+
+                el.modelSelect.addEventListener('change', async function() {
+                    const modelId = this.value;
+                    if (modelId && isAuthenticated) {
+                        await populateGenerations(modelId);
+                    }
+                });
+
+                el.generationSelect.addEventListener('change', async function() {
+                    const genId = this.value;
+                    if (genId && isAuthenticated) {
+                        await populateVariants(genId);
+                    }
+                });
+
+                el.variantSelect.addEventListener('change', function() {
+                    if (this.value && isAuthenticated) {
+                        el.calculateBtn.disabled = false;
+                    } else {
+                        el.calculateBtn.disabled = true;
+                    }
+                });
+
+                el.calculateBtn.addEventListener('click', calculate);
+
+                // Range inputs - live updates
+                el.loanTermRange.addEventListener('input', function() {
+                    el.valLoanTerm.textContent = this.value + ' years';
+                });
+                el.interestRateRange.addEventListener('input', function() {
+                    el.valInterestRate.textContent = parseFloat(this.value).toFixed(1) + '%';
+                });
+                el.mileageRange.addEventListener('input', function() {
+                    el.valMileage.textContent = parseInt(this.value).toLocaleString() + ' km';
+                });
+                el.insuranceRange.addEventListener('input', function() {
+                    el.valInsuranceRate.textContent = parseFloat(this.value).toFixed(1) + '%';
+                });
+                el.maintenanceRange.addEventListener('input', function() {
+                    el.valMaintenance.textContent = 'KES ' + parseFloat(this.value).toFixed(2);
+                });
+                el.tyreRange.addEventListener('input', function() {
+                    el.valTyre.textContent = 'KES ' + parseFloat(this.value).toFixed(2);
+                });
+
+                // Toggle buttons
+                el.btnDepreciation.addEventListener('click', function() {
+                    includeDepreciation = !includeDepreciation;
+                    this.classList.toggle('active');
+                    this.textContent = includeDepreciation ? '📉 Depreciation' : '📉 Depreciation';
+                });
+                el.btnInsurance.addEventListener('click', function() {
+                    includeInsurance = !includeInsurance;
+                    this.classList.toggle('active');
+                    this.textContent = includeInsurance ? '🛡️ Insurance' : '🛡️ Insurance';
+                });
+                el.btnMaintenance.addEventListener('click', function() {
+                    includeMaintenance = !includeMaintenance;
+                    this.classList.toggle('active');
+                    this.textContent = includeMaintenance ? '🔧 Maintenance' : '🔧 Maintenance';
+                });
+                el.btnTyres.addEventListener('click', function() {
+                    includeTyres = !includeTyres;
+                    this.classList.toggle('active');
+                    this.textContent = includeTyres ? '🔄 Tyres' : '🔄 Tyres';
+                });
+            }
+
+            // ─── Init ─────────────────────────────────────────────
+            async function init() {
+                el.loadingOverlay.classList.add('active');
+
+                try {
+                    const supabaseOk = initSupabase();
+                    if (!supabaseOk) {
+                        setStatus('error', '❌ Failed to initialize Supabase');
+                        showToast('Failed to initialize Supabase', 'error');
+                        el.loadingOverlay.classList.remove('active');
+                        return;
+                    }
+
+                    showProgress(10, 'Checking authentication...');
+                    await checkAuth();
+
+                    showProgress(60, 'Loading vehicle data...');
+                    await populateCategories();
+
+                    if (isAuthenticated) {
+                        showToast('✅ Calculator ready! Select a vehicle to begin.', 'success');
+                    } else {
+                        showToast('🔐 Please sign in to use the calculator', 'info');
+                    }
+
+                    initEventListeners();
+                    el.loadingOverlay.classList.remove('active');
+
+                    console.log('✅ Auto-D Kenya TCO Calculator v7.0');
+                    console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
+                    console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/ownership/calculate`);
+
+                } catch (error) {
+                    console.error('❌ Initialization error:', error);
+                    showToast('❌ Failed to initialize: ' + error.message, 'error');
+                    el.loadingOverlay.classList.remove('active');
+                    hideProgress();
+                }
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+
+        })();
     </script>
 
 </body>
