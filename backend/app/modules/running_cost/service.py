@@ -1,3 +1,4 @@
+# app/modules/running_cost/service.py
 # ─── MAIN CALCULATION ───────────────────────────────────────────
 
 async def calculate_running_cost(self, request: RunningCostRequest, user_id: int) -> Dict[str, Any]:
@@ -142,6 +143,24 @@ async def calculate_running_cost(self, request: RunningCostRequest, user_id: int
         config["depreciation_rates"]
     )
 
+    # ─── Convert five_year_data to ProjectionYear objects ──────
+    from app.modules.running_cost.schemas import ProjectionYear
+    
+    projection_years = [
+        ProjectionYear(
+            year=y["year"],
+            fuel=y["fuel"],
+            service=y["service"],
+            tyres=y["tyres"],
+            insurance=y["insurance"],
+            depreciation=y["depreciation"],
+            running_cost=y["running_cost"],
+            total=y["total"],
+            value=y["value"]
+        )
+        for y in five_year_data
+    ]
+
     # ─── Build response with CORRECT camelCase field names ──────
     try:
         response = {
@@ -178,8 +197,8 @@ async def calculate_running_cost(self, request: RunningCostRequest, user_id: int
             "annualInsurance": round(annual_insurance, 2),
             "annualDepreciation": round(monthly_depreciation * 12, 2),
 
-            # ─── ✅ 5-Year Projection ─────────────────────────────
-            "fiveYearData": five_year_data,
+            # ─── ✅ 5-Year Projection (as ProjectionYear objects) ──
+            "fiveYearData": projection_years,
             "total5YearCost": round(sum(y["total"] for y in five_year_data), 2),
 
             # ─── ✅ Vehicle Info (camelCase) ──────────────────────
