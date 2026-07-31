@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional, List
 from typing_extensions import Literal
 
+
 # ─── PROJECTION YEAR MODEL ────────────────────────────────────────
 
 class ProjectionYear(BaseModel):
@@ -25,17 +26,13 @@ class ProjectionYear(BaseModel):
 class RunningCostRequest(BaseModel):
     """Request for running cost calculation"""
     
-    # ✅ FIX 1: Only one definition (keep in schemas.py)
     variant_id: int = Field(..., description="Vehicle variant ID", gt=0)
     
-    # ✅ FIX 2: annual_mileage must be > 0 (prevent division by zero)
     distance: float = Field(150, description="Trip distance in km", gt=0, le=100000)
     annual_mileage: float = Field(20000, description="Annual mileage in km", gt=0, le=200000)
     
-    # ✅ FIX 3: fuel_price must be > 0
     fuel_price: float = Field(200, description="Fuel price in KES per litre", gt=0, le=500)
     
-    # ✅ FIX 6: Use Literal for string fields
     trip_type: Literal["urban", "highway", "mixed", "offroad"] = Field(
         "mixed", description="Trip type"
     )
@@ -50,14 +47,12 @@ class RunningCostRequest(BaseModel):
         "good", description="Vehicle condition"
     )
     
-    # ✅ FIX 4: year validation
     year: int = Field(2024, description="Vehicle year of manufacture", ge=1980)
     
     financed: bool = Field(False, description="Whether the vehicle is financed")
     down_payment: float = Field(30, description="Down payment percentage", ge=0, le=100)
     interest_rate: float = Field(16, description="Interest rate percentage", ge=0, le=50)
     
-    # ✅ FIX 5: years should be between 1 and 10
     loan_term: int = Field(4, description="Loan term in years", ge=1, le=7)
     years: int = Field(5, description="Number of years for projection", ge=1, le=10)
     
@@ -66,7 +61,8 @@ class RunningCostRequest(BaseModel):
     include_tyres: bool = Field(True, description="Include tyres in calculation")
     include_depreciation: bool = Field(True, description="Include depreciation in calculation")
     
-    # ✅ FIX 4: Custom validator for year
+    insurance_type: str = Field("comprehensive", description="Insurance type: comprehensive, third_party")
+    
     @field_validator('year')
     @classmethod
     def validate_year(cls, v: int) -> int:
@@ -76,7 +72,6 @@ class RunningCostRequest(BaseModel):
             raise ValueError(f"Year cannot be more than {current_year + 1}")
         return v
     
-    # ✅ FIX 2: Additional validation for annual_mileage
     @field_validator('annual_mileage')
     @classmethod
     def validate_annual_mileage(cls, v: float) -> float:
@@ -90,36 +85,6 @@ class RunningCostRequest(BaseModel):
 
 class RunningCostResponse(BaseModel):
     """Response for running cost calculation"""
-    
-    # ─── Trip Summary ──────────────────────────────────────────────
-    trip: dict = Field(..., description="Trip summary with distance, running_cost, cost_per_km")
-    
-    # ─── Cost Breakdown ────────────────────────────────────────────
-    costs: dict = Field(..., description="Cost breakdown for the trip")
-    
-    # ─── Per KM Costs ─────────────────────────────────────────────
-    per_km: dict = Field(..., description="Cost per kilometer breakdown")
-    
-    # ─── Monthly Costs ────────────────────────────────────────────
-    monthly: dict = Field(..., description="Monthly cost breakdown")
-    
-    # ─── Annual Costs ─────────────────────────────────────────────
-    annual: dict = Field(..., description="Annual cost breakdown")
-    
-    # ─── 5-Year Projection ────────────────────────────────────────
-    projection: dict = Field(..., description="5-year projection data")
-    
-    # ─── Vehicle Info ─────────────────────────────────────────────
-    vehicle: dict = Field(..., description="Vehicle information")
-    
-    # ─── Timestamp ────────────────────────────────────────────────
-    calculated_at: str = Field(..., description="ISO timestamp of calculation")
-
-
-# ─── LEGACY RESPONSE (for backward compatibility) ──────────────────
-
-class LegacyRunningCostResponse(BaseModel):
-    """Legacy response format for backward compatibility"""
     
     # ─── Trip Summary ──────────────────────────────────────────────
     tripTotal: float = Field(..., description="Total running cost for the trip")
@@ -168,9 +133,56 @@ class LegacyRunningCostResponse(BaseModel):
     fuelConsumption: float = Field(..., description="Fuel consumption in km/l")
     
     # ─── Timestamp ────────────────────────────────────────────────
-    calculated_at: datetime = Field(..., description="Calculation timestamp")
+    calculated_at: str = Field(..., description="ISO timestamp of calculation")
+
+
+# ─── LEGACY RESPONSE (for backward compatibility) ──────────────────
+
+class LegacyRunningCostResponse(BaseModel):
+    """Legacy response format for backward compatibility"""
     
-    # ─── Helper method to convert from new response ──────────────
+    tripTotal: float
+    tripCostPerKm: float
+    distance: float
+    
+    fuelCostTrip: float
+    serviceTrip: float
+    tyreTrip: float
+    insuranceTrip: float
+    depreciationTrip: float
+    
+    fuelCostPerKm: float
+    servicePerKm: float
+    tyrePerKm: float
+    insurancePerKm: float
+    depreciationPerKm: float
+    
+    monthlyFuel: float
+    monthlyService: float
+    monthlyTyre: float
+    monthlyInsurance: float
+    monthlyDepreciation: float
+    
+    annualFuel: float
+    annualService: float
+    annualTyre: float
+    annualInsurance: float
+    annualDepreciation: float
+    
+    fiveYearData: List[ProjectionYear]
+    total5YearCost: float
+    
+    originalCost: float
+    ageAdjustedCost: float
+    current_value: float
+    remainingValue: float
+    resale_value: float
+    
+    fuelTypeDisplay: str
+    fuelConsumption: float
+    
+    calculated_at: datetime
+    
     @classmethod
     def from_new_response(cls, data: dict) -> "LegacyRunningCostResponse":
         """Convert new response format to legacy format"""
