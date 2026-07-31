@@ -3,7 +3,7 @@
 from typing import Optional, Dict, Any
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
+from jose import jwt, JWTError, ExpiredSignatureError  # ✅ FIXED: Correct imports
 from datetime import datetime, timedelta
 import logging
 
@@ -120,8 +120,9 @@ async def get_current_super_admin(
     return current_user
 
 
-async def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
-    """Get user by ID from database"""
+# ✅ FIXED: Changed user_id type from int to str (UUID support)
+async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+    """Get user by ID from database (supports UUID)"""
     try:
         supabase = get_supabase()
         result = supabase.table("users")\
@@ -189,8 +190,14 @@ async def create_refresh_token(data: Dict[str, Any]) -> str:
     return encoded_jwt
 
 
+# ✅ FIXED: Simplified decode_token with correct exception handling
 async def decode_token(token: str) -> Optional[Dict[str, Any]]:
-    """Decode and validate JWT token"""
+    """
+    Decode and validate JWT token.
+    
+    ✅ Uses JWTError and ExpiredSignatureError from jose
+    ✅ jwt.decode() automatically validates exp claim
+    """
     try:
         payload = jwt.decode(
             token,
@@ -198,19 +205,16 @@ async def decode_token(token: str) -> Optional[Dict[str, Any]]:
             algorithms=[settings.ALGORITHM]
         )
         
-        # Check if token is expired
-        exp = payload.get("exp")
-        if exp and datetime.utcnow() > datetime.utcfromtimestamp(exp):
-            logger.warning("Token expired")
-            return None
-        
         return payload
-    except jwt.ExpiredSignatureError:
+
+    except ExpiredSignatureError:
         logger.warning("Token has expired")
         return None
-    except jwt.InvalidTokenError as e:
+
+    except JWTError as e:
         logger.warning(f"Invalid token: {str(e)}")
         return None
+
     except Exception as e:
         logger.error(f"Error decoding token: {str(e)}")
         return None
@@ -218,8 +222,6 @@ async def decode_token(token: str) -> Optional[Dict[str, Any]]:
 
 async def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash"""
-    # This is a placeholder - implement proper password hashing
-    # Use bcrypt, argon2, or similar
     from passlib.context import CryptContext
     
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
