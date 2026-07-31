@@ -26,9 +26,15 @@ class MpesaService:
         request_id: Optional[str] = None,
         amount: Optional[float] = None
     ) -> Dict[str, Any]:
-        service = self.supabase.table("services").select("*").eq("id", service_id).eq("active", True).execute()
+        """Initiate M-Pesa payment.
+
+        `service_id` here is the frontend's string code (e.g. "mileage"),
+        not the table's bigint `id`. Filtering on `id` with a string throws
+        a Postgres 22P02 type error before the query even runs.
+        """
+        service = self.supabase.table("services").select("*").eq("code", service_id).eq("active", True).execute()
         if not service.data:
-            raise NotFoundException("Service not found")
+            raise NotFoundException(f"Service not found: {service_id}")
 
         service_data = service.data[0]
         price = amount or float(service_data.get("price", 0))
@@ -44,7 +50,7 @@ class MpesaService:
 
         await self.repository.create_payment({
             "user_id": user_id,
-            "service_id": service_id,
+            "service_id": service_id,  # keep as the string code — see note below on why
             "checkout_request_id": result["checkout_request_id"],
             "phone": phone,
             "amount": price,
@@ -79,9 +85,6 @@ class MpesaService:
         if payment.get("status") == "completed":
             return {"status": "completed", "message": "Payment already confirmed"}
 
-        # Only honor confirm once the callback (or a real Daraja status check)
-        # has actually marked this pending payment as paid — never trust the
-        # client to flip an unrelated/failed payment to completed.
         if payment.get("status") != "paid":
             raise AppException("Payment not yet confirmed by M-Pesa", status_code=409)
 
