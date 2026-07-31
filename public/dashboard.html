@@ -14,7 +14,6 @@
           crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        /* ─── Same styles as before ────────────────────────────────── */
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'Inter', sans-serif;
@@ -644,8 +643,11 @@
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
+        // ─── PRODUCTION API BASE ────────────────────────────────────
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
 
+        // ─── SERVICE MAPPING ──────────────────────────────────────
+        // Maps frontend service keys to service codes in the database
         const SERVICE_IDS = {
             'instant-value': 'valuation',
             'mileage': 'mileage',
@@ -669,8 +671,6 @@
         let paidServices = {};
         let servicePrices = {};
         let isInitialized = false;
-        let priceFetchAttempts = 0;
-        const MAX_PRICE_FETCH_ATTEMPTS = 3;
 
         // ─── DOM REFS ──────────────────────────────────────────────
         const userNameEl = document.getElementById('userName');
@@ -863,32 +863,21 @@
             return { status: 'ok', message: 'Fallback response' };
         }
 
-        // ─── ✅ FIXED: FETCH SERVICE PRICES WITH FALLBACK ──────────
+        // ─── ✅ DYNAMIC SERVICE PRICES FROM DATABASE ──────────────
         async function fetchServicePrices() {
-            priceFetchAttempts++;
-            
             try {
                 console.log('🔍 Fetching service prices from Supabase...');
-                
+
                 const { data, error } = await supabaseClient
                     .from('service_prices')
-                    .select('service_type, price, currency, active')
+                    .select('service_type, price, currency')
                     .eq('active', true);
 
-                if (error) {
-                    console.warn('⚠️ Service prices table error:', error.message);
-                    return useFallbackPrices('Table error: ' + error.message);
-                }
+                if (error) throw error;
 
                 if (!data || data.length === 0) {
-                    console.warn('⚠️ No service prices found in table');
-                    // Try to insert default prices
-                    await insertDefaultServicePrices();
-                    // Try again
-                    if (priceFetchAttempts < MAX_PRICE_FETCH_ATTEMPTS) {
-                        return await fetchServicePrices();
-                    }
-                    return useFallbackPrices('No data found');
+                    console.warn('⚠️ No service prices found, using fallback');
+                    return useFallbackPrices();
                 }
 
                 const prices = {};
@@ -901,18 +890,13 @@
 
                 // Ensure all required services exist
                 const required = ['valuation', 'mileage', 'ownership'];
-                let missing = false;
+                let hasAll = true;
                 required.forEach(key => {
                     if (!prices[key]) {
-                        missing = true;
+                        hasAll = false;
                         prices[key] = { price: 150, currency: 'KES' };
-                        console.warn(`⚠️ Missing service: ${key}, using fallback`);
                     }
                 });
-
-                if (missing) {
-                    await insertMissingServices(prices);
-                }
 
                 servicePrices = prices;
                 console.log('✅ Service prices loaded:', servicePrices);
@@ -922,12 +906,12 @@
 
             } catch (err) {
                 console.error('❌ Failed to fetch service prices:', err.message);
-                return useFallbackPrices(err.message);
+                return useFallbackPrices();
             }
         }
 
-        function useFallbackPrices(reason) {
-            console.warn(`⚠️ Using fallback prices (${reason})`);
+        function useFallbackPrices() {
+            console.warn('⚠️ Using fallback prices');
             servicePrices = {
                 'valuation': { price: 150, currency: 'KES' },
                 'mileage': { price: 150, currency: 'KES' },
@@ -936,77 +920,6 @@
             updatePriceDisplay();
             enablePayButtons();
             return servicePrices;
-        }
-
-        // ─── INSERT DEFAULT SERVICE PRICES ──────────────────────────
-        async function insertDefaultServicePrices() {
-            try {
-                console.log('📝 Inserting default service prices...');
-                const defaultServices = [
-                    { service_type: 'valuation', service_name: 'Instant Vehicle Valuation', price: 150, currency: 'KES', active: true },
-                    { service_type: 'mileage', service_name: 'Mileage Cost Calculator', price: 150, currency: 'KES', active: true },
-                    { service_type: 'ownership', service_name: 'Total Ownership Cost Analysis', price: 150, currency: 'KES', active: true }
-                ];
-
-                for (const service of defaultServices) {
-                    const { error } = await supabaseClient
-                        .from('service_prices')
-                        .upsert(service, { onConflict: 'service_type' });
-                    if (error) {
-                        console.warn(`⚠️ Could not upsert service ${service.service_type}:`, error.message);
-                    }
-                }
-                console.log('✅ Default service prices upserted');
-            } catch (err) {
-                console.warn('⚠️ Could not insert default prices:', err.message);
-            }
-        }
-
-        // ─── INSERT MISSING SERVICES ──────────────────────────────────
-        async function insertMissingServices(currentPrices) {
-            try {
-                const required = ['valuation', 'mileage', 'ownership'];
-                const names = {
-                    'valuation': 'Instant Vehicle Valuation',
-                    'mileage': 'Mileage Cost Calculator',
-                    'ownership': 'Total Ownership Cost Analysis'
-                };
-
-                for (const key of required) {
-                    if (!currentPrices[key] || currentPrices[key].price === 0) {
-                        console.log(`📝 Inserting missing service: ${key}`);
-                        const { error } = await supabaseClient
-                            .from('service_prices')
-                            .upsert({
-                                service_type: key,
-                                service_name: names[key],
-                                price: 150,
-                                currency: 'KES',
-                                active: true
-                            }, { onConflict: 'service_type' });
-                        if (error) {
-                            console.warn(`⚠️ Could not insert missing service ${key}:`, error.message);
-                        }
-                    }
-                }
-            } catch (err) {
-                console.warn('⚠️ Could not insert missing services:', err.message);
-            }
-        }
-
-        // ─── ENABLE PAY BUTTONS ──────────────────────────────────────
-        function enablePayButtons() {
-            ['instant-value', 'mileage', 'ownership'].forEach(key => {
-                const payBtn = document.getElementById(key + 'PayBtn');
-                if (payBtn) {
-                    payBtn.disabled = false;
-                    payBtn.innerHTML = '<i class="fas fa-mobile-alt"></i> Pay with M-Pesa';
-                    if (paidServices[key]) {
-                        payBtn.disabled = true;
-                        payBtn.textContent = '✓ Unlocked';
-                    }
-                }
-            });
         }
 
         // ─── UPDATE PRICE DISPLAY ──────────────────────────────────
@@ -1032,6 +945,20 @@
                     }
                 }
 
+                const payBtn = document.getElementById(key + 'PayBtn');
+                if (payBtn) {
+                    payBtn.disabled = false;
+                    payBtn.innerHTML = '<i class="fas fa-mobile-alt"></i> Pay with M-Pesa';
+                    if (paidServices[key]) {
+                        payBtn.disabled = true;
+                        payBtn.textContent = '✓ Unlocked';
+                    }
+                }
+            });
+        }
+
+        function enablePayButtons() {
+            ['instant-value', 'mileage', 'ownership'].forEach(key => {
                 const payBtn = document.getElementById(key + 'PayBtn');
                 if (payBtn) {
                     payBtn.disabled = false;
