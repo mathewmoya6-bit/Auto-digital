@@ -639,10 +639,17 @@
             'mileage': 'Mileage Cost Calculator',
             'ownership': 'Total Ownership Cost Analysis'
         };
+        // These must match the `code` column in the `services` table exactly
+        // (confirmed via the live API: mileage / valuation / ownership).
+        // The previous values here ('instant_valuation', 'mileage_cost',
+        // 'ownership_cost') didn't match any row, causing every STK push
+        // from this page to fail — first with a 500 (bigint/string type
+        // mismatch on the backend), and after that backend fix, with a
+        // clean but still-broken 404 "Service not found".
         const SERVICE_IDS = {
-            'instant-value': 'instant_valuation',
-            'mileage': 'mileage_cost',
-            'ownership': 'ownership_cost'
+            'instant-value': 'valuation',
+            'mileage': 'mileage',
+            'ownership': 'ownership'
         };
 
         // ─── STATE ──────────────────────────────────────────────────
@@ -969,7 +976,7 @@
                 showToast('✅ This service is already unlocked!', 'success');
                 return;
             }
-            if (!accessToken) {
+            if (!accessToken || !currentUser?.id) {
                 showToast('⚠️ Please sign in again', 'warning');
                 return;
             }
@@ -1003,6 +1010,15 @@
                 showToast('Error: No service selected', 'error');
                 return;
             }
+            // Guard against sending a placeholder user id to the backend —
+            // openMpesa() already checks this before the modal opens, but
+            // don't rely on that alone: never silently substitute 'anonymous'
+            // for a real user id on a payment-initiating request.
+            if (!currentUser?.id) {
+                showToast('⚠️ Your session expired — please sign in again', 'error');
+                closeMpesa();
+                return;
+            }
 
             mpesaConfirmBtn.disabled = true;
             mpesaConfirmBtn.innerHTML = '<span class="loading-spinner"></span> Initiating...';
@@ -1013,7 +1029,7 @@
                     phone: phone,
                     service_id: SERVICE_IDS[pendingService],
                     description: `${SERVICE_NAMES[pendingService]} - Auto-D Kenya`,
-                    user_id: currentUser?.id || 'anonymous',
+                    user_id: currentUser.id,
                     request_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
                     amount: SERVICE_PRICE
                 };
@@ -1078,11 +1094,11 @@
                         if (currentStatus === 'completed' || currentStatus === 'success' || currentStatus === 'paid') {
                             clearInterval(statusPollInterval);
                             statusPollInterval = null;
-                            paidServices[pendingService] = true;
-                            localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
-                            updatePaymentUI(pendingService);
-                            showToast(`✅ Payment successful! ${SERVICE_NAMES[pendingService]} unlocked.`, 'success');
 
+                            // "paid" is set by the Safaricom callback; confirm_payment()
+                            // on the backend is what actually flips it to "completed"
+                            // and unlocks the service — so run confirm before treating
+                            // this as a done deal.
                             try {
                                 await apiCall(`/mpesa/confirm/${checkoutRequestId}`, {
                                     method: 'POST'
@@ -1090,6 +1106,11 @@
                             } catch (confirmErr) {
                                 console.warn('Confirm API warning:', confirmErr);
                             }
+
+                            paidServices[pendingService] = true;
+                            localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
+                            updatePaymentUI(pendingService);
+                            showToast(`✅ Payment successful! ${SERVICE_NAMES[pendingService]} unlocked.`, 'success');
 
                             closeMpesa();
                             switchService(pendingService);
