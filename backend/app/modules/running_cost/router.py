@@ -9,17 +9,19 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 
 from app.core.dependencies import get_current_user, get_current_user_optional
-# ✅ FIX: Import from schemas.py
 from app.modules.running_cost.schemas import (
     RunningCostRequest,
     RunningCostResponse,
     LegacyRunningCostResponse,
     ProjectionYear,
 )
-# ✅ FIX: Import service
 from app.modules.running_cost.service import RunningCostService
 
-router = APIRouter(prefix="/api/v1", tags=["Running Cost"])
+# FIX: main.py already applies prefix=settings.API_V1_PREFIX ("/api/v1") when
+# including this router. Hardcoding it again here doubled every path to
+# /api/v1/api/v1/... (confirmed via openapi.json — operationIds literally
+# contained "api_v1_api_v1"). Do not add a prefix here.
+router = APIRouter(tags=["Running Cost"])
 
 
 # ============================================================
@@ -139,9 +141,16 @@ async def get_user_vehicles(
     """
     GET /api/v1/vehicles
     Get user vehicles (requires authentication).
+
+    NOTE: this duplicates GET /api/v1/vehicles already implemented properly
+    in app/modules/vehicles/router.py against the real `vehicles` table.
+    This copy is a stub returning an empty list — main.py registers the
+    Vehicles module's router separately, so whichever one FastAPI resolves
+    first for this exact path wins. Recommend deleting this duplicate route
+    entirely once confirmed the Vehicles module version is the one in use.
     """
     try:
-        return {"status": "success", "data": [], "message": "User vehicles endpoint - implement with user_vehicles table"}
+        return {"status": "success", "data": [], "message": "Stub — use /api/v1/vehicles from the Vehicles module instead"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -202,6 +211,16 @@ async def calculate_running_cost_legacy(
     """
     POST /api/v1/running-cost/calculate-legacy
     Legacy endpoint that returns the old field names.
+
+    KNOWN ISSUE: LegacyRunningCostResponse.from_new_response() expects a
+    nested dict shape (data["trip"]["running_cost"], data["costs"]["fuel"],
+    etc.) but RunningCostService.calculate_running_cost() returns a flat
+    dict matching RunningCostResponse directly (no "trip"/"costs"/"per_km"
+    sub-dicts). This endpoint will raise a KeyError until either the
+    service is changed to also emit the nested shape, or from_new_response()
+    is rewritten to read from the flat shape. Not fixed here since nothing
+    in the current frontend calls this endpoint — flagging so it doesn't
+    surprise you later if something starts using it.
     """
     try:
         service = RunningCostService()
