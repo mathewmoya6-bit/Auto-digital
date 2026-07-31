@@ -6,10 +6,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import datetime, timedelta
 import logging
 
-# ✅ FIX 1: Import from central security helper instead of jose directly
-from app.core.security import decode_token
-from app.core.config import settings
+from supabase import Client
 from app.core.database import get_supabase
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -17,68 +16,81 @@ logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
 
+
+# ─── TOKEN DECODER ────────────────────────────────────────────────
+
+async def decode_token(token: str) -> Optional[Dict[str, Any]]:
+    """
+    Validate Supabase access token using Supabase's built-in validation.
+    
+    This is the ONLY token validation function in the application.
+    It uses supabase.auth.get_user() which validates the token against
+    Supabase's internal validation rules (expiry, signature, etc.).
+    """
+    try:
+        supabase: Client = get_supabase()
+        response = supabase.auth.get_user(token)
+
+        if response and response.user:
+            return {
+                "sub": response.user.id,
+                "email": response.user.email,
+                "user_metadata": response.user.user_metadata or {},
+                "aud": response.user.aud,
+                "role": response.user.role,
+                "created_at": response.user.created_at,
+                "confirmed_at": getattr(response.user, 'confirmed_at', None),
+                "last_sign_in_at": getattr(response.user, 'last_sign_in_at', None),
+            }
+
+        logger.warning("Invalid token: No user data returned")
+        return None
+
+    except Exception as e:
+        logger.warning(f"Token validation failed: {str(e)}")
+        return None
+
+
 # ─── DEPENDENCIES ────────────────────────────────────────────────
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Dict[str, Any]:
     """
-    Get current user from JWT token.
+    Get current authenticated user from Supabase token.
     Raises 401 if token is invalid or missing.
     """
-    if not credentials:
+    if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
+            detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    token = credentials.credentials
+    payload = await decode_token(credentials.credentials)
     
-    # ✅ FIX 3: Use decode_token from app.core.security (synchronous, raises ValueError)
-    try:
-        payload = decode_token(token)
-    except ValueError as e:
-        logger.warning(f"Token validation failed: {str(e)}")
+    if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Get user from database
-    user = await get_user_by_id(payload.get("sub"))
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    return user
+    return payload
 
 
 async def get_current_user_optional(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Optional[Dict[str, Any]]:
     """
-    Get current user from JWT token if present.
+    Get current user from Supabase token if present.
     Returns None if no token or invalid token.
     """
-    if not credentials:
+    if credentials is None:
         return None
     
-    token = credentials.credentials
-    
-    # ✅ FIX 3: Use decode_token from app.core.security
-    try:
-        payload = decode_token(token)
-    except ValueError:
-        return None
-    
-    user = await get_user_by_id(payload.get("sub"))
-    return user
+    payload = await decode_token(credentials.credentials)
+    return payload
 
 
 async def get_current_active_user(
@@ -88,10 +100,11 @@ async def get_current_active_user(
     Get current active user.
     Raises 403 if user is not active.
     """
-    if not current_user.get("is_active", True):
+    # Check if user is confirmed (email confirmed)
+    if not current_user.get("confirmed_at"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Inactive user"
+            detail="Email not confirmed. Please verify your email."
         )
     return current_user
 
@@ -103,7 +116,12 @@ async def get_current_admin_user(
     Get current admin user.
     Raises 403 if user is not an admin.
     """
-    if not current_user.get("is_admin", False):
+    # Check admin status from user_metadata or role
+    user_metadata = current_user.get("user_metadata", {})
+    role = current_user.get("role", "")
+    account_type = user_metadata.get("account_type", "individual")
+    
+    if account_type not in ["admin", "super_admin", "staff"] and role not in ["admin", "super_admin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required"
@@ -118,13 +136,19 @@ async def get_current_super_admin(
     Get current super admin user.
     Raises 403 if user is not a super admin.
     """
-    if not current_user.get("is_super_admin", False):
+    user_metadata = current_user.get("user_metadata", {})
+    account_type = user_metadata.get("account_type", "individual")
+    role = current_user.get("role", "")
+    
+    if account_type != "super_admin" and role != "super_admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Super admin privileges required"
         )
     return current_user
 
+
+# ─── USER LOOKUP HELPERS ──────────────────────────────────────────
 
 async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     """Get user by ID from database (supports UUID)"""
@@ -160,62 +184,6 @@ async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-# ✅ FIX 5: Keep these functions - they create backend-issued tokens
-async def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
-    """Create JWT access token (backend-issued)"""
-    from jose import jwt  # Only imported here, not at module level
-    
-    to_encode = data.copy()
-    
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
-    
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM
-    )
-    
-    return encoded_jwt
-
-
-async def create_refresh_token(data: Dict[str, Any]) -> str:
-    """Create JWT refresh token with longer expiry (backend-issued)"""
-    from jose import jwt  # Only imported here, not at module level
-    
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "iat": datetime.utcnow(), "type": "refresh"})
-    
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM
-    )
-    
-    return encoded_jwt
-
-
-async def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash"""
-    from passlib.context import CryptContext
-    
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-async def get_password_hash(password: str) -> str:
-    """Hash a password"""
-    from passlib.context import CryptContext
-    
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    return pwd_context.hash(password)
-
-
 # ─── PERMISSION CHECKERS ─────────────────────────────────────────
 
 def require_permission(permission: str):
@@ -224,13 +192,16 @@ def require_permission(permission: str):
     Usage: @router.get("/endpoint", dependencies=[Depends(require_permission("users:read"))])
     """
     async def permission_dependency(current_user: Dict[str, Any] = Depends(get_current_user)):
-        if not current_user.get("permissions", []):
+        user_metadata = current_user.get("user_metadata", {})
+        permissions = user_metadata.get("permissions", [])
+        
+        if not permissions:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions"
             )
         
-        if permission not in current_user["permissions"]:
+        if permission not in permissions:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Permission '{permission}' required"
@@ -247,7 +218,10 @@ def require_role(role: str):
     Usage: @router.get("/endpoint", dependencies=[Depends(require_role("admin"))])
     """
     async def role_dependency(current_user: Dict[str, Any] = Depends(get_current_user)):
-        if current_user.get("role") != role:
+        user_metadata = current_user.get("user_metadata", {})
+        user_role = user_metadata.get("role", current_user.get("role", "individual"))
+        
+        if user_role != role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Role '{role}' required"
@@ -263,7 +237,9 @@ def require_any_role(roles: list):
     Usage: @router.get("/endpoint", dependencies=[Depends(require_any_role(["admin", "manager"]))])
     """
     async def role_dependency(current_user: Dict[str, Any] = Depends(get_current_user)):
-        user_role = current_user.get("role")
+        user_metadata = current_user.get("user_metadata", {})
+        user_role = user_metadata.get("role", current_user.get("role", "individual"))
+        
         if user_role not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
