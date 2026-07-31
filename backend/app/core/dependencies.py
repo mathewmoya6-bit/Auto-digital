@@ -1,13 +1,24 @@
-# app/core/dependencies.py
 """
-Auto-D Kenya - Core Authentication Dependencies
+Auto-D Kenya - Authentication Dependencies
+==========================================
+
+FastAPI dependency injection for authentication.
+
+Provides:
+- Current authenticated user
+- Optional authentication
+- Active user validation
+- Admin validation
+- Supabase client dependency
 """
+
+from __future__ import annotations
 
 import logging
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.database import get_supabase
 from app.core.exceptions import UnauthorizedException
@@ -15,76 +26,117 @@ from app.core.security import decode_token
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------
+# Security Scheme
+# ---------------------------------------------------------------------
+
 security = HTTPBearer(auto_error=False)
 
+
+# ---------------------------------------------------------------------
+# Current User
+# ---------------------------------------------------------------------
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
     """
-    Return the currently authenticated user.
+    Returns the authenticated user.
+
+    Priority:
+    1. Validate JWT.
+    2. Load user from database.
+    3. Fall back to JWT claims.
     """
 
     if credentials is None:
         raise UnauthorizedException("Authentication required")
 
-    payload = await decode_token(credentials.credentials)
+    token = credentials.credentials
 
-    if payload is None:
+    try:
+        payload = decode_token(token)
+
+    except Exception as exc:
+        logger.warning("Authentication failed: %s", exc)
         raise UnauthorizedException("Invalid or expired token")
 
     user_id = payload.get("sub")
 
     if not user_id:
-        raise UnauthorizedException("Invalid token")
+        raise UnauthorizedException("Invalid token payload")
+
+    metadata = payload.get("user_metadata", {})
 
     try:
         supabase = get_supabase()
 
-        result = (
-            supabase.table("users")
+        response = (
+            supabase
+            .table("users")
             .select("*")
             .eq("id", user_id)
-            .limit(1)
+            .single()
             .execute()
         )
 
-        if result.data:
-            user = result.data[0]
+        if response.data:
+            user = response.data
 
             return {
                 "id": user.get("id"),
                 "email": user.get("email"),
                 "full_name": (
                     user.get("full_name")
-                    or user.get("name")
                     or user.get("display_name")
+                    or user.get("name")
                 ),
-                "account_type": user.get("account_type", "individual"),
-                "is_active": user.get("is_active", True),
+                "account_type": user.get(
+                    "account_type",
+                    "individual",
+                ),
+                "is_active": user.get(
+                    "is_active",
+                    True,
+                ),
                 "payload": payload,
             }
 
-    except Exception as e:
-        logger.warning(f"Database lookup failed: {e}")
+    except Exception as exc:
+        logger.warning(
+            "Unable to load user from database: %s",
+            exc,
+        )
 
-    metadata = payload.get("user_metadata", {})
+    # -----------------------------------------------------------------
+    # Fallback to JWT Claims
+    # -----------------------------------------------------------------
 
     return {
         "id": user_id,
         "email": payload.get("email") or metadata.get("email"),
-        "full_name": metadata.get("full_name") or metadata.get("name"),
-        "account_type": metadata.get("account_type", "individual"),
+        "full_name": (
+            metadata.get("full_name")
+            or metadata.get("name")
+        ),
+        "account_type": metadata.get(
+            "account_type",
+            "individual",
+        ),
         "is_active": True,
         "payload": payload,
     }
 
 
+# ---------------------------------------------------------------------
+# Optional Authentication
+# ---------------------------------------------------------------------
+
 async def get_current_user_optional(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-):
+) -> Optional[dict]:
     """
-    Return authenticated user or None.
+    Returns the authenticated user or None.
     """
 
     if credentials is None:
@@ -92,50 +144,77 @@ async def get_current_user_optional(
 
     try:
         return await get_current_user(credentials)
+
     except Exception:
         return None
 
 
+# ---------------------------------------------------------------------
+# Active User
+# ---------------------------------------------------------------------
+
 async def get_current_active_user(
     current_user: dict = Depends(get_current_user),
-):
+) -> dict:
     """
-    Ensure user is active.
+    Ensure account is active.
     """
 
     if not current_user.get("is_active", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Inactive account",
+            detail="Account is inactive.",
         )
 
     return current_user
 
+
+# ---------------------------------------------------------------------
+# Admin User
+# ---------------------------------------------------------------------
 
 async def get_current_admin_user(
     current_user: dict = Depends(get_current_user),
-):
+) -> dict:
     """
-    Ensure user is an administrator.
+    Ensure user has administrator privileges.
     """
 
-    account_type = current_user.get("account_type", "")
-
-    if account_type not in {
+    allowed_roles = {
         "admin",
         "super_admin",
         "staff",
-    }:
+    }
+
+    if current_user.get("account_type") not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required",
+            detail="Administrator privileges required.",
         )
 
     return current_user
 
 
-async def get_supabase_client():
+# ---------------------------------------------------------------------
+# Supabase Dependency
+# ---------------------------------------------------------------------
+
+def get_supabase_client():
     """
-    Dependency for Supabase client.
+    Returns the configured Supabase client.
     """
     return get_supabase()
+
+
+# ---------------------------------------------------------------------
+# Exports
+# ---------------------------------------------------------------------
+
+__all__ = [
+    "security",
+    "get_current_user",
+    "get_current_user_optional",
+    "get_current_active_user",
+    "get_current_admin_user",
+    "get_supabase_client",
+]
