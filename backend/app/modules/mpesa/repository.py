@@ -23,7 +23,7 @@ class MpesaRepository:
         """
         Create a payment record.
         
-        ✅ FIX: Using correct table "payments" with all required fields
+        ✅ FIX: Removed 'description' field as requested
         """
         try:
             payment_data = {
@@ -37,9 +37,7 @@ class MpesaRepository:
                 "phone": data.get("phone"),
                 "checkout_request_id": data.get("checkout_request_id"),
                 "merchant_request_id": data.get("merchant_request_id"),
-                "status": "pending",
-                "description": data.get("description"),
-                "created_at": datetime.utcnow().isoformat()
+                "status": "pending"
             }
             
             logger.info(f"Creating payment record: {payment_data['id']} for user {payment_data['user_id']}")
@@ -66,8 +64,6 @@ class MpesaRepository:
     async def get_payment_by_checkout_id(self, checkout_request_id: str) -> Optional[Dict[str, Any]]:
         """
         Get payment by checkout request ID.
-        
-        ✅ FIX: Using correct table "payments"
         """
         try:
             response = (
@@ -97,8 +93,6 @@ class MpesaRepository:
     ) -> Dict[str, Any]:
         """
         Update payment status.
-        
-        ✅ FIX: Using correct table "payments"
         """
         try:
             data = {"status": status}
@@ -137,8 +131,6 @@ class MpesaRepository:
     ) -> Dict[str, Any]:
         """
         Update payment from M-Pesa callback.
-        
-        ✅ FIX: Comprehensive callback update with all fields
         """
         try:
             data = {
@@ -184,8 +176,6 @@ class MpesaRepository:
     async def get_user_payments(self, user_id: str) -> List[Dict[str, Any]]:
         """
         Get all payments for a user.
-        
-        ✅ FIX: Using correct table "payments"
         """
         try:
             response = (
@@ -207,8 +197,6 @@ class MpesaRepository:
     async def get_payment_by_request_id(self, request_id: str) -> Optional[Dict[str, Any]]:
         """
         Get payment by request ID.
-        
-        ✅ FIX: Using correct table "payments"
         """
         try:
             response = (
@@ -230,8 +218,6 @@ class MpesaRepository:
     async def get_payments_by_status(self, status: str) -> List[Dict[str, Any]]:
         """
         Get all payments with a specific status.
-        
-        ✅ FIX: Using correct table "payments"
         """
         try:
             response = (
@@ -253,8 +239,6 @@ class MpesaRepository:
     async def get_user_service_status(self, user_id: str, service_id: str) -> bool:
         """
         Check if a user has paid for a specific service.
-        
-        ✅ FIX: Using correct table "payments"
         """
         try:
             response = (
@@ -278,8 +262,6 @@ class MpesaRepository:
     async def get_user_paid_services(self, user_id: str) -> List[str]:
         """
         Get all paid service IDs for a user.
-        
-        ✅ FIX: Using correct table "payments"
         """
         try:
             response = (
@@ -298,3 +280,61 @@ class MpesaRepository:
         except Exception as e:
             logger.error(f"Error getting user paid services: {str(e)}")
             return []
+    
+    async def get_all_payments(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """
+        Get all payments with pagination.
+        """
+        try:
+            response = (
+                self.supabase
+                    .table("payments")
+                    .select("*")
+                    .order("created_at", desc=True)
+                    .range(offset, offset + limit - 1)
+                    .execute()
+            )
+            
+            logger.info(f"Retrieved {len(response.data)} payments")
+            return response.data
+            
+        except Exception as e:
+            logger.error(f"Error getting all payments: {str(e)}")
+            return []
+    
+    async def get_payments_count(self) -> int:
+        """
+        Get total count of payments.
+        """
+        try:
+            response = (
+                self.supabase
+                    .table("payments")
+                    .select("*", count="exact")
+                    .execute()
+            )
+            
+            return response.count if response.count is not None else 0
+            
+        except Exception as e:
+            logger.error(f"Error getting payments count: {str(e)}")
+            return 0
+    
+    async def get_user_payments_count(self, user_id: str) -> int:
+        """
+        Get total count of payments for a user.
+        """
+        try:
+            response = (
+                self.supabase
+                    .table("payments")
+                    .select("*", count="exact")
+                    .eq("user_id", user_id)
+                    .execute()
+            )
+            
+            return response.count if response.count is not None else 0
+            
+        except Exception as e:
+            logger.error(f"Error getting user payments count: {str(e)}")
+            return 0
