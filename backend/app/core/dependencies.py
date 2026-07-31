@@ -37,7 +37,7 @@ async def get_current_user(
         email = payload.get("email")
         
         if not user_id:
-            raise UnauthorizedException("Invalid token")
+            raise UnauthorizedException("Invalid token: missing user ID")
         
         return {
             "id": user_id,
@@ -47,6 +47,8 @@ async def get_current_user(
         
     except ValueError as e:
         raise UnauthorizedException(str(e))
+    except Exception as e:
+        raise UnauthorizedException(f"Authentication failed: {str(e)}")
 
 
 async def get_current_user_optional(
