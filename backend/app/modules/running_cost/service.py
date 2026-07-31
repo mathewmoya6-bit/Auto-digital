@@ -1,7 +1,7 @@
 # app/modules/running_cost/service.py
 """Running Cost service for Auto-D Kenya"""
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 from functools import lru_cache
 
@@ -12,22 +12,24 @@ logger = logging.getLogger(__name__)
 
 
 class RunningCostService:
-    """Service for running cost calculations"""
+    """Service for running cost calculations with full vehicle endpoint integration"""
 
     def __init__(self):
         self.supabase = get_supabase()
         self._variant_cache = {}
+        self._make_cache = {}
+        self._model_cache = {}
+        self._generation_cache = {}
 
         # ─── DEFAULT FALLBACK VALUES (only used if DB is unreachable) ───
-        # ✅ FIX 9: Constants moved to DB - these are just fallbacks
         self._default_fuel_prices = {
             "petrol": 193.00,
             "diesel": 180.00,
             "electric": 20.00,
             "hybrid": 193.00,
-            "gas": 150.00,      # ✅ Added LPG/CNG
-            "lpg": 150.00,      # ✅ Added LPG
-            "cng": 140.00       # ✅ Added CNG
+            "gas": 150.00,
+            "lpg": 150.00,
+            "cng": 140.00
         }
 
         self._default_maintenance_rates = {
@@ -35,9 +37,9 @@ class RunningCostService:
             "diesel": 3.00,
             "electric": 1.50,
             "hybrid": 2.00,
-            "gas": 2.20,        # ✅ Added LPG
-            "lpg": 2.20,        # ✅ Added LPG
-            "cng": 2.00         # ✅ Added CNG
+            "gas": 2.20,
+            "lpg": 2.20,
+            "cng": 2.00
         }
 
         self._default_insurance_rates = {
@@ -66,7 +68,6 @@ class RunningCostService:
         """Load configuration from database with caching"""
         current_time = datetime.utcnow().timestamp()
 
-        # Check cache TTL
         if self._config_cache and self._config_cache_time:
             if current_time - self._config_cache_time < self._config_cache_ttl:
                 return self._config_cache
@@ -181,7 +182,6 @@ class RunningCostService:
             if not config["depreciation_rates"]:
                 config["depreciation_rates"] = self._default_depreciation_rates
 
-            # Update cache
             self._config_cache = config
             self._config_cache_time = current_time
 
@@ -192,7 +192,6 @@ class RunningCostService:
 
         except Exception as e:
             logger.exception(f"Error loading config from DB: {e}")
-            # Return default config on error
             return self._get_default_config()
 
     def _get_default_config(self) -> Dict[str, Any]:
@@ -206,13 +205,179 @@ class RunningCostService:
             "tyre_cost_per_set": self._default_tyre_cost_per_set
         }
 
-    # ─── VARIANT DATA ──────────────────────────────────────────────
+    # ─── VEHICLE ENDPOINT METHODS ──────────────────────────────────
 
-    async def _get_variant_data_cached(self, variant_id: int) -> Dict[str, Any]:
-        """Get variant data from database with manual caching"""
-        if variant_id in self._variant_cache:
-            return self._variant_cache[variant_id]
+    async def get_makes(self) -> List[Dict[str, Any]]:
+        """GET /api/v1/makes - Get all vehicle makes"""
+        try:
+            # Check cache first
+            if "makes" in self._make_cache:
+                return self._make_cache["makes"]
 
+            result = self.supabase.table("vehicle_master_specs")\
+                .select("make_id, make_name, make_country")\
+                .execute()
+
+            # Deduplicate makes
+            makes_dict = {}
+            if result.data:
+                for item in result.data:
+                    make_id = item.get("make_id")
+                    if make_id and make_id not in makes_dict:
+                        makes_dict[make_id] = {
+                            "make_id": make_id,
+                            "make_name": item.get("make_name", "Unknown"),
+                            "make_country": item.get("make_country", "")
+                        }
+
+            makes = list(makes_dict.values())
+            # Sort by make_name
+            makes.sort(key=lambda x: x.get("make_name", ""))
+
+            self._make_cache["makes"] = makes
+            return makes
+        except Exception as e:
+            logger.exception(f"Error getting makes: {e}")
+            return []
+
+    async def get_models(self, make_id: int) -> List[Dict[str, Any]]:
+        """GET /api/v1/models/{make_id} - Get models by make ID"""
+        try:
+            cache_key = f"models_{make_id}"
+            if cache_key in self._model_cache:
+                return self._model_cache[cache_key]
+
+            result = self.supabase.table("vehicle_master_specs")\
+                .select("model_id, model_name, model_body_type")\
+                .eq("make_id", make_id)\
+                .execute()
+
+            # Deduplicate models
+            models_dict = {}
+            if result.data:
+                for item in result.data:
+                    model_id = item.get("model_id")
+                    if model_id and model_id not in models_dict:
+                        models_dict[model_id] = {
+                            "model_id": model_id,
+                            "model_name": item.get("model_name", "Unknown"),
+                            "model_body_type": item.get("model_body_type", "")
+                        }
+
+            models = list(models_dict.values())
+            models.sort(key=lambda x: x.get("model_name", ""))
+
+            self._model_cache[cache_key] = models
+            return models
+        except Exception as e:
+            logger.exception(f"Error getting models for make {make_id}: {e}")
+            return []
+
+    async def get_generations(self, model_id: int) -> List[Dict[str, Any]]:
+        """GET /api/v1/generations/{model_id} - Get generations by model ID"""
+        try:
+            cache_key = f"generations_{model_id}"
+            if cache_key in self._generation_cache:
+                return self._generation_cache[cache_key]
+
+            result = self.supabase.table("vehicle_master_specs")\
+                .select("generation_id, generation_code, generation_start_year, generation_end_year")\
+                .eq("model_id", model_id)\
+                .execute()
+
+            # Deduplicate generations
+            gen_dict = {}
+            if result.data:
+                for item in result.data:
+                    gen_id = item.get("generation_id")
+                    if gen_id and gen_id not in gen_dict:
+                        gen_dict[gen_id] = {
+                            "generation_id": gen_id,
+                            "generation_code": item.get("generation_code", ""),
+                            "generation_start_year": item.get("generation_start_year"),
+                            "generation_end_year": item.get("generation_end_year")
+                        }
+
+            generations = list(gen_dict.values())
+            generations.sort(key=lambda x: x.get("generation_start_year") or 0, reverse=True)
+
+            self._generation_cache[cache_key] = generations
+            return generations
+        except Exception as e:
+            logger.exception(f"Error getting generations for model {model_id}: {e}")
+            return []
+
+    async def get_variants(self, generation_id: int) -> List[Dict[str, Any]]:
+        """GET /api/v1/variants/{generation_id} - Get variants by generation ID"""
+        try:
+            cache_key = f"variants_{generation_id}"
+            if cache_key in self._variant_cache:
+                return self._variant_cache[cache_key]
+
+            result = self.supabase.table("vehicle_master_specs")\
+                .select("*")\
+                .eq("generation_id", generation_id)\
+                .execute()
+
+            variants = result.data if result.data else []
+
+            # Sort by variant_name
+            variants.sort(key=lambda x: x.get("variant_name", ""))
+
+            # Store in cache
+            self._variant_cache[cache_key] = variants
+            return variants
+        except Exception as e:
+            logger.exception(f"Error getting variants for generation {generation_id}: {e}")
+            return []
+
+    async def get_variant(self, variant_id: int) -> Optional[Dict[str, Any]]:
+        """GET /api/v1/variant/{variant_id} - Get variant by ID"""
+        try:
+            cache_key = f"variant_{variant_id}"
+            if cache_key in self._variant_cache:
+                return self._variant_cache[cache_key]
+
+            result = self.supabase.table("vehicle_master_specs")\
+                .select("*")\
+                .eq("variant_id", variant_id)\
+                .single()\
+                .execute()
+
+            variant = result.data if result.data else None
+
+            if variant:
+                self._variant_cache[cache_key] = variant
+
+            return variant
+        except Exception as e:
+            logger.exception(f"Error getting variant {variant_id}: {e}")
+            return None
+
+    async def search_vehicles(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """GET /api/v1/search - Search vehicles by make, model, or variant name"""
+        try:
+            search_query = f"%{query}%"
+
+            result = self.supabase.table("vehicle_master_specs")\
+                .select("*")\
+                .or_(
+                    f"make_name.ilike.{search_query},"
+                    f"model_name.ilike.{search_query},"
+                    f"variant_name.ilike.{search_query}"
+                )\
+                .limit(limit)\
+                .execute()
+
+            return result.data if result.data else []
+        except Exception as e:
+            logger.exception(f"Error searching vehicles for '{query}': {e}")
+            return []
+
+    # ─── VARIANT DATA (with full hierarchy) ────────────────────────
+
+    async def get_variant_with_details(self, variant_id: int) -> Optional[Dict[str, Any]]:
+        """Get variant with full hierarchy (make, model, generation details)"""
         try:
             result = self.supabase.table("vehicle_master_specs")\
                 .select("*")\
@@ -220,22 +385,30 @@ class RunningCostService:
                 .single()\
                 .execute()
 
-            if result.data:
-                self._variant_cache[variant_id] = result.data
-                return result.data
-            return {}
-        except Exception as e:
-            logger.exception(f"Error getting variant data for ID {variant_id}: {str(e)}")
-            return {}
+            if not result.data:
+                return None
 
-    async def get_variant_data(self, variant_id: int) -> Dict[str, Any]:
-        """Get variant data from cache or database"""
-        return await self._get_variant_data_cached(variant_id)
+            variant = result.data
+
+            # Add hierarchy info
+            variant["hierarchy"] = {
+                "make": variant.get("make_name"),
+                "make_id": variant.get("make_id"),
+                "model": variant.get("model_name"),
+                "model_id": variant.get("model_id"),
+                "generation": variant.get("generation_code"),
+                "generation_id": variant.get("generation_id")
+            }
+
+            return variant
+        except Exception as e:
+            logger.exception(f"Error getting variant with details for {variant_id}: {e}")
+            return None
 
     # ─── MAIN CALCULATION ───────────────────────────────────────────
 
     async def calculate_running_cost(self, request: RunningCostRequest, user_id: int) -> Dict[str, Any]:
-        """Calculate running costs"""
+        """Calculate running costs with full vehicle data"""
         current_year = datetime.now().year
 
         # ─── Load configuration from DB ──────────────────────────────
@@ -251,8 +424,8 @@ class RunningCostService:
         if request.annual_mileage <= 0:
             raise ValueError("Annual mileage must be greater than 0")
 
-        # ─── Get variant data ──────────────────────────────────────
-        variant = await self.get_variant_data(request.variant_id)
+        # ─── Get variant data with full hierarchy ──────────────────
+        variant = await self.get_variant_with_details(request.variant_id)
         if not variant:
             raise ValueError(f"Variant with ID {request.variant_id} not found")
 
@@ -261,7 +434,6 @@ class RunningCostService:
             variant.get("fuel_type_name") or "petrol"
         ).strip().lower()
 
-        # Map common fuel type variations
         fuel_type_map = {
             "petrol": "petrol",
             "gasoline": "petrol",
@@ -377,26 +549,77 @@ class RunningCostService:
             config["depreciation_rates"]
         )
 
-        # ─── Build response ──────────────────────────────────────────
+        # ─── Build response with full vehicle info ──────────────────
         try:
             response = {
-                # ─── Legacy fields ────────────────────────────────────
+                # ─── Trip Summary ────────────────────────────────────
+                "tripTotal": round(total_cost_trip, 2),
+                "tripCostPerKm": round(total_cost_per_km, 2),
                 "distance": request.distance,
-                "cost_per_km": round(total_cost_per_km, 2),
-                "fuel_cost": round(fuel_cost_trip, 2),
-                "service_cost": round(maintenance_cost_trip, 2),
-                "tyre_cost": round(tyre_cost_trip, 2),
-                "insurance_cost": round(insurance_cost_trip, 2),
-                "depreciation_cost": round(depreciation_cost_trip, 2),
-                "purchase_price": round(initial_vehicle_cost, 2),
-                "current_value": round(remaining_value, 2),
-                "resale_value": round(resale_value, 2),
-                "fuel_type": fuel_type.capitalize(),
-                "fuel_consumption": round(fuel_efficiency, 1),
+
+                # ─── Trip Cost Breakdown ─────────────────────────────
+                "fuelCostTrip": round(fuel_cost_trip, 2),
+                "serviceTrip": round(maintenance_cost_trip, 2),
+                "tyreTrip": round(tyre_cost_trip, 2),
+                "insuranceTrip": round(insurance_cost_trip, 2),
+                "depreciationTrip": round(depreciation_cost_trip, 2),
+
+                # ─── Per KM Costs ────────────────────────────────────
+                "fuelCostPerKm": round(fuel_cost_per_km, 2),
+                "servicePerKm": round(maintenance_cost_per_km, 2),
+                "tyrePerKm": round(tyre_cost_per_km, 2),
+                "insurancePerKm": round(insurance_per_km, 2),
+                "depreciationPerKm": round(depreciation_per_km, 2),
+
+                # ─── Monthly Costs ───────────────────────────────────
+                "monthlyFuel": round(monthly_fuel, 2),
+                "monthlyService": round(monthly_service, 2),
+                "monthlyTyre": round(monthly_tyre, 2),
+                "monthlyInsurance": round(monthly_insurance, 2),
+                "monthlyDepreciation": round(monthly_depreciation, 2),
+
+                # ─── Annual Costs ────────────────────────────────────
+                "annualFuel": round(monthly_fuel * 12, 2),
+                "annualService": round(monthly_service * 12, 2),
+                "annualTyre": round(monthly_tyre * 12, 2),
+                "annualInsurance": round(annual_insurance, 2),
+                "annualDepreciation": round(monthly_depreciation * 12, 2),
+
+                # ─── 5-Year Projection ──────────────────────────────
                 "fiveYearData": five_year_data,
-                "five_year_total": round(
-                    sum(y["total"] for y in five_year_data), 2
-                ),
+                "total5YearCost": round(sum(y["total"] for y in five_year_data), 2),
+
+                # ─── Vehicle Info ────────────────────────────────────
+                "originalCost": round(initial_vehicle_cost, 2),
+                "ageAdjustedCost": round(remaining_value, 2),
+                "current_value": round(remaining_value, 2),
+                "remainingValue": round(resale_value, 2),
+                "resale_value": round(resale_value, 2),
+                "fuelTypeDisplay": fuel_type.capitalize(),
+                "fuelConsumption": round(fuel_efficiency, 1),
+
+                # ─── Full Vehicle Hierarchy ──────────────────────────
+                "vehicle_hierarchy": {
+                    "make": variant.get("make_name"),
+                    "make_id": variant.get("make_id"),
+                    "model": variant.get("model_name"),
+                    "model_id": variant.get("model_id"),
+                    "generation": variant.get("generation_code"),
+                    "generation_id": variant.get("generation_id"),
+                    "variant_id": variant.get("variant_id"),
+                    "variant_name": variant.get("variant_name"),
+                    "engine_size_cc": variant.get("engine_size_cc"),
+                    "fuel_type": variant.get("fuel_type_name"),
+                    "transmission": variant.get("transmission_type_name"),
+                    "drive_type": variant.get("drive_type_name"),
+                    "body_type": variant.get("body_type_name"),
+                    "seats": variant.get("seats"),
+                    "doors": variant.get("doors"),
+                    "power_hp": variant.get("power_hp"),
+                    "torque_nm": variant.get("torque_nm"),
+                    "fuel_consumption_combined": variant.get("fuel_consumption_combined"),
+                    "co2_emissions": variant.get("co2_emissions")
+                },
 
                 # ─── New structured response ────────────────────────
                 "trip": {
@@ -461,37 +684,7 @@ class RunningCostService:
                     "year": vehicle_year,
                     "age": vehicle_age
                 },
-                "calculated_at": datetime.utcnow().isoformat(),
-
-                # ─── Flat camelCase fields required by response_model ─
-                "tripTotal": round(total_cost_trip, 2),
-                "tripCostPerKm": round(total_cost_per_km, 2),
-                "fuelCostTrip": round(fuel_cost_trip, 2),
-                "serviceTrip": round(maintenance_cost_trip, 2),
-                "tyreTrip": round(tyre_cost_trip, 2),
-                "insuranceTrip": round(insurance_cost_trip, 2),
-                "depreciationTrip": round(depreciation_cost_trip, 2),
-                "fuelCostPerKm": round(fuel_cost_per_km, 2),
-                "servicePerKm": round(maintenance_cost_per_km, 2),
-                "tyrePerKm": round(tyre_cost_per_km, 2),
-                "insurancePerKm": round(insurance_per_km, 2),
-                "depreciationPerKm": round(depreciation_per_km, 2),
-                "monthlyFuel": round(monthly_fuel, 2),
-                "monthlyService": round(monthly_service, 2),
-                "monthlyTyre": round(monthly_tyre, 2),
-                "monthlyInsurance": round(monthly_insurance, 2),
-                "monthlyDepreciation": round(monthly_depreciation, 2),
-                "annualFuel": round(monthly_fuel * 12, 2),
-                "annualService": round(monthly_service * 12, 2),
-                "annualTyre": round(monthly_tyre * 12, 2),
-                "annualInsurance": round(annual_insurance, 2),
-                "annualDepreciation": round(monthly_depreciation * 12, 2),
-                "total5YearCost": round(sum(y["total"] for y in five_year_data), 2),
-                "originalCost": round(initial_vehicle_cost, 2),
-                "ageAdjustedCost": round(remaining_value, 2),
-                "remainingValue": round(resale_value, 2),
-                "fuelTypeDisplay": fuel_type.capitalize(),
-                "fuelConsumption": round(fuel_efficiency, 1)
+                "calculated_at": datetime.utcnow().isoformat()
             }
 
             return response
