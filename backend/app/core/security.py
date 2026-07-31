@@ -15,7 +15,8 @@ from jwt import (
     InvalidAudienceError,
     InvalidIssuerError,
     InvalidTokenError,
-    decode as jwt_decode
+    decode as jwt_decode,
+    encode as jwt_encode,  # ✅ FIXED: Added encode import
 )
 from passlib.context import CryptContext
 
@@ -30,7 +31,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # public signing keys and picks the right one via the token's "kid"
 # header, including handling key rotation automatically.
 # Created once at module load rather than per-request.
-# ✅ FIX 4: Added timeout to JWKS client
 _jwks_client = PyJWKClient(
     f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json",
     timeout=5
@@ -49,8 +49,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """
-    Create a JWT access token issued by THIS backend (used by the
-    /auth/login endpoint's own token flow, e.g. app.modules.auth.service).
+    Create a JWT access token issued by THIS backend.
 
     NOTE: This is a separate signing key/purpose from decode_token()
     below. The frontend dashboard does not currently use tokens from
@@ -60,6 +59,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
+    # ✅ FIXED: jwt_encode is now imported correctly
     return jwt_encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
@@ -72,10 +72,6 @@ def decode_token(token: str) -> Dict[str, Any]:
     asymmetric keypair — verification requires fetching the matching
     public key from Supabase's JWKS endpoint (via the token's "kid"
     header), not a static HS256 shared secret.
-
-    ✅ FIX 1: Verify token issuer
-    ✅ FIX 2: Handle JWT errors separately
-    ✅ FIX 3: Validate required claims
     """
     try:
         # Get signing key from JWKS
@@ -84,8 +80,7 @@ def decode_token(token: str) -> Dict[str, Any]:
         except PyJWKClientError as e:
             raise ValueError(f"Unable to verify signing key: {str(e)}")
 
-        # ✅ FIX 1: Added issuer validation
-        # ✅ FIX 2: Decode with specific error handling
+        # Decode with specific error handling
         try:
             payload = jwt_decode(
                 token,
@@ -103,7 +98,7 @@ def decode_token(token: str) -> Dict[str, Any]:
         except InvalidTokenError:
             raise ValueError("Invalid token")
 
-        # ✅ FIX 3: Validate required claims
+        # Validate required claims
         if "sub" not in payload:
             raise ValueError("Token missing user id")
 
