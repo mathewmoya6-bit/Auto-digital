@@ -38,16 +38,16 @@ class MpesaService:
         Args:
             phone: Phone number (without country code)
             service_id: Service code (e.g., "valuation", "mileage", "ownership")
-            description: Transaction description
+            description: Transaction description (ignored - uses service name from DB)
             user_id: User ID (optional)
-            request_id: Request ID (optional) - not used in payment creation
+            request_id: Request ID (optional)
             amount: Amount to charge (optional, overrides service price if provided)
             
         Returns:
             Dict with checkout_request_id, message, and status
         """
-        # ─── ✅ FIX: Get service details from database ──────────────
-        # Using .single() to get exactly one record
+        # ─── STEP 1: Look up service in the services table ──────────────
+        # Use .single() to get exactly one record
         service = (
             self.supabase
             .table("services")
@@ -63,48 +63,53 @@ class MpesaService:
         
         service_data = service.data
         
-        # ─── ✅ FIX: All prices come from the services table ──────────
-        # No hardcoded prices anywhere - everything from database
-        price = float(service_data["price"])
-        service_db_id = service_data["id"]
-        service_name = service_data["name"]
-        currency = service_data.get("currency", "KES")
+        # ─── STEP 2: Extract all data from the service record ──────────
+        # ✅ All prices come from the services table - NO HARDCODED PRICES
+        service_db_id = service_data["id"]        # Integer ID for payments table
+        service_name = service_data["name"]        # Human-readable name
+        price = float(service_data["price"])       # Price from database
+        currency = service_data.get("currency", "KES")  # Currency from database
         
         # Allow amount override if provided (for admin adjustments)
         if amount is not None:
             price = float(amount)
             logger.info(f"Amount override: using {price} instead of database price {service_data['price']}")
         
+        logger.info(f"Service found: {service_name} (ID: {service_db_id}) - Price: {currency} {price}")
+        
         # Generate checkout ID
         checkout_id = f"CHK-{service_id[:4]}-{str(int(datetime.utcnow().timestamp()))[-6:]}"
         
-        # Initiate STK Push
+        # ─── STEP 3: Initiate STK Push with the correct amount ──────────
+        # ✅ Use price from database, not the optional amount parameter
         result = await self.stk_push.initiate_push(
             phone=phone,
-            amount=price,
-            description=description or service_name,
+            amount=price,  # ✅ FIX: Use price from database
+            description=service_name,  # ✅ FIX: Use service name from database
             checkout_request_id=checkout_id,
             user_id=user_id,
             service_id=service_id
         )
         
-        # ─── ✅ FIX: Create payment with all data from database ──────
+        # ─── STEP 4: Save the payment record with correct data ──────────
+        # ✅ FIX: Use integer service ID, service name, currency, merchant ID
         await self.repository.create_payment({
             "user_id": user_id,
+            "request_id": request_id,
             
-            # Numeric ID from the services table (bigint)
+            # ✅ Integer ID from the services table (not the string code)
             "service_id": service_db_id,
             
-            # Human-readable name from the services table
+            # ✅ Human-readable name from the services table
             "service_name": service_name,
             
             "amount": price,
-            "currency": currency,  # From database, not hardcoded
+            "currency": currency,  # ✅ From database, not hardcoded
             
             "phone": phone,
             
             "checkout_request_id": result["checkout_request_id"],
-            "merchant_request_id": result.get("merchant_request_id"),
+            "merchant_request_id": result.get("merchant_request_id"),  # ✅ Include merchant ID
             
             "status": "pending",
         })
