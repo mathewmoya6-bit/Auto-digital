@@ -1,1493 +1,342 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes" />
-    <title>Auto-D Kenya | Production Dashboard</title>
-    <meta name="description" content="AI vehicle valuation, mileage cost, ownership analysis with M-Pesa payment." />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-          integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
-          crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AUTO-D Kenya Dashboard</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        * { box-sizing: border-box; }
         body {
-            font-family: 'Inter', sans-serif;
-            background: #0a0c15;
-            color: #f8fafc;
-            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            background: #f5f7fa;
+            margin: 0;
+            padding: 20px;
+            color: #222;
         }
-        :root {
-            --amber: #eab308;
-            --amber-dark: #ca8a04;
-            --green: #22c55e;
-            --blue: #3b82f6;
-            --red: #ef4444;
-            --bg-panel: #111827;
-            --border: rgba(255,255,255,0.06);
+        .container {
+            max-width: 900px;
+            margin: auto;
         }
-        .bg-grid {
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            background-image: radial-gradient(circle at 20% 50%, rgba(234,179,8,0.03) 0%, transparent 50%);
-            pointer-events: none;
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 6px rgba(0,0,0,.08);
         }
-        .bg-grid::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-                              linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
-            background-size: 60px 60px;
-        }
-
-        .navbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            z-index: 100;
-            padding: 14px 32px;
-            background: rgba(11,17,32,0.95);
-            backdrop-filter: blur(20px);
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-        .navbar .logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 20px;
-            font-weight: 800;
-            color: var(--amber);
-            text-decoration: none;
-        }
-        .navbar .logo span { font-size: 28px; }
-        .nav-links {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            list-style: none;
-        }
-        .nav-links a {
-            color: #94a3b8;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-            transition: color 0.2s;
-        }
-        .nav-links a:hover { color: var(--amber); }
-        .nav-links .btn-logout {
-            padding: 6px 18px;
-            background: rgba(239,68,68,0.15);
-            color: var(--red);
-            border: 1px solid rgba(239,68,68,0.3);
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .nav-links .btn-logout:hover {
-            background: rgba(239,68,68,0.25);
-        }
-        .mobile-toggle {
-            display: none;
-            background: none;
-            border: none;
-            color: #94a3b8;
-            font-size: 24px;
-            cursor: pointer;
-        }
-
-        .dashboard-container {
-            position: relative;
-            z-index: 1;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 100px 24px 40px;
-        }
-
-        .dash-header {
+        h1 { margin-top: 0; }
+        .service {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            flex-wrap: wrap;
-            gap: 16px;
-            margin-bottom: 32px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--border);
+            padding: 12px 0;
+            border-bottom: 1px solid #eee;
         }
-        .dash-header h1 { font-size: 28px; font-weight: 800; }
-        .dash-header h1 .highlight { color: var(--amber); }
-        .dash-header .user-badge {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 8px 16px;
-            background: var(--bg-panel);
-            border-radius: 12px;
-            border: 1px solid var(--border);
-        }
-        .dash-header .user-badge i { color: var(--amber); font-size: 18px; }
-        .dash-header .user-badge span { font-weight: 500; }
-
-        .service-tabs {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-            margin-bottom: 32px;
-        }
-        .service-tab {
-            padding: 10px 24px;
-            background: var(--bg-panel);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            color: #94a3b8;
-            font-weight: 600;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .service-tab:hover { border-color: var(--amber); color: #f8fafc; }
-        .service-tab.active {
-            background: rgba(234,179,8,0.15);
-            border-color: var(--amber);
-            color: var(--amber);
-        }
-        .service-tab .badge {
-            background: rgba(234,179,8,0.2);
-            padding: 2px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            color: var(--amber);
-        }
-        .service-tab.locked { opacity: 0.5; cursor: not-allowed; }
-        .service-tab.locked .badge { background: rgba(239,68,68,0.2); color: var(--red); }
-
-        .service-view {
-            display: none;
-            background: var(--bg-panel);
-            border-radius: 16px;
-            border: 1px solid var(--border);
-            padding: 32px;
-            animation: fadeIn 0.3s ease;
-        }
-        .service-view.active { display: block; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-
-        .service-view h2 { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
-        .service-view .subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
-
-        .payment-card {
-            background: rgba(0,0,0,0.3);
-            border-radius: 12px;
-            padding: 24px;
-            border: 1px solid rgba(234,179,8,0.2);
-            margin-top: 20px;
-        }
-        .payment-card .price-tag { font-size: 32px; font-weight: 800; color: var(--amber); }
-        .payment-card .price-tag small { font-size: 16px; font-weight: 400; color: #94a3b8; }
-        .payment-card .btn-pay {
-            padding: 12px 32px;
-            background: linear-gradient(135deg, var(--amber), var(--amber-dark));
-            color: #0a0c15;
+        .service:last-child { border-bottom: none; }
+        button {
+            background: #0b5ed7;
+            color: white;
             border: none;
-            border-radius: 10px;
-            font-weight: 700;
-            font-size: 16px;
+            padding: 10px 16px;
+            border-radius: 6px;
             cursor: pointer;
-            transition: all 0.3s;
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            margin-top: 12px;
         }
-        .payment-card .btn-pay:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(234,179,8,0.3);
+        button:disabled {
+            opacity: .6;
+            cursor: not-allowed;
         }
-        .payment-card .btn-pay:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-        .payment-card .status-badge {
-            display: inline-block;
-            padding: 4px 16px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: 600;
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
             margin-top: 8px;
         }
-        .status-badge.paid { background: rgba(34,197,94,0.2); color: var(--green); }
-        .status-badge.pending { background: rgba(234,179,8,0.2); color: var(--amber); }
-        .status-badge.unpaid { background: rgba(239,68,68,0.2); color: var(--red); }
-
-        .mpesa-modal {
-            display: none;
-            position: fixed;
-            inset: 0;
-            z-index: 300;
-            background: rgba(0,0,0,0.85);
-            backdrop-filter: blur(12px);
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-        .mpesa-modal.open { display: flex; }
-        .mpesa-modal .modal-box {
-            background: #0f172a;
-            border: 1px solid #1e293b;
-            border-radius: 20px;
-            padding: 40px;
-            max-width: 440px;
+        table {
             width: 100%;
-            position: relative;
+            border-collapse: collapse;
+            margin-top: 10px;
         }
-        .mpesa-modal .modal-box .close-modal {
-            position: absolute;
-            top: 16px;
-            right: 16px;
-            background: none;
-            border: none;
-            color: #64748b;
-            font-size: 24px;
-            cursor: pointer;
+        th, td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
         }
-        .mpesa-modal .modal-box .modal-icon { font-size: 48px; text-align: center; display: block; margin-bottom: 12px; }
-        .mpesa-modal .modal-box h2 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
-        .mpesa-modal .modal-box .modal-sub { color: #94a3b8; font-size: 14px; margin-bottom: 20px; }
-        .mpesa-modal .modal-box .form-group { margin-bottom: 16px; }
-        .mpesa-modal .modal-box label {
-            display: block;
-            font-size: 12px;
-            font-weight: 600;
-            color: #94a3b8;
-            margin-bottom: 4px;
-        }
-        .mpesa-modal .modal-box input {
-            width: 100%;
-            padding: 10px 14px;
-            background: #0b1120;
-            border: 1px solid #1e293b;
-            border-radius: 8px;
-            color: #f8fafc;
-            font-size: 14px;
-            font-family: inherit;
-        }
-        .mpesa-modal .modal-box input:focus { outline: none; border-color: var(--amber); }
-        .mpesa-modal .modal-box .btn-confirm {
-            width: 100%;
+        .status-pending { color: #b26a00; font-weight: bold; }
+        .status-completed { color: #15803d; font-weight: bold; }
+        .status-failed { color: #b91c1c; font-weight: bold; }
+        #statusBox {
+            background: #eef4ff;
             padding: 12px;
-            background: linear-gradient(135deg, var(--amber), var(--amber-dark));
-            color: #0a0c15;
-            border: none;
-            border-radius: 8px;
-            font-weight: 700;
-            font-size: 16px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .mpesa-modal .modal-box .btn-confirm:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(234,179,8,0.3);
-        }
-        .mpesa-modal .modal-box .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
-        .mpesa-modal .modal-box .mpesa-info {
-            background: rgba(0,0,0,0.3);
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-top: 12px;
-            font-size: 13px;
-            color: #94a3b8;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .mpesa-modal .modal-box .mpesa-info i { color: var(--green); }
-
-        .toast {
-            position: fixed;
-            bottom: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 12px 24px;
-            border-radius: 8px;
-            z-index: 9999;
-            font-weight: 500;
-            max-width: 90%;
-            text-align: center;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            font-family: 'Inter', sans-serif;
-            transition: opacity 0.3s;
-        }
-        .toast.success { background: var(--green); color: #0a0c15; }
-        .toast.error { background: var(--red); color: #fff; }
-        .toast.warning { background: var(--amber); color: #0a0c15; }
-        .toast.info { background: var(--blue); color: #fff; }
-
-        .service-content .result-card {
-            background: rgba(0,0,0,0.25);
-            border-radius: 10px;
-            padding: 20px;
-            margin-top: 12px;
-            border-left: 3px solid var(--amber);
-        }
-        .service-content .result-card .label { color: #94a3b8; font-size: 13px; }
-        .service-content .result-card .value { font-size: 28px; font-weight: 800; color: var(--amber); }
-        .service-content .result-card .value .unit { font-size: 16px; font-weight: 400; color: #94a3b8; }
-        .service-content .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-top: 12px;
-        }
-        .service-content .grid-2 .stat {
-            background: rgba(0,0,0,0.2);
-            padding: 16px;
-            border-radius: 10px;
-        }
-        .service-content .grid-2 .stat .label { color: #94a3b8; font-size: 12px; }
-        .service-content .grid-2 .stat .value { font-size: 20px; font-weight: 700; }
-
-        .btn-primary {
-            padding: 12px 28px;
-            background: linear-gradient(135deg, var(--amber), var(--amber-dark));
-            color: #0a0c15;
-            border: none;
-            border-radius: 10px;
-            font-weight: 700;
-            font-size: 15px;
-            cursor: pointer;
-            transition: all 0.3s;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(234,179,8,0.3);
-        }
-        .btn-secondary {
-            padding: 12px 28px;
-            background: transparent;
-            color: #f8fafc;
-            border: 1px solid #334155;
-            border-radius: 10px;
-            font-weight: 600;
-            font-size: 15px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .btn-secondary:hover { border-color: var(--amber); color: var(--amber); }
-
-        .footer {
-            position: relative;
-            z-index: 1;
-            padding: 24px 32px;
-            border-top: 1px solid #1e293b;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 16px;
-            max-width: 1200px;
-            margin: 0 auto;
-            color: #64748b;
-            font-size: 13px;
-        }
-        .footer strong { color: var(--amber); }
-
-        .loading-spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 2px solid rgba(0,0,0,0.1);
-            border-radius: 50%;
-            border-top-color: var(--amber);
-            animation: spin 0.6s linear infinite;
-            margin-right: 8px;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        .price-loading {
-            display: inline-block;
-            width: 60px;
-            height: 20px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 4px;
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 0.3; }
-            50% { opacity: 0.8; }
-        }
-
-        @media (max-width: 768px) {
-            .navbar { padding: 12px 20px; }
-            .nav-links {
-                display: none;
-                flex-direction: column;
-                width: 100%;
-                padding: 12px 0;
-                gap: 10px;
-            }
-            .nav-links.open { display: flex; }
-            .mobile-toggle { display: block; }
-            .dash-header h1 { font-size: 22px; }
-            .service-tabs { gap: 8px; }
-            .service-tab { padding: 8px 16px; font-size: 13px; }
-            .service-view { padding: 20px; }
-            .service-content .grid-2 { grid-template-columns: 1fr; }
-            .mpesa-modal .modal-box { padding: 28px 20px; }
-        }
-        @media (max-width: 480px) {
-            .dashboard-container { padding: 80px 16px 20px; }
-            .service-tab { font-size: 12px; padding: 6px 12px; }
-            .payment-card .price-tag { font-size: 26px; }
+            border-radius: 6px;
+            min-height: 50px;
+            white-space: pre-line;
         }
     </style>
 </head>
 <body>
+<div class="container">
 
-<div class="bg-grid" aria-hidden="true"></div>
-
-<nav class="navbar" aria-label="Primary">
-    <a href="/" class="logo"><span>🚗</span> Auto-D Kenya</a>
-    <button class="mobile-toggle" id="mobileToggle" aria-label="Toggle menu"><i class="fas fa-bars"></i></button>
-    <ul class="nav-links" id="navLinks">
-        <li><a href="/">Home</a></li>
-        <li><a href="#" id="dashLink" style="color:var(--amber);">Dashboard</a></li>
-        <li><button class="btn-logout" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> Logout</button></li>
-    </ul>
-</nav>
-
-<main class="dashboard-container" id="dashboardContainer">
-    <div class="dash-header">
-        <div>
-            <h1>📊 <span class="highlight">Dashboard</span></h1>
-            <p style="color:#94a3b8; font-size:14px;">Access your vehicle tools — pay once, use any service.</p>
-        </div>
-        <div class="user-badge">
-            <i class="fas fa-user-circle"></i>
-            <span id="userName">User</span>
-        </div>
+    <div class="card">
+        <h1>AUTO-D Kenya</h1>
+        <p>Vehicle Intelligence Platform</p>
     </div>
 
-    <div class="service-tabs" id="serviceTabs">
-        <button class="service-tab active" data-service="instant-value">
-            <i class="fas fa-chart-line"></i> Instant Value
-            <span class="badge" id="badge-value">Checking...</span>
-        </button>
-        <button class="service-tab" data-service="mileage">
-            <i class="fas fa-gas-pump"></i> Mileage Cost
-            <span class="badge" id="badge-mileage">Checking...</span>
-        </button>
-        <button class="service-tab" data-service="ownership">
-            <i class="fas fa-coins"></i> Ownership Cost
-            <span class="badge" id="badge-ownership">Checking...</span>
-        </button>
+    <div class="card">
+        <h2>Available Services</h2>
+        <div id="services">Loading services...</div>
     </div>
 
-    <!-- Instant Value -->
-    <div class="service-view active" id="view-instant-value">
-        <h2>🚗 Instant Vehicle Valuation</h2>
-        <p class="subtitle">AI-powered market value estimate for any vehicle in Kenya.</p>
-        <div class="service-content">
-            <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
-                <input type="text" id="valMake" placeholder="Make (e.g. Toyota)" style="flex:1; min-width:140px; padding:10px 14px; background:#0b1120; border:1px solid #1e293b; border-radius:8px; color:#f8fafc; font-family:inherit;" />
-                <input type="text" id="valModel" placeholder="Model (e.g. Prado)" style="flex:1; min-width:140px; padding:10px 14px; background:#0b1120; border:1px solid #1e293b; border-radius:8px; color:#f8fafc; font-family:inherit;" />
-                <input type="number" id="valYear" placeholder="Year" style="width:100px; padding:10px 14px; background:#0b1120; border:1px solid #1e293b; border-radius:8px; color:#f8fafc; font-family:inherit;" />
-                <button class="btn-primary" onclick="calculateValuation()"><i class="fas fa-calculator"></i> Value</button>
-            </div>
-            <div id="valResult" class="result-card" style="display:none;">
-                <div class="label">Estimated Market Value</div>
-                <div class="value" id="valPrice">KES 0</div>
-                <div style="display:flex; gap:20px; margin-top:12px; flex-wrap:wrap;">
-                    <span style="color:#94a3b8; font-size:13px;"><i class="fas fa-check-circle" style="color:var(--green);"></i> AI Confidence: <strong id="valConfidence">--</strong></span>
-                    <span style="color:#94a3b8; font-size:13px;"><i class="fas fa-map-pin" style="color:var(--amber);"></i> Kenya Market Data</span>
-                </div>
-            </div>
-            <div id="valPaymentGate" class="payment-card">
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                    <div>
-                        <div style="color:#94a3b8; font-size:13px;">Access this service</div>
-                        <div class="price-tag" id="valPriceTag"><span class="price-loading"></span></div>
-                    </div>
-                    <div>
-                        <span class="status-badge unpaid" id="valStatus">Unpaid</span>
-                        <button class="btn-pay" id="valPayBtn" onclick="openMpesa('instant-value')" disabled><i class="fas fa-mobile-alt"></i> Loading...</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Mileage Cost -->
-    <div class="service-view" id="view-mileage">
-        <h2>⛽ Mileage Cost Calculator</h2>
-        <p class="subtitle">Total cost per kilometer including fuel, maintenance, insurance & depreciation.</p>
-        <div class="service-content">
-            <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
-                <input type="number" id="milDistance" placeholder="Distance (km)" style="flex:1; min-width:120px; padding:10px 14px; background:#0b1120; border:1px solid #1e293b; border-radius:8px; color:#f8fafc; font-family:inherit;" />
-                <input type="number" id="milFuel" placeholder="Fuel price/L" style="flex:1; min-width:120px; padding:10px 14px; background:#0b1120; border:1px solid #1e293b; border-radius:8px; color:#f8fafc; font-family:inherit;" value="180" />
-                <input type="number" id="milConsump" placeholder="L/100km" style="flex:1; min-width:100px; padding:10px 14px; background:#0b1120; border:1px solid #1e293b; border-radius:8px; color:#f8fafc; font-family:inherit;" value="10" />
-                <button class="btn-primary" onclick="calculateMileage()"><i class="fas fa-calculator"></i> Calculate</button>
-            </div>
-            <div id="milResult" class="result-card" style="display:none;">
-                <div class="label">Cost Per Kilometer</div>
-                <div class="value" id="milCost">KES 0.00 <span class="unit">/km</span></div>
-                <div class="grid-2">
-                    <div class="stat"><div class="label">Fuel Cost</div><div class="value" id="milFuelCost">KES 0</div></div>
-                    <div class="stat"><div class="label">Maintenance + Insurance</div><div class="value" id="milOther">KES 0</div></div>
-                </div>
-            </div>
-            <div id="milPaymentGate" class="payment-card">
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                    <div>
-                        <div style="color:#94a3b8; font-size:13px;">Access this service</div>
-                        <div class="price-tag" id="milPriceTag"><span class="price-loading"></span></div>
-                    </div>
-                    <div>
-                        <span class="status-badge unpaid" id="milStatus">Unpaid</span>
-                        <button class="btn-pay" id="milPayBtn" onclick="openMpesa('mileage')" disabled><i class="fas fa-mobile-alt"></i> Loading...</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Ownership Cost -->
-    <div class="service-view" id="view-ownership">
-        <h2>💰 Total Ownership Cost Analysis</h2>
-        <p class="subtitle">Understand the true cost of owning a vehicle over time.</p>
-        <div class="service-content">
-            <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
-                <input type="number" id="ownPrice" placeholder="Purchase Price" style="flex:1; min-width:140px; padding:10px 14px; background:#0b1120; border:1px solid #1e293b; border-radius:8px; color:#f8fafc; font-family:inherit;" />
-                <input type="number" id="ownYears" placeholder="Years owned" style="width:120px; padding:10px 14px; background:#0b1120; border:1px solid #1e293b; border-radius:8px; color:#f8fafc; font-family:inherit;" value="5" />
-                <input type="number" id="ownKm" placeholder="Annual km" style="flex:1; min-width:120px; padding:10px 14px; background:#0b1120; border:1px solid #1e293b; border-radius:8px; color:#f8fafc; font-family:inherit;" value="15000" />
-                <button class="btn-primary" onclick="calculateOwnership()"><i class="fas fa-calculator"></i> Analyze</button>
-            </div>
-            <div id="ownResult" class="result-card" style="display:none;">
-                <div class="label">Total Cost of Ownership</div>
-                <div class="value" id="ownTotal">KES 0</div>
-                <div class="grid-2">
-                    <div class="stat"><div class="label">Depreciation</div><div class="value" id="ownDep">KES 0</div></div>
-                    <div class="stat"><div class="label">Fuel + Maintenance</div><div class="value" id="ownFuelMaint">KES 0</div></div>
-                    <div class="stat"><div class="label">Insurance</div><div class="value" id="ownIns">KES 0</div></div>
-                    <div class="stat"><div class="label">Cost per km</div><div class="value" id="ownPerKm">KES 0</div></div>
-                </div>
-            </div>
-            <div id="ownPaymentGate" class="payment-card">
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                    <div>
-                        <div style="color:#94a3b8; font-size:13px;">Access this service</div>
-                        <div class="price-tag" id="ownPriceTag"><span class="price-loading"></span></div>
-                    </div>
-                    <div>
-                        <span class="status-badge unpaid" id="ownStatus">Unpaid</span>
-                        <button class="btn-pay" id="ownPayBtn" onclick="openMpesa('ownership')" disabled><i class="fas fa-mobile-alt"></i> Loading...</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</main>
-
-<!-- M-Pesa Payment Modal -->
-<div class="mpesa-modal" id="mpesaModal">
-    <div class="modal-box">
-        <button class="close-modal" onclick="closeMpesa()">&times;</button>
-        <span class="modal-icon">📱</span>
+    <div class="card">
         <h2>M-Pesa Payment</h2>
-        <p class="modal-sub">Pay <strong id="modalPrice">KES 0</strong> to unlock <span id="mpesaServiceName">this service</span></p>
-        <form id="mpesaForm" onsubmit="confirmMpesa(event)">
-            <div class="form-group">
-                <label for="mpesaPhone">M-Pesa Phone Number</label>
-                <input type="tel" id="mpesaPhone" placeholder="0712345678" required />
-            </div>
-            <div class="mpesa-info">
-                <i class="fas fa-shield-alt"></i>
-                <span>You'll receive a prompt on your phone to confirm the payment.</span>
-            </div>
-            <button type="submit" class="btn-confirm" id="mpesaConfirmBtn"><i class="fas fa-check-circle"></i> Confirm Payment</button>
-        </form>
-        <div style="text-align:center; margin-top:12px;">
-            <span style="color:#64748b; font-size:12px;">Secured by Safaricom M-Pesa</span>
+
+        <label>Phone Number</label>
+        <input id="phone" type="tel" placeholder="2547XXXXXXXX" />
+
+        <div style="margin-top:15px;">
+            <button id="payBtn" disabled>Select a service</button>
+        </div>
+
+        <div style="margin-top:15px;">
+            <strong>Status</strong>
+            <div id="statusBox">Waiting for payment...</div>
         </div>
     </div>
+
+    <div class="card">
+        <h2>Payment History</h2>
+        <div id="payments">Loading payments...</div>
+    </div>
+
 </div>
 
-<footer class="footer">
-    <div>&copy; <span id="year">2026</span> <strong>Auto-D Kenya</strong>. All rights reserved.</div>
-    <div style="display:flex; gap:16px;">
-        <span><i class="fas fa-shield-alt" style="color:var(--green);"></i> Secure Payments</span>
-        <span><i class="fas fa-robot" style="color:var(--amber);"></i> AI Powered</span>
-    </div>
-</footer>
-
 <script>
-    (function() {
-        'use strict';
-
-        // ─── PRODUCTION CONFIG ──────────────────────────────────────
-        const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
-
-        // ─── PRODUCTION API BASE ────────────────────────────────────
-        const API_BASE = 'https://auto-digital.onrender.com/api/v1';
-
-        // ─── SERVICE MAPPING ──────────────────────────────────────
-        const SERVICE_IDS = {
-            'instant-value': 'valuation',
-            'mileage': 'mileage',
-            'ownership': 'ownership'
-        };
-
-        const SERVICE_NAMES = {
-            'instant-value': 'Instant Vehicle Valuation',
-            'mileage': 'Mileage Cost Calculator',
-            'ownership': 'Total Ownership Cost Analysis'
-        };
-
-        // ─── STATE ──────────────────────────────────────────────────
-        let supabaseClient = null;
-        let currentUser = null;
-        let isAuthenticated = false;
-        let accessToken = null;
-        let pendingService = null;
-        let checkoutRequestId = null;
-        let statusPollInterval = null;
-        let paidServices = {};
-        let servicePrices = {};
-        let isInitialized = false;
-        let priceFetchAttempts = 0;
-        const MAX_PRICE_FETCH_ATTEMPTS = 3;
-
-        // ─── DOM REFS ──────────────────────────────────────────────
-        const userNameEl = document.getElementById('userName');
-        const logoutBtn = document.getElementById('logoutBtn');
-        const mobileToggle = document.getElementById('mobileToggle');
-        const navLinks = document.getElementById('navLinks');
-        const serviceTabs = document.querySelectorAll('.service-tab');
-        const serviceViews = {
-            'instant-value': document.getElementById('view-instant-value'),
-            'mileage': document.getElementById('view-mileage'),
-            'ownership': document.getElementById('view-ownership')
-        };
-        const mpesaModal = document.getElementById('mpesaModal');
-        const mpesaServiceName = document.getElementById('mpesaServiceName');
-        const mpesaPhone = document.getElementById('mpesaPhone');
-        const mpesaConfirmBtn = document.getElementById('mpesaConfirmBtn');
-        const modalPrice = document.getElementById('modalPrice');
-
-        // ─── SUPABASE INIT ──────────────────────────────────────────
-        function initSupabase() {
-            if (typeof supabase === 'undefined') {
-                console.error('Supabase SDK not loaded');
-                return null;
-            }
-            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-                auth: {
-                    autoRefreshToken: true,
-                    persistSession: true,
-                    detectSessionInUrl: true
-                }
-            });
-            return supabaseClient;
-        }
-
-        // ─── AUTH ──────────────────────────────────────────────────
-        async function getCurrentUser() {
-            try {
-                if (!supabaseClient) initSupabase();
-                if (!supabaseClient) return null;
-
-                const { data: { session }, error } = await supabaseClient.auth.getSession();
-                if (error) throw error;
-
-                if (session?.user) {
-                    currentUser = session.user;
-                    isAuthenticated = true;
-                    accessToken = session.access_token;
-                    localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
-                    return currentUser;
-                }
-
-                const stored = localStorage.getItem('auto_d_user');
-                if (stored) {
-                    try {
-                        currentUser = JSON.parse(stored);
-                        isAuthenticated = true;
-                        return currentUser;
-                    } catch (e) {}
-                }
-
-                isAuthenticated = false;
-                return null;
-            } catch (err) {
-                console.error('Auth error:', err);
-                isAuthenticated = false;
-                return null;
-            }
-        }
-
-        async function signOut() {
-            try {
-                if (supabaseClient) {
-                    await supabaseClient.auth.signOut();
-                }
-            } catch (e) {}
-            currentUser = null;
-            isAuthenticated = false;
-            accessToken = null;
-            localStorage.removeItem('auto_d_user');
-            showToast('👋 Logged out successfully', 'success');
-            window.location.href = '/';
-        }
-
-        // ─── API HELPER ────────────────────────────────────────────
-        async function apiCall(endpoint, options = {}) {
-            const url = `${API_BASE}${endpoint}`;
-            const headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                ...options.headers
-            };
-
-            if (accessToken) {
-                headers['Authorization'] = `Bearer ${accessToken}`;
-            }
-
-            try {
-                const response = await fetch(url, {
-                    ...options,
-                    headers,
-                    credentials: 'include'
-                });
-
-                if (response.status === 401 && accessToken) {
-                    try {
-                        if (supabaseClient) {
-                            const { data: { session }, error } = await supabaseClient.auth.refreshSession();
-                            if (!error && session?.access_token) {
-                                accessToken = session.access_token;
-                                headers['Authorization'] = `Bearer ${accessToken}`;
-                                const retryResponse = await fetch(url, {
-                                    ...options,
-                                    headers,
-                                    credentials: 'include'
-                                });
-                                if (retryResponse.ok) {
-                                    return retryResponse.json();
-                                }
-                            }
-                        }
-                    } catch (e) {}
-                }
-
-                if (!response.ok) {
-                    let errorMessage;
-                    try {
-                        const errorData = await response.json();
-                        errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
-                    } catch {
-                        errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-                    }
-                    throw new Error(errorMessage);
-                }
-
-                const text = await response.text();
-                if (!text) return { status: 'ok' };
-                try {
-                    return JSON.parse(text);
-                } catch {
-                    return { status: 'ok', raw: text };
-                }
-            } catch (err) {
-                const isPaymentEndpoint = endpoint.includes('/mpesa/');
-                if (!isPaymentEndpoint && (err.message.includes('fetch') || err.message.includes('network'))) {
-                    console.warn('API unreachable, using fallback data for non-payment endpoint:', endpoint);
-                    return getFallbackResponse(endpoint, options);
-                }
-                if (isPaymentEndpoint) {
-                    console.error(`Payment API call failed (${endpoint}):`, err);
-                }
-                throw err;
-            }
-        }
-
-        function getFallbackResponse(endpoint, options) {
-            if (endpoint === '/valuation/calculate') {
-                const body = JSON.parse(options.body || '{}');
-                const baseValue = 2500000;
-                const year = body.year || 2020;
-                const factor = 1 + (2026 - year) * 0.03;
-                return {
-                    value: Math.round(baseValue * factor / 1000) * 1000,
-                    confidence: 92,
-                    estimated_value: Math.round(baseValue * factor / 1000) * 1000
-                };
-            }
-            if (endpoint === '/running-cost/calculate') {
-                const body = JSON.parse(options.body || '{}');
-                const distance = body.distance_km || 100;
-                return {
-                    cost_per_km: 28.50,
-                    fuel_cost: distance * 18,
-                    other_cost: distance * 10.50
-                };
-            }
-            if (endpoint === '/ownership/calculate') {
-                const body = JSON.parse(options.body || '{}');
-                const price = body.purchase_price || 3000000;
-                const years = body.years_owned || 5;
-                const km = body.annual_km || 15000;
-                const totalKm = years * km;
-                return {
-                    total_cost: price * 0.4 + totalKm * 18 + price * 0.035 * years,
-                    depreciation: price * 0.4,
-                    fuel_maintenance: totalKm * 18,
-                    insurance: price * 0.035 * years,
-                    cost_per_km: (price * 0.4 + totalKm * 18 + price * 0.035 * years) / totalKm
-                };
-            }
-            return { status: 'ok', message: 'Fallback response' };
-        }
-
-        // ─── ✅ FIXED: FETCH SERVICE PRICES WITH TIMEOUT ──────────
-        async function fetchServicePrices() {
-            priceFetchAttempts++;
-            
-            try {
-                console.log('🔍 Fetching service prices from Supabase...');
-                console.log(`📡 Attempt ${priceFetchAttempts}/${MAX_PRICE_FETCH_ATTEMPTS}`);
-                
-                // ✅ Add timeout to prevent infinite loading
-                const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('Timeout fetching prices')), 5000);
-                });
-
-                const queryPromise = supabaseClient
-                    .from('service_prices')
-                    .select('code, name, price, currency, active')
-                    .eq('active', true);
-
-                const result = await Promise.race([queryPromise, timeoutPromise]);
-                const { data, error } = result;
-
-                if (error) {
-                    console.warn('⚠️ Service prices table error:', error.message);
-                    return useFallbackPrices('Table error: ' + error.message);
-                }
-
-                if (!data || data.length === 0) {
-                    console.warn('⚠️ No service prices found in table');
-                    return useFallbackPrices('No data found');
-                }
-
-                console.log('📊 Service prices data:', data);
-
-                const prices = {};
-                data.forEach(item => {
-                    prices[item.code] = {
-                        price: item.price || 0,
-                        currency: item.currency || 'KES',
-                        name: item.name || item.code
-                    };
-                });
-
-                // Ensure all required services exist
-                const required = ['valuation', 'mileage', 'ownership'];
-                required.forEach(key => {
-                    if (!prices[key]) {
-                        prices[key] = { price: 150, currency: 'KES', name: key };
-                        console.warn(`⚠️ Missing service: ${key}, using fallback`);
-                    }
-                });
-
-                servicePrices = prices;
-                console.log('✅ Service prices loaded:', servicePrices);
-                updatePriceDisplay();
-                enablePayButtons();
-                return prices;
-
-            } catch (err) {
-                console.error('❌ Failed to fetch service prices:', err.message);
-                
-                // ✅ If we've tried multiple times, use fallback
-                if (priceFetchAttempts >= MAX_PRICE_FETCH_ATTEMPTS) {
-                    console.warn('⚠️ Max attempts reached, using fallback prices');
-                    return useFallbackPrices('Max attempts reached');
-                }
-                
-                // ✅ Retry after 1 second
-                console.log('⏳ Retrying in 1 second...');
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                return fetchServicePrices();
-            }
-        }
-
-        function useFallbackPrices(reason) {
-            console.warn(`⚠️ Using fallback prices (${reason})`);
-            servicePrices = {
-                'valuation': { price: 150, currency: 'KES', name: 'Valuation' },
-                'mileage': { price: 150, currency: 'KES', name: 'Mileage' },
-                'ownership': { price: 150, currency: 'KES', name: 'Ownership' }
-            };
-            updatePriceDisplay();
-            enablePayButtons();
-            return servicePrices;
-        }
-
-        // ─── UPDATE PRICE DISPLAY ──────────────────────────────────
-        function updatePriceDisplay() {
-            const priceMap = {
-                'instant-value': 'valuation',
-                'mileage': 'mileage',
-                'ownership': 'ownership'
-            };
-
-            Object.keys(priceMap).forEach(key => {
-                const serviceKey = priceMap[key];
-                const priceInfo = servicePrices[serviceKey];
-                const price = priceInfo?.price || 0;
-                const currency = priceInfo?.currency || 'KES';
-
-                const priceTag = document.getElementById(key + 'PriceTag');
-                if (priceTag) {
-                    if (price > 0) {
-                        priceTag.innerHTML = `${currency} ${price} <small>one-time</small>`;
-                    } else {
-                        priceTag.innerHTML = `<span style="color:var(--text-muted);font-size:14px;">Price unavailable</span>`;
-                    }
-                }
-
-                const payBtn = document.getElementById(key + 'PayBtn');
-                if (payBtn) {
-                    payBtn.disabled = false;
-                    payBtn.innerHTML = '<i class="fas fa-mobile-alt"></i> Pay with M-Pesa';
-                    if (paidServices[key]) {
-                        payBtn.disabled = true;
-                        payBtn.textContent = '✓ Unlocked';
-                    }
-                }
-            });
-        }
-
-        function enablePayButtons() {
-            ['instant-value', 'mileage', 'ownership'].forEach(key => {
-                const payBtn = document.getElementById(key + 'PayBtn');
-                if (payBtn) {
-                    payBtn.disabled = false;
-                    payBtn.innerHTML = '<i class="fas fa-mobile-alt"></i> Pay with M-Pesa';
-                    if (paidServices[key]) {
-                        payBtn.disabled = true;
-                        payBtn.textContent = '✓ Unlocked';
-                    }
-                }
-            });
-        }
-
-        // ─── SERVICE STATE ──────────────────────────────────────────
-        async function fetchUserServices() {
-            try {
-                const data = await apiCall('/mpesa/user/services');
-                let services = [];
-                if (Array.isArray(data)) {
-                    services = data;
-                } else if (data.services && Array.isArray(data.services)) {
-                    services = data.services;
-                } else if (data.data && Array.isArray(data.data)) {
-                    services = data.data;
-                }
-
-                if (services.length > 0) {
-                    const newPaid = {};
-                    Object.keys(SERVICE_IDS).forEach(key => {
-                        const apiId = SERVICE_IDS[key];
-                        newPaid[key] = services.some(s =>
-                            s.service_id === apiId && (s.status === 'active' || s.status === 'paid' || s.status === 'completed')
-                        );
-                    });
-                    paidServices = newPaid;
-                    localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
-                    updateAllPaymentUI();
-                    return paidServices;
-                }
-
-                paidServices = {};
-                localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
-                updateAllPaymentUI();
-                return paidServices;
-            } catch (err) {
-                console.warn('Failed to fetch user services:', err.message);
-                const stored = localStorage.getItem('auto_d_paid_services');
-                if (stored) {
-                    try {
-                        paidServices = JSON.parse(stored);
-                    } catch (e) {
-                        paidServices = {};
-                    }
-                } else {
-                    paidServices = {};
-                }
-                updateAllPaymentUI();
-                return paidServices;
-            }
-        }
-
-        function updatePaymentUI(service) {
-            const isPaid = paidServices[service] === true;
-            const statusEl = document.getElementById(service + 'Status');
-            const payBtn = document.getElementById(service + 'PayBtn');
-            const tab = document.querySelector(`[data-service="${service}"]`);
-            const badgeMap = {
-                'instant-value': 'badge-value',
-                'mileage': 'badge-mileage',
-                'ownership': 'badge-ownership'
-            };
-            const badge = document.getElementById(badgeMap[service]);
-
-            if (statusEl) {
-                statusEl.textContent = isPaid ? 'Paid ✓' : 'Unpaid';
-                statusEl.className = `status-badge ${isPaid ? 'paid' : 'unpaid'}`;
-            }
-            if (payBtn) {
-                payBtn.disabled = isPaid;
-                payBtn.innerHTML = isPaid ? '✓ Unlocked' : '<i class="fas fa-mobile-alt"></i> Pay with M-Pesa';
-                payBtn.style.opacity = isPaid ? '0.6' : '1';
-            }
-            if (tab) {
-                if (isPaid) {
-                    tab.classList.remove('locked');
-                } else {
-                    tab.classList.add('locked');
-                }
-            }
-            if (badge) {
-                badge.textContent = isPaid ? 'Paid' : 'Unpaid';
-                badge.style.background = isPaid ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)';
-                badge.style.color = isPaid ? 'var(--green)' : 'var(--red)';
-            }
-        }
-
-        function updateAllPaymentUI() {
-            ['instant-value', 'mileage', 'ownership'].forEach(s => updatePaymentUI(s));
-        }
-
-        function switchService(service) {
-            Object.keys(serviceViews).forEach(key => {
-                serviceViews[key].classList.remove('active');
-            });
-            if (serviceViews[service]) {
-                serviceViews[service].classList.add('active');
-            }
-            serviceTabs.forEach(tab => {
-                tab.classList.toggle('active', tab.dataset.service === service);
-            });
-            updatePaymentUI(service);
-        }
-
-        // ─── M-PESA PAYMENT ──────────────────────────────────────────
-        window.openMpesa = function(service) {
-            if (paidServices[service]) {
-                showToast('✅ This service is already unlocked!', 'success');
-                return;
-            }
-            if (!accessToken || !currentUser?.id) {
-                showToast('⚠️ Please sign in again', 'warning');
-                return;
-            }
-
-            const serviceKey = SERVICE_IDS[service];
-            const priceInfo = servicePrices[serviceKey];
-            const price = priceInfo?.price || 0;
-
-            if (price <= 0) {
-                showToast('❌ Service price not configured', 'error');
-                return;
-            }
-
-            pendingService = service;
-            mpesaServiceName.textContent = SERVICE_NAMES[service] || 'this service';
-            modalPrice.textContent = `${priceInfo?.currency || 'KES'} ${price}`;
-            mpesaPhone.value = '';
-            mpesaModal.classList.add('open');
-            mpesaConfirmBtn.disabled = false;
-            mpesaConfirmBtn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm Payment';
-            checkoutRequestId = null;
-        };
-
-        window.closeMpesa = function() {
-            mpesaModal.classList.remove('open');
-            if (statusPollInterval) {
-                clearInterval(statusPollInterval);
-                statusPollInterval = null;
-            }
-            pendingService = null;
-            checkoutRequestId = null;
-        };
-
-        window.confirmMpesa = async function(event) {
-            event.preventDefault();
-            const phone = mpesaPhone.value.trim();
-            if (!phone || phone.length < 10) {
-                showToast('Please enter a valid M-Pesa phone number (e.g. 0712345678)', 'error');
-                return;
-            }
-            if (!pendingService) {
-                showToast('Error: No service selected', 'error');
-                return;
-            }
-            if (!currentUser?.id) {
-                showToast('⚠️ Your session expired — please sign in again', 'error');
-                closeMpesa();
-                return;
-            }
-
-            const serviceKey = SERVICE_IDS[pendingService];
-            const priceInfo = servicePrices[serviceKey];
-            const price = priceInfo?.price || 0;
-
-            if (price <= 0) {
-                showToast('❌ Service price not configured', 'error');
-                return;
-            }
-
-            mpesaConfirmBtn.disabled = true;
-            mpesaConfirmBtn.innerHTML = '<span class="loading-spinner"></span> Initiating...';
-
-            try {
-                const stkData = {
-                    phone: phone,
-                    service_id: SERVICE_IDS[pendingService],
-                    description: `${SERVICE_NAMES[pendingService]} - Auto-D Kenya`,
-                    user_id: currentUser.id,
-                    request_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-                    amount: price
-                };
-
-                const response = await apiCall('/mpesa/stkpush', {
-                    method: 'POST',
-                    body: JSON.stringify(stkData)
-                });
-
-                checkoutRequestId = response.checkout_request_id || response.id || response.checkoutRequestID;
-                const status = response.status || 'pending';
-
-                if (status === 'success' || status === 'completed' || status === 'paid') {
-                    paidServices[pendingService] = true;
-                    localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
-                    updatePaymentUI(pendingService);
-                    showToast(`✅ ${SERVICE_NAMES[pendingService]} unlocked!`, 'success');
-                    closeMpesa();
-                    switchService(pendingService);
-                    await fetchUserServices();
-                    mpesaConfirmBtn.disabled = false;
-                    mpesaConfirmBtn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm Payment';
-                    return;
-                }
-
-                if (!checkoutRequestId) {
-                    if (status === 'pending') {
-                        showToast('📱 Payment request sent. Please check your phone.', 'info');
-                        mpesaConfirmBtn.innerHTML = '<span class="loading-spinner"></span> Waiting for confirmation...';
-                        setTimeout(() => {
-                            showToast('⏰ Please check your M-Pesa for the payment prompt.', 'warning');
-                            mpesaConfirmBtn.disabled = false;
-                            mpesaConfirmBtn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm Payment';
-                        }, 15000);
-                        return;
-                    }
-                    throw new Error('No checkout request ID returned from server');
-                }
-
-                showToast('📱 Payment request sent. Please check your phone.', 'info');
-                mpesaConfirmBtn.innerHTML = '<span class="loading-spinner"></span> Waiting for confirmation...';
-
-                if (statusPollInterval) clearInterval(statusPollInterval);
-                let attempts = 0;
-                const maxAttempts = 30;
-
-                statusPollInterval = setInterval(async () => {
-                    attempts++;
-                    try {
-                        const statusResponse = await apiCall(`/mpesa/status/${checkoutRequestId}`);
-                        const currentStatus = typeof statusResponse === 'string'
-                            ? statusResponse
-                            : statusResponse.status || statusResponse.state || 'pending';
-
-                        if (currentStatus === 'completed' || currentStatus === 'success' || currentStatus === 'paid') {
-                            clearInterval(statusPollInterval);
-                            statusPollInterval = null;
-
-                            try {
-                                await apiCall(`/mpesa/confirm/${checkoutRequestId}`, {
-                                    method: 'POST'
-                                });
-                            } catch (confirmErr) {
-                                console.warn('Confirm API warning:', confirmErr);
-                            }
-
-                            paidServices[pendingService] = true;
-                            localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
-                            updatePaymentUI(pendingService);
-                            showToast(`✅ Payment successful! ${SERVICE_NAMES[pendingService]} unlocked.`, 'success');
-
-                            closeMpesa();
-                            switchService(pendingService);
-                            await fetchUserServices();
-                        } else if (currentStatus === 'failed' || currentStatus === 'cancelled' || currentStatus === 'error') {
-                            clearInterval(statusPollInterval);
-                            statusPollInterval = null;
-                            showToast('❌ Payment failed or cancelled. Please try again.', 'error');
-                            mpesaConfirmBtn.disabled = false;
-                            mpesaConfirmBtn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm Payment';
-                        }
-
-                        if (attempts >= maxAttempts) {
-                            clearInterval(statusPollInterval);
-                            statusPollInterval = null;
-                            showToast('⏰ Payment timeout. Please check your M-Pesa and try again.', 'warning');
-                            mpesaConfirmBtn.disabled = false;
-                            mpesaConfirmBtn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm Payment';
-                        }
-                    } catch (statusErr) {
-                        console.warn('Status check error:', statusErr);
-                        if (attempts >= maxAttempts) {
-                            clearInterval(statusPollInterval);
-                            statusPollInterval = null;
-                            mpesaConfirmBtn.disabled = false;
-                            mpesaConfirmBtn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm Payment';
-                        }
-                    }
-                }, 2000);
-
-            } catch (err) {
-                console.error('STK Push error:', err);
-                showToast(`❌ Payment initiation failed: ${err.message}`, 'error');
-                mpesaConfirmBtn.disabled = false;
-                mpesaConfirmBtn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm Payment';
-                if (statusPollInterval) {
-                    clearInterval(statusPollInterval);
-                    statusPollInterval = null;
-                }
-            }
-        };
-
-        // ─── SERVICE CALCULATIONS ──────────────────────────────────
-        window.calculateValuation = async function() {
-            if (!paidServices['instant-value']) {
-                showToast('🔒 Please pay to unlock Instant Valuation', 'warning');
-                return;
-            }
-            const make = document.getElementById('valMake').value || 'Toyota';
-            const model = document.getElementById('valModel').value || 'Prado';
-            const year = parseInt(document.getElementById('valYear').value) || 2020;
-
-            const result = document.getElementById('valResult');
-            result.style.display = 'block';
-            document.getElementById('valPrice').textContent = '⏳ Calculating...';
-
-            try {
-                const data = await apiCall('/valuation/calculate', {
-                    method: 'POST',
-                    body: JSON.stringify({ make, model, year, country: 'KE' })
-                });
-
-                const value = data.value || data.estimated_value || data.price || 0;
-                const confidence = data.confidence || data.accuracy || 92;
-
-                document.getElementById('valPrice').textContent = `KES ${Number(value).toLocaleString()}`;
-                document.getElementById('valConfidence').textContent = `${Number(confidence)}%`;
-                showToast('✅ Valuation complete!', 'success');
-            } catch (err) {
-                document.getElementById('valPrice').textContent = '❌ Error';
-                showToast(`❌ Valuation error: ${err.message}`, 'error');
-            }
-        };
-
-        window.calculateMileage = async function() {
-            if (!paidServices['mileage']) {
-                showToast('🔒 Please pay to unlock Mileage Cost', 'warning');
-                return;
-            }
-            const distance = parseFloat(document.getElementById('milDistance').value) || 100;
-            const fuelPrice = parseFloat(document.getElementById('milFuel').value) || 180;
-            const consumption = parseFloat(document.getElementById('milConsump').value) || 10;
-
-            const result = document.getElementById('milResult');
-            result.style.display = 'block';
-            document.getElementById('milCost').innerHTML = '⏳ Calculating...';
-
-            try {
-                const data = await apiCall('/running-cost/calculate', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        distance_km: distance,
-                        fuel_price_per_liter: fuelPrice,
-                        consumption_l_per_100km: consumption,
-                        country: 'KE'
-                    })
-                });
-
-                const costPerKm = data.cost_per_km || data.per_km || 0;
-                const fuelCost = data.fuel_cost || data.fuel || 0;
-                const otherCost = data.other_cost || data.maintenance || 0;
-
-                document.getElementById('milCost').innerHTML = `KES ${Number(costPerKm).toFixed(2)} <span class="unit">/km</span>`;
-                document.getElementById('milFuelCost').textContent = `KES ${Math.round(Number(fuelCost)).toLocaleString()}`;
-                document.getElementById('milOther').textContent = `KES ${Math.round(Number(otherCost)).toLocaleString()}`;
-                showToast('✅ Mileage cost calculated!', 'success');
-            } catch (err) {
-                document.getElementById('milCost').innerHTML = '❌ Error';
-                showToast(`❌ Calculation error: ${err.message}`, 'error');
-            }
-        };
-
-        window.calculateOwnership = async function() {
-            if (!paidServices['ownership']) {
-                showToast('🔒 Please pay to unlock Ownership Cost', 'warning');
-                return;
-            }
-            const price = parseFloat(document.getElementById('ownPrice').value) || 3000000;
-            const years = parseInt(document.getElementById('ownYears').value) || 5;
-            const km = parseInt(document.getElementById('ownKm').value) || 15000;
-
-            const result = document.getElementById('ownResult');
-            result.style.display = 'block';
-            document.getElementById('ownTotal').textContent = '⏳ Calculating...';
-
-            try {
-                const data = await apiCall('/ownership/calculate', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        purchase_price: price,
-                        years_owned: years,
-                        annual_km: km,
-                        country: 'KE'
-                    })
-                });
-
-                document.getElementById('ownTotal').textContent = `KES ${Math.round(Number(data.total_cost || 0)).toLocaleString()}`;
-                document.getElementById('ownDep').textContent = `KES ${Math.round(Number(data.depreciation || 0)).toLocaleString()}`;
-                document.getElementById('ownFuelMaint').textContent = `KES ${Math.round(Number(data.fuel_maintenance || 0)).toLocaleString()}`;
-                document.getElementById('ownIns').textContent = `KES ${Math.round(Number(data.insurance || 0)).toLocaleString()}`;
-                document.getElementById('ownPerKm').textContent = `KES ${(Number(data.cost_per_km || 0)).toFixed(2)}`;
-                showToast('✅ Ownership analysis complete!', 'success');
-            } catch (err) {
-                document.getElementById('ownTotal').textContent = '❌ Error';
-                showToast(`❌ Analysis error: ${err.message}`, 'error');
-            }
-        };
-
-        // ─── TOAST ──────────────────────────────────────────────────
-        function showToast(message, type = 'info') {
-            const existing = document.querySelector('.toast');
-            if (existing) existing.remove();
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                setTimeout(() => toast.remove(), 300);
-            }, 4000);
-        }
-        window.showToast = showToast;
-
-        // ─── INIT ──────────────────────────────────────────────────
-        async function init() {
-            if (isInitialized) return;
-            isInitialized = true;
-
-            initSupabase();
-
-            const user = await getCurrentUser();
-            if (!user) {
-                showToast('Please sign in to access the dashboard', 'warning');
-                setTimeout(() => window.location.href = '/', 1500);
-                return;
-            }
-
-            userNameEl.textContent = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
-
-            // ─── LOAD SERVICE PRICES WITH TIMEOUT ────────────────────
-            try {
-                await fetchServicePrices();
-            } catch (err) {
-                console.error('❌ Failed to load prices:', err);
-                // Ensure fallback is used
-                useFallbackPrices('Init error: ' + err.message);
-            }
-
-            // ─── FETCH USER SERVICES ────────────────────────────────
-            await fetchUserServices();
-
-            // ─── ENABLE PAY BUTTONS ──────────────────────────────────
-            enablePayButtons();
-            updatePriceDisplay();
-
-            logoutBtn.addEventListener('click', signOut);
-
-            mobileToggle.addEventListener('click', function() {
-                navLinks.classList.toggle('open');
-            });
-
-            serviceTabs.forEach(tab => {
-                tab.addEventListener('click', function() {
-                    const service = this.dataset.service;
-                    if (service) switchService(service);
-                });
-            });
-
-            mpesaModal.addEventListener('click', function(e) {
-                if (e.target === mpesaModal) closeMpesa();
-            });
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape' && mpesaModal.classList.contains('open')) closeMpesa();
-            });
-
-            document.getElementById('year').textContent = new Date().getFullYear();
-
-            window.__AUTOD = {
-                supabase: supabaseClient,
-                currentUser,
-                accessToken: () => accessToken,
-                isAuthenticated: () => isAuthenticated,
-                paidServices: () => paidServices,
-                servicePrices: () => servicePrices,
-                signOut,
-                showToast,
-                apiCall,
-                fetchUserServices,
-                fetchServicePrices
-            };
-
-            console.log('✅ Auto-D Kenya Production Dashboard initialized');
-            console.log(`🔐 User: ${user.email}`);
-            console.log(`📊 Services:`, paidServices);
-            console.log(`💰 Prices:`, servicePrices);
-            console.log(`🌐 API Base: ${API_BASE}`);
-        }
-
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', init);
+const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+
+let selectedService = null;
+let checkoutRequestId = null;
+let statusTimer = null;
+
+function getToken() {
+    return localStorage.getItem('token') || localStorage.getItem('access_token');
+}
+
+async function api(path, options = {}) {
+    const token = getToken();
+
+    const headers = {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+    };
+
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(API_BASE + path, {
+        ...options,
+        headers
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`${response.status} ${text}`);
+    }
+
+    return response.json();
+}
+
+function setStatus(message) {
+    document.getElementById('statusBox').textContent = message;
+}
+
+function renderServices(services) {
+    const container = document.getElementById('services');
+
+    if (!services.length) {
+        container.innerHTML = '<p>No services available</p>';
+        return;
+    }
+
+    container.innerHTML = services.map(service => `
+        <div class="service">
+            <div>
+                <strong>${service.name}</strong><br>
+                <small>${service.description || ''}</small>
+            </div>
+            <div>
+                <strong>KES ${Number(service.price).toLocaleString()}</strong>
+                <button onclick="selectService('${service.code}')">Pay</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+window.selectService = function(code) {
+    selectedService = code;
+
+    const button = document.getElementById('payBtn');
+    button.disabled = false;
+    button.textContent = `Pay for ${code}`;
+
+    setStatus(`Selected service: ${code}`);
+};
+
+async function loadServices() {
+    try {
+        const data = await api('/mpesa/services');
+        renderServices(data.services || []);
+    } catch (error) {
+        document.getElementById('services').innerHTML =
+            `<p style="color:red">Failed to load services: ${error.message}</p>`;
+    }
+}
+
+function renderPayments(payments) {
+    const container = document.getElementById('payments');
+
+    if (!payments.length) {
+        container.innerHTML = '<p>No payments found</p>';
+        return;
+    }
+
+    container.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Service</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${payments.map(p => `
+                    <tr>
+                        <td>${p.service_name || '-'}</td>
+                        <td>KES ${Number(p.amount || 0).toLocaleString()}</td>
+                        <td class="status-${p.status}">${p.status}</td>
+                        <td>${p.created_at ? new Date(p.created_at).toLocaleString() : '-'}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+async function loadPayments() {
+    try {
+        const payments = await api('/mpesa/payments');
+        renderPayments(payments || []);
+    } catch (error) {
+        document.getElementById('payments').innerHTML =
+            `<p style="color:red">Failed to load payments: ${error.message}</p>`;
+    }
+}
+
+async function startPayment() {
+    if (!selectedService) {
+        alert('Please select a service');
+        return;
+    }
+
+    const phone = document.getElementById('phone').value.trim();
+
+    if (!phone) {
+        alert('Please enter a phone number');
+        return;
+    }
+
+    const button = document.getElementById('payBtn');
+    button.disabled = true;
+    button.textContent = 'Sending STK Push...';
+
+    try {
+        setStatus('Initiating STK Push...');
+
+        const result = await api('/mpesa/stkpush', {
+            method: 'POST',
+            body: JSON.stringify({
+                phone,
+                service_id: selectedService,
+                description: selectedService,
+                request_id: null
+            })
+        });
+
+        checkoutRequestId = result.checkout_request_id;
+
+        setStatus(
+            `STK Push sent successfully.\n` +
+            `Checkout ID: ${checkoutRequestId}\n` +
+            `Please complete the payment on your phone.`
+        );
+
+        startStatusPolling();
+
+    } catch (error) {
+        setStatus(`Payment initiation failed:\n${error.message}`);
+    } finally {
+        button.disabled = false;
+        button.textContent = selectedService
+            ? `Pay for ${selectedService}`
+            : 'Select a service';
+    }
+}
+
+function startStatusPolling() {
+    if (statusTimer) {
+        clearInterval(statusTimer);
+    }
+
+    statusTimer = setInterval(checkPaymentStatus, 5000);
+}
+
+async function checkPaymentStatus() {
+    if (!checkoutRequestId) return;
+
+    try {
+        const status = await api(`/mpesa/status/${checkoutRequestId}`);
+
+        if (status.status === 'completed') {
+            setStatus(`Payment completed successfully.\nReceipt: ${status.mpesa_receipt || 'N/A'}`);
+
+            clearInterval(statusTimer);
+            statusTimer = null;
+
+            await loadPayments();
+
+        } else if (status.status === 'failed') {
+            setStatus(`Payment failed.\n${status.result_desc || ''}`);
+
+            clearInterval(statusTimer);
+            statusTimer = null;
+
+            await loadPayments();
+
         } else {
-            init();
+            setStatus(`Waiting for payment confirmation...\nCheckout ID: ${checkoutRequestId}`);
         }
 
-    })();
+    } catch (error) {
+        console.error('Status check failed', error);
+    }
+}
+
+document.getElementById('payBtn').addEventListener('click', startPayment);
+
+(async function init() {
+    setStatus('Loading dashboard...');
+
+    await Promise.all([
+        loadServices(),
+        loadPayments()
+    ]);
+
+    setStatus('Dashboard ready. Select a service to continue.');
+})();
 </script>
 </body>
 </html>
+```
