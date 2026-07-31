@@ -41,23 +41,23 @@ async def lifespan(app: FastAPI):
     logger.info(f"API Base URL: {settings.API_BASE_URL}")
     logger.info(f"Port: {settings.PORT}")
     logger.info("=" * 60)
-    
+
     # Initialize logging
     try:
         setup_logging()
         logger.info("✅ Logging configured successfully")
     except Exception as e:
         print(f"❌ Logging configuration failed: {str(e)}")
-    
+
     # Initialize database
     try:
         await init_db()
         logger.info("✅ Database initialized successfully")
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {str(e)}")
-    
+
     yield
-    
+
     # Shutdown
     logger.info(f"{settings.PROJECT_NAME} shutting down...")
 
@@ -76,8 +76,20 @@ app = FastAPI(
 )
 
 
+# ─── MIDDLEWARE (non-CORS) ───────────────────────────────────────
+# ⚠️ IMPORTANT: This must run BEFORE CORSMiddleware is added below.
+# In Starlette, the LAST middleware added becomes the OUTERMOST layer.
+# CORS has to be outermost so it can attach Access-Control-* headers
+# even to responses produced by TrustedHostMiddleware, auth checks,
+# or errors from the middleware below — and so unauthenticated OPTIONS
+# preflight requests never get rejected before reaching CORSMiddleware.
+
+setup_middleware(app)
+
+
 # ─── CORS MIDDLEWARE ─────────────────────────────────────────────
-# ⚠️ CRITICAL: CORS MUST be the FIRST middleware registered
+# ⚠️ CRITICAL: CORS MUST be the LAST middleware registered so it ends
+# up as the outermost layer (see note above).
 
 cors_origins = settings.get_cors_origins()
 logger.info(f"CORS Origins configured: {cors_origins}")
@@ -91,11 +103,6 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=86400,
 )
-
-
-# ─── MIDDLEWARE ──────────────────────────────────────────────────
-
-setup_middleware(app)
 
 
 # ─── EXCEPTION HANDLERS ──────────────────────────────────────────
@@ -196,7 +203,7 @@ async def health_check():
         "timestamp": datetime.now(UTC).isoformat(),
         "dependencies": {}
     }
-    
+
     # Check Supabase connection
     try:
         client = get_supabase()
@@ -206,7 +213,7 @@ async def health_check():
         health_status["dependencies"]["supabase"] = "disconnected"
         health_status["dependencies"]["supabase_error"] = str(e)
         health_status["status"] = "degraded"
-    
+
     return health_status
 
 
@@ -218,7 +225,7 @@ async def readiness_check():
         "timestamp": datetime.now(UTC).isoformat(),
         "environment": settings.ENVIRONMENT
     }
-    
+
     try:
         client = get_supabase()
         client.table("services").select("*", count="exact").limit(1).execute()
@@ -226,7 +233,7 @@ async def readiness_check():
     except Exception:
         readiness_status["supabase"] = "not_ready"
         readiness_status["status"] = "not_ready"
-    
+
     return readiness_status
 
 
@@ -276,14 +283,14 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     logger.info("=" * 60)
     logger.info(f"🚀 Starting {settings.PROJECT_NAME}")
     logger.info(f"📡 API Base URL: {settings.API_BASE_URL}")
     logger.info(f"🔧 Environment: {settings.ENVIRONMENT}")
     logger.info(f"🔌 Port: {settings.PORT}")
     logger.info("=" * 60)
-    
+
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
