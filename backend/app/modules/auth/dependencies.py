@@ -3,10 +3,11 @@
 from typing import Optional, Dict, Any
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError, ExpiredSignatureError  # ✅ FIXED: Correct imports
 from datetime import datetime, timedelta
 import logging
 
+# ✅ FIX 1: Import from central security helper instead of jose directly
+from app.core.security import decode_token
 from app.core.config import settings
 from app.core.database import get_supabase
 
@@ -33,9 +34,12 @@ async def get_current_user(
         )
     
     token = credentials.credentials
-    payload = await decode_token(token)
     
-    if not payload:
+    # ✅ FIX 3: Use decode_token from app.core.security (synchronous, raises ValueError)
+    try:
+        payload = decode_token(token)
+    except ValueError as e:
+        logger.warning(f"Token validation failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -66,9 +70,11 @@ async def get_current_user_optional(
         return None
     
     token = credentials.credentials
-    payload = await decode_token(token)
     
-    if not payload:
+    # ✅ FIX 3: Use decode_token from app.core.security
+    try:
+        payload = decode_token(token)
+    except ValueError:
         return None
     
     user = await get_user_by_id(payload.get("sub"))
@@ -120,7 +126,6 @@ async def get_current_super_admin(
     return current_user
 
 
-# ✅ FIXED: Changed user_id type from int to str (UUID support)
 async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     """Get user by ID from database (supports UUID)"""
     try:
@@ -155,8 +160,11 @@ async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+# ✅ FIX 5: Keep these functions - they create backend-issued tokens
 async def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
-    """Create JWT access token"""
+    """Create JWT access token (backend-issued)"""
+    from jose import jwt  # Only imported here, not at module level
+    
     to_encode = data.copy()
     
     if expires_delta:
@@ -176,7 +184,9 @@ async def create_access_token(data: Dict[str, Any], expires_delta: Optional[time
 
 
 async def create_refresh_token(data: Dict[str, Any]) -> str:
-    """Create JWT refresh token with longer expiry"""
+    """Create JWT refresh token with longer expiry (backend-issued)"""
+    from jose import jwt  # Only imported here, not at module level
+    
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "iat": datetime.utcnow(), "type": "refresh"})
@@ -188,36 +198,6 @@ async def create_refresh_token(data: Dict[str, Any]) -> str:
     )
     
     return encoded_jwt
-
-
-# ✅ FIXED: Simplified decode_token with correct exception handling
-async def decode_token(token: str) -> Optional[Dict[str, Any]]:
-    """
-    Decode and validate JWT token.
-    
-    ✅ Uses JWTError and ExpiredSignatureError from jose
-    ✅ jwt.decode() automatically validates exp claim
-    """
-    try:
-        payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM]
-        )
-        
-        return payload
-
-    except ExpiredSignatureError:
-        logger.warning("Token has expired")
-        return None
-
-    except JWTError as e:
-        logger.warning(f"Invalid token: {str(e)}")
-        return None
-
-    except Exception as e:
-        logger.error(f"Error decoding token: {str(e)}")
-        return None
 
 
 async def verify_password(plain_password: str, hashed_password: str) -> bool:
