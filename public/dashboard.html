@@ -1,342 +1,1202 @@
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AUTO-D Kenya Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes" />
+    <title>Auto-D Kenya | Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
+          crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        * { box-sizing: border-box; }
+        /* ─── CSS Variables ────────────────────────────────────────── */
+        :root {
+            --amber: #eab308;
+            --amber-dark: #ca8a04;
+            --amber-light: #fde68a;
+            --green: #22c55e;
+            --blue: #3b82f6;
+            --red: #ef4444;
+            --bg: #0a0c15;
+            --bg-panel: #111827;
+            --bg-surface: #1a2332;
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --text-muted: #64748b;
+            --border: rgba(255, 255, 255, 0.06);
+            --border-light: rgba(255, 255, 255, 0.1);
+            --radius: 12px;
+            --shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+            --font-heading: 'Space Grotesk', sans-serif;
+            --font-body: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --transition: all 0.3s ease;
+        }
+
+        /* ─── Reset ──────────────────────────────────────────────────── */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+
         body {
-            font-family: Arial, sans-serif;
-            background: #f5f7fa;
-            margin: 0;
-            padding: 20px;
-            color: #222;
+            font-family: var(--font-body);
+            background: var(--bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
         }
+
+        /* ─── Background Grid ──────────────────────────────────────── */
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            background-image:
+                radial-gradient(circle at 20% 50%, rgba(234, 179, 8, 0.03) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(234, 179, 8, 0.02) 0%, transparent 50%);
+            pointer-events: none;
+        }
+        .bg-grid::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 60px 60px;
+        }
+
+        /* ─── Container ──────────────────────────────────────────────── */
         .container {
-            max-width: 900px;
-            margin: auto;
+            position: relative;
+            z-index: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px 32px 60px;
         }
+
+        /* ─── Cards ──────────────────────────────────────────────────── */
         .card {
-            background: white;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 6px rgba(0,0,0,.08);
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px 28px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow);
+            transition: var(--transition);
         }
-        h1 { margin-top: 0; }
-        .service {
+        .card:hover {
+            border-color: rgba(234, 179, 8, 0.15);
+        }
+        .card-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid #eee;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 16px;
         }
-        .service:last-child { border-bottom: none; }
-        button {
-            background: #0b5ed7;
-            color: white;
+        .card-title {
+            font-family: var(--font-heading);
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .card-title .highlight { color: var(--amber); }
+        .card-title .badge {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 10px;
+            border-radius: 20px;
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--amber);
+            font-family: var(--font-mono);
+            letter-spacing: 0.04em;
+        }
+        .card-subtitle {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* ─── Header ──────────────────────────────────────────────────── */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 28px;
+        }
+        .header .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+        }
+        .header .logo .logo-icon {
+            font-size: 36px;
+        }
+        .header .logo .logo-text {
+            font-family: var(--font-heading);
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .header .logo .logo-text span { color: var(--amber); }
+        .header .logo .logo-sub {
+            font-size: 12px;
+            color: var(--text-muted);
+            display: block;
+            margin-top: -2px;
+        }
+
+        /* ─── Auth Section ───────────────────────────────────────────── */
+        .auth-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .auth-section input {
+            padding: 10px 14px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 13px;
+            font-family: var(--font-body);
+            min-width: 160px;
+            transition: var(--transition);
+        }
+        .auth-section input:focus {
+            outline: none;
+            border-color: var(--amber);
+        }
+        .auth-section input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--amber), var(--amber-dark));
+            color: var(--bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 16px;
+            font-family: var(--font-heading);
+        }
+        .user-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .user-email {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* ─── Buttons ─────────────────────────────────────────────────── */
+        .btn {
+            padding: 10px 20px;
             border: none;
-            padding: 10px 16px;
-            border-radius: 6px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            font-family: var(--font-body);
             cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
         }
-        button:disabled {
-            opacity: .6;
+        .btn:disabled {
+            opacity: 0.5;
             cursor: not-allowed;
+            transform: none !important;
         }
-        input {
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--amber), var(--amber-dark));
+            color: var(--bg);
+        }
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(234, 179, 8, 0.3);
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+        .btn-outline:hover:not(:disabled) {
+            border-color: var(--amber);
+            color: var(--amber);
+        }
+
+        .btn-danger {
+            background: var(--red);
+            color: #fff;
+        }
+        .btn-danger:hover:not(:disabled) {
+            background: #dc2626;
+        }
+
+        .btn-success {
+            background: var(--green);
+            color: var(--bg);
+        }
+        .btn-success:hover:not(:disabled) {
+            opacity: 0.85;
+        }
+
+        .btn-sm {
+            padding: 6px 14px;
+            font-size: 12px;
+        }
+
+        /* ─── Service List ───────────────────────────────────────────── */
+        .service-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 16px;
+            background: var(--bg);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            margin-bottom: 10px;
+            transition: var(--transition);
+        }
+        .service-item:last-child { margin-bottom: 0; }
+        .service-item:hover {
+            border-color: rgba(234, 179, 8, 0.2);
+        }
+        .service-item .service-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .service-item .service-name {
+            font-weight: 600;
+            font-size: 15px;
+            color: var(--text-primary);
+        }
+        .service-item .service-desc {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        .service-item .service-price {
+            font-family: var(--font-heading);
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--amber);
+        }
+        .service-item .service-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* ─── Payment Form ───────────────────────────────────────────── */
+        .payment-form .form-group {
+            margin-bottom: 16px;
+        }
+        .payment-form label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        .payment-form input {
             width: 100%;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            margin-top: 8px;
+            padding: 12px 16px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: var(--font-body);
+            transition: var(--transition);
         }
+        .payment-form input:focus {
+            outline: none;
+            border-color: var(--amber);
+        }
+        .payment-form input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .status-box {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            min-height: 80px;
+            white-space: pre-line;
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+        }
+        .status-box .status-success { color: var(--green); }
+        .status-box .status-pending { color: var(--amber); }
+        .status-box .status-error { color: var(--red); }
+        .status-box .status-info { color: var(--blue); }
+
+        /* ─── Payment History Table ──────────────────────────────────── */
+        .table-wrap { overflow-x: auto; }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 10px;
+            font-size: 14px;
         }
         th, td {
             text-align: left;
-            padding: 10px;
-            border-bottom: 1px solid #eee;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
         }
-        .status-pending { color: #b26a00; font-weight: bold; }
-        .status-completed { color: #15803d; font-weight: bold; }
-        .status-failed { color: #b91c1c; font-weight: bold; }
-        #statusBox {
-            background: #eef4ff;
-            padding: 12px;
-            border-radius: 6px;
-            min-height: 50px;
-            white-space: pre-line;
+        th {
+            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
         }
+        td { color: var(--text-secondary); }
+        tr:last-child td { border-bottom: none; }
+
+        .status-badge {
+            display: inline-block;
+            padding: 2px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-badge.pending { background: rgba(234, 179, 8, 0.15); color: var(--amber); }
+        .status-badge.completed { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+        .status-badge.paid { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+        .status-badge.failed { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+        .status-badge.cancelled { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+
+        /* ─── Loading ─────────────────────────────────────────────────── */
+        .loading {
+            color: var(--text-muted);
+            font-style: italic;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .loading .spinner {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(234, 179, 8, 0.2);
+            border-top-color: var(--amber);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── Toast ───────────────────────────────────────────────────── */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 400px;
+        }
+        .toast {
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 14px;
+            animation: slideIn 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        .toast-success { background: var(--green); color: var(--bg); }
+        .toast-error { background: var(--red); color: #fff; }
+        .toast-info { background: var(--blue); color: #fff; }
+        .toast-warning { background: var(--amber); color: var(--bg); }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(100px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        /* ─── Empty State ────────────────────────────────────────────── */
+        .empty-state {
+            text-align: center;
+            padding: 32px 16px;
+            color: var(--text-muted);
+        }
+        .empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; }
+        .empty-state .empty-title { font-size: 18px; font-weight: 600; color: var(--text-secondary); }
+        .empty-state .empty-desc { font-size: 14px; margin-top: 4px; }
+
+        /* ─── Responsive ──────────────────────────────────────────────── */
+        @media (max-width: 768px) {
+            .container { padding: 16px; }
+            .card { padding: 18px 20px; }
+            .header { flex-direction: column; align-items: flex-start; }
+            .auth-section { width: 100%; flex-direction: column; }
+            .auth-section input { width: 100%; min-width: unset; }
+            .service-item { flex-direction: column; align-items: stretch; gap: 8px; }
+            .service-item .service-actions { justify-content: space-between; }
+            .user-info { width: 100%; justify-content: space-between; }
+            .card-title { font-size: 17px; }
+            .table-wrap { margin: 0 -4px; }
+            th, td { padding: 8px 10px; font-size: 13px; }
+        }
+
+        @media (max-width: 480px) {
+            .container { padding: 12px; }
+            .card { padding: 14px 16px; }
+            .card-title { font-size: 16px; }
+            .service-item .service-price { font-size: 16px; }
+            .btn { font-size: 13px; padding: 8px 16px; }
+        }
+
+        /* ─── Scrollbar ───────────────────────────────────────────────── */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--amber); }
     </style>
 </head>
 <body>
+
+<div class="bg-grid" aria-hidden="true"></div>
+
 <div class="container">
 
+    <!-- ─── HEADER ──────────────────────────────────────────────────── -->
+    <header class="header">
+        <a href="/" class="logo">
+            <span class="logo-icon">🚗</span>
+            <div>
+                <span class="logo-text">Auto-D <span>Kenya</span></span>
+                <span class="logo-sub">Vehicle Intelligence Platform</span>
+            </div>
+        </a>
+        <div class="auth-section" id="authSection">
+            <!-- Populated by JavaScript -->
+        </div>
+    </header>
+
+    <!-- ─── AVAILABLE SERVICES ────────────────────────────────────── -->
     <div class="card">
-        <h1>AUTO-D Kenya</h1>
-        <p>Vehicle Intelligence Platform</p>
+        <div class="card-header">
+            <div class="card-title">
+                📋 Available Services
+                <span class="badge">Live</span>
+            </div>
+            <span style="font-size:12px;color:var(--text-muted);">Pay once, use any service</span>
+        </div>
+        <div id="services"><span class="loading"><span class="spinner"></span> Loading services...</span></div>
     </div>
 
+    <!-- ─── M-PESA PAYMENT ─────────────────────────────────────────── -->
     <div class="card">
-        <h2>Available Services</h2>
-        <div id="services">Loading services...</div>
-    </div>
-
-    <div class="card">
-        <h2>M-Pesa Payment</h2>
-
-        <label>Phone Number</label>
-        <input id="phone" type="tel" placeholder="2547XXXXXXXX" />
-
-        <div style="margin-top:15px;">
-            <button id="payBtn" disabled>Select a service</button>
+        <div class="card-header">
+            <div class="card-title">
+                📱 M-Pesa Payment
+                <span class="badge">Secure</span>
+            </div>
         </div>
 
-        <div style="margin-top:15px;">
-            <strong>Status</strong>
-            <div id="statusBox">Waiting for payment...</div>
+        <div class="payment-form">
+            <div class="form-group">
+                <label for="phone"><i class="fas fa-phone"></i> Phone Number</label>
+                <input id="phone" type="tel" placeholder="2547XXXXXXXX" value="254712345678" />
+            </div>
+
+            <button id="payBtn" class="btn btn-primary" disabled style="width:100%;justify-content:center;font-size:16px;padding:14px;">
+                <i class="fas fa-lock"></i> Select a service first
+            </button>
+
+            <div style="margin-top:16px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+                    <strong style="font-size:13px;color:var(--text-muted);">📊 Payment Status</strong>
+                </div>
+                <div class="status-box" id="statusBox">Waiting for payment...</div>
+            </div>
         </div>
     </div>
 
+    <!-- ─── PAYMENT HISTORY ────────────────────────────────────────── -->
     <div class="card">
-        <h2>Payment History</h2>
-        <div id="payments">Loading payments...</div>
+        <div class="card-header">
+            <div class="card-title">
+                📜 Payment History
+                <span class="badge">Recent</span>
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="window.__AUTOD?.loadPayments()">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+        <div id="payments"><span class="loading"><span class="spinner"></span> Loading payments...</span></div>
     </div>
 
 </div>
 
+<!-- ─── TOAST CONTAINER ────────────────────────────────────────── -->
+<div class="toast-container" id="toastContainer"></div>
+
 <script>
-const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+// ═══════════════════════════════════════════════════════════════
+// AUTO-D KENYA DASHBOARD - PRODUCTION READY
+// ═══════════════════════════════════════════════════════════════
 
-let selectedService = null;
-let checkoutRequestId = null;
-let statusTimer = null;
+(function() {
+    'use strict';
 
-function getToken() {
-    return localStorage.getItem('token') || localStorage.getItem('access_token');
-}
+    const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+    const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-async function api(path, options = {}) {
-    const token = getToken();
+    let supabaseClient = null;
+    let selectedService = null;
+    let selectedServiceName = null;
+    let selectedServicePrice = 0;
+    let checkoutRequestId = null;
+    let statusTimer = null;
+    let currentUser = null;
+    let isAuthenticated = false;
+    let accessToken = null;
 
-    const headers = {
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
+    // ─── DOM REFS ──────────────────────────────────────────────
+    const servicesEl = document.getElementById('services');
+    const paymentsEl = document.getElementById('payments');
+    const statusBox = document.getElementById('statusBox');
+    const phoneInput = document.getElementById('phone');
+    const payBtn = document.getElementById('payBtn');
+    const authSection = document.getElementById('authSection');
+
+    // ─── SUPABASE INIT ──────────────────────────────────────────
+    function initSupabase() {
+        try {
+            if (typeof supabase === 'undefined') {
+                console.warn('⚠️ Supabase SDK not loaded');
+                return null;
+            }
+            const { createClient } = supabase;
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                auth: {
+                    autoRefreshToken: true,
+                    persistSession: true,
+                    detectSessionInUrl: true
+                }
+            });
+            console.log('✅ Supabase client initialized');
+            return supabaseClient;
+        } catch (error) {
+            console.error('❌ Supabase init error:', error);
+            return null;
+        }
+    }
+
+    // ─── AUTH ──────────────────────────────────────────────────
+    async function getCurrentUser() {
+        try {
+            if (!supabaseClient) initSupabase();
+            if (!supabaseClient) return null;
+
+            const { data: { session }, error } = await supabaseClient.auth.getSession();
+            if (error) throw error;
+
+            if (session?.user) {
+                currentUser = session.user;
+                isAuthenticated = true;
+                accessToken = session.access_token;
+                localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                localStorage.setItem('access_token', accessToken);
+                return currentUser;
+            }
+
+            const stored = localStorage.getItem('auto_d_user');
+            if (stored) {
+                try {
+                    currentUser = JSON.parse(stored);
+                    isAuthenticated = true;
+                    const token = localStorage.getItem('access_token');
+                    if (token) accessToken = token;
+                    return currentUser;
+                } catch (e) {}
+            }
+
+            isAuthenticated = false;
+            return null;
+        } catch (err) {
+            console.error('Auth error:', err);
+            isAuthenticated = false;
+            return null;
+        }
+    }
+
+    async function signIn(email, password) {
+        try {
+            if (!supabaseClient) initSupabase();
+            if (!supabaseClient) throw new Error('Supabase not initialized');
+
+            const { data, error } = await supabaseClient.auth.signInWithPassword({
+                email: email.toLowerCase().trim(),
+                password: password
+            });
+
+            if (error) throw error;
+
+            currentUser = data.user;
+            isAuthenticated = true;
+            accessToken = data.session.access_token;
+            localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+            localStorage.setItem('access_token', accessToken);
+            renderAuthUI();
+            showToast('✅ Signed in successfully!', 'success');
+            await loadDashboard();
+            return true;
+        } catch (error) {
+            showToast('❌ Sign in failed: ' + error.message, 'error');
+            return false;
+        }
+    }
+
+    async function signUp(email, password) {
+        try {
+            if (!supabaseClient) initSupabase();
+            if (!supabaseClient) throw new Error('Supabase not initialized');
+
+            const { data, error } = await supabaseClient.auth.signUp({
+                email: email.toLowerCase().trim(),
+                password: password,
+                options: {
+                    data: {
+                        full_name: email.split('@')[0]
+                    }
+                }
+            });
+
+            if (error) throw error;
+
+            if (data.user) {
+                showToast('✅ Account created! Please check your email to confirm.', 'success');
+                return true;
+            }
+            return false;
+        } catch (error) {
+            showToast('❌ Sign up failed: ' + error.message, 'error');
+            return false;
+        }
+    }
+
+    async function signOut() {
+        try {
+            if (supabaseClient) {
+                await supabaseClient.auth.signOut();
+            }
+        } catch (e) {}
+        currentUser = null;
+        isAuthenticated = false;
+        accessToken = null;
+        localStorage.removeItem('auto_d_user');
+        localStorage.removeItem('access_token');
+        renderAuthUI();
+        showToast('👋 Signed out', 'info');
+        await loadDashboard();
+    }
+
+    // ─── RENDER AUTH UI ──────────────────────────────────────
+    function renderAuthUI() {
+        if (isAuthenticated && currentUser) {
+            const name = currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || 'User';
+            authSection.innerHTML = `
+                <div class="user-info">
+                    <div class="user-avatar">${name[0].toUpperCase()}</div>
+                    <div>
+                        <div class="user-name">${name}</div>
+                        <div class="user-email">${currentUser.email}</div>
+                    </div>
+                    <button class="btn btn-sm btn-danger" onclick="window.__auth.signOut()">
+                        <i class="fas fa-sign-out-alt"></i> Logout
+                    </button>
+                </div>
+            `;
+        } else {
+            authSection.innerHTML = `
+                <input type="email" id="loginEmail" placeholder="Email" style="min-width:180px;" />
+                <input type="password" id="loginPassword" placeholder="Password" style="min-width:140px;" />
+                <button class="btn btn-primary" onclick="window.__auth.signIn()">
+                    <i class="fas fa-sign-in-alt"></i> Sign In
+                </button>
+                <button class="btn btn-outline" onclick="window.__auth.showSignUp()">
+                    <i class="fas fa-user-plus"></i> Sign Up
+                </button>
+            `;
+        }
+    }
+
+    // ─── GLOBAL AUTH FUNCTIONS ──────────────────────────────
+    window.__auth = {
+        signIn: async function() {
+            const email = document.getElementById('loginEmail')?.value.trim();
+            const password = document.getElementById('loginPassword')?.value.trim();
+            if (!email || !password) {
+                showToast('Please enter email and password', 'error');
+                return;
+            }
+            await signIn(email, password);
+        },
+        signOut: signOut,
+        showSignUp: function() {
+            const email = document.getElementById('loginEmail')?.value.trim();
+            const password = document.getElementById('loginPassword')?.value.trim();
+            if (!email || !password) {
+                showToast('Please enter email and password to sign up', 'error');
+                return;
+            }
+            if (password.length < 6) {
+                showToast('Password must be at least 6 characters', 'error');
+                return;
+            }
+            signUp(email, password);
+        }
     };
 
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
+    // ─── API HELPER ──────────────────────────────────────────
+    async function api(path, options = {}) {
+        const token = accessToken || localStorage.getItem('access_token');
 
-    const response = await fetch(API_BASE + path, {
-        ...options,
-        headers
-    });
+        const headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            ...(options.headers || {})
+        };
 
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`${response.status} ${text}`);
-    }
-
-    return response.json();
-}
-
-function setStatus(message) {
-    document.getElementById('statusBox').textContent = message;
-}
-
-function renderServices(services) {
-    const container = document.getElementById('services');
-
-    if (!services.length) {
-        container.innerHTML = '<p>No services available</p>';
-        return;
-    }
-
-    container.innerHTML = services.map(service => `
-        <div class="service">
-            <div>
-                <strong>${service.name}</strong><br>
-                <small>${service.description || ''}</small>
-            </div>
-            <div>
-                <strong>KES ${Number(service.price).toLocaleString()}</strong>
-                <button onclick="selectService('${service.code}')">Pay</button>
-            </div>
-        </div>
-    `).join('');
-}
-
-window.selectService = function(code) {
-    selectedService = code;
-
-    const button = document.getElementById('payBtn');
-    button.disabled = false;
-    button.textContent = `Pay for ${code}`;
-
-    setStatus(`Selected service: ${code}`);
-};
-
-async function loadServices() {
-    try {
-        const data = await api('/mpesa/services');
-        renderServices(data.services || []);
-    } catch (error) {
-        document.getElementById('services').innerHTML =
-            `<p style="color:red">Failed to load services: ${error.message}</p>`;
-    }
-}
-
-function renderPayments(payments) {
-    const container = document.getElementById('payments');
-
-    if (!payments.length) {
-        container.innerHTML = '<p>No payments found</p>';
-        return;
-    }
-
-    container.innerHTML = `
-        <table>
-            <thead>
-                <tr>
-                    <th>Service</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${payments.map(p => `
-                    <tr>
-                        <td>${p.service_name || '-'}</td>
-                        <td>KES ${Number(p.amount || 0).toLocaleString()}</td>
-                        <td class="status-${p.status}">${p.status}</td>
-                        <td>${p.created_at ? new Date(p.created_at).toLocaleString() : '-'}</td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
-}
-
-async function loadPayments() {
-    try {
-        const payments = await api('/mpesa/payments');
-        renderPayments(payments || []);
-    } catch (error) {
-        document.getElementById('payments').innerHTML =
-            `<p style="color:red">Failed to load payments: ${error.message}</p>`;
-    }
-}
-
-async function startPayment() {
-    if (!selectedService) {
-        alert('Please select a service');
-        return;
-    }
-
-    const phone = document.getElementById('phone').value.trim();
-
-    if (!phone) {
-        alert('Please enter a phone number');
-        return;
-    }
-
-    const button = document.getElementById('payBtn');
-    button.disabled = true;
-    button.textContent = 'Sending STK Push...';
-
-    try {
-        setStatus('Initiating STK Push...');
-
-        const result = await api('/mpesa/stkpush', {
-            method: 'POST',
-            body: JSON.stringify({
-                phone,
-                service_id: selectedService,
-                description: selectedService,
-                request_id: null
-            })
-        });
-
-        checkoutRequestId = result.checkout_request_id;
-
-        setStatus(
-            `STK Push sent successfully.\n` +
-            `Checkout ID: ${checkoutRequestId}\n` +
-            `Please complete the payment on your phone.`
-        );
-
-        startStatusPolling();
-
-    } catch (error) {
-        setStatus(`Payment initiation failed:\n${error.message}`);
-    } finally {
-        button.disabled = false;
-        button.textContent = selectedService
-            ? `Pay for ${selectedService}`
-            : 'Select a service';
-    }
-}
-
-function startStatusPolling() {
-    if (statusTimer) {
-        clearInterval(statusTimer);
-    }
-
-    statusTimer = setInterval(checkPaymentStatus, 5000);
-}
-
-async function checkPaymentStatus() {
-    if (!checkoutRequestId) return;
-
-    try {
-        const status = await api(`/mpesa/status/${checkoutRequestId}`);
-
-        if (status.status === 'completed') {
-            setStatus(`Payment completed successfully.\nReceipt: ${status.mpesa_receipt || 'N/A'}`);
-
-            clearInterval(statusTimer);
-            statusTimer = null;
-
-            await loadPayments();
-
-        } else if (status.status === 'failed') {
-            setStatus(`Payment failed.\n${status.result_desc || ''}`);
-
-            clearInterval(statusTimer);
-            statusTimer = null;
-
-            await loadPayments();
-
-        } else {
-            setStatus(`Waiting for payment confirmation...\nCheckout ID: ${checkoutRequestId}`);
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
         }
 
-    } catch (error) {
-        console.error('Status check failed', error);
+        const response = await fetch(API_BASE + path, {
+            ...options,
+            headers,
+            credentials: 'include'
+        });
+
+        if (response.status === 401 && token) {
+            try {
+                if (supabaseClient) {
+                    const { data: { session }, error } = await supabaseClient.auth.refreshSession();
+                    if (!error && session?.access_token) {
+                        accessToken = session.access_token;
+                        localStorage.setItem('access_token', accessToken);
+                        headers['Authorization'] = `Bearer ${accessToken}`;
+                        const retryResponse = await fetch(API_BASE + path, {
+                            ...options,
+                            headers,
+                            credentials: 'include'
+                        });
+                        if (retryResponse.ok) {
+                            return retryResponse.json();
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
+
+        if (!response.ok) {
+            let errorMessage;
+            try {
+                const errorData = await response.json();
+                errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
+            } catch {
+                errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+            }
+            throw new Error(errorMessage);
+        }
+
+        const text = await response.text();
+        if (!text) return { status: 'ok' };
+        try {
+            return JSON.parse(text);
+        } catch {
+            return { status: 'ok', raw: text };
+        }
     }
-}
 
-document.getElementById('payBtn').addEventListener('click', startPayment);
+    // ─── TOAST ──────────────────────────────────────────────────
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        if (!container) return;
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.innerHTML = message;
+        container.appendChild(toast);
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(100px)';
+            setTimeout(() => toast.remove(), 400);
+        }, 4000);
+    }
 
-(async function init() {
-    setStatus('Loading dashboard...');
+    // ─── SET STATUS ────────────────────────────────────────────
+    function setStatus(message, type = 'info') {
+        const typeMap = {
+            success: 'status-success',
+            pending: 'status-pending',
+            error: 'status-error',
+            info: 'status-info'
+        };
+        statusBox.innerHTML = `<span class="${typeMap[type] || 'status-info'}">${message}</span>`;
+    }
 
-    await Promise.all([
-        loadServices(),
-        loadPayments()
-    ]);
+    // ─── LOAD SERVICES ──────────────────────────────────────────
+    async function loadServices() {
+        try {
+            servicesEl.innerHTML = `<span class="loading"><span class="spinner"></span> Loading services...</span>`;
+            const data = await api('/mpesa/services');
+            renderServices(data.services || []);
+        } catch (error) {
+            servicesEl.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">⚠️</div>
+                    <div class="empty-title">Failed to load services</div>
+                    <div class="empty-desc">${error.message}</div>
+                </div>
+            `;
+            showToast('Failed to load services', 'error');
+        }
+    }
 
-    setStatus('Dashboard ready. Select a service to continue.');
+    function renderServices(services) {
+        if (!services || !services.length) {
+            servicesEl.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">📭</div>
+                    <div class="empty-title">No services available</div>
+                    <div class="empty-desc">Check back later for new services</div>
+                </div>
+            `;
+            return;
+        }
+
+        servicesEl.innerHTML = services.map(service => `
+            <div class="service-item">
+                <div class="service-info">
+                    <div class="service-name">${service.icon || '📦'} ${service.name}</div>
+                    <div class="service-desc">${service.description || ''}</div>
+                </div>
+                <div class="service-actions">
+                    <div class="service-price">${service.currency || 'KES'} ${Number(service.price).toLocaleString()}</div>
+                    <button class="btn btn-primary btn-sm" onclick="window.selectService('${service.code}', '${service.name}', ${service.price})">
+                        <i class="fas fa-shopping-cart"></i> Pay
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // ─── SELECT SERVICE ──────────────────────────────────────
+    window.selectService = function(code, name, price) {
+        selectedService = code;
+        selectedServiceName = name;
+        selectedServicePrice = price;
+
+        payBtn.disabled = false;
+        payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${selectedServicePrice} KES for ${selectedServiceName}`;
+
+        setStatus(`✅ Selected: ${selectedServiceName} (${selectedServicePrice} KES)`, 'success');
+    };
+
+    // ─── LOAD PAYMENTS ──────────────────────────────────────────
+    async function loadPayments() {
+        try {
+            paymentsEl.innerHTML = `<span class="loading"><span class="spinner"></span> Loading payments...</span>`;
+            const data = await api('/mpesa/payments');
+            renderPayments(data || []);
+        } catch (error) {
+            if (error.message.includes('401') || error.message.includes('403')) {
+                paymentsEl.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">🔐</div>
+                        <div class="empty-title">Sign in to view history</div>
+                        <div class="empty-desc">Your payment history will appear here after you sign in</div>
+                    </div>
+                `;
+            } else {
+                paymentsEl.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">⚠️</div>
+                        <div class="empty-title">Failed to load payments</div>
+                        <div class="empty-desc">${error.message}</div>
+                    </div>
+                `;
+            }
+        }
+    }
+
+    function renderPayments(payments) {
+        if (!payments || !payments.length) {
+            paymentsEl.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">📭</div>
+                    <div class="empty-title">No payments yet</div>
+                    <div class="empty-desc">Your payment history will appear here</div>
+                </div>
+            `;
+            return;
+        }
+
+        paymentsEl.innerHTML = `
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Service</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${payments.map(p => `
+                            <tr>
+                                <td>${p.service_name || '-'}</td>
+                                <td><strong>${p.currency || 'KES'} ${Number(p.amount || 0).toLocaleString()}</strong></td>
+                                <td><span class="status-badge ${p.status}">${p.status}</span></td>
+                                <td style="font-size:13px;color:var(--text-muted);">${p.created_at ? new Date(p.created_at).toLocaleString() : '-'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    // ─── START PAYMENT ──────────────────────────────────────────
+    async function startPayment() {
+        if (!selectedService) {
+            showToast('Please select a service first', 'error');
+            return;
+        }
+
+        if (!isAuthenticated) {
+            showToast('⚠️ Please sign in to make a payment', 'warning');
+            return;
+        }
+
+        const phone = phoneInput.value.trim();
+        if (!phone || phone.length < 10) {
+            showToast('Please enter a valid phone number (e.g. 254712345678)', 'error');
+            return;
+        }
+
+        payBtn.disabled = true;
+        payBtn.innerHTML = '<span class="spinner" style="display:inline-block;width:18px;height:18px;border:2px solid rgba(0,0,0,0.1);border-top-color:#0a0c15;border-radius:50%;animation:spin 0.8s linear infinite;"></span> Sending...';
+
+        try {
+            setStatus('📱 Initiating STK Push...', 'pending');
+
+            const result = await api('/mpesa/stkpush', {
+                method: 'POST',
+                body: JSON.stringify({
+                    phone: phone,
+                    service_id: selectedService,
+                    description: selectedServiceName || selectedService,
+                    request_id: null
+                })
+            });
+
+            checkoutRequestId = result.checkout_request_id;
+
+            setStatus(
+                `📱 STK Push sent!\n` +
+                `Checkout ID: ${checkoutRequestId}\n` +
+                `Please complete the payment on your phone.`,
+                'pending'
+            );
+
+            showToast('📱 STK Push sent! Check your phone.', 'info');
+
+            // Save pending checkout for recovery
+            localStorage.setItem('pending_checkout', checkoutRequestId);
+
+            startStatusPolling();
+
+        } catch (error) {
+            setStatus(`❌ Payment initiation failed:\n${error.message}`, 'error');
+            showToast('Payment initiation failed: ' + error.message, 'error');
+        } finally {
+            payBtn.disabled = false;
+            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${selectedServicePrice} KES for ${selectedServiceName}`;
+        }
+    }
+
+    // ─── POLL PAYMENT STATUS ──────────────────────────────────
+    function startStatusPolling() {
+        if (statusTimer) {
+            clearInterval(statusTimer);
+        }
+        statusTimer = setInterval(checkPaymentStatus, 5000);
+        // Also check immediately
+        setTimeout(checkPaymentStatus, 1000);
+    }
+
+    async function checkPaymentStatus() {
+        if (!checkoutRequestId) return;
+
+        try {
+            const status = await api(`/mpesa/status/${checkoutRequestId}`);
+
+            if (status.status === 'completed' || status.status === 'paid') {
+                setStatus(
+                    `✅ Payment completed successfully!\n` +
+                    `Receipt: ${status.mpesa_receipt || status.transaction_id || 'N/A'}`,
+                    'success'
+                );
+
+                clearInterval(statusTimer);
+                statusTimer = null;
+                localStorage.removeItem('pending_checkout');
+                showToast('✅ Payment completed!', 'success');
+
+                await loadPayments();
+
+            } else if (status.status === 'failed' || status.status === 'cancelled') {
+                setStatus(`❌ Payment failed.\n${status.result_desc || 'Transaction declined'}`, 'error');
+
+                clearInterval(statusTimer);
+                statusTimer = null;
+                localStorage.removeItem('pending_checkout');
+                showToast('❌ Payment failed', 'error');
+
+                await loadPayments();
+
+            } else {
+                setStatus(
+                    `⏳ Waiting for confirmation...\n` +
+                    `Checkout ID: ${checkoutRequestId}\n` +
+                    `Please check your phone for the STK prompt.`,
+                    'pending'
+                );
+            }
+
+        } catch (error) {
+            console.warn('Status check error:', error);
+        }
+    }
+
+    // ─── LOAD DASHBOARD ──────────────────────────────────────────
+    async function loadDashboard() {
+        await Promise.all([
+            loadServices(),
+            loadPayments()
+        ]);
+
+        if (!isAuthenticated) {
+            setStatus('🔐 Sign in to make payments and view your history.', 'info');
+        } else {
+            setStatus('✅ Dashboard ready. Select a service to continue.', 'success');
+        }
+    }
+
+    // ─── EVENT LISTENERS ──────────────────────────────────────
+    payBtn.addEventListener('click', startPayment);
+
+    // Enter key support for phone input
+    phoneInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (!payBtn.disabled) {
+                startPayment();
+            }
+        }
+    });
+
+    // ─── INIT ──────────────────────────────────────────────────
+    async function init() {
+        console.log('🚗 Auto-D Kenya Dashboard v2.0');
+        console.log('📡 API Base:', API_BASE);
+
+        initSupabase();
+        await getCurrentUser();
+        renderAuthUI();
+
+        // Handle auth state changes
+        if (supabaseClient) {
+            supabaseClient.auth.onAuthStateChange(async (event, session) => {
+                if (session) {
+                    currentUser = session.user;
+                    isAuthenticated = true;
+                    accessToken = session.access_token;
+                    localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                    localStorage.setItem('access_token', accessToken);
+                    renderAuthUI();
+                    await loadDashboard();
+                } else if (event === 'SIGNED_OUT') {
+                    currentUser = null;
+                    isAuthenticated = false;
+                    accessToken = null;
+                    localStorage.removeItem('auto_d_user');
+                    localStorage.removeItem('access_token');
+                    renderAuthUI();
+                    await loadDashboard();
+                }
+            });
+        }
+
+        await loadDashboard();
+
+        // Check for pending payment on page load
+        const pendingCheckout = localStorage.getItem('pending_checkout');
+        if (pendingCheckout) {
+            checkoutRequestId = pendingCheckout;
+            setStatus(`⏳ Resuming pending payment...\nCheckout ID: ${checkoutRequestId}`, 'pending');
+            startStatusPolling();
+        }
+    }
+
+    // ─── EXPOSE FOR CONSOLE DEBUG ──────────────────────────────
+    window.__AUTOD = {
+        api,
+        loadServices,
+        loadPayments,
+        startPayment,
+        selectService: window.selectService,
+        setStatus,
+        showToast,
+        signIn,
+        signOut,
+        currentUser: () => currentUser,
+        isAuthenticated: () => isAuthenticated,
+        loadDashboard
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
 })();
 </script>
 </body>
 </html>
-```
