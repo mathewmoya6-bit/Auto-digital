@@ -1,9 +1,11 @@
-# app/core/database.py
 """
-Auto-D Kenya - Database Connection
-==================================
+Auto-D Kenya - Database
+=======================
+
 Centralized Supabase client management.
 """
+
+from __future__ import annotations
 
 import logging
 from typing import Optional
@@ -17,60 +19,116 @@ logger = logging.getLogger(__name__)
 _supabase: Optional[Client] = None
 
 
-def get_supabase() -> Client:
-    """
-    Return a singleton Supabase client.
+# =============================================================================
+# Client Factory
+# =============================================================================
 
-    Raises:
-        RuntimeError: If Supabase configuration is missing.
+def create_supabase_client() -> Client:
     """
-    global _supabase
-
-    if _supabase is not None:
-        return _supabase
+    Create a new Supabase client.
+    """
 
     if not settings.SUPABASE_URL:
-        raise RuntimeError("SUPABASE_URL is not configured")
+        raise RuntimeError("SUPABASE_URL is not configured.")
 
     if not settings.SUPABASE_KEY:
-        raise RuntimeError("SUPABASE_KEY is not configured")
+        raise RuntimeError("SUPABASE_KEY is not configured.")
 
-    try:
-        _supabase = create_client(
-            settings.SUPABASE_URL,
-            settings.SUPABASE_KEY,
-        )
+    return create_client(
+        settings.SUPABASE_URL,
+        settings.SUPABASE_KEY,
+    )
 
-        logger.info("Supabase client initialized")
-        return _supabase
 
-    except Exception:
-        logger.exception("Failed to initialize Supabase client")
-        raise
+# =============================================================================
+# Singleton Client
+# =============================================================================
 
+def get_supabase() -> Client:
+    """
+    Return the singleton Supabase client.
+    """
+
+    global _supabase
+
+    if _supabase is None:
+        logger.info("Initializing Supabase client...")
+        _supabase = create_supabase_client()
+
+    return _supabase
+
+
+# =============================================================================
+# Startup
+# =============================================================================
 
 async def init_db() -> None:
     """
-    Verify that the database is reachable.
+    Verify database connectivity.
     """
+
+    client = get_supabase()
+
     try:
-        client = get_supabase()
+        client.table("services") \
+            .select("id") \
+            .limit(1) \
+            .execute()
 
-        # Lightweight connectivity test
-        client.table("services").select("id").limit(1).execute()
-
-        logger.info("Database connection verified")
+        logger.info("Database connection verified.")
 
     except Exception:
-        logger.exception("Database initialization failed")
+        logger.exception("Database connectivity check failed.")
         raise
 
 
+# =============================================================================
+# Shutdown
+# =============================================================================
+
 async def close_db() -> None:
     """
-    Release the cached client.
+    Release cached resources.
     """
+
     global _supabase
 
     _supabase = None
-    logger.info("Supabase client released")
+
+    logger.info("Supabase client released.")
+
+
+# =============================================================================
+# Health Check
+# =============================================================================
+
+def database_health() -> bool:
+    """
+    Return True if the database is reachable.
+    """
+
+    try:
+        get_supabase() \
+            .table("services") \
+            .select("id") \
+            .limit(1) \
+            .execute()
+
+        return True
+
+    except Exception:
+        logger.exception("Database health check failed.")
+        return False
+
+
+# =============================================================================
+# Exports
+# =============================================================================
+
+__all__ = [
+    "get_supabase",
+    "create_supabase_client",
+    "init_db",
+    "close_db",
+    "database_health",
+]
