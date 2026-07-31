@@ -23,13 +23,12 @@ class MpesaRepository:
         """
         Create a payment record.
         
-        ✅ FIX: Uses currency from data, no description field
+        ✅ FIX: Removed 'request_id' field as it's not required
         """
         try:
             payment_data = {
                 "id": str(uuid4()),
                 "user_id": data.get("user_id"),
-                "request_id": data.get("request_id"),
                 
                 "service_id": data.get("service_id"),
                 "service_name": data.get("service_name"),
@@ -202,23 +201,12 @@ class MpesaRepository:
     async def get_payment_by_request_id(self, request_id: str) -> Optional[Dict[str, Any]]:
         """
         Get payment by request ID.
+        
+        Note: This method is deprecated as request_id is no longer stored.
+        It will return None for all queries.
         """
-        try:
-            response = (
-                self.supabase
-                    .table("payments")
-                    .select("*")
-                    .eq("request_id", request_id)
-                    .execute()
-            )
-            
-            if response.data:
-                return response.data[0]
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error getting payment by request ID: {str(e)}")
-            return None
+        logger.warning(f"get_payment_by_request_id called with {request_id} - method is deprecated")
+        return None
     
     async def get_payments_by_status(self, status: str) -> List[Dict[str, Any]]:
         """
