@@ -37,30 +37,43 @@ class MpesaService:
         
         Args:
             phone: Phone number (without country code)
-            service_id: Service code (e.g., "instant_valuation")
+            service_id: Service code (e.g., "valuation", "mileage", "ownership")
             description: Transaction description
             user_id: User ID (optional)
             request_id: Request ID (optional) - not used in payment creation
-            amount: Amount to charge (optional, uses service price)
+            amount: Amount to charge (optional, overrides service price if provided)
             
         Returns:
             Dict with checkout_request_id, message, and status
         """
-        # Get service details
+        # ─── ✅ FIX: Get service details from database ──────────────
+        # Using .single() to get exactly one record
         service = (
             self.supabase
-                .table("services")
-                .select("*")
-                .eq("code", service_id)
-                .eq("active", True)
-                .execute()
+            .table("services")
+            .select("*")
+            .eq("code", service_id)
+            .eq("active", True)
+            .single()
+            .execute()
         )
         
         if not service.data:
-            raise NotFoundException(f"Service not found: {service_id}")
+            raise NotFoundException(f"Service '{service_id}' not found")
         
-        service_data = service.data[0]
-        price = amount or float(service_data.get("price", 0))
+        service_data = service.data
+        
+        # ─── ✅ FIX: All prices come from the services table ──────────
+        # No hardcoded prices anywhere - everything from database
+        price = float(service_data["price"])
+        service_db_id = service_data["id"]
+        service_name = service_data["name"]
+        currency = service_data.get("currency", "KES")
+        
+        # Allow amount override if provided (for admin adjustments)
+        if amount is not None:
+            price = float(amount)
+            logger.info(f"Amount override: using {price} instead of database price {service_data['price']}")
         
         # Generate checkout ID
         checkout_id = f"CHK-{service_id[:4]}-{str(int(datetime.utcnow().timestamp()))[-6:]}"
@@ -69,24 +82,24 @@ class MpesaService:
         result = await self.stk_push.initiate_push(
             phone=phone,
             amount=price,
-            description=description or service_data.get("name", "Auto-D Kenya Service"),
+            description=description or service_name,
             checkout_request_id=checkout_id,
             user_id=user_id,
             service_id=service_id
         )
         
-        # ✅ FIX 1: Removed request_id from payment creation
+        # ─── ✅ FIX: Create payment with all data from database ──────
         await self.repository.create_payment({
             "user_id": user_id,
             
             # Numeric ID from the services table (bigint)
-            "service_id": service_data["id"],
+            "service_id": service_db_id,
             
-            # Human-readable name
-            "service_name": service_data["name"],
+            # Human-readable name from the services table
+            "service_name": service_name,
             
             "amount": price,
-            "currency": "KES",
+            "currency": currency,  # From database, not hardcoded
             
             "phone": phone,
             
@@ -96,7 +109,7 @@ class MpesaService:
             "status": "pending",
         })
         
-        logger.info(f"Payment initiated: {result['checkout_request_id']} for service {service_id}")
+        logger.info(f"Payment initiated: {result['checkout_request_id']} for service {service_id} ({service_name}) - Amount: {currency} {price}")
         
         return {
             "checkout_request_id": result["checkout_request_id"],
@@ -164,7 +177,7 @@ class MpesaService:
         
         Args:
             user_id: User ID
-            service_id: Service ID (numeric)
+            service_id: Service ID (numeric - the id from the services table)
         """
         try:
             # Check if user already has this service
@@ -244,7 +257,7 @@ class MpesaService:
             user_id: User ID
             
         Returns:
-            List of service codes
+            List of service codes (strings from the services table code column)
         """
         try:
             # Get paid services from user_services
@@ -274,7 +287,7 @@ class MpesaService:
         Get all available services.
         
         Returns:
-            List of services
+            List of services from the database
         """
         try:
             response = (
@@ -282,7 +295,7 @@ class MpesaService:
                     .table("services")
                     .select("*")
                     .eq("active", True)
-                    .order("name")
+                    .order("display_order", ascending=True)
                     .execute()
             )
             
@@ -292,6 +305,33 @@ class MpesaService:
         except Exception as e:
             logger.error(f"Error getting available services: {str(e)}")
             return []
+
+    async def get_service_by_code(self, service_code: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a service by its code.
+        
+        Args:
+            service_code: Service code (e.g., "valuation", "mileage")
+            
+        Returns:
+            Service data or None if not found
+        """
+        try:
+            response = (
+                self.supabase
+                    .table("services")
+                    .select("*")
+                    .eq("code", service_code)
+                    .eq("active", True)
+                    .single()
+                    .execute()
+            )
+            
+            return response.data if response.data else None
+            
+        except Exception as e:
+            logger.error(f"Error getting service by code {service_code}: {str(e)}")
+            return None
 
     async def handle_callback(
         self,
