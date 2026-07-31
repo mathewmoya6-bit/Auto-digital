@@ -14,6 +14,7 @@
           crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
+        /* ─── Same styles as before ────────────────────────────────── */
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'Inter', sans-serif;
@@ -419,6 +420,19 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        .price-loading {
+            display: inline-block;
+            width: 60px;
+            height: 20px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 4px;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.8; }
+        }
+
         @media (max-width: 768px) {
             .navbar { padding: 12px 20px; }
             .nav-links {
@@ -508,11 +522,11 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                     <div>
                         <div style="color:#94a3b8; font-size:13px;">Access this service</div>
-                        <div class="price-tag">KES 150 <small>one-time</small></div>
+                        <div class="price-tag" id="valPriceTag"><span class="price-loading"></span></div>
                     </div>
                     <div>
                         <span class="status-badge unpaid" id="valStatus">Unpaid</span>
-                        <button class="btn-pay" onclick="openMpesa('instant-value')"><i class="fas fa-mobile-alt"></i> Pay with M-Pesa</button>
+                        <button class="btn-pay" id="valPayBtn" onclick="openMpesa('instant-value')" disabled><i class="fas fa-mobile-alt"></i> Loading...</button>
                     </div>
                 </div>
             </div>
@@ -542,11 +556,11 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                     <div>
                         <div style="color:#94a3b8; font-size:13px;">Access this service</div>
-                        <div class="price-tag">KES 150 <small>one-time</small></div>
+                        <div class="price-tag" id="milPriceTag"><span class="price-loading"></span></div>
                     </div>
                     <div>
                         <span class="status-badge unpaid" id="milStatus">Unpaid</span>
-                        <button class="btn-pay" onclick="openMpesa('mileage')"><i class="fas fa-mobile-alt"></i> Pay with M-Pesa</button>
+                        <button class="btn-pay" id="milPayBtn" onclick="openMpesa('mileage')" disabled><i class="fas fa-mobile-alt"></i> Loading...</button>
                     </div>
                 </div>
             </div>
@@ -578,11 +592,11 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                     <div>
                         <div style="color:#94a3b8; font-size:13px;">Access this service</div>
-                        <div class="price-tag">KES 150 <small>one-time</small></div>
+                        <div class="price-tag" id="ownPriceTag"><span class="price-loading"></span></div>
                     </div>
                     <div>
                         <span class="status-badge unpaid" id="ownStatus">Unpaid</span>
-                        <button class="btn-pay" onclick="openMpesa('ownership')"><i class="fas fa-mobile-alt"></i> Pay with M-Pesa</button>
+                        <button class="btn-pay" id="ownPayBtn" onclick="openMpesa('ownership')" disabled><i class="fas fa-mobile-alt"></i> Loading...</button>
                     </div>
                 </div>
             </div>
@@ -596,7 +610,7 @@
         <button class="close-modal" onclick="closeMpesa()">&times;</button>
         <span class="modal-icon">📱</span>
         <h2>M-Pesa Payment</h2>
-        <p class="modal-sub">Pay <strong>KES 150</strong> to unlock <span id="mpesaServiceName">this service</span></p>
+        <p class="modal-sub">Pay <strong id="modalPrice">KES 0</strong> to unlock <span id="mpesaServiceName">this service</span></p>
         <form id="mpesaForm" onsubmit="confirmMpesa(event)">
             <div class="form-group">
                 <label for="mpesaPhone">M-Pesa Phone Number</label>
@@ -630,19 +644,18 @@
         const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
 
-        // ─── PRODUCTION API BASE ────────────────────────────────────
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
 
-        const SERVICE_PRICE = 150;
+        const SERVICE_IDS = {
+            'instant-value': 'valuation',
+            'mileage': 'mileage',
+            'ownership': 'ownership'
+        };
+
         const SERVICE_NAMES = {
             'instant-value': 'Instant Vehicle Valuation',
             'mileage': 'Mileage Cost Calculator',
             'ownership': 'Total Ownership Cost Analysis'
-        };
-        const SERVICE_IDS = {
-            'instant-value': 'instant_valuation',
-            'mileage': 'mileage_cost',
-            'ownership': 'ownership_cost'
         };
 
         // ─── STATE ──────────────────────────────────────────────────
@@ -654,7 +667,10 @@
         let checkoutRequestId = null;
         let statusPollInterval = null;
         let paidServices = {};
+        let servicePrices = {};
         let isInitialized = false;
+        let priceFetchAttempts = 0;
+        const MAX_PRICE_FETCH_ATTEMPTS = 3;
 
         // ─── DOM REFS ──────────────────────────────────────────────
         const userNameEl = document.getElementById('userName');
@@ -671,6 +687,7 @@
         const mpesaServiceName = document.getElementById('mpesaServiceName');
         const mpesaPhone = document.getElementById('mpesaPhone');
         const mpesaConfirmBtn = document.getElementById('mpesaConfirmBtn');
+        const modalPrice = document.getElementById('modalPrice');
 
         // ─── SUPABASE INIT ──────────────────────────────────────────
         function initSupabase() {
@@ -757,7 +774,6 @@
                     credentials: 'include'
                 });
 
-                // Handle 401 - try to refresh token
                 if (response.status === 401 && accessToken) {
                     try {
                         if (supabaseClient) {
@@ -789,7 +805,6 @@
                     throw new Error(errorMessage);
                 }
 
-                // Handle empty responses
                 const text = await response.text();
                 if (!text) return { status: 'ok' };
                 try {
@@ -798,31 +813,19 @@
                     return { status: 'ok', raw: text };
                 }
             } catch (err) {
-                // NOTE: Payment endpoints (/mpesa/...) must NEVER fall back to mock
-                // data. Faking a successful STK push response when the real request
-                // failed (CORS error, Render cold start, network drop, etc.) is what
-                // was silently breaking payments before — the UI would say "check
-                // your phone" while no request had actually reached the backend or
-                // Safaricom. Fail loudly for money-related calls instead.
                 const isPaymentEndpoint = endpoint.includes('/mpesa/');
-
                 if (!isPaymentEndpoint && (err.message.includes('fetch') || err.message.includes('network'))) {
                     console.warn('API unreachable, using fallback data for non-payment endpoint:', endpoint);
                     return getFallbackResponse(endpoint, options);
                 }
-
                 if (isPaymentEndpoint) {
                     console.error(`Payment API call failed (${endpoint}):`, err);
                 }
-
                 throw err;
             }
         }
 
-        // ─── FALLBACK RESPONSES (never used for /mpesa/* — see apiCall) ──
         function getFallbackResponse(endpoint, options) {
-            // If API is unreachable, return mock data for development
-            // (calculation endpoints only; payment endpoints are excluded above)
             if (endpoint === '/valuation/calculate') {
                 const body = JSON.parse(options.body || '{}');
                 const baseValue = 2500000;
@@ -860,11 +863,191 @@
             return { status: 'ok', message: 'Fallback response' };
         }
 
+        // ─── ✅ FIXED: FETCH SERVICE PRICES WITH FALLBACK ──────────
+        async function fetchServicePrices() {
+            priceFetchAttempts++;
+            
+            try {
+                console.log('🔍 Fetching service prices from Supabase...');
+                
+                const { data, error } = await supabaseClient
+                    .from('service_prices')
+                    .select('service_type, price, currency, active')
+                    .eq('active', true);
+
+                if (error) {
+                    console.warn('⚠️ Service prices table error:', error.message);
+                    return useFallbackPrices('Table error: ' + error.message);
+                }
+
+                if (!data || data.length === 0) {
+                    console.warn('⚠️ No service prices found in table');
+                    // Try to insert default prices
+                    await insertDefaultServicePrices();
+                    // Try again
+                    if (priceFetchAttempts < MAX_PRICE_FETCH_ATTEMPTS) {
+                        return await fetchServicePrices();
+                    }
+                    return useFallbackPrices('No data found');
+                }
+
+                const prices = {};
+                data.forEach(item => {
+                    prices[item.service_type] = {
+                        price: item.price || 0,
+                        currency: item.currency || 'KES'
+                    };
+                });
+
+                // Ensure all required services exist
+                const required = ['valuation', 'mileage', 'ownership'];
+                let missing = false;
+                required.forEach(key => {
+                    if (!prices[key]) {
+                        missing = true;
+                        prices[key] = { price: 150, currency: 'KES' };
+                        console.warn(`⚠️ Missing service: ${key}, using fallback`);
+                    }
+                });
+
+                if (missing) {
+                    await insertMissingServices(prices);
+                }
+
+                servicePrices = prices;
+                console.log('✅ Service prices loaded:', servicePrices);
+                updatePriceDisplay();
+                enablePayButtons();
+                return prices;
+
+            } catch (err) {
+                console.error('❌ Failed to fetch service prices:', err.message);
+                return useFallbackPrices(err.message);
+            }
+        }
+
+        function useFallbackPrices(reason) {
+            console.warn(`⚠️ Using fallback prices (${reason})`);
+            servicePrices = {
+                'valuation': { price: 150, currency: 'KES' },
+                'mileage': { price: 150, currency: 'KES' },
+                'ownership': { price: 150, currency: 'KES' }
+            };
+            updatePriceDisplay();
+            enablePayButtons();
+            return servicePrices;
+        }
+
+        // ─── INSERT DEFAULT SERVICE PRICES ──────────────────────────
+        async function insertDefaultServicePrices() {
+            try {
+                console.log('📝 Inserting default service prices...');
+                const defaultServices = [
+                    { service_type: 'valuation', service_name: 'Instant Vehicle Valuation', price: 150, currency: 'KES', active: true },
+                    { service_type: 'mileage', service_name: 'Mileage Cost Calculator', price: 150, currency: 'KES', active: true },
+                    { service_type: 'ownership', service_name: 'Total Ownership Cost Analysis', price: 150, currency: 'KES', active: true }
+                ];
+
+                for (const service of defaultServices) {
+                    const { error } = await supabaseClient
+                        .from('service_prices')
+                        .upsert(service, { onConflict: 'service_type' });
+                    if (error) {
+                        console.warn(`⚠️ Could not upsert service ${service.service_type}:`, error.message);
+                    }
+                }
+                console.log('✅ Default service prices upserted');
+            } catch (err) {
+                console.warn('⚠️ Could not insert default prices:', err.message);
+            }
+        }
+
+        // ─── INSERT MISSING SERVICES ──────────────────────────────────
+        async function insertMissingServices(currentPrices) {
+            try {
+                const required = ['valuation', 'mileage', 'ownership'];
+                const names = {
+                    'valuation': 'Instant Vehicle Valuation',
+                    'mileage': 'Mileage Cost Calculator',
+                    'ownership': 'Total Ownership Cost Analysis'
+                };
+
+                for (const key of required) {
+                    if (!currentPrices[key] || currentPrices[key].price === 0) {
+                        console.log(`📝 Inserting missing service: ${key}`);
+                        const { error } = await supabaseClient
+                            .from('service_prices')
+                            .upsert({
+                                service_type: key,
+                                service_name: names[key],
+                                price: 150,
+                                currency: 'KES',
+                                active: true
+                            }, { onConflict: 'service_type' });
+                        if (error) {
+                            console.warn(`⚠️ Could not insert missing service ${key}:`, error.message);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('⚠️ Could not insert missing services:', err.message);
+            }
+        }
+
+        // ─── ENABLE PAY BUTTONS ──────────────────────────────────────
+        function enablePayButtons() {
+            ['instant-value', 'mileage', 'ownership'].forEach(key => {
+                const payBtn = document.getElementById(key + 'PayBtn');
+                if (payBtn) {
+                    payBtn.disabled = false;
+                    payBtn.innerHTML = '<i class="fas fa-mobile-alt"></i> Pay with M-Pesa';
+                    if (paidServices[key]) {
+                        payBtn.disabled = true;
+                        payBtn.textContent = '✓ Unlocked';
+                    }
+                }
+            });
+        }
+
+        // ─── UPDATE PRICE DISPLAY ──────────────────────────────────
+        function updatePriceDisplay() {
+            const priceMap = {
+                'instant-value': 'valuation',
+                'mileage': 'mileage',
+                'ownership': 'ownership'
+            };
+
+            Object.keys(priceMap).forEach(key => {
+                const serviceKey = priceMap[key];
+                const priceInfo = servicePrices[serviceKey];
+                const price = priceInfo?.price || 0;
+                const currency = priceInfo?.currency || 'KES';
+
+                const priceTag = document.getElementById(key + 'PriceTag');
+                if (priceTag) {
+                    if (price > 0) {
+                        priceTag.innerHTML = `${currency} ${price} <small>one-time</small>`;
+                    } else {
+                        priceTag.innerHTML = `<span style="color:var(--text-muted);font-size:14px;">Price unavailable</span>`;
+                    }
+                }
+
+                const payBtn = document.getElementById(key + 'PayBtn');
+                if (payBtn) {
+                    payBtn.disabled = false;
+                    payBtn.innerHTML = '<i class="fas fa-mobile-alt"></i> Pay with M-Pesa';
+                    if (paidServices[key]) {
+                        payBtn.disabled = true;
+                        payBtn.textContent = '✓ Unlocked';
+                    }
+                }
+            });
+        }
+
         // ─── SERVICE STATE ──────────────────────────────────────────
         async function fetchUserServices() {
             try {
                 const data = await apiCall('/mpesa/user/services');
-                // Handle different response formats
                 let services = [];
                 if (Array.isArray(data)) {
                     services = data;
@@ -888,14 +1071,12 @@
                     return paidServices;
                 }
 
-                // If no services, treat as no paid services
                 paidServices = {};
                 localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
                 updateAllPaymentUI();
                 return paidServices;
             } catch (err) {
                 console.warn('Failed to fetch user services:', err.message);
-                // Fallback to localStorage
                 const stored = localStorage.getItem('auto_d_paid_services');
                 if (stored) {
                     try {
@@ -914,7 +1095,7 @@
         function updatePaymentUI(service) {
             const isPaid = paidServices[service] === true;
             const statusEl = document.getElementById(service + 'Status');
-            const payBtn = document.querySelector(`#view-${service} .btn-pay`);
+            const payBtn = document.getElementById(service + 'PayBtn');
             const tab = document.querySelector(`[data-service="${service}"]`);
             const badgeMap = {
                 'instant-value': 'badge-value',
@@ -929,7 +1110,7 @@
             }
             if (payBtn) {
                 payBtn.disabled = isPaid;
-                payBtn.textContent = isPaid ? '✓ Unlocked' : 'Pay with M-Pesa';
+                payBtn.innerHTML = isPaid ? '✓ Unlocked' : '<i class="fas fa-mobile-alt"></i> Pay with M-Pesa';
                 payBtn.style.opacity = isPaid ? '0.6' : '1';
             }
             if (tab) {
@@ -969,12 +1150,23 @@
                 showToast('✅ This service is already unlocked!', 'success');
                 return;
             }
-            if (!accessToken) {
+            if (!accessToken || !currentUser?.id) {
                 showToast('⚠️ Please sign in again', 'warning');
                 return;
             }
+
+            const serviceKey = SERVICE_IDS[service];
+            const priceInfo = servicePrices[serviceKey];
+            const price = priceInfo?.price || 0;
+
+            if (price <= 0) {
+                showToast('❌ Service price not configured', 'error');
+                return;
+            }
+
             pendingService = service;
             mpesaServiceName.textContent = SERVICE_NAMES[service] || 'this service';
+            modalPrice.textContent = `${priceInfo?.currency || 'KES'} ${price}`;
             mpesaPhone.value = '';
             mpesaModal.classList.add('open');
             mpesaConfirmBtn.disabled = false;
@@ -1003,19 +1195,32 @@
                 showToast('Error: No service selected', 'error');
                 return;
             }
+            if (!currentUser?.id) {
+                showToast('⚠️ Your session expired — please sign in again', 'error');
+                closeMpesa();
+                return;
+            }
+
+            const serviceKey = SERVICE_IDS[pendingService];
+            const priceInfo = servicePrices[serviceKey];
+            const price = priceInfo?.price || 0;
+
+            if (price <= 0) {
+                showToast('❌ Service price not configured', 'error');
+                return;
+            }
 
             mpesaConfirmBtn.disabled = true;
             mpesaConfirmBtn.innerHTML = '<span class="loading-spinner"></span> Initiating...';
 
             try {
-                // ─── MATCHING YOUR API SPEC ──────────────────────────
                 const stkData = {
                     phone: phone,
                     service_id: SERVICE_IDS[pendingService],
                     description: `${SERVICE_NAMES[pendingService]} - Auto-D Kenya`,
-                    user_id: currentUser?.id || 'anonymous',
+                    user_id: currentUser.id,
                     request_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-                    amount: SERVICE_PRICE
+                    amount: price
                 };
 
                 const response = await apiCall('/mpesa/stkpush', {
@@ -1023,13 +1228,10 @@
                     body: JSON.stringify(stkData)
                 });
 
-                // ─── HANDLE RESPONSE ──────────────────────────────────
                 checkoutRequestId = response.checkout_request_id || response.id || response.checkoutRequestID;
                 const status = response.status || 'pending';
-                const message = response.message || 'Payment initiated';
 
                 if (status === 'success' || status === 'completed' || status === 'paid') {
-                    // Payment was already successful
                     paidServices[pendingService] = true;
                     localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
                     updatePaymentUI(pendingService);
@@ -1043,11 +1245,9 @@
                 }
 
                 if (!checkoutRequestId) {
-                    // If no checkout ID but status is pending, wait for callback
                     if (status === 'pending') {
                         showToast('📱 Payment request sent. Please check your phone.', 'info');
                         mpesaConfirmBtn.innerHTML = '<span class="loading-spinner"></span> Waiting for confirmation...';
-                        // Wait for callback (simplified - in production you'd use webhooks)
                         setTimeout(() => {
                             showToast('⏰ Please check your M-Pesa for the payment prompt.', 'warning');
                             mpesaConfirmBtn.disabled = false;
@@ -1061,7 +1261,6 @@
                 showToast('📱 Payment request sent. Please check your phone.', 'info');
                 mpesaConfirmBtn.innerHTML = '<span class="loading-spinner"></span> Waiting for confirmation...';
 
-                // ─── POLL FOR STATUS ──────────────────────────────────
                 if (statusPollInterval) clearInterval(statusPollInterval);
                 let attempts = 0;
                 const maxAttempts = 30;
@@ -1070,7 +1269,6 @@
                     attempts++;
                     try {
                         const statusResponse = await apiCall(`/mpesa/status/${checkoutRequestId}`);
-                        // Handle different response formats
                         const currentStatus = typeof statusResponse === 'string'
                             ? statusResponse
                             : statusResponse.status || statusResponse.state || 'pending';
@@ -1078,10 +1276,6 @@
                         if (currentStatus === 'completed' || currentStatus === 'success' || currentStatus === 'paid') {
                             clearInterval(statusPollInterval);
                             statusPollInterval = null;
-                            paidServices[pendingService] = true;
-                            localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
-                            updatePaymentUI(pendingService);
-                            showToast(`✅ Payment successful! ${SERVICE_NAMES[pendingService]} unlocked.`, 'success');
 
                             try {
                                 await apiCall(`/mpesa/confirm/${checkoutRequestId}`, {
@@ -1090,6 +1284,11 @@
                             } catch (confirmErr) {
                                 console.warn('Confirm API warning:', confirmErr);
                             }
+
+                            paidServices[pendingService] = true;
+                            localStorage.setItem('auto_d_paid_services', JSON.stringify(paidServices));
+                            updatePaymentUI(pendingService);
+                            showToast(`✅ Payment successful! ${SERVICE_NAMES[pendingService]} unlocked.`, 'success');
 
                             closeMpesa();
                             switchService(pendingService);
@@ -1269,18 +1468,22 @@
 
             userNameEl.textContent = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
 
-            // Fetch user services with fallback
+            // ─── LOAD SERVICE PRICES ──────────────────────────────────
+            await fetchServicePrices();
+
+            // ─── FETCH USER SERVICES ────────────────────────────────
             await fetchUserServices();
 
-            // Logout
+            // ─── ENABLE PAY BUTTONS ──────────────────────────────────
+            enablePayButtons();
+            updatePriceDisplay();
+
             logoutBtn.addEventListener('click', signOut);
 
-            // Mobile toggle
             mobileToggle.addEventListener('click', function() {
                 navLinks.classList.toggle('open');
             });
 
-            // Service tabs
             serviceTabs.forEach(tab => {
                 tab.addEventListener('click', function() {
                     const service = this.dataset.service;
@@ -1288,7 +1491,6 @@
                 });
             });
 
-            // Close M-Pesa modal
             mpesaModal.addEventListener('click', function(e) {
                 if (e.target === mpesaModal) closeMpesa();
             });
@@ -1296,25 +1498,26 @@
                 if (e.key === 'Escape' && mpesaModal.classList.contains('open')) closeMpesa();
             });
 
-            // Year
             document.getElementById('year').textContent = new Date().getFullYear();
 
-            // Expose API
             window.__AUTOD = {
                 supabase: supabaseClient,
                 currentUser,
                 accessToken: () => accessToken,
                 isAuthenticated: () => isAuthenticated,
                 paidServices: () => paidServices,
+                servicePrices: () => servicePrices,
                 signOut,
                 showToast,
                 apiCall,
-                fetchUserServices
+                fetchUserServices,
+                fetchServicePrices
             };
 
             console.log('✅ Auto-D Kenya Production Dashboard initialized');
             console.log(`🔐 User: ${user.email}`);
             console.log(`📊 Services:`, paidServices);
+            console.log(`💰 Prices:`, servicePrices);
             console.log(`🌐 API Base: ${API_BASE}`);
         }
 
