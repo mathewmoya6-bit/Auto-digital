@@ -9,12 +9,14 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 
 from app.core.dependencies import get_current_user, get_current_user_optional
+# ✅ FIX: Import from schemas.py
 from app.modules.running_cost.schemas import (
     RunningCostRequest,
     RunningCostResponse,
     LegacyRunningCostResponse,
     ProjectionYear,
 )
+# ✅ FIX: Import service
 from app.modules.running_cost.service import RunningCostService
 
 router = APIRouter(prefix="/api/v1", tags=["Running Cost"])
@@ -139,8 +141,6 @@ async def get_user_vehicles(
     Get user vehicles (requires authentication).
     """
     try:
-        # This would integrate with a user vehicles table
-        # For now, return a placeholder
         return {"status": "success", "data": [], "message": "User vehicles endpoint - implement with user_vehicles table"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -209,7 +209,6 @@ async def calculate_running_cost_legacy(
             request=request,
             user_id=current_user["id"],
         )
-        # Convert to legacy response format
         return LegacyRunningCostResponse.from_new_response(result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
