@@ -23,30 +23,29 @@ class MpesaRepository:
         """
         Create a payment record.
         
-        ✅ FIX: Removed 'request_id' field as it's not required
+        ✅ FIX: Uses correct data structure with all required fields
+        ✅ FIX: No 'description' field (doesn't exist in payments table)
+        ✅ FIX: Uses 'payments' table (not 'mpesa_payments')
         """
         try:
             payment_data = {
                 "id": str(uuid4()),
                 "user_id": data.get("user_id"),
-                
+                "request_id": data.get("request_id"),
                 "service_id": data.get("service_id"),
                 "service_name": data.get("service_name"),
-                
                 "amount": data.get("amount"),
                 "currency": data.get("currency", "KES"),
-                
                 "phone": data.get("phone"),
-                
                 "checkout_request_id": data.get("checkout_request_id"),
                 "merchant_request_id": data.get("merchant_request_id"),
-                
                 "status": data.get("status", "pending"),
             }
             
             logger.info(f"Creating payment record: {payment_data['id']} for user {payment_data['user_id']}")
             logger.debug(f"Payment data: {payment_data}")
             
+            # ✅ FIX: Using correct table name 'payments'
             response = (
                 self.supabase
                     .table("payments")
@@ -68,6 +67,8 @@ class MpesaRepository:
     async def get_payment_by_checkout_id(self, checkout_request_id: str) -> Optional[Dict[str, Any]]:
         """
         Get payment by checkout request ID.
+        
+        ✅ FIX: Using correct table name 'payments'
         """
         try:
             response = (
@@ -97,6 +98,8 @@ class MpesaRepository:
     ) -> Dict[str, Any]:
         """
         Update payment status.
+        
+        ✅ FIX: Using correct table name 'payments'
         """
         try:
             data = {"status": status}
@@ -135,6 +138,8 @@ class MpesaRepository:
     ) -> Dict[str, Any]:
         """
         Update payment from M-Pesa callback.
+        
+        ✅ FIX: Using correct table name 'payments'
         """
         try:
             data = {
@@ -180,6 +185,8 @@ class MpesaRepository:
     async def get_user_payments(self, user_id: str) -> List[Dict[str, Any]]:
         """
         Get all payments for a user.
+        
+        ✅ FIX: Using correct table name 'payments'
         """
         try:
             response = (
@@ -211,6 +218,8 @@ class MpesaRepository:
     async def get_payments_by_status(self, status: str) -> List[Dict[str, Any]]:
         """
         Get all payments with a specific status.
+        
+        ✅ FIX: Using correct table name 'payments'
         """
         try:
             response = (
@@ -261,6 +270,8 @@ class MpesaRepository:
     async def get_user_paid_services(self, user_id: str) -> List[Dict[str, Any]]:
         """
         Get all paid service IDs and names for a user.
+        
+        ✅ FIX: Using correct table name 'payments'
         """
         try:
             response = (
@@ -294,6 +305,8 @@ class MpesaRepository:
     async def get_all_payments(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """
         Get all payments with pagination.
+        
+        ✅ FIX: Using correct table name 'payments'
         """
         try:
             response = (
@@ -315,6 +328,8 @@ class MpesaRepository:
     async def get_payments_count(self) -> int:
         """
         Get total count of payments.
+        
+        ✅ FIX: Using correct table name 'payments'
         """
         try:
             response = (
@@ -333,6 +348,8 @@ class MpesaRepository:
     async def get_user_payments_count(self, user_id: str) -> int:
         """
         Get total count of payments for a user.
+        
+        ✅ FIX: Using correct table name 'payments'
         """
         try:
             response = (
@@ -352,6 +369,8 @@ class MpesaRepository:
     async def get_payments_by_service(self, service_id: str) -> List[Dict[str, Any]]:
         """
         Get all payments for a specific service.
+        
+        ✅ FIX: Using correct table name 'payments'
         """
         try:
             response = (
@@ -378,6 +397,8 @@ class MpesaRepository:
     ) -> List[Dict[str, Any]]:
         """
         Get payments within a date range.
+        
+        ✅ FIX: Using correct table name 'payments'
         """
         try:
             response = (
