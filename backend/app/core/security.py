@@ -3,13 +3,22 @@
 # ================================================================
 # TYPE: CORE - Security and authentication utilities
 
-import jwt
-from jwt import PyJWKClient
-import bcrypt
 import random
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
+
+import bcrypt
+from jwt import (
+    PyJWKClient,
+    PyJWKClientError,
+    ExpiredSignatureError,
+    InvalidAudienceError,
+    InvalidIssuerError,
+    InvalidTokenError,
+    decode as jwt_decode
+)
 from passlib.context import CryptContext
+
 from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -21,7 +30,11 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # public signing keys and picks the right one via the token's "kid"
 # header, including handling key rotation automatically.
 # Created once at module load rather than per-request.
-_jwks_client = PyJWKClient(f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json")
+# ✅ FIX 4: Added timeout to JWKS client
+_jwks_client = PyJWKClient(
+    f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json",
+    timeout=5
+)
 
 
 def hash_password(password: str) -> str:
@@ -47,7 +60,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return jwt_encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def decode_token(token: str) -> Dict[str, Any]:
@@ -59,19 +72,51 @@ def decode_token(token: str) -> Dict[str, Any]:
     asymmetric keypair — verification requires fetching the matching
     public key from Supabase's JWKS endpoint (via the token's "kid"
     header), not a static HS256 shared secret.
+
+    ✅ FIX 1: Verify token issuer
+    ✅ FIX 2: Handle JWT errors separately
+    ✅ FIX 3: Validate required claims
     """
     try:
-        signing_key = _jwks_client.get_signing_key_from_jwt(token)
-        return jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["ES256"],
-            audience="authenticated"
-        )
-    except jwt.ExpiredSignatureError:
-        raise ValueError("Token has expired")
-    except jwt.InvalidTokenError:
-        raise ValueError("Invalid token")
+        # Get signing key from JWKS
+        try:
+            signing_key = _jwks_client.get_signing_key_from_jwt(token)
+        except PyJWKClientError as e:
+            raise ValueError(f"Unable to verify signing key: {str(e)}")
+
+        # ✅ FIX 1: Added issuer validation
+        # ✅ FIX 2: Decode with specific error handling
+        try:
+            payload = jwt_decode(
+                token,
+                signing_key.key,
+                algorithms=["ES256"],
+                audience="authenticated",
+                issuer=f"{settings.SUPABASE_URL}/auth/v1"
+            )
+        except ExpiredSignatureError:
+            raise ValueError("Token has expired")
+        except InvalidAudienceError:
+            raise ValueError("Invalid token audience")
+        except InvalidIssuerError:
+            raise ValueError("Invalid token issuer")
+        except InvalidTokenError:
+            raise ValueError("Invalid token")
+
+        # ✅ FIX 3: Validate required claims
+        if "sub" not in payload:
+            raise ValueError("Token missing user id")
+
+        if "email" not in payload:
+            raise ValueError("Token missing email")
+
+        return payload
+
+    except ValueError:
+        # Re-raise ValueError with the specific message
+        raise
+    except Exception as e:
+        raise ValueError(f"Token validation failed: {str(e)}")
 
 
 def generate_otp() -> str:
