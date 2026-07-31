@@ -1,294 +1,276 @@
-# app/modules/auth/dependencies.py
-"""Authentication dependencies for Auto-D Kenya"""
-from typing import Optional, Dict, Any
-from fastapi import Depends, HTTPException, status, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from datetime import datetime, timedelta
-import logging
+"""
+Auto-D Kenya - Authentication Dependencies
+==========================================
 
-from supabase import Client
+Authentication dependency injection for FastAPI.
+
+This module is responsible only for:
+- Getting the authenticated user
+- Loading the user from the database
+- Authorization (admin, active user, roles)
+
+JWT creation/verification is handled by:
+    app.core.security
+"""
+
+import logging
+from typing import Optional, Dict, Any
+
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
 from app.core.database import get_supabase
-from app.core.config import settings
+from app.core.security import decode_token
 
 logger = logging.getLogger(__name__)
-
-# ─── SECURITY SCHEMES ────────────────────────────────────────────
 
 security = HTTPBearer(auto_error=False)
 
 
-# ─── TOKEN DECODER ────────────────────────────────────────────────
+# ============================================================
+# Database Helpers
+# ============================================================
 
-async def decode_token(token: str) -> Optional[Dict[str, Any]]:
-    """
-    Validate Supabase access token using Supabase's built-in validation.
-    
-    This is the ONLY token validation function in the application.
-    It uses supabase.auth.get_user() which validates the token against
-    Supabase's internal validation rules (expiry, signature, etc.).
-    """
+async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch user by UUID."""
+
     try:
-        supabase: Client = get_supabase()
-        response = supabase.auth.get_user(token)
+        supabase = get_supabase()
 
-        if response and response.user:
-            return {
-                "sub": response.user.id,
-                "email": response.user.email,
-                "user_metadata": response.user.user_metadata or {},
-                "aud": response.user.aud,
-                "role": response.user.role,
-                "created_at": response.user.created_at,
-                "confirmed_at": getattr(response.user, 'confirmed_at', None),
-                "last_sign_in_at": getattr(response.user, 'last_sign_in_at', None),
-            }
+        result = (
+            supabase
+            .table("users")
+            .select("*")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
 
-        logger.warning("Invalid token: No user data returned")
+        if result.data:
+            return result.data[0]
+
         return None
 
     except Exception as e:
-        logger.warning(f"Token validation failed: {str(e)}")
+        logger.error(f"Database error: {e}")
         return None
 
 
-# ─── DEPENDENCIES ────────────────────────────────────────────────
+# ============================================================
+# Authentication
+# ============================================================
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> Dict[str, Any]:
     """
-    Get current authenticated user from Supabase token.
-    Raises 401 if token is invalid or missing.
+    Return authenticated user.
     """
+
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    payload = await decode_token(credentials.credentials)
-    
-    if payload is None:
+
+    try:
+        payload = decode_token(credentials.credentials)
+
+        user_id = payload.get("sub")
+
+        if not user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid token",
+            )
+
+        user = await get_user_by_id(user_id)
+
+        if user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="User not found",
+            )
+
+        return user
+
+    except ValueError as e:
+        logger.warning(str(e))
+
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
+            status_code=401,
+            detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    return payload
 
 
 async def get_current_user_optional(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> Optional[Dict[str, Any]]:
     """
-    Get current user from Supabase token if present.
-    Returns None if no token or invalid token.
+    Return authenticated user or None.
     """
+
     if credentials is None:
         return None
-    
-    payload = await decode_token(credentials.credentials)
-    return payload
 
+    try:
+        return await get_current_user(credentials)
+    except HTTPException:
+        return None
+
+
+# ============================================================
+# User Status
+# ============================================================
 
 async def get_current_active_user(
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """
-    Get current active user.
-    Raises 403 if user is not active.
-    """
-    # Check if user is confirmed (email confirmed)
-    if not current_user.get("confirmed_at"):
+
+    if not current_user.get("is_active", True):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Email not confirmed. Please verify your email."
+            status_code=403,
+            detail="Inactive account",
         )
+
     return current_user
 
 
 async def get_current_admin_user(
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """
-    Get current admin user.
-    Raises 403 if user is not an admin.
-    """
-    # Check admin status from user_metadata or role
-    user_metadata = current_user.get("user_metadata", {})
-    role = current_user.get("role", "")
-    account_type = user_metadata.get("account_type", "individual")
-    
-    if account_type not in ["admin", "super_admin", "staff"] and role not in ["admin", "super_admin"]:
+
+    account_type = current_user.get("account_type", "").lower()
+
+    if account_type not in (
+        "admin",
+        "super_admin",
+        "staff",
+    ):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required"
+            status_code=403,
+            detail="Administrator privileges required",
         )
+
     return current_user
 
 
 async def get_current_super_admin(
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_admin_user),
 ) -> Dict[str, Any]:
-    """
-    Get current super admin user.
-    Raises 403 if user is not a super admin.
-    """
-    user_metadata = current_user.get("user_metadata", {})
-    account_type = user_metadata.get("account_type", "individual")
-    role = current_user.get("role", "")
-    
-    if account_type != "super_admin" and role != "super_admin":
+
+    if current_user.get("account_type") != "super_admin":
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Super admin privileges required"
+            status_code=403,
+            detail="Super administrator required",
         )
+
     return current_user
 
 
-# ─── USER LOOKUP HELPERS ──────────────────────────────────────────
-
-async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
-    """Get user by ID from database (supports UUID)"""
-    try:
-        supabase = get_supabase()
-        result = supabase.table("users")\
-            .select("*")\
-            .eq("id", user_id)\
-            .execute()
-        
-        if result.data and len(result.data) > 0:
-            return result.data[0]
-        return None
-    except Exception as e:
-        logger.error(f"Error getting user by ID: {str(e)}")
-        return None
-
-
-async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
-    """Get user by email from database"""
-    try:
-        supabase = get_supabase()
-        result = supabase.table("users")\
-            .select("*")\
-            .eq("email", email)\
-            .execute()
-        
-        if result.data and len(result.data) > 0:
-            return result.data[0]
-        return None
-    except Exception as e:
-        logger.error(f"Error getting user by email: {str(e)}")
-        return None
-
-
-# ─── PERMISSION CHECKERS ─────────────────────────────────────────
-
-def require_permission(permission: str):
-    """
-    Dependency factory for permission checking.
-    Usage: @router.get("/endpoint", dependencies=[Depends(require_permission("users:read"))])
-    """
-    async def permission_dependency(current_user: Dict[str, Any] = Depends(get_current_user)):
-        user_metadata = current_user.get("user_metadata", {})
-        permissions = user_metadata.get("permissions", [])
-        
-        if not permissions:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions"
-            )
-        
-        if permission not in permissions:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission '{permission}' required"
-            )
-        
-        return current_user
-    
-    return permission_dependency
-
+# ============================================================
+# Role Helpers
+# ============================================================
 
 def require_role(role: str):
     """
-    Dependency factory for role checking.
-    Usage: @router.get("/endpoint", dependencies=[Depends(require_role("admin"))])
+    Require a single role.
     """
-    async def role_dependency(current_user: Dict[str, Any] = Depends(get_current_user)):
-        user_metadata = current_user.get("user_metadata", {})
-        user_role = user_metadata.get("role", current_user.get("role", "individual"))
-        
-        if user_role != role:
+
+    async def checker(
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ):
+
+        if current_user.get("role") != role:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Role '{role}' required"
+                status_code=403,
+                detail=f"Role '{role}' required",
             )
+
         return current_user
-    
-    return role_dependency
+
+    return checker
 
 
-def require_any_role(roles: list):
+def require_any_role(roles: list[str]):
     """
-    Dependency factory for checking any of multiple roles.
-    Usage: @router.get("/endpoint", dependencies=[Depends(require_any_role(["admin", "manager"]))])
+    Require one of several roles.
     """
-    async def role_dependency(current_user: Dict[str, Any] = Depends(get_current_user)):
-        user_metadata = current_user.get("user_metadata", {})
-        user_role = user_metadata.get("role", current_user.get("role", "individual"))
-        
-        if user_role not in roles:
+
+    async def checker(
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ):
+
+        if current_user.get("role") not in roles:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"One of roles {roles} required"
+                status_code=403,
+                detail="Insufficient permissions",
             )
+
         return current_user
-    
-    return role_dependency
+
+    return checker
 
 
-# ─── RATE LIMITING (Optional) ────────────────────────────────────
+def require_permission(permission: str):
+    """
+    Require a permission.
+    """
+
+    async def checker(
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ):
+
+        permissions = current_user.get("permissions", [])
+
+        if permission not in permissions:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Permission '{permission}' required",
+            )
+
+        return current_user
+
+    return checker
+
+
+# ============================================================
+# Simple Rate Limiter
+# ============================================================
 
 class RateLimiter:
-    """Simple rate limiter for API endpoints"""
-    
+
     def __init__(self, requests_per_minute: int = 60):
         self.requests_per_minute = requests_per_minute
-        self._cache = {}  # In production, use Redis
-    
+        self.cache = {}
+
     async def __call__(self, request: Request):
-        # Get client identifier
-        client_id = request.client.host if request.client else "unknown"
-        current_time = datetime.utcnow().timestamp()
-        
-        # Initialize or clean old entries
-        if client_id not in self._cache:
-            self._cache[client_id] = []
-        
-        # Remove old entries (older than 1 minute)
-        minute_ago = current_time - 60
-        self._cache[client_id] = [
-            t for t in self._cache[client_id] 
-            if t > minute_ago
+
+        from datetime import datetime
+
+        ip = request.client.host if request.client else "unknown"
+
+        now = datetime.utcnow().timestamp()
+
+        self.cache.setdefault(ip, [])
+
+        self.cache[ip] = [
+            t for t in self.cache[ip]
+            if now - t < 60
         ]
-        
-        # Check rate limit
-        if len(self._cache[client_id]) >= self.requests_per_minute:
+
+        if len(self.cache[ip]) >= self.requests_per_minute:
             raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Rate limit exceeded. Maximum {self.requests_per_minute} requests per minute."
+                status_code=429,
+                detail="Too many requests",
             )
-        
-        # Add current request
-        self._cache[client_id].append(current_time)
-        
+
+        self.cache[ip].append(now)
+
         return True
 
 
 def rate_limit(requests_per_minute: int = 60):
-    """Rate limit dependency factory"""
-    limiter = RateLimiter(requests_per_minute)
-    return limiter
+    return RateLimiter(requests_per_minute)
