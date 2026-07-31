@@ -278,6 +278,7 @@
             border: 1px solid var(--border);
             border-radius: var(--radius);
             padding: 24px;
+            position: relative;
         }
         .card .card-header {
             display: flex;
@@ -303,6 +304,30 @@
         .badge-danger { background: rgba(239,68,68,0.15); color: var(--danger); }
         .badge-info { background: rgba(59,130,246,0.15); color: var(--blue); }
 
+        /* Live sync indicator */
+        .live-sync-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+            color: var(--success);
+            font-weight: 600;
+            background: rgba(34,197,94,0.1);
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+        .live-sync-indicator .pulse-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse-dot 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(0.7); }
+        }
+
         /* ─── Fuel Grid ──────────────────────────────────────────────── */
         .fuel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         @media (max-width: 600px) { .fuel-grid { grid-template-columns: 1fr; } }
@@ -311,6 +336,11 @@
             border-radius: 8px;
             padding: 16px;
             border: 1px solid var(--border);
+            transition: border-color 0.3s, background 0.3s;
+        }
+        .fuel-item.updated {
+            border-color: var(--success);
+            background: rgba(34,197,94,0.05);
         }
         .fuel-item .fuel-name {
             font-size: 13px;
@@ -359,11 +389,19 @@
             font-size: 10px;
             padding: 2px 8px;
             border-radius: 10px;
-            margin-left: 8px;
         }
         .status-badge.synced { background: rgba(34,197,94,0.15); color: var(--success); }
         .status-badge.pending { background: rgba(245,158,11,0.15); color: var(--warning); }
         .status-badge.error { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .status-badge.live { 
+            background: rgba(34,197,94,0.2); 
+            color: var(--success); 
+            animation: pulse-badge 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse-badge {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
 
         /* ─── Service List ──────────────────────────────────────────── */
         .service-list { display: flex; flex-direction: column; gap: 10px; }
@@ -377,6 +415,11 @@
             border: 1px solid var(--border);
             flex-wrap: wrap;
             gap: 8px;
+            transition: border-color 0.3s, background 0.3s;
+        }
+        .service-item.updated {
+            border-color: var(--success);
+            background: rgba(34,197,94,0.05);
         }
         .service-item .service-name { font-size: 14px; font-weight: 500; color: var(--text-secondary); }
         .service-item .service-price {
@@ -854,7 +897,12 @@
                 <div class="card">
                     <div class="card-header">
                         <h3>⛽ Fuel Prices</h3>
-                        <span class="badge badge-success" id="fuelStatus">● Connected</span>
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <span class="live-sync-indicator" id="fuelSyncIndicator">
+                                <span class="pulse-dot"></span> Live
+                            </span>
+                            <span class="badge badge-success" id="fuelStatus">● Connected</span>
+                        </div>
                     </div>
                     <div class="fuel-grid" id="fuelGrid"></div>
                     <div class="action-bar" style="margin-top:12px;">
@@ -868,7 +916,12 @@
                 <div class="card">
                     <div class="card-header">
                         <h3>💳 Service Pricing</h3>
-                        <span class="badge badge-success" id="serviceStatus">● Connected</span>
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <span class="live-sync-indicator" id="serviceSyncIndicator">
+                                <span class="pulse-dot"></span> Live
+                            </span>
+                            <span class="badge badge-success" id="serviceStatus">● Connected</span>
+                        </div>
                     </div>
                     <div style="margin-bottom: 12px;">
                         <button class="add-service-btn" onclick="openAddServiceModal()">➕ Add New Service</button>
@@ -1019,7 +1072,7 @@
 
             <!-- Footer -->
             <div style="border-top:1px solid var(--border);padding-top:20px;margin-top:10px;text-align:center;color:var(--text-muted);font-size:12px;">
-                Auto-D Kenya Admin Dashboard v5.0 · © 2026 Auto-D Kenya
+                Auto-D Kenya Admin Dashboard v6.0 · © 2026 Auto-D Kenya
                 <span style="display:block;font-size:10px;color:var(--text-muted);" id="connectionStatus">● Connecting...</span>
             </div>
         </div>
@@ -1088,7 +1141,7 @@
 
     <script>
         // ═══════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - ADMIN DASHBOARD (COMPLETE VERSION)
+        // AUTO-D KENYA - ADMIN DASHBOARD (WITH LIVE SYNC)
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1112,6 +1165,8 @@
             let scraperRefreshInterval = null;
             let healthCheckInFlight = false;
             let editingServiceId = null;
+            let supabaseChannel = null;
+            let isRealtimeConnected = false;
 
             // ─── DOM Elements ──────────────────────────────────────────
             const loginScreen = document.getElementById('loginScreen');
@@ -1175,6 +1230,232 @@
                 } catch (error) {
                     console.error(`❌ Query error (${table}):`, error);
                     return { success: false, error: error.message };
+                }
+            }
+
+            // ─── LIVE SYNC: Supabase Realtime Subscriptions ───────────────
+            function setupRealtimeSubscriptions() {
+                const client = getSupabaseClient();
+                if (!client) {
+                    console.warn('⚠️ Cannot setup realtime: Supabase not initialized');
+                    return;
+                }
+
+                try {
+                    // Close existing channel
+                    if (supabaseChannel) {
+                        supabaseChannel.unsubscribe();
+                        supabaseChannel = null;
+                    }
+
+                    console.log('🔌 Setting up Supabase realtime subscriptions...');
+
+                    // Subscribe to fuel_prices changes
+                    const fuelChannel = client
+                        .channel('fuel_prices_changes')
+                        .on(
+                            'postgres_changes',
+                            {
+                                event: 'INSERT',
+                                schema: 'public',
+                                table: 'fuel_prices'
+                            },
+                            (payload) => {
+                                console.log('⛽ Fuel price update received:', payload);
+                                handleFuelPriceUpdate(payload);
+                            }
+                        )
+                        .on(
+                            'postgres_changes',
+                            {
+                                event: 'UPDATE',
+                                schema: 'public',
+                                table: 'fuel_prices'
+                            },
+                            (payload) => {
+                                console.log('⛽ Fuel price update received:', payload);
+                                handleFuelPriceUpdate(payload);
+                            }
+                        )
+                        .subscribe((status) => {
+                            console.log('📡 Fuel prices channel status:', status);
+                            if (status === 'SUBSCRIBED') {
+                                isRealtimeConnected = true;
+                                document.getElementById('fuelSyncIndicator').innerHTML = '<span class="pulse-dot"></span> Live';
+                            } else if (status === 'CHANNEL_ERROR') {
+                                isRealtimeConnected = false;
+                                document.getElementById('fuelSyncIndicator').innerHTML = '⚠️ Reconnecting...';
+                                setTimeout(setupRealtimeSubscriptions, 5000);
+                            }
+                        });
+
+                    // Subscribe to service_prices changes
+                    const serviceChannel = client
+                        .channel('service_prices_changes')
+                        .on(
+                            'postgres_changes',
+                            {
+                                event: 'INSERT',
+                                schema: 'public',
+                                table: 'service_prices'
+                            },
+                            (payload) => {
+                                console.log('💳 Service price update received:', payload);
+                                handleServicePriceUpdate(payload);
+                            }
+                        )
+                        .on(
+                            'postgres_changes',
+                            {
+                                event: 'UPDATE',
+                                schema: 'public',
+                                table: 'service_prices'
+                            },
+                            (payload) => {
+                                console.log('💳 Service price update received:', payload);
+                                handleServicePriceUpdate(payload);
+                            }
+                        )
+                        .on(
+                            'postgres_changes',
+                            {
+                                event: 'DELETE',
+                                schema: 'public',
+                                table: 'service_prices'
+                            },
+                            (payload) => {
+                                console.log('💳 Service deleted:', payload);
+                                fetchServicePrices();
+                            }
+                        )
+                        .subscribe((status) => {
+                            console.log('📡 Service prices channel status:', status);
+                            if (status === 'SUBSCRIBED') {
+                                document.getElementById('serviceSyncIndicator').innerHTML = '<span class="pulse-dot"></span> Live';
+                            }
+                        });
+
+                    supabaseChannel = { fuelChannel, serviceChannel };
+
+                    // Also listen for admin_logs for activity feed
+                    const logChannel = client
+                        .channel('admin_logs_changes')
+                        .on(
+                            'postgres_changes',
+                            {
+                                event: 'INSERT',
+                                schema: 'public',
+                                table: 'admin_logs'
+                            },
+                            (payload) => {
+                                console.log('📋 New log entry:', payload);
+                                if (payload.new) {
+                                    activityLogs.unshift({
+                                        action: payload.new.action || 'System update',
+                                        user: payload.new.username || 'system',
+                                        time: new Date(payload.new.created_at).toLocaleTimeString(),
+                                        timestamp: payload.new.created_at
+                                    });
+                                    if (activityLogs.length > 50) activityLogs.pop();
+                                    renderLogs();
+                                }
+                            }
+                        )
+                        .subscribe();
+
+                    supabaseChannel.logChannel = logChannel;
+
+                } catch (error) {
+                    console.error('❌ Realtime setup error:', error);
+                    // Retry after 10 seconds
+                    setTimeout(setupRealtimeSubscriptions, 10000);
+                }
+            }
+
+            // ─── Handle Fuel Price Updates ──────────────────────────────
+            function handleFuelPriceUpdate(payload) {
+                // Get the updated fuel price data
+                const newData = payload.new;
+                if (!newData) return;
+
+                // Fetch the fuel type name
+                querySupabase('fuel_types', 'name', { id: newData.fuel_type_id })
+                    .then(result => {
+                        if (result.success && result.data && result.data.length > 0) {
+                            const fuelName = result.data[0].name.toLowerCase();
+                            // Update the UI for this fuel type
+                            updateFuelPriceInUI(fuelName, newData.price_per_unit, newData.effective_from);
+                            showToast(`⛽ ${fuelName.charAt(0).toUpperCase() + fuelName.slice(1)} price updated to KES ${newData.price_per_unit.toFixed(2)} (live)`, 'success');
+                            addAdminLog(`⛽ ${fuelName} price updated to KES ${newData.price_per_unit.toFixed(2)} (via live sync)`, 'system');
+                        }
+                    })
+                    .catch(err => console.warn('Could not get fuel type name:', err));
+            }
+
+            function updateFuelPriceInUI(fuelType, price, date) {
+                const key = fuelType.charAt(0).toUpperCase() + fuelType.slice(1);
+                const priceEl = document.getElementById('fuel' + key);
+                const dateEl = document.getElementById('fuel' + key + 'Date');
+                const inputEl = document.getElementById('edit' + key);
+                const statusEl = document.getElementById(fuelType + 'Status');
+
+                if (priceEl) {
+                    priceEl.textContent = price.toFixed(2);
+                    // Animate the change
+                    priceEl.parentElement.parentElement.classList.add('updated');
+                    setTimeout(() => {
+                        priceEl.parentElement.parentElement.classList.remove('updated');
+                    }, 1500);
+                }
+                if (dateEl) {
+                    const dateObj = new Date(date);
+                    dateEl.textContent = dateObj.toLocaleDateString();
+                }
+                if (inputEl) {
+                    inputEl.value = price;
+                }
+                if (statusEl) {
+                    statusEl.className = 'status-badge live';
+                    statusEl.textContent = '⟳ Live';
+                    setTimeout(() => {
+                        statusEl.className = 'status-badge synced';
+                        statusEl.textContent = '✓ Synced';
+                    }, 3000);
+                }
+            }
+
+            // ─── Handle Service Price Updates ────────────────────────────
+            function handleServicePriceUpdate(payload) {
+                const newData = payload.new;
+                if (!newData) return;
+
+                const serviceType = newData.service_type;
+                const price = newData.price;
+                const currency = newData.currency || 'KES';
+                const name = newData.service_name || serviceType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+                // Update the UI for this service
+                updateServicePriceInUI(serviceType, price, currency, name);
+                showToast(`💳 ${name} price updated to ${currency} ${price.toFixed(2)} (live)`, 'success');
+                addAdminLog(`💳 ${name} price updated to ${currency} ${price.toFixed(2)} (via live sync)`, 'system');
+            }
+
+            function updateServicePriceInUI(serviceType, price, currency, name) {
+                const priceEl = document.getElementById('price' + serviceType);
+                const inputEl = document.getElementById('edit' + serviceType);
+                const itemEl = document.querySelector(`[data-service="${serviceType}"]`);
+
+                if (priceEl) {
+                    priceEl.textContent = `${currency} ${price.toFixed(2)}`;
+                }
+                if (inputEl) {
+                    inputEl.value = price;
+                }
+                if (itemEl) {
+                    itemEl.classList.add('updated');
+                    setTimeout(() => {
+                        itemEl.classList.remove('updated');
+                    }, 1500);
                 }
             }
 
@@ -1716,7 +1997,7 @@
                     const statusText = price > 0 ? '✓ Synced' : '⟳ Pending';
                     
                     return `
-                        <div class="fuel-item">
+                        <div class="fuel-item" id="fuelItem${f.key}">
                             <div class="fuel-name">
                                 ${f.icon} ${f.label}
                                 <span class="status-badge ${statusClass}" id="${f.key}Status">${statusText}</span>
@@ -2283,7 +2564,6 @@
                 clockInterval = setInterval(tickClock, 1000);
                 checkHealth(false);
                 healthCheckInterval = setInterval(() => checkHealth(false), 60000);
-                // Scraper auto-refresh
                 getScraperStatus();
                 scraperRefreshInterval = setInterval(() => {
                     if (isLoggedIn) getScraperStatus();
@@ -2316,7 +2596,9 @@
                     getScraperSources(),
                     checkHealth(true)
                 ]);
-                showToast('✅ Dashboard loaded', 'success');
+                // Setup realtime subscriptions after data loads
+                setupRealtimeSubscriptions();
+                showToast('✅ Dashboard loaded with live sync', 'success');
             }
 
             // ─── Activity Log ──────────────────────────────────────────
@@ -2661,7 +2943,7 @@
 
             // ─── Init ──────────────────────────────────────────────────
             async function init() {
-                console.log('🚗 Auto-D Kenya Admin Dashboard v5.0');
+                console.log('🚗 Auto-D Kenya Admin Dashboard v6.0 (Live Sync)');
                 console.log('📡 Backend API:', API_BASE);
                 console.log('🏥 Health Check:', HEALTH_CHECK_URL);
 
@@ -2688,6 +2970,13 @@
                             localStorage.removeItem('admin_session');
                             stopBackgroundTimers();
                             showToast('👋 Session ended', 'info');
+                            // Clean up realtime subscriptions
+                            if (supabaseChannel) {
+                                supabaseChannel.fuelChannel?.unsubscribe();
+                                supabaseChannel.serviceChannel?.unsubscribe();
+                                supabaseChannel.logChannel?.unsubscribe();
+                                supabaseChannel = null;
+                            }
                         }
                         if (event === 'SIGNED_IN') {
                             checkAuth().then((ok) => {
