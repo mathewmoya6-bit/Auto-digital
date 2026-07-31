@@ -1340,7 +1340,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v7.1
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.0
             </div>
         </footer>
     </div>
@@ -1348,7 +1348,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 7.1 - FIXED: Using vehicle_master_specs view
+        // Version 8.0 - FIXED: Sign in redirects to dashboard
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1360,7 +1360,8 @@
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
-                DASHBOARD_URL: '/dashboard.html'
+                DASHBOARD_URL: '/dashboard.html',
+                AUTH_URL: '/auth.html'
             };
 
             // ─── STATE ──────────────────────────────────────────────
@@ -1535,6 +1536,7 @@
                     if (error) throw error;
                     currentUser = data.session;
                     isAuthenticated = true;
+                    localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                     updateAuthUI();
                     showToast('✅ Signed in successfully!', 'success');
                     return true;
@@ -1564,9 +1566,11 @@
                     await supabaseClient.auth.signOut();
                     currentUser = null;
                     isAuthenticated = false;
+                    localStorage.removeItem('auto_d_user');
                     updateAuthUI();
                     showToast('🔓 Signed out', 'info');
-                    setTimeout(() => { window.location.href = CONFIG.DASHBOARD_URL; }, 500);
+                    // Reload page to reset state
+                    setTimeout(() => { window.location.reload(); }, 500);
                     return true;
                 } catch (error) {
                     showToast('❌ Sign out failed: ' + error.message, 'error');
@@ -1574,6 +1578,7 @@
                 }
             }
 
+            // ─── ✅ FIXED: Check auth and redirect to dashboard ────────
             async function checkAuth() {
                 try {
                     const { data, error } = await supabaseClient.auth.getSession();
@@ -1581,11 +1586,35 @@
                     if (data.session) {
                         currentUser = data.session;
                         isAuthenticated = true;
+                        // Store user in localStorage
+                        localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                     } else {
-                        currentUser = null;
-                        isAuthenticated = false;
+                        // Check localStorage for user
+                        const stored = localStorage.getItem('auto_d_user');
+                        if (stored) {
+                            try {
+                                currentUser = JSON.parse(stored);
+                                isAuthenticated = true;
+                            } catch (e) {
+                                currentUser = null;
+                                isAuthenticated = false;
+                            }
+                        } else {
+                            currentUser = null;
+                            isAuthenticated = false;
+                        }
                     }
                     updateAuthUI();
+                    
+                    // ─── ✅ NEW: Redirect to dashboard if authenticated ────
+                    if (isAuthenticated) {
+                        console.log('✅ User is authenticated, redirecting to dashboard...');
+                        // Small delay to show the toast message
+                        setTimeout(() => {
+                            window.location.href = CONFIG.DASHBOARD_URL;
+                        }, 800);
+                    }
+                    
                     return isAuthenticated;
                 } catch (error) {
                     console.warn('⚠️ Auth check failed:', error.message);
@@ -1612,6 +1641,22 @@
                     el.btnSignIn.style.display = 'inline-block';
                     el.btnSignOut.style.display = 'none';
                 }
+            }
+
+            // ─── ✅ FIXED: Login button handler ──────────────────────────
+            async function handleLogin(email, password) {
+                if (!email || !password) {
+                    showToast('Please enter email and password', 'warning');
+                    return false;
+                }
+                
+                const success = await signIn(email, password);
+                if (success) {
+                    // Auth check will handle redirect to dashboard
+                    await checkAuth();
+                    return true;
+                }
+                return false;
             }
 
             // ─── API: QUERY VIEW ──────────────────────────────────
@@ -2357,30 +2402,102 @@
 
             // ─── EVENT LISTENERS ─────────────────────────────────────────
             function initEventListeners() {
+                // ─── ✅ FIXED: Sign In button shows auth form ──────────
                 el.btnSignIn.addEventListener('click', () => {
                     el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
+                    // Focus on email field
+                    if (el.authForms.style.display === 'block') {
+                        el.authEmail.focus();
+                    }
                 });
-                el.btnCancelAuth.addEventListener('click', () => { el.authForms.style.display = 'none'; });
+                
+                el.btnCancelAuth.addEventListener('click', () => { 
+                    el.authForms.style.display = 'none';
+                    el.authEmail.value = '';
+                    el.authPassword.value = '';
+                });
+
+                // ─── ✅ FIXED: Login button handler ────────────────────
                 el.btnLogin.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
-                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
-                    await signIn(email, password);
-                    el.authForms.style.display = 'none';
-                    el.authEmail.value = '';
-                    el.authPassword.value = '';
+                    
+                    if (!email || !password) {
+                        showToast('Please enter email and password', 'warning');
+                        return;
+                    }
+                    
+                    // Disable button to prevent double clicks
+                    el.btnLogin.disabled = true;
+                    el.btnLogin.textContent = '⏳...';
+                    
+                    try {
+                        const success = await handleLogin(email, password);
+                        if (success) {
+                            // Auth check will redirect to dashboard
+                            el.authForms.style.display = 'none';
+                            el.authEmail.value = '';
+                            el.authPassword.value = '';
+                        }
+                    } catch (error) {
+                        showToast('Login error: ' + error.message, 'error');
+                    } finally {
+                        el.btnLogin.disabled = false;
+                        el.btnLogin.textContent = 'Login';
+                    }
                 });
+
+                // ─── ✅ FIXED: Sign Up button ──────────────────────────
                 el.btnSignup.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
-                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
-                    if (password.length < 6) { showToast('Password must be at least 6 characters', 'warning'); return; }
-                    await signUp(email, password);
-                    el.authForms.style.display = 'none';
-                    el.authEmail.value = '';
-                    el.authPassword.value = '';
+                    
+                    if (!email || !password) {
+                        showToast('Please enter email and password', 'warning');
+                        return;
+                    }
+                    
+                    if (password.length < 6) {
+                        showToast('Password must be at least 6 characters', 'warning');
+                        return;
+                    }
+                    
+                    el.btnSignup.disabled = true;
+                    el.btnSignup.textContent = '⏳...';
+                    
+                    try {
+                        const success = await signUp(email, password);
+                        if (success) {
+                            el.authForms.style.display = 'none';
+                            el.authEmail.value = '';
+                            el.authPassword.value = '';
+                        }
+                    } catch (error) {
+                        showToast('Sign up error: ' + error.message, 'error');
+                    } finally {
+                        el.btnSignup.disabled = false;
+                        el.btnSignup.textContent = 'Sign Up';
+                    }
                 });
-                el.btnSignOut.addEventListener('click', signOut);
+
+                // ─── ✅ FIXED: Sign Out button ──────────────────────────
+                el.btnSignOut.addEventListener('click', async () => {
+                    await signOut();
+                });
+
+                // ─── Enter key support for auth forms ──────────────────
+                el.authPassword.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        el.btnLogin.click();
+                    }
+                });
+                el.authEmail.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        el.authPassword.focus();
+                    }
+                });
 
                 el.fuelFilterGroup.addEventListener('click', function(e) {
                     const btn = e.target.closest('.fuel-filter-btn');
@@ -2534,6 +2651,12 @@
                     currentUser = session;
                     isAuthenticated = !!session;
                     updateAuthUI();
+                    // If user just signed in, redirect to dashboard
+                    if (isAuthenticated && _event === 'SIGNED_IN') {
+                        setTimeout(() => {
+                            window.location.href = CONFIG.DASHBOARD_URL;
+                        }, 800);
+                    }
                 });
 
                 setInterval(async () => {
