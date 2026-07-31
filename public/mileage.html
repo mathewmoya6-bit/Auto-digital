@@ -1340,7 +1340,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.0
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.1
             </div>
         </footer>
     </div>
@@ -1348,7 +1348,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.0 - FIXED: Sign in redirects to dashboard
+        // Version 8.1 - FIXED: Supabase auth initialization
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1360,8 +1360,7 @@
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
-                DASHBOARD_URL: '/dashboard.html',
-                AUTH_URL: '/auth.html'
+                DASHBOARD_URL: '/dashboard.html'
             };
 
             // ─── STATE ──────────────────────────────────────────────
@@ -1505,22 +1504,26 @@
             // ─── SUPABASE ──────────────────────────────────────────────
             function initSupabase() {
                 try {
-                    if (typeof supabase === 'undefined') throw new Error('Supabase SDK not loaded');
+                    if (typeof supabase === 'undefined') {
+                        console.warn('⚠️ Supabase SDK not loaded');
+                        return null;
+                    }
                     const { createClient } = supabase;
                     supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
                         auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
                     });
                     console.log('✅ Supabase client initialized');
-                    return true;
+                    return supabaseClient;
                 } catch (error) {
                     console.warn('⚠️ Supabase init failed:', error.message);
-                    return false;
+                    return null;
                 }
             }
 
             // ─── AUTH ──────────────────────────────────────────────────
             async function getAccessToken() {
                 try {
+                    if (!supabaseClient) return '';
                     const { data, error } = await supabaseClient.auth.getSession();
                     if (error) throw error;
                     return data?.session?.access_token || '';
@@ -1532,13 +1535,20 @@
 
             async function signIn(email, password) {
                 try {
+                    if (!supabaseClient) {
+                        const client = initSupabase();
+                        if (!client) throw new Error('Supabase not initialized');
+                    }
                     const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
                     if (error) throw error;
                     currentUser = data.session;
                     isAuthenticated = true;
-                    localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                     updateAuthUI();
                     showToast('✅ Signed in successfully!', 'success');
+                    // Redirect to dashboard after successful sign in
+                    setTimeout(() => {
+                        window.location.href = CONFIG.DASHBOARD_URL;
+                    }, 1000);
                     return true;
                 } catch (error) {
                     showToast('❌ Sign in failed: ' + error.message, 'error');
@@ -1548,6 +1558,10 @@
 
             async function signUp(email, password) {
                 try {
+                    if (!supabaseClient) {
+                        const client = initSupabase();
+                        if (!client) throw new Error('Supabase not initialized');
+                    }
                     const { data, error } = await supabaseClient.auth.signUp({ email, password });
                     if (error) throw error;
                     if (data.user) {
@@ -1563,14 +1577,14 @@
 
             async function signOut() {
                 try {
-                    await supabaseClient.auth.signOut();
+                    if (supabaseClient) {
+                        await supabaseClient.auth.signOut();
+                    }
                     currentUser = null;
                     isAuthenticated = false;
-                    localStorage.removeItem('auto_d_user');
                     updateAuthUI();
                     showToast('🔓 Signed out', 'info');
-                    // Reload page to reset state
-                    setTimeout(() => { window.location.reload(); }, 500);
+                    setTimeout(() => { window.location.href = '/'; }, 500);
                     return true;
                 } catch (error) {
                     showToast('❌ Sign out failed: ' + error.message, 'error');
@@ -1578,43 +1592,22 @@
                 }
             }
 
-            // ─── ✅ FIXED: Check auth and redirect to dashboard ────────
             async function checkAuth() {
                 try {
+                    if (!supabaseClient) {
+                        const client = initSupabase();
+                        if (!client) return false;
+                    }
                     const { data, error } = await supabaseClient.auth.getSession();
                     if (error) throw error;
                     if (data.session) {
                         currentUser = data.session;
                         isAuthenticated = true;
-                        // Store user in localStorage
-                        localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                     } else {
-                        // Check localStorage for user
-                        const stored = localStorage.getItem('auto_d_user');
-                        if (stored) {
-                            try {
-                                currentUser = JSON.parse(stored);
-                                isAuthenticated = true;
-                            } catch (e) {
-                                currentUser = null;
-                                isAuthenticated = false;
-                            }
-                        } else {
-                            currentUser = null;
-                            isAuthenticated = false;
-                        }
+                        currentUser = null;
+                        isAuthenticated = false;
                     }
                     updateAuthUI();
-                    
-                    // ─── ✅ NEW: Redirect to dashboard if authenticated ────
-                    if (isAuthenticated) {
-                        console.log('✅ User is authenticated, redirecting to dashboard...');
-                        // Small delay to show the toast message
-                        setTimeout(() => {
-                            window.location.href = CONFIG.DASHBOARD_URL;
-                        }, 800);
-                    }
-                    
                     return isAuthenticated;
                 } catch (error) {
                     console.warn('⚠️ Auth check failed:', error.message);
@@ -1643,24 +1636,12 @@
                 }
             }
 
-            // ─── ✅ FIXED: Login button handler ──────────────────────────
-            async function handleLogin(email, password) {
-                if (!email || !password) {
-                    showToast('Please enter email and password', 'warning');
-                    return false;
-                }
-                
-                const success = await signIn(email, password);
-                if (success) {
-                    // Auth check will handle redirect to dashboard
-                    await checkAuth();
-                    return true;
-                }
-                return false;
-            }
-
             // ─── API: QUERY VIEW ──────────────────────────────────
             async function queryView(select, filter, order) {
+                if (!supabaseClient) {
+                    const client = initSupabase();
+                    if (!client) throw new Error('Supabase not initialized');
+                }
                 let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
                 if (filter) query = query.eq(filter.column, filter.value);
                 if (order) query = query.order(order.column, { ascending: order.ascending !== false });
@@ -1800,6 +1781,10 @@
 
             async function loadRoutes() {
                 try {
+                    if (!supabaseClient) {
+                        const client = initSupabase();
+                        if (!client) return [];
+                    }
                     const { data, error } = await supabaseClient.from('routes').select('*').limit(12);
                     if (!error && data) {
                         routes = data.map(r => ({
@@ -2402,10 +2387,9 @@
 
             // ─── EVENT LISTENERS ─────────────────────────────────────────
             function initEventListeners() {
-                // ─── ✅ FIXED: Sign In button shows auth form ──────────
+                // ─── ✅ FIXED: Check if supabaseClient exists before using it ───
                 el.btnSignIn.addEventListener('click', () => {
                     el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
-                    // Focus on email field
                     if (el.authForms.style.display === 'block') {
                         el.authEmail.focus();
                     }
@@ -2417,7 +2401,6 @@
                     el.authPassword.value = '';
                 });
 
-                // ─── ✅ FIXED: Login button handler ────────────────────
                 el.btnLogin.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
@@ -2427,18 +2410,14 @@
                         return;
                     }
                     
-                    // Disable button to prevent double clicks
                     el.btnLogin.disabled = true;
                     el.btnLogin.textContent = '⏳...';
                     
                     try {
-                        const success = await handleLogin(email, password);
-                        if (success) {
-                            // Auth check will redirect to dashboard
-                            el.authForms.style.display = 'none';
-                            el.authEmail.value = '';
-                            el.authPassword.value = '';
-                        }
+                        await signIn(email, password);
+                        el.authForms.style.display = 'none';
+                        el.authEmail.value = '';
+                        el.authPassword.value = '';
                     } catch (error) {
                         showToast('Login error: ' + error.message, 'error');
                     } finally {
@@ -2447,7 +2426,6 @@
                     }
                 });
 
-                // ─── ✅ FIXED: Sign Up button ──────────────────────────
                 el.btnSignup.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
@@ -2466,12 +2444,10 @@
                     el.btnSignup.textContent = '⏳...';
                     
                     try {
-                        const success = await signUp(email, password);
-                        if (success) {
-                            el.authForms.style.display = 'none';
-                            el.authEmail.value = '';
-                            el.authPassword.value = '';
-                        }
+                        await signUp(email, password);
+                        el.authForms.style.display = 'none';
+                        el.authEmail.value = '';
+                        el.authPassword.value = '';
                     } catch (error) {
                         showToast('Sign up error: ' + error.message, 'error');
                     } finally {
@@ -2480,12 +2456,10 @@
                     }
                 });
 
-                // ─── ✅ FIXED: Sign Out button ──────────────────────────
                 el.btnSignOut.addEventListener('click', async () => {
                     await signOut();
                 });
 
-                // ─── Enter key support for auth forms ──────────────────
                 el.authPassword.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') {
                         e.preventDefault();
@@ -2498,6 +2472,24 @@
                         el.authPassword.focus();
                     }
                 });
+
+                // ─── Only set up Supabase auth listener if client exists ───
+                if (supabaseClient) {
+                    try {
+                        supabaseClient.auth.onAuthStateChange((_event, session) => {
+                            currentUser = session;
+                            isAuthenticated = !!session;
+                            updateAuthUI();
+                            if (isAuthenticated && _event === 'SIGNED_IN') {
+                                setTimeout(() => {
+                                    window.location.href = CONFIG.DASHBOARD_URL;
+                                }, 800);
+                            }
+                        });
+                    } catch (error) {
+                        console.warn('⚠️ Could not set up auth listener:', error.message);
+                    }
+                }
 
                 el.fuelFilterGroup.addEventListener('click', function(e) {
                     const btn = e.target.closest('.fuel-filter-btn');
@@ -2647,18 +2639,6 @@
                     showToast('📥 Export feature coming soon!', 'info');
                 });
 
-                supabaseClient.auth.onAuthStateChange((_event, session) => {
-                    currentUser = session;
-                    isAuthenticated = !!session;
-                    updateAuthUI();
-                    // If user just signed in, redirect to dashboard
-                    if (isAuthenticated && _event === 'SIGNED_IN') {
-                        setTimeout(() => {
-                            window.location.href = CONFIG.DASHBOARD_URL;
-                        }, 800);
-                    }
-                });
-
                 setInterval(async () => {
                     await checkAuth();
                 }, 30000);
@@ -2669,6 +2649,7 @@
                 el.loadingOverlay.classList.add('active');
 
                 try {
+                    // ✅ Initialize Supabase first
                     const supabaseOk = initSupabase();
                     if (!supabaseOk) {
                         setStatus('error', '❌ Failed to initialize Supabase');
