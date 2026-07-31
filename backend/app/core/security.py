@@ -4,6 +4,7 @@
 # TYPE: CORE - Security and authentication utilities
 
 import jwt
+from jwt import PyJWKClient
 import bcrypt
 import random
 from datetime import datetime, timedelta
@@ -12,6 +13,15 @@ from passlib.context import CryptContext
 from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# ─── SUPABASE JWKS CLIENT ───────────────────────────────────────
+# Supabase signs session tokens with ES256 (asymmetric ECDSA), using a
+# rotating keypair published at this JWKS endpoint — not a static
+# HS256 shared secret. PyJWKClient fetches and caches Supabase's
+# public signing keys and picks the right one via the token's "kid"
+# header, including handling key rotation automatically.
+# Created once at module load rather than per-request.
+_jwks_client = PyJWKClient(f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json")
 
 
 def hash_password(password: str) -> str:
@@ -32,7 +42,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     NOTE: This is a separate signing key/purpose from decode_token()
     below. The frontend dashboard does not currently use tokens from
     this function — it authenticates via Supabase Auth directly and
-    sends Supabase-issued tokens on every request instead.
+    sends Supabase-issued (ES256) tokens on every request instead.
     """
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
@@ -44,18 +54,18 @@ def decode_token(token: str) -> Dict[str, Any]:
     """
     Decode and verify a JWT token issued by Supabase Auth.
 
-    The frontend sends session.access_token from supabase-js
-    (see dashboard.html), which is signed by Supabase using the
-    project's JWT secret — NOT this backend's SECRET_KEY. Supabase
-    tokens also set "aud": "authenticated" in the payload, which
-    PyJWT validates by default, so it must be passed explicitly here
-    or verification will fail even with the correct secret.
+    The frontend sends session.access_token from supabase-js (see
+    dashboard.html). Supabase signs these with ES256 using an
+    asymmetric keypair — verification requires fetching the matching
+    public key from Supabase's JWKS endpoint (via the token's "kid"
+    header), not a static HS256 shared secret.
     """
     try:
+        signing_key = _jwks_client.get_signing_key_from_jwt(token)
         return jwt.decode(
             token,
-            settings.SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
+            signing_key.key,
+            algorithms=["ES256"],
             audience="authenticated"
         )
     except jwt.ExpiredSignatureError:
