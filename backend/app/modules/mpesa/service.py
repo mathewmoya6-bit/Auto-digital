@@ -40,7 +40,7 @@ class MpesaService:
             service_id: Service code (e.g., "instant_valuation")
             description: Transaction description
             user_id: User ID (optional)
-            request_id: Request ID (optional)
+            request_id: Request ID (optional) - not used in payment creation
             amount: Amount to charge (optional, uses service price)
             
         Returns:
@@ -75,10 +75,9 @@ class MpesaService:
             service_id=service_id
         )
         
-        # ✅ FIX: Create payment with correct data structure
+        # ✅ FIX 1: Removed request_id from payment creation
         await self.repository.create_payment({
             "user_id": user_id,
-            "request_id": request_id,
             
             # Numeric ID from the services table (bigint)
             "service_id": service_data["id"],
@@ -239,7 +238,7 @@ class MpesaService:
 
     async def get_user_paid_services(self, user_id: str) -> List[str]:
         """
-        Get all paid service IDs for a user.
+        Get all paid service codes for a user.
         
         Args:
             user_id: User ID
