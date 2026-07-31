@@ -6,7 +6,7 @@ from datetime import datetime
 from functools import lru_cache
 
 from app.core.database import get_supabase
-from app.modules.running_cost.router import RunningCostRequest
+from app.modules.running_cost.schemas import RunningCostRequest
 
 logger = logging.getLogger(__name__)
 
@@ -18,55 +18,202 @@ class RunningCostService:
         self.supabase = get_supabase()
         self._variant_cache = {}
         
-        # ✅ FIX 13: Move constants to be configurable (will be moved to DB)
-        self.FUEL_PRICES = {
+        # ─── DEFAULT FALLBACK VALUES (only used if DB is unreachable) ───
+        # ✅ FIX 9: Constants moved to DB - these are just fallbacks
+        self._default_fuel_prices = {
             "petrol": 193.00,
             "diesel": 180.00,
             "electric": 20.00,
-            "hybrid": 193.00
+            "hybrid": 193.00,
+            "gas": 150.00,      # ✅ Added LPG/CNG
+            "lpg": 150.00,      # ✅ Added LPG
+            "cng": 140.00       # ✅ Added CNG
         }
         
-        self.MAINTENANCE_RATES = {
+        self._default_maintenance_rates = {
             "petrol": 2.50,
             "diesel": 3.00,
             "electric": 1.50,
-            "hybrid": 2.00
+            "hybrid": 2.00,
+            "gas": 2.20,        # ✅ Added LPG
+            "lpg": 2.20,        # ✅ Added LPG
+            "cng": 2.00         # ✅ Added CNG
         }
         
-        self.INSURANCE_RATES = {
+        self._default_insurance_rates = {
             "comprehensive": 0.04,
             "third_party": 0.015
         }
         
-        # ✅ FIX 10: Different depreciation rates by age bands
-        self.DEPRECIATION_RATES = {
-            0: 0.20,   # Brand new
-            1: 0.18,
-            2: 0.15,
-            3: 0.12,
-            4: 0.10,
-            5: 0.08,
-            6: 0.07,
-            7: 0.06,
-            8: 0.05,
-            9: 0.04,
-            10: 0.03,
-            11: 0.03,
-            12: 0.03,
-            13: 0.02,
-            14: 0.02,
-            15: 0.02
+        self._default_depreciation_rates = {
+            0: 0.20, 1: 0.18, 2: 0.15, 3: 0.12,
+            4: 0.10, 5: 0.08, 6: 0.07, 7: 0.06,
+            8: 0.05, 9: 0.04, 10: 0.03, 11: 0.03,
+            12: 0.03, 13: 0.02, 14: 0.02, 15: 0.02
         }
         
-        self.TYRE_LIFESPAN_KM = 50000
-        self.TYRE_COST_PER_SET = 48000  # 4 tyres * 12000
+        self._default_tyre_lifespan_km = 50000
+        self._default_tyre_cost_per_set = 48000
         
-    # ✅ FIX 12: Cache lookup tables
-    @lru_cache(maxsize=128)
-    async def _get_variant_data_cached(self, variant_id: int) -> Dict[str, Any]:
-        """Get variant data from database with caching"""
+        # ─── CACHED CONFIGURATIONS ──────────────────────────────────
+        self._config_cache = {}
+        self._config_cache_time = None
+        self._config_cache_ttl = 300  # 5 minutes
+    
+    # ─── CONFIGURATION LOADER ──────────────────────────────────────
+    
+    async def _load_config_from_db(self) -> Dict[str, Any]:
+        """Load configuration from database with caching"""
+        current_time = datetime.utcnow().timestamp()
+        
+        # Check cache TTL
+        if self._config_cache and self._config_cache_time:
+            if current_time - self._config_cache_time < self._config_cache_ttl:
+                return self._config_cache
+        
         try:
-            # ✅ FIX 11: Use .single() instead of .limit(1)
+            config = {
+                "fuel_prices": {},
+                "maintenance_rates": {},
+                "insurance_rates": {},
+                "depreciation_rates": {},
+                "tyre_lifespan_km": self._default_tyre_lifespan_km,
+                "tyre_cost_per_set": self._default_tyre_cost_per_set
+            }
+            
+            # ─── Load fuel prices ──────────────────────────────────
+            try:
+                fuel_result = self.supabase.table("fuel_prices")\
+                    .select("fuel_type, price_per_unit")\
+                    .eq("active", True)\
+                    .execute()
+                
+                if fuel_result.data:
+                    for item in fuel_result.data:
+                        fuel_type = item.get("fuel_type", "").strip().lower()
+                        price = item.get("price_per_unit", 0)
+                        if fuel_type and price > 0:
+                            config["fuel_prices"][fuel_type] = price
+            except Exception as e:
+                logger.warning(f"Could not load fuel prices from DB: {e}")
+            
+            # ─── Load maintenance rates ────────────────────────────
+            try:
+                maint_result = self.supabase.table("maintenance_rates")\
+                    .select("fuel_type, rate_per_km")\
+                    .eq("active", True)\
+                    .execute()
+                
+                if maint_result.data:
+                    for item in maint_result.data:
+                        fuel_type = item.get("fuel_type", "").strip().lower()
+                        rate = item.get("rate_per_km", 0)
+                        if fuel_type and rate > 0:
+                            config["maintenance_rates"][fuel_type] = rate
+            except Exception as e:
+                logger.warning(f"Could not load maintenance rates from DB: {e}")
+            
+            # ─── Load insurance rates ──────────────────────────────
+            try:
+                ins_result = self.supabase.table("insurance_rates")\
+                    .select("insurance_type, rate")\
+                    .eq("active", True)\
+                    .execute()
+                
+                if ins_result.data:
+                    for item in ins_result.data:
+                        ins_type = item.get("insurance_type", "").strip().lower()
+                        rate = item.get("rate", 0)
+                        if ins_type and rate > 0:
+                            config["insurance_rates"][ins_type] = rate
+            except Exception as e:
+                logger.warning(f"Could not load insurance rates from DB: {e}")
+            
+            # ─── Load depreciation rates ────────────────────────────
+            try:
+                dep_result = self.supabase.table("depreciation_rates")\
+                    .select("age_years, rate")\
+                    .eq("active", True)\
+                    .order("age_years", ascending=True)\
+                    .execute()
+                
+                if dep_result.data:
+                    config["depreciation_rates"] = {}
+                    for item in dep_result.data:
+                        age = item.get("age_years", 0)
+                        rate = item.get("rate", 0)
+                        if age >= 0 and rate > 0:
+                            config["depreciation_rates"][age] = rate
+            except Exception as e:
+                logger.warning(f"Could not load depreciation rates from DB: {e}")
+            
+            # ─── Load tyre configuration ────────────────────────────
+            try:
+                tyre_result = self.supabase.table("tyre_config")\
+                    .select("config_key, config_value")\
+                    .eq("active", True)\
+                    .execute()
+                
+                if tyre_result.data:
+                    for item in tyre_result.data:
+                        key = item.get("config_key", "")
+                        value = item.get("config_value", 0)
+                        if key == "tyre_lifespan_km" and value > 0:
+                            config["tyre_lifespan_km"] = value
+                        elif key == "tyre_cost_per_set" and value > 0:
+                            config["tyre_cost_per_set"] = value
+            except Exception as e:
+                logger.warning(f"Could not load tyre config from DB: {e}")
+            
+            # ─── Fill missing values with defaults ──────────────────
+            for fuel_type, price in self._default_fuel_prices.items():
+                if fuel_type not in config["fuel_prices"]:
+                    config["fuel_prices"][fuel_type] = price
+            
+            for fuel_type, rate in self._default_maintenance_rates.items():
+                if fuel_type not in config["maintenance_rates"]:
+                    config["maintenance_rates"][fuel_type] = rate
+            
+            for ins_type, rate in self._default_insurance_rates.items():
+                if ins_type not in config["insurance_rates"]:
+                    config["insurance_rates"][ins_type] = rate
+            
+            if not config["depreciation_rates"]:
+                config["depreciation_rates"] = self._default_depreciation_rates
+            
+            # Update cache
+            self._config_cache = config
+            self._config_cache_time = current_time
+            
+            logger.info(f"Loaded configuration from DB: {len(config['fuel_prices'])} fuel types, "
+                       f"{len(config['depreciation_rates'])} depreciation rates")
+            
+            return config
+            
+        except Exception as e:
+            logger.exception(f"Error loading config from DB: {e}")
+            # Return default config on error
+            return self._get_default_config()
+    
+    def _get_default_config(self) -> Dict[str, Any]:
+        """Get default configuration when DB is unavailable"""
+        return {
+            "fuel_prices": self._default_fuel_prices.copy(),
+            "maintenance_rates": self._default_maintenance_rates.copy(),
+            "insurance_rates": self._default_insurance_rates.copy(),
+            "depreciation_rates": self._default_depreciation_rates.copy(),
+            "tyre_lifespan_km": self._default_tyre_lifespan_km,
+            "tyre_cost_per_set": self._default_tyre_cost_per_set
+        }
+    
+    # ─── VARIANT DATA ──────────────────────────────────────────────
+    
+    async def _get_variant_data_cached(self, variant_id: int) -> Dict[str, Any]:
+        """Get variant data from database with manual caching"""
+        if variant_id in self._variant_cache:
+            return self._variant_cache[variant_id]
+        
+        try:
             result = self.supabase.table("vehicle_master_specs")\
                 .select("*")\
                 .eq("variant_id", variant_id)\
@@ -74,6 +221,7 @@ class RunningCostService:
                 .execute()
             
             if result.data:
+                self._variant_cache[variant_id] = result.data
                 return result.data
             return {}
         except Exception as e:
@@ -84,85 +232,120 @@ class RunningCostService:
         """Get variant data from cache or database"""
         return await self._get_variant_data_cached(variant_id)
     
+    # ─── MAIN CALCULATION ───────────────────────────────────────────
+    
     async def calculate_running_cost(self, request: RunningCostRequest, user_id: int) -> Dict[str, Any]:
         """Calculate running costs"""
-        # ✅ FIX 23: Validate year
         current_year = datetime.now().year
-        if request.year and (request.year < 1900 or request.year > current_year + 1):
-            raise ValueError(f"Invalid year: {request.year}. Year must be between 1900 and {current_year + 1}")
         
-        # ✅ FIX 21: Validate distance
+        # ─── Load configuration from DB ──────────────────────────────
+        config = await self._load_config_from_db()
+        
+        # ─── Validations ─────────────────────────────────────────────
+        if request.year < 1900 or request.year > current_year + 1:
+            raise ValueError(f"Invalid year: {request.year}")
+        
         if request.distance <= 0:
             raise ValueError("Distance must be greater than 0")
         
-        # ✅ FIX 22: Validate annual mileage
         if request.annual_mileage <= 0:
             raise ValueError("Annual mileage must be greater than 0")
         
-        # Get variant data
+        # ─── Get variant data ──────────────────────────────────────
         variant = await self.get_variant_data(request.variant_id)
         if not variant:
             raise ValueError(f"Variant with ID {request.variant_id} not found")
         
-        # ✅ FIX 7: Use actual engine size from variant
-        fuel_type = variant.get("fuel_type_name", "petrol").lower()
-        engine_size = variant.get("engine_size_cc", 1800) / 1000  # Convert to litres
+        # ─── Fuel type normalization ────────────────────────────────
+        fuel_type = (
+            variant.get("fuel_type_name") or "petrol"
+        ).strip().lower()
         
-        # ✅ FIX 24: Validate engine size
+        # Map common fuel type variations
+        fuel_type_map = {
+            "petrol": "petrol",
+            "gasoline": "petrol",
+            "diesel": "diesel",
+            "electric": "electric",
+            "ev": "electric",
+            "hybrid": "hybrid",
+            "lpg": "lpg",
+            "cng": "cng",
+            "gas": "gas"
+        }
+        fuel_type = fuel_type_map.get(fuel_type, fuel_type)
+        
+        if fuel_type not in config["fuel_prices"]:
+            fuel_type = "petrol"
+            logger.warning(f"Unknown fuel type, using default: {fuel_type}")
+        
+        # ─── Vehicle details ────────────────────────────────────────
+        engine_size = variant.get("engine_size_cc", 1800) / 1000
         if engine_size <= 0:
-            engine_size = 1.8  # Fallback default
-            logger.warning(f"Invalid engine size for variant {request.variant_id}, using default 1.8L")
+            engine_size = 1.8
+            logger.warning(f"Invalid engine size, using default: 1.8L")
         
         vehicle_year = request.year or variant.get("generation_start_year", 2020)
+        vehicle_age = max(0, current_year - vehicle_year)
         
-        # ✅ FIX 6: Calculate vehicle age correctly
-        vehicle_age = current_year - vehicle_year
+        purchase_price = variant.get("purchase_price") or 2500000
+        if purchase_price <= 0:
+            purchase_price = 2500000
+            logger.warning(f"Invalid purchase price, using default: {purchase_price}")
         
-        # Resolve fuel price
-        fuel_price = request.fuel_price or self.FUEL_PRICES.get(fuel_type, 193.00)
+        initial_vehicle_cost = purchase_price
+        
+        # ─── Fuel price ──────────────────────────────────────────────
+        fuel_price = request.fuel_price or config["fuel_prices"].get(fuel_type, 193.00)
         if fuel_price <= 0:
             fuel_price = 193.00
             logger.warning(f"Invalid fuel price, using default: {fuel_price}")
         
-        # ✅ FIX 26 & 27: Compute once and reuse
+        # ─── Fuel efficiency ─────────────────────────────────────────
         fuel_efficiency = self._calculate_fuel_efficiency(
             engine_size, vehicle_year, request.trip_type, fuel_type
         )
-        
-        # ✅ FIX 25: Guard against division by zero
         if fuel_efficiency <= 0:
             fuel_efficiency = 10.0
             logger.warning(f"Invalid fuel efficiency, using default: {fuel_efficiency}")
         
-        # ─── Calculate all costs ────────────────────────────────────
+        # ─── Calculate costs ─────────────────────────────────────────
         # Fuel cost
         fuel_cost_per_km = fuel_price / fuel_efficiency
         fuel_cost_trip = fuel_cost_per_km * request.distance
         
-        # Maintenance cost (age-adjusted)
-        maintenance_rate = self.MAINTENANCE_RATES.get(fuel_type, 2.50)
+        # Maintenance cost
+        maintenance_rate = config["maintenance_rates"].get(fuel_type, 2.50)
         age_factor = 1 + (vehicle_age * 0.05)
         maintenance_cost_per_km = maintenance_rate * age_factor
         maintenance_cost_trip = maintenance_cost_per_km * request.distance
         
         # Tyre cost
-        tyre_cost_per_km = self.TYRE_COST_PER_SET / self.TYRE_LIFESPAN_KM
+        tyre_cost_per_km = config["tyre_cost_per_set"] / config["tyre_lifespan_km"]
         tyre_cost_trip = tyre_cost_per_km * request.distance
         
         # Insurance cost
-        purchase_price = variant.get("purchase_price", 2500000)
-        insurance_rate = self.INSURANCE_RATES["comprehensive"]
+        insurance_type = getattr(request, 'insurance_type', 'comprehensive')
+        insurance_rate = config["insurance_rates"].get(
+            insurance_type,
+            config["insurance_rates"].get("comprehensive", 0.04)
+        )
         annual_insurance = purchase_price * insurance_rate
         insurance_per_km = annual_insurance / request.annual_mileage
         insurance_cost_trip = insurance_per_km * request.distance
         
-        # Depreciation cost
-        depreciation_rate = self._get_depreciation_rate(vehicle_age)
-        # ✅ FIX 9: Use compound depreciation for remaining value
-        remaining_value = purchase_price * ((1 - depreciation_rate) ** min(vehicle_age, 15))
-        resale_value = max(remaining_value, purchase_price * 0.15)
+        # Depreciation
+        depreciation_rate = self._get_depreciation_rate(vehicle_age, config["depreciation_rates"])
         
-        depreciation_per_km = (purchase_price - remaining_value) / request.annual_mileage
+        # Compound depreciation
+        remaining_value = initial_vehicle_cost
+        for _ in range(min(vehicle_age, 15)):
+            remaining_value *= (1 - depreciation_rate)
+        
+        remaining_value = max(remaining_value, initial_vehicle_cost * 0.15)
+        resale_value = remaining_value
+        annual_depreciation = initial_vehicle_cost - remaining_value
+        depreciation_per_km = annual_depreciation / request.annual_mileage
         depreciation_cost_trip = depreciation_per_km * request.distance
         
         # Total costs
@@ -178,70 +361,114 @@ class RunningCostService:
         monthly_service = maintenance_cost_per_km * monthly_mileage
         monthly_tyre = tyre_cost_per_km * monthly_mileage
         monthly_insurance = annual_insurance / 12
-        monthly_depreciation = (purchase_price - remaining_value) / 12
+        monthly_depreciation = annual_depreciation / 12
         
-        # ✅ FIX 8: 5-year projection using resolved values
+        # 5-year projection
         five_year_data = self._calculate_five_year_data(
-            purchase_price, request, fuel_type, fuel_price,
-            maintenance_rate, tyre_cost_per_km, insurance_rate,
-            vehicle_year
+            initial_vehicle_cost,
+            request,
+            fuel_type,
+            fuel_price,
+            maintenance_rate,
+            tyre_cost_per_km,
+            insurance_rate,
+            vehicle_year,
+            engine_size,
+            config["depreciation_rates"]
         )
         
-        # ✅ FIX 18: Return structured response with Pydantic model
-        return {
-            "trip": {
+        # ─── Build response ──────────────────────────────────────────
+        try:
+            response = {
+                # ─── Legacy fields ────────────────────────────────────
                 "distance": request.distance,
-                "running_cost": round(total_cost_trip, 2),
-                "cost_per_km": round(total_cost_per_km, 2)
-            },
-            "costs": {
-                "fuel": round(fuel_cost_trip, 2),
-                "service": round(maintenance_cost_trip, 2),
-                "tyres": round(tyre_cost_trip, 2),
-                "insurance": round(insurance_cost_trip, 2),
-                "depreciation": round(depreciation_cost_trip, 2)
-            },
-            "per_km": {
-                "fuel": round(fuel_cost_per_km, 2),
-                "service": round(maintenance_cost_per_km, 2),
-                "tyres": round(tyre_cost_per_km, 2),
-                "insurance": round(insurance_per_km, 2),
-                "depreciation": round(depreciation_per_km, 2)
-            },
-            "monthly": {
-                "fuel": round(monthly_fuel, 2),
-                "service": round(monthly_service, 2),
-                "tyres": round(monthly_tyre, 2),
-                "insurance": round(monthly_insurance, 2),
-                "depreciation": round(monthly_depreciation, 2),
-                "total": round(monthly_fuel + monthly_service + monthly_tyre + monthly_insurance + monthly_depreciation, 2)
-            },
-            "annual": {
-                "fuel": round(monthly_fuel * 12, 2),
-                "service": round(monthly_service * 12, 2),
-                "tyres": round(monthly_tyre * 12, 2),
-                "insurance": round(annual_insurance, 2),
-                "depreciation": round(monthly_depreciation * 12, 2),
-                "total": round((monthly_fuel + monthly_service + monthly_tyre + monthly_insurance + monthly_depreciation) * 12, 2)
-            },
-            "projection": {
-                "years": five_year_data,
-                "total_5_year_cost": round(sum(y["total"] for y in five_year_data), 2),
-                "total_5_year_running_cost": round(sum(y["running_cost"] for y in five_year_data), 2)
-            },
-            "vehicle": {
-                "purchase_price": round(purchase_price, 2),
+                "cost_per_km": round(total_cost_per_km, 2),
+                "fuel_cost": round(fuel_cost_trip, 2),
+                "service_cost": round(maintenance_cost_trip, 2),
+                "tyre_cost": round(tyre_cost_trip, 2),
+                "insurance_cost": round(insurance_cost_trip, 2),
+                "depreciation_cost": round(depreciation_cost_trip, 2),
+                "purchase_price": round(initial_vehicle_cost, 2),
                 "current_value": round(remaining_value, 2),
                 "resale_value": round(resale_value, 2),
-                "depreciation_rate": round(depreciation_rate, 3),
                 "fuel_type": fuel_type.capitalize(),
-                "fuel_efficiency": round(fuel_efficiency, 1),
-                "engine_size": round(engine_size, 1),
-                "year": vehicle_year,
-                "age": vehicle_age
-            },
-            "calculated_at": datetime.utcnow().isoformat()
-        }
+                "fuel_consumption": round(fuel_efficiency, 1),
+                "fiveYearData": five_year_data,
+                "five_year_total": round(
+                    sum(y["total"] for y in five_year_data), 2
+                ),
+                
+                # ─── New structured response ────────────────────────
+                "trip": {
+                    "distance": request.distance,
+                    "running_cost": round(total_cost_trip, 2),
+                    "cost_per_km": round(total_cost_per_km, 2)
+                },
+                "costs": {
+                    "fuel": round(fuel_cost_trip, 2),
+                    "service": round(maintenance_cost_trip, 2),
+                    "tyres": round(tyre_cost_trip, 2),
+                    "insurance": round(insurance_cost_trip, 2),
+                    "depreciation": round(depreciation_cost_trip, 2)
+                },
+                "per_km": {
+                    "fuel": round(fuel_cost_per_km, 2),
+                    "service": round(maintenance_cost_per_km, 2),
+                    "tyres": round(tyre_cost_per_km, 2),
+                    "insurance": round(insurance_per_km, 2),
+                    "depreciation": round(depreciation_per_km, 2)
+                },
+                "monthly": {
+                    "fuel": round(monthly_fuel, 2),
+                    "service": round(monthly_service, 2),
+                    "tyres": round(monthly_tyre, 2),
+                    "insurance": round(monthly_insurance, 2),
+                    "depreciation": round(monthly_depreciation, 2),
+                    "total": round(
+                        monthly_fuel + monthly_service + monthly_tyre + 
+                        monthly_insurance + monthly_depreciation, 2
+                    )
+                },
+                "annual": {
+                    "fuel": round(monthly_fuel * 12, 2),
+                    "service": round(monthly_service * 12, 2),
+                    "tyres": round(monthly_tyre * 12, 2),
+                    "insurance": round(annual_insurance, 2),
+                    "depreciation": round(monthly_depreciation * 12, 2),
+                    "total": round(
+                        (monthly_fuel + monthly_service + monthly_tyre + 
+                         monthly_insurance + monthly_depreciation) * 12, 2
+                    )
+                },
+                "projection": {
+                    "years": five_year_data,
+                    "total_5_year_cost": round(
+                        sum(y["total"] for y in five_year_data), 2
+                    ),
+                    "total_5_year_running_cost": round(
+                        sum(y["running_cost"] for y in five_year_data), 2
+                    )
+                },
+                "vehicle": {
+                    "initial_vehicle_cost": round(initial_vehicle_cost, 2),
+                    "purchase_price": round(initial_vehicle_cost, 2),
+                    "current_value": round(remaining_value, 2),
+                    "resale_value": round(resale_value, 2),
+                    "depreciation_rate": round(depreciation_rate, 3),
+                    "fuel_type": fuel_type.capitalize(),
+                    "fuel_efficiency": round(fuel_efficiency, 1),
+                    "engine_size": round(engine_size, 1),
+                    "year": vehicle_year,
+                    "age": vehicle_age
+                },
+                "calculated_at": datetime.utcnow().isoformat()
+            }
+            
+            return response
+            
+        except Exception as e:
+            logger.exception(f"Running cost calculation failed: {str(e)}")
+            raise
     
     def _calculate_fuel_efficiency(self, engine_size: float, year: int, 
                                    trip_type: str, fuel_type: str) -> float:
@@ -250,12 +477,17 @@ class RunningCostService:
             "petrol": 12.0,
             "diesel": 14.0,
             "electric": 6.0,
-            "hybrid": 18.0
+            "hybrid": 18.0,
+            "gas": 11.0,
+            "lpg": 11.0,
+            "cng": 10.0
         }
         
         efficiency = base_efficiency.get(fuel_type, 12.0)
         efficiency -= max(0, (engine_size - 1.5) * 1.5)
-        year_factor = 1 + ((datetime.now().year - year) * 0.005)
+        
+        age = datetime.now().year - year
+        year_factor = max(0.75, 1 - age * 0.01)
         efficiency *= year_factor
         
         pattern_factors = {
@@ -268,43 +500,39 @@ class RunningCostService:
         
         return max(efficiency, 5.0)
     
-    def _get_depreciation_rate(self, age: int) -> float:
+    def _get_depreciation_rate(self, age: int, depreciation_rates: Dict[int, float]) -> float:
         """Get depreciation rate based on age"""
-        return self.DEPRECIATION_RATES.get(age, 0.08)
+        clamped_age = min(age, 15)
+        return depreciation_rates.get(
+            clamped_age,
+            depreciation_rates.get(15, 0.02)
+        )
     
     def _calculate_five_year_data(self, purchase_price: float, request: RunningCostRequest,
                                   fuel_type: str, fuel_price: float,
                                   maintenance_rate: float, tyre_cost_per_km: float,
-                                  insurance_rate: float, vehicle_year: int) -> list:
+                                  insurance_rate: float, vehicle_year: int,
+                                  engine_size: float,
+                                  depreciation_rates: Dict[int, float]) -> list:
         """Calculate 5-year cost projection"""
         data = []
         current_value = purchase_price
         current_year = datetime.now().year
         
         for year in range(1, request.years + 1):
-            # ✅ FIX 6: Correct age calculation
             age = (current_year - vehicle_year) + (year - 1)
             annual_mileage = request.annual_mileage
             
-            # Recalculate fuel efficiency for each year (age affects efficiency)
             fuel_efficiency = self._calculate_fuel_efficiency(
-                1.8, vehicle_year + year - 1, request.trip_type, fuel_type
+                engine_size, vehicle_year + year - 1, request.trip_type, fuel_type
             )
             
-            # Fuel cost for the year
-            fuel_cost = (annual_mileage / fuel_efficiency) * fuel_price
-            
-            # Service cost (increases with age)
+            fuel_cost = (annual_mileage / max(fuel_efficiency, 0.1)) * fuel_price
             service_cost = maintenance_rate * annual_mileage * (1 + (age * 0.03))
-            
-            # Tyre cost
             tyre_cost = tyre_cost_per_km * annual_mileage
-            
-            # Insurance cost (decreases with age)
             insurance_cost = purchase_price * insurance_rate * (1 - min(age * 0.02, 0.4))
             
-            # Depreciation for the year (compounded)
-            dep_rate = self._get_depreciation_rate(age)
+            dep_rate = self._get_depreciation_rate(age, depreciation_rates)
             depreciation = current_value * dep_rate
             current_value -= depreciation
             
