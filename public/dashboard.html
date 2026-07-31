@@ -647,7 +647,6 @@
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
 
         // ─── SERVICE MAPPING ──────────────────────────────────────
-        // ✅ FIXED: Maps frontend keys to the 'code' column in service_prices table
         const SERVICE_IDS = {
             'instant-value': 'valuation',
             'mileage': 'mileage',
@@ -865,18 +864,26 @@
             return { status: 'ok', message: 'Fallback response' };
         }
 
-        // ─── ✅ FIXED: FETCH SERVICE PRICES USING 'code' COLUMN ────
+        // ─── ✅ FIXED: FETCH SERVICE PRICES WITH TIMEOUT ──────────
         async function fetchServicePrices() {
             priceFetchAttempts++;
             
             try {
                 console.log('🔍 Fetching service prices from Supabase...');
+                console.log(`📡 Attempt ${priceFetchAttempts}/${MAX_PRICE_FETCH_ATTEMPTS}`);
                 
-                // ✅ FIXED: Using 'code' column instead of 'service_type'
-                const { data, error } = await supabaseClient
+                // ✅ Add timeout to prevent infinite loading
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Timeout fetching prices')), 5000);
+                });
+
+                const queryPromise = supabaseClient
                     .from('service_prices')
                     .select('code, name, price, currency, active')
                     .eq('active', true);
+
+                const result = await Promise.race([queryPromise, timeoutPromise]);
+                const { data, error } = result;
 
                 if (error) {
                     console.warn('⚠️ Service prices table error:', error.message);
@@ -892,7 +899,6 @@
 
                 const prices = {};
                 data.forEach(item => {
-                    // ✅ FIXED: Using 'code' as the key
                     prices[item.code] = {
                         price: item.price || 0,
                         currency: item.currency || 'KES',
@@ -902,10 +908,8 @@
 
                 // Ensure all required services exist
                 const required = ['valuation', 'mileage', 'ownership'];
-                let missing = false;
                 required.forEach(key => {
                     if (!prices[key]) {
-                        missing = true;
                         prices[key] = { price: 150, currency: 'KES', name: key };
                         console.warn(`⚠️ Missing service: ${key}, using fallback`);
                     }
@@ -919,7 +923,17 @@
 
             } catch (err) {
                 console.error('❌ Failed to fetch service prices:', err.message);
-                return useFallbackPrices(err.message);
+                
+                // ✅ If we've tried multiple times, use fallback
+                if (priceFetchAttempts >= MAX_PRICE_FETCH_ATTEMPTS) {
+                    console.warn('⚠️ Max attempts reached, using fallback prices');
+                    return useFallbackPrices('Max attempts reached');
+                }
+                
+                // ✅ Retry after 1 second
+                console.log('⏳ Retrying in 1 second...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return fetchServicePrices();
             }
         }
 
@@ -1408,8 +1422,14 @@
 
             userNameEl.textContent = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
 
-            // ─── LOAD SERVICE PRICES ──────────────────────────────────
-            await fetchServicePrices();
+            // ─── LOAD SERVICE PRICES WITH TIMEOUT ────────────────────
+            try {
+                await fetchServicePrices();
+            } catch (err) {
+                console.error('❌ Failed to load prices:', err);
+                // Ensure fallback is used
+                useFallbackPrices('Init error: ' + err.message);
+            }
 
             // ─── FETCH USER SERVICES ────────────────────────────────
             await fetchUserServices();
