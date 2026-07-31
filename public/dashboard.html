@@ -864,13 +864,13 @@
         }
 
         // ─── FETCH SERVICE PRICES ──────────────────────────────────
+        // ✅ UPDATED: Uses 'active' column (matches your table schema)
         async function fetchServicePrices() {
             try {
-                // Query the service_prices table for all active services
                 const { data, error } = await supabaseClient
                     .from('service_prices')
                     .select('service_type, price, currency')
-                    .eq('is_active', true);
+                    .eq('active', true);
 
                 if (error) throw error;
 
@@ -887,7 +887,7 @@
                 return prices;
             } catch (err) {
                 console.warn('Failed to fetch service prices:', err.message);
-                // Use fallback prices if API fails
+                // Fallback prices
                 servicePrices = {
                     'valuation': { price: 150, currency: 'KES' },
                     'mileage': { price: 150, currency: 'KES' },
@@ -906,14 +906,12 @@
                 'ownership': 'ownership'
             };
 
-            // Update each service's price tag and button
             Object.keys(priceMap).forEach(key => {
                 const serviceKey = priceMap[key];
                 const priceInfo = servicePrices[serviceKey];
                 const price = priceInfo?.price || 0;
                 const currency = priceInfo?.currency || 'KES';
 
-                // Update price tag
                 const priceTag = document.getElementById(key + 'PriceTag');
                 if (priceTag) {
                     if (price > 0) {
@@ -923,7 +921,6 @@
                     }
                 }
 
-                // Update pay button
                 const payBtn = document.getElementById(key + 'PayBtn');
                 if (payBtn) {
                     payBtn.disabled = false;
@@ -1047,7 +1044,6 @@
                 return;
             }
 
-            // Get the price for this service
             const serviceKey = SERVICE_IDS[service];
             const priceInfo = servicePrices[serviceKey];
             const price = priceInfo?.price || 0;
@@ -1094,7 +1090,6 @@
                 return;
             }
 
-            // Get the price for this service
             const serviceKey = SERVICE_IDS[pendingService];
             const priceInfo = servicePrices[serviceKey];
             const price = priceInfo?.price || 0;
@@ -1362,25 +1357,21 @@
 
             userNameEl.textContent = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
 
-            // ─── LOAD SERVICE PRICES FROM DATABASE ──────────────────
+            // ─── LOAD SERVICE PRICES ──────────────────────────────────
             await fetchServicePrices();
 
             // ─── FETCH USER SERVICES ────────────────────────────────
             await fetchUserServices();
 
             // ─── ENABLE PAY BUTTONS ──────────────────────────────────
-            // Update UI after prices are loaded
             updatePriceDisplay();
 
-            // Logout
             logoutBtn.addEventListener('click', signOut);
 
-            // Mobile toggle
             mobileToggle.addEventListener('click', function() {
                 navLinks.classList.toggle('open');
             });
 
-            // Service tabs
             serviceTabs.forEach(tab => {
                 tab.addEventListener('click', function() {
                     const service = this.dataset.service;
@@ -1388,7 +1379,6 @@
                 });
             });
 
-            // Close M-Pesa modal
             mpesaModal.addEventListener('click', function(e) {
                 if (e.target === mpesaModal) closeMpesa();
             });
@@ -1396,10 +1386,8 @@
                 if (e.key === 'Escape' && mpesaModal.classList.contains('open')) closeMpesa();
             });
 
-            // Year
             document.getElementById('year').textContent = new Date().getFullYear();
 
-            // Expose API
             window.__AUTOD = {
                 supabase: supabaseClient,
                 currentUser,
