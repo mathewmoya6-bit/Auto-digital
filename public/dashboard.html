@@ -647,7 +647,7 @@
         const API_BASE = 'https://auto-digital.onrender.com/api/v1';
 
         // ─── SERVICE MAPPING ──────────────────────────────────────
-        // Maps frontend service keys to service codes in the database
+        // ✅ FIXED: Maps frontend keys to the 'code' column in service_prices table
         const SERVICE_IDS = {
             'instant-value': 'valuation',
             'mileage': 'mileage',
@@ -671,6 +671,8 @@
         let paidServices = {};
         let servicePrices = {};
         let isInitialized = false;
+        let priceFetchAttempts = 0;
+        const MAX_PRICE_FETCH_ATTEMPTS = 3;
 
         // ─── DOM REFS ──────────────────────────────────────────────
         const userNameEl = document.getElementById('userName');
@@ -863,38 +865,49 @@
             return { status: 'ok', message: 'Fallback response' };
         }
 
-        // ─── ✅ DYNAMIC SERVICE PRICES FROM DATABASE ──────────────
+        // ─── ✅ FIXED: FETCH SERVICE PRICES USING 'code' COLUMN ────
         async function fetchServicePrices() {
+            priceFetchAttempts++;
+            
             try {
                 console.log('🔍 Fetching service prices from Supabase...');
-
+                
+                // ✅ FIXED: Using 'code' column instead of 'service_type'
                 const { data, error } = await supabaseClient
                     .from('service_prices')
-                    .select('service_type, price, currency')
+                    .select('code, name, price, currency, active')
                     .eq('active', true);
 
-                if (error) throw error;
+                if (error) {
+                    console.warn('⚠️ Service prices table error:', error.message);
+                    return useFallbackPrices('Table error: ' + error.message);
+                }
 
                 if (!data || data.length === 0) {
-                    console.warn('⚠️ No service prices found, using fallback');
-                    return useFallbackPrices();
+                    console.warn('⚠️ No service prices found in table');
+                    return useFallbackPrices('No data found');
                 }
+
+                console.log('📊 Service prices data:', data);
 
                 const prices = {};
                 data.forEach(item => {
-                    prices[item.service_type] = {
+                    // ✅ FIXED: Using 'code' as the key
+                    prices[item.code] = {
                         price: item.price || 0,
-                        currency: item.currency || 'KES'
+                        currency: item.currency || 'KES',
+                        name: item.name || item.code
                     };
                 });
 
                 // Ensure all required services exist
                 const required = ['valuation', 'mileage', 'ownership'];
-                let hasAll = true;
+                let missing = false;
                 required.forEach(key => {
                     if (!prices[key]) {
-                        hasAll = false;
-                        prices[key] = { price: 150, currency: 'KES' };
+                        missing = true;
+                        prices[key] = { price: 150, currency: 'KES', name: key };
+                        console.warn(`⚠️ Missing service: ${key}, using fallback`);
                     }
                 });
 
@@ -906,16 +919,16 @@
 
             } catch (err) {
                 console.error('❌ Failed to fetch service prices:', err.message);
-                return useFallbackPrices();
+                return useFallbackPrices(err.message);
             }
         }
 
-        function useFallbackPrices() {
-            console.warn('⚠️ Using fallback prices');
+        function useFallbackPrices(reason) {
+            console.warn(`⚠️ Using fallback prices (${reason})`);
             servicePrices = {
-                'valuation': { price: 150, currency: 'KES' },
-                'mileage': { price: 150, currency: 'KES' },
-                'ownership': { price: 150, currency: 'KES' }
+                'valuation': { price: 150, currency: 'KES', name: 'Valuation' },
+                'mileage': { price: 150, currency: 'KES', name: 'Mileage' },
+                'ownership': { price: 150, currency: 'KES', name: 'Ownership' }
             };
             updatePriceDisplay();
             enablePayButtons();
