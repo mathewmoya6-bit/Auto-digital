@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr
 from datetime import datetime
 
 from app.core.database import get_supabase
-from app.modules.auth.dependencies import get_current_user
+from app.core.dependencies import get_current_user
 
 router = APIRouter()
 
