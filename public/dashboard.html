@@ -798,27 +798,31 @@
                     return { status: 'ok', raw: text };
                 }
             } catch (err) {
-                // If it's a network error or the API is unreachable, use fallback
-                if (err.message.includes('fetch') || err.message.includes('network')) {
-                    console.warn('API unreachable, using fallback data');
+                // NOTE: Payment endpoints (/mpesa/...) must NEVER fall back to mock
+                // data. Faking a successful STK push response when the real request
+                // failed (CORS error, Render cold start, network drop, etc.) is what
+                // was silently breaking payments before — the UI would say "check
+                // your phone" while no request had actually reached the backend or
+                // Safaricom. Fail loudly for money-related calls instead.
+                const isPaymentEndpoint = endpoint.includes('/mpesa/');
+
+                if (!isPaymentEndpoint && (err.message.includes('fetch') || err.message.includes('network'))) {
+                    console.warn('API unreachable, using fallback data for non-payment endpoint:', endpoint);
                     return getFallbackResponse(endpoint, options);
                 }
+
+                if (isPaymentEndpoint) {
+                    console.error(`Payment API call failed (${endpoint}):`, err);
+                }
+
                 throw err;
             }
         }
 
-        // ─── FALLBACK RESPONSES ──────────────────────────────────────
+        // ─── FALLBACK RESPONSES (never used for /mpesa/* — see apiCall) ──
         function getFallbackResponse(endpoint, options) {
             // If API is unreachable, return mock data for development
-            if (endpoint === '/mpesa/user/services') {
-                return { services: [] };
-            }
-            if (endpoint === '/mpesa/stkpush') {
-                return { checkout_request_id: 'mock_' + Date.now() };
-            }
-            if (endpoint.includes('/mpesa/status/')) {
-                return { status: 'pending' };
-            }
+            // (calculation endpoints only; payment endpoints are excluded above)
             if (endpoint === '/valuation/calculate') {
                 const body = JSON.parse(options.body || '{}');
                 const baseValue = 2500000;
