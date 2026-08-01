@@ -120,6 +120,11 @@ class OwnershipService:
         condition_factor = self.CONDITION_FACTORS.get(request.vehicle_condition, 1.00)
         adjusted_purchase_price = request.purchase_price * condition_factor
         
+        # ─── Apply vehicle type factor ───────────────────────────
+        vehicle_type_factors = {"ice": 1.00, "hybrid": 0.95, "ev": 0.90}
+        vehicle_type_factor = vehicle_type_factors.get(request.vehicle_type, 1.00)
+        adjusted_purchase_price *= vehicle_type_factor
+        
         # ─── Calculate loan details ──────────────────────────────
         if request.purchase_type == "finance":
             loan_principal = adjusted_purchase_price - request.down_payment
@@ -200,8 +205,17 @@ class OwnershipService:
         cost_per_km = total_ownership_cost / total_km if total_km > 0 else 0
         
         # ─── Resale value ─────────────────────────────────────────
-        resale_value = adjusted_purchase_price - (annual_depreciation * request.loan_term_years)
+        total_depreciation = annual_depreciation * request.loan_term_years
+        resale_value = adjusted_purchase_price - total_depreciation
         resale_value = max(resale_value, adjusted_purchase_price * 0.15)  # Minimum 15% value
+        
+        # ─── Monthly breakdown ────────────────────────────────────
+        monthly_loan = monthly_payment
+        monthly_fuel = annual_fuel / 12
+        monthly_maintenance = annual_maintenance / 12
+        monthly_tyres = annual_tyres / 12
+        monthly_insurance = annual_insurance / 12
+        monthly_running_total = monthly_fuel + monthly_maintenance + monthly_tyres + monthly_insurance
         
         # ─── Components breakdown ──────────────────────────────────
         components = []
@@ -288,8 +302,18 @@ class OwnershipService:
             "monthly_payment": round(monthly_payment, 2),
             "total_interest": round(total_interest, 2),
             "cost_per_km": round(cost_per_km, 2),
-            "total_depreciation": round(annual_depreciation * request.loan_term_years, 2),
+            "total_depreciation": round(total_depreciation, 2),
             "resale_value": round(resale_value, 2),
+            
+            # Monthly Running Cost Breakdown
+            "monthly_breakdown": {
+                "loan_payment": round(monthly_loan, 2),
+                "fuel": round(monthly_fuel, 2),
+                "maintenance": round(monthly_maintenance, 2),
+                "tyres": round(monthly_tyres, 2),
+                "insurance": round(monthly_insurance, 2),
+                "total": round(monthly_running_total, 2)
+            },
             
             # Components
             "components": components,
@@ -317,7 +341,8 @@ class OwnershipService:
                 "fuel_type_display": fuel_type.capitalize(),
                 "vehicle_condition": request.vehicle_condition,
                 "purchase_type": request.purchase_type,
-                "vehicle_year": request.vehicle_year
+                "vehicle_year": request.vehicle_year,
+                "vehicle_type": request.vehicle_type
             },
             
             "currency": "KES",
@@ -427,7 +452,7 @@ class OwnershipService:
                 "fuel": round(yearly_fuel, 2),
                 "maintenance": round(yearly_maintenance, 2),
                 "tyres": round(yearly_tyres, 2),
-                "vehicle_value": round(current_value, 2)
+                "vehicle_value": round(max(current_value, 0), 2)
             })
         
         return breakdown
