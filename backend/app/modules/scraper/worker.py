@@ -7,45 +7,68 @@ import asyncio
 import logging
 import random
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Dict, Any, List
 
 from app.core.database import get_supabase
 
-from app.scrapers.jiji import JijiScraper
-from app.scrapers.cheki import ChekiScraper
-from app.scrapers.autochek import AutochekScraper
-from app.scrapers.beepbeep import BeepBeepScraper
+from app.modules.scraper.jiji import JijiScraper
+from app.modules.scraper.cheki import ChekiScraper
+from app.modules.scraper.autochek import AutochekScraper
+from app.modules.scraper.beepbeep import BeepBeepScraper
 
 
 logger = logging.getLogger(__name__)
 
 
 class ScraperWorker:
+    """
+    Runs scraper jobs and saves vehicle listings.
+    """
 
-    SOURCE_CACHE = {}
 
     def __init__(self):
 
         self.supabase = get_supabase()
 
         self.scrapers = {
-            "jiji": JijiScraper(),
-            "cheki": ChekiScraper(),
-            "autochek": AutochekScraper(),
-            "beepbeep": BeepBeepScraper(),
+
+            "jiji":
+                JijiScraper(),
+
+            "cheki":
+                ChekiScraper(),
+
+            "autochek":
+                AutochekScraper(),
+
+            "beepbeep":
+                BeepBeepScraper()
         }
+
 
         self.results = {}
 
+        self.source_cache = {}
+
+
 
     def get_sources(self) -> List[str]:
-        return list(self.scrapers.keys())
+
+        return list(
+            self.scrapers.keys()
+        )
 
 
-    async def get_source_id(self, source_name: str):
 
-        if source_name in self.SOURCE_CACHE:
-            return self.SOURCE_CACHE[source_name]
+    async def get_source_id(
+        self,
+        source_name: str
+    ):
+
+        if source_name in self.source_cache:
+
+            return self.source_cache[source_name]
+
 
         response = (
             self.supabase
@@ -56,57 +79,88 @@ class ScraperWorker:
             .execute()
         )
 
+
         if not response.data:
+
             raise Exception(
-                f"Source {source_name} not found"
+                f"Source not found: {source_name}"
             )
+
 
         source_id = response.data["id"]
 
-        self.SOURCE_CACHE[source_name] = source_id
+
+        self.source_cache[source_name] = source_id
+
 
         return source_id
 
 
 
-    async def get_make_id(self, make_name):
+    async def get_make_id(
+        self,
+        make_name
+    ):
 
         if not make_name:
+
             return None
 
-        result = (
+
+        response = (
             self.supabase
             .table("vehicle_makes")
             .select("id")
-            .ilike("name", make_name)
+            .ilike(
+                "name",
+                make_name
+            )
             .limit(1)
             .execute()
         )
 
-        if result.data:
-            return result.data[0]["id"]
+
+        if response.data:
+
+            return response.data[0]["id"]
+
 
         return None
 
 
 
-    async def get_model_id(self, model_name, make_id):
+    async def get_model_id(
+        self,
+        model_name,
+        make_id
+    ):
 
-        if not model_name:
+        if not model_name or not make_id:
+
             return None
 
-        result = (
+
+        response = (
             self.supabase
             .table("vehicle_models")
-            .select("make_id,id")
-            .ilike("name", model_name)
-            .eq("make_id", make_id)
+            .select("id")
+            .ilike(
+                "name",
+                model_name
+            )
+            .eq(
+                "make_id",
+                make_id
+            )
             .limit(1)
             .execute()
         )
 
-        if result.data:
-            return result.data[0]["id"]
+
+        if response.data:
+
+            return response.data[0]["id"]
+
 
         return None
 
@@ -116,11 +170,14 @@ class ScraperWorker:
         self,
         source,
         listing
-    ):
+    ) -> bool:
+
 
         try:
 
-            source_id = await self.get_source_id(source)
+            source_id = await self.get_source_id(
+                source
+            )
 
 
             make_id = await self.get_make_id(
@@ -134,30 +191,52 @@ class ScraperWorker:
             )
 
 
+            if not make_id:
+
+                logger.warning(
+                    f"Make not found: {listing.get('make')}"
+                )
+
+
             data = {
 
-                "source_id": source_id,
+                "source_id":
+                    source_id,
+
 
                 "listing_id":
-                    str(listing.get("id")),
+                    str(
+                        listing.get(
+                            "listing_id"
+                        )
+                    ),
+
 
                 "url":
-                    listing.get("url"),
+                    listing.get(
+                        "url"
+                    ),
 
 
                 "make_id":
                     make_id,
+
 
                 "model_id":
                     model_id,
 
 
                 "year":
-                    listing.get("year"),
+                    listing.get(
+                        "year"
+                    ),
 
 
                 "price":
-                    listing.get("price"),
+                    listing.get(
+                        "price"
+                    ),
+
 
                 "currency":
                     listing.get(
@@ -167,7 +246,9 @@ class ScraperWorker:
 
 
                 "mileage":
-                    listing.get("mileage"),
+                    listing.get(
+                        "mileage"
+                    ),
 
 
                 "engine_size":
@@ -229,28 +310,33 @@ class ScraperWorker:
                     .isoformat(),
 
 
-                "active": True
+                "active":
+                    True
+
             }
 
 
-            result = (
-                self.supabase
-                .table("market_listings")
-                .insert(data)
-                .execute()
-            )
+
+            self.supabase.table(
+                "market_listings"
+            ).insert(
+                data
+            ).execute()
+
 
 
             return True
 
 
+
         except Exception as e:
 
             logger.error(
-                f"Saving listing failed: {e}"
+                f"Save listing failed: {e}"
             )
 
             return False
+
 
 
 
@@ -258,24 +344,30 @@ class ScraperWorker:
         self,
         source: str,
         pages: int = 3,
-        limit_per_page: int = 20,
+        limit_per_page: int = 20
     ):
 
 
         if source not in self.scrapers:
 
             return {
-                "source": source,
-                "status": "failed",
+
+                "source":
+                    source,
+
+                "status":
+                    "failed",
+
                 "error":
-                "Source not found"
+                    "Unknown source"
             }
 
 
-        scraper = self.scrapers[source]
-
 
         try:
+
+            scraper = self.scrapers[source]
+
 
             result = await scraper.run(
                 pages=pages,
@@ -294,62 +386,135 @@ class ScraperWorker:
 
             for listing in listings:
 
-                success = await self.save_listing(
+                if await self.save_listing(
                     source,
                     listing
-                )
+                ):
 
-                if success:
                     saved += 1
 
 
 
-            self.results[source] = {
+            response = {
 
-                "last_run":
-                    datetime.utcnow()
-                    .isoformat(),
-
-                "saved":
-                    saved
-            }
+                "source":
+                    source,
 
 
+                "status":
+                    "success",
 
-            return {
-
-                "source": source,
-
-                "status": "success",
 
                 "listings_found":
                     len(listings),
 
+
                 "listings_saved":
                     saved,
 
-                "result":
-                    result
+
+                "completed_at":
+                    datetime.utcnow()
+                    .isoformat()
+
             }
+
+
+            self.results[source] = response
+
+
+            return response
 
 
 
         except Exception as e:
 
+
             logger.exception(
-                f"{source} scraper failed"
+                f"{source} failed"
             )
 
 
             return {
 
-                "source": source,
+                "source":
+                    source,
 
-                "status": "failed",
+                "status":
+                    "failed",
 
                 "error":
                     str(e)
+
             }
+
+
+
+
+    async def run_all(
+        self,
+        pages=3,
+        limit_per_page=20,
+        delay=2
+    ):
+
+
+        results = {}
+
+        total_found = 0
+
+        total_saved = 0
+
+
+
+        for source in self.scrapers:
+
+
+            result = await self.run_source(
+                source,
+                pages,
+                limit_per_page
+            )
+
+
+            results[source] = result
+
+
+
+            total_found += result.get(
+                "listings_found",
+                0
+            )
+
+
+            total_saved += result.get(
+                "listings_saved",
+                0
+            )
+
+
+
+            await asyncio.sleep(
+                delay + random.random()
+            )
+
+
+
+        return {
+
+            "total_found":
+                total_found,
+
+            "total_saved":
+                total_saved,
+
+            "sources":
+                results,
+
+            "completed_at":
+                datetime.utcnow()
+                .isoformat()
+        }
 
 
 
@@ -357,28 +522,16 @@ class ScraperWorker:
         self,
         source="all",
         pages=3,
-        limit_per_page=20,
-        delay=2
+        limit_per_page=20
     ):
+
 
         if source == "all":
 
-            results = {}
-
-            for src in self.scrapers:
-
-                results[src] = await self.run_source(
-                    src,
-                    pages,
-                    limit_per_page
-                )
-
-                await asyncio.sleep(
-                    delay + random.random()
-                )
-
-
-            return results
+            return await self.run_all(
+                pages,
+                limit_per_page
+            )
 
 
         return await self.run_source(
