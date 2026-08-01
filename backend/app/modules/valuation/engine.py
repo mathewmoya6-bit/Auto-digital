@@ -2,8 +2,6 @@
 # ================================================================
 # Auto-D Kenya - Valuation Engine
 # ================================================================
-# TYPE: MODULE - Vehicle valuation calculation engine
-# ================================================================
 
 import logging
 from datetime import datetime
@@ -19,14 +17,6 @@ logger = logging.getLogger(__name__)
 class ValuationEngine:
     """
     Vehicle valuation calculation engine.
-
-    Factors:
-    - Base market price
-    - Vehicle age depreciation
-    - Mileage adjustment
-    - Location factor
-    - Condition factor
-    - Accident history
     """
 
 
@@ -51,20 +41,14 @@ class ValuationEngine:
         if age <= 0:
             return 1.00
 
-        if age <= 1:
-            return 0.95
-
         if age <= 2:
             return 0.90
-
-        if age <= 3:
-            return 0.85
 
         if age <= 5:
             return 0.75
 
-        if age <= 7:
-            return 0.65
+        if age <= 8:
+            return 0.60
 
         if age <= 10:
             return 0.50
@@ -88,7 +72,7 @@ class ValuationEngine:
 
 
         if mileage <= 0:
-            return 1.00
+            return 1.0
 
 
         expected = max(
@@ -109,9 +93,6 @@ class ValuationEngine:
         if ratio <= 1:
             return 1.00
 
-        if ratio <= 1.25:
-            return 0.97
-
         if ratio <= 1.5:
             return 0.93
 
@@ -123,47 +104,35 @@ class ValuationEngine:
 
 
     # ============================================================
-    # LOCATION FACTOR
+    # FACTORS
     # ============================================================
 
     def get_location_factor(
         self,
         location: str
-    ) -> float:
+    ):
 
-
-        factors = {
+        return {
 
             "nairobi": 1.05,
             "mombasa": 1.02,
             "kisumu": 1.00,
             "nakuru": 1.00,
-            "eldoret": 1.00,
-            "kiambu": 1.02,
-            "thika": 1.00,
-            "other": 1.00
+            "eldoret": 1.00
 
-        }
-
-
-        return factors.get(
+        }.get(
             location.lower(),
             1.00
         )
 
 
 
-    # ============================================================
-    # CONDITION FACTOR
-    # ============================================================
-
     def get_condition_factor(
         self,
         condition: str
-    ) -> float:
+    ):
 
-
-        factors = {
+        return {
 
             "excellent": 1.10,
             "very_good": 1.05,
@@ -171,37 +140,26 @@ class ValuationEngine:
             "fair": 0.90,
             "poor": 0.75
 
-        }
-
-
-        return factors.get(
+        }.get(
             condition.lower(),
             1.00
         )
 
 
 
-    # ============================================================
-    # ACCIDENT FACTOR
-    # ============================================================
-
     def get_accident_factor(
         self,
         accident_history: str
-    ) -> float:
+    ):
 
-
-        factors = {
+        return {
 
             "none": 1.00,
             "minor": 0.92,
             "major": 0.80,
             "total_loss": 0.60
 
-        }
-
-
-        return factors.get(
+        }.get(
             accident_history.lower(),
             1.00
         )
@@ -218,9 +176,16 @@ class ValuationEngine:
     ) -> float:
 
 
+        default_price = getattr(
+            settings,
+            "DEFAULT_BASE_PRICE",
+            1000000
+        )
+
+
         try:
 
-            variant = (
+            response = (
 
                 self.supabase
                 .table("vehicle_variants")
@@ -234,9 +199,9 @@ class ValuationEngine:
             )
 
 
-            if variant.data:
+            if response.data:
 
-                price = variant.data[0].get(
+                price = response.data[0].get(
                     "base_price"
                 )
 
@@ -275,13 +240,11 @@ class ValuationEngine:
         except Exception as e:
 
             logger.error(
-                f"Base price error: {e}"
+                f"Base price lookup failed: {e}"
             )
 
 
-        return float(
-            settings.DEFAULT_BASE_PRICE
-        )
+        return float(default_price)
 
 
 
@@ -304,20 +267,8 @@ class ValuationEngine:
 
         try:
 
-
-            if year > datetime.now().year:
-
-                raise ValueError(
-                    "Invalid vehicle year"
-                )
-
-
-
-            # Use provided variant data first
-
-            if (
-                variant_data
-                and variant_data.get("base_price")
+            if variant_data and variant_data.get(
+                "base_price"
             ):
 
                 base_price = float(
@@ -334,7 +285,8 @@ class ValuationEngine:
 
             age = (
                 datetime.now().year
-                - year
+                -
+                year
             )
 
 
@@ -375,7 +327,7 @@ class ValuationEngine:
 
 
 
-            multiplier = (
+            final_factor = (
 
                 age_factor
                 *
@@ -394,38 +346,16 @@ class ValuationEngine:
             market_value = (
                 base_price
                 *
-                multiplier
-            )
-
-
-
-            confidence = 70
-
-
-            if variant_data:
-                confidence += 10
-
-            if base_price:
-                confidence += 10
-
-            if mileage:
-                confidence += 5
-
-
-            confidence = min(
-                confidence,
-                95
+                final_factor
             )
 
 
 
             return {
 
-                "variant_id":
-                    variant_id,
+                "variant_id": variant_id,
 
-                "currency":
-                    "KES",
+                "currency": "KES",
 
                 "market_value":
                     round(
@@ -452,7 +382,7 @@ class ValuationEngine:
                     ),
 
                 "confidence_score":
-                    float(confidence),
+                    85.0,
 
                 "base_price":
                     base_price,
@@ -478,7 +408,7 @@ class ValuationEngine:
         except Exception as e:
 
             logger.exception(
-                f"Valuation failed: {e}"
+                f"Valuation calculation failed: {e}"
             )
 
             raise
