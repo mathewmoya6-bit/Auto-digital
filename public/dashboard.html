@@ -333,6 +333,24 @@
         }
         .service-item .service-actions { display: flex; align-items: center; gap: 12px; }
 
+        /* ─── Admin Price Indicator ───────────────────────────── */
+        .price-source {
+            font-size: 9px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            display: block;
+            margin-top: 2px;
+        }
+        .price-source .admin-badge {
+            display: inline-block;
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--blue);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 8px;
+            margin-left: 4px;
+        }
+
         .payment-form .form-group { margin-bottom: 16px; }
         .payment-form label {
             display: block;
@@ -515,7 +533,7 @@
                 🚀 Your Services
                 <span class="badge">Access</span>
             </div>
-            <span style="font-size:12px;color:var(--text-muted);">Pay to unlock services</span>
+            <span style="font-size:12px;color:var(--text-muted);">Prices managed by Admin</span>
         </div>
 
         <!-- ─── Service Tabs ──────────────────────────────────────── -->
@@ -589,7 +607,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// AUTO-D KENYA DASHBOARD - SERVICE TABS v4.1
+// AUTO-D KENYA DASHBOARD - DYNAMIC PRICES FROM ADMIN v5.0
 // ═══════════════════════════════════════════════════════════════
 
 (function() {
@@ -635,13 +653,6 @@
         }
     };
 
-    // ─── SERVICE NAMES ───────────────────────────────────────────
-    const SERVICE_NAMES = {
-        'valuation': 'Vehicle Valuation',
-        'mileage': 'Mileage & Running Cost',
-        'ownership': 'Cost of Ownership'
-    };
-
     // ─── STATE ──────────────────────────────────────────────────
     let supabaseClient = null;
     let selectedService = null;
@@ -657,6 +668,7 @@
     let serviceAccess = {};
     let activeTab = 'valuation';
     let currentServices = [];
+    let servicePrices = {};
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const servicesEl = document.getElementById('services');
@@ -991,7 +1003,8 @@
         if (!service) return;
 
         const hasAccess = serviceAccess[serviceCode] === true;
-        const price = getServicePrice(serviceCode);
+        const price = servicePrices[serviceCode] || 500;
+        const priceSource = servicePrices[serviceCode] ? 'admin' : 'default';
 
         servicesEl.innerHTML = `
             <div class="service-item">
@@ -1001,6 +1014,10 @@
                     <div class="service-status ${hasAccess ? 'unlocked' : 'locked'}">
                         ${hasAccess ? '✅ Unlocked' : '🔒 Locked'}
                     </div>
+                    <span class="price-source">
+                        Price: KES ${price.toLocaleString()}
+                        <span class="admin-badge">${priceSource === 'admin' ? '📋 Admin Set' : 'Default'}</span>
+                    </span>
                 </div>
                 <div class="service-actions">
                     <div class="service-price">KES ${price.toLocaleString()}</div>
@@ -1017,9 +1034,31 @@
         `;
     }
 
-    function getServicePrice(serviceCode) {
-        const service = currentServices.find(s => s.code === serviceCode);
-        return service ? service.price : 500; // Default price if not found
+    // ─── LOAD SERVICE PRICES FROM ADMIN ──────────────────────
+    async function loadServicePrices() {
+        try {
+            // Get available services with prices from backend
+            const servicesData = await api('/mpesa/services');
+            currentServices = servicesData.services || [];
+            
+            // Extract prices into a lookup map
+            currentServices.forEach(service => {
+                servicePrices[service.code] = service.price || 500;
+            });
+            
+            console.log('📋 Service prices loaded from admin:', servicePrices);
+            
+            return servicePrices;
+        } catch (error) {
+            console.warn('Failed to load service prices, using defaults:', error);
+            // Fallback defaults if API fails
+            servicePrices = {
+                'valuation': 500,
+                'mileage': 500,
+                'ownership': 500
+            };
+            return servicePrices;
+        }
     }
 
     // ─── LOAD USER SERVICES ────────────────────────────────────
@@ -1027,13 +1066,12 @@
         try {
             servicesEl.innerHTML = `<span class="loading"><span class="spinner"></span> Loading your services...</span>`;
             
+            // Load prices from admin first
+            await loadServicePrices();
+            
             // Get user services from backend
             const data = await api('/mpesa/user/services');
             serviceAccess = data.services || {};
-            
-            // Also get available services for pricing
-            const servicesData = await api('/mpesa/services');
-            currentServices = servicesData.services || [];
             
             // Update tab badges
             updateTabBadges();
@@ -1067,9 +1105,10 @@
         
         if (!hasAccess) {
             showToast('🔒 Please pay to unlock this service', 'warning');
+            const price = servicePrices[serviceCode] || 500;
             const service = currentServices.find(s => s.code === serviceCode);
             if (service) {
-                window.selectService(serviceCode, service.name, service.price);
+                window.selectService(serviceCode, service.name, price);
             }
             return;
         }
@@ -1094,7 +1133,7 @@
     window.selectService = function(code, name, price) {
         selectedService = code;
         selectedServiceName = name;
-        selectedServicePrice = price;
+        selectedServicePrice = price || servicePrices[code] || 500;
         paymentCompleted = false;
 
         payBtn.disabled = false;
@@ -1357,7 +1396,7 @@
 
     // ─── INIT ──────────────────────────────────────────────────
     async function init() {
-        console.log('🚗 Auto-D Kenya Dashboard v4.1 - Service Tabs');
+        console.log('🚗 Auto-D Kenya Dashboard v5.0 - Dynamic Prices from Admin');
         console.log('📡 API Base:', CONFIG.API_BASE);
 
         initSupabase();
@@ -1419,6 +1458,7 @@
         loadDashboard,
         SERVICE_ROUTES,
         SERVICE_DETAILS,
+        servicePrices: () => servicePrices,
         CONFIG
     };
 
