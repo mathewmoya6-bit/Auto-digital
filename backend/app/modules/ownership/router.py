@@ -123,6 +123,16 @@ class TCORequest(BaseModel):
 
 # ─── Response Schemas ─────────────────────────────────────────
 
+class MonthlyBreakdown(BaseModel):
+    """Monthly running cost breakdown."""
+    loan_payment: float = Field(..., description="Monthly loan payment")
+    fuel: float = Field(..., description="Monthly fuel cost")
+    maintenance: float = Field(..., description="Monthly maintenance cost")
+    tyres: float = Field(..., description="Monthly tyre cost")
+    insurance: float = Field(..., description="Monthly insurance cost")
+    total: float = Field(..., description="Total monthly running cost")
+
+
 class TCOComponent(BaseModel):
     """Single cost component with percentage."""
     name: str = Field(..., description="Component name")
@@ -151,6 +161,21 @@ class VehicleDetails(BaseModel):
     vehicle_condition: str = Field(..., description="Vehicle condition: new or used")
     purchase_type: str = Field(..., description="Purchase type: cash or finance")
     vehicle_year: int = Field(..., description="Vehicle year")
+    vehicle_type: str = Field("ice", description="Vehicle type: ice, hybrid, ev")
+
+
+class YearlyBreakdownItem(BaseModel):
+    """Single year breakdown item."""
+    year: int = Field(..., description="Year number")
+    total_cost: float = Field(..., description="Total cost for the year")
+    depreciation: float = Field(..., description="Depreciation for the year")
+    running_cost: float = Field(..., description="Running cost for the year")
+    insurance: float = Field(..., description="Insurance cost for the year")
+    loan_payment: float = Field(..., description="Loan payment for the year")
+    fuel: float = Field(..., description="Fuel cost for the year")
+    maintenance: float = Field(..., description="Maintenance cost for the year")
+    tyres: float = Field(..., description="Tyre cost for the year")
+    vehicle_value: float = Field(..., description="Vehicle value at year end")
 
 
 class TCOResponse(BaseModel):
@@ -165,11 +190,14 @@ class TCOResponse(BaseModel):
     total_depreciation: float = Field(..., description="Total depreciation over period")
     resale_value: float = Field(..., description="Estimated resale value")
     
+    # ─── Monthly Breakdown ────────────────────────────────────
+    monthly_breakdown: MonthlyBreakdown = Field(..., description="Monthly running cost breakdown")
+    
     # ─── Components ───────────────────────────────────────────
     components: List[TCOComponent] = Field(..., description="Cost components breakdown")
     
     # ─── Yearly Breakdown ─────────────────────────────────────
-    yearly_breakdown: List[dict] = Field(..., description="Year-by-year cost breakdown")
+    yearly_breakdown: List[YearlyBreakdownItem] = Field(..., description="Year-by-year cost breakdown")
     
     # ─── Loan Details ─────────────────────────────────────────
     loan_details: LoanDetails = Field(..., description="Loan calculation details")
@@ -192,6 +220,57 @@ class HealthResponse(BaseModel):
     timestamp: str = Field(..., description="ISO timestamp")
 
 
+# ─── Fuel Types Response ─────────────────────────────────────
+
+class FuelTypeItem(BaseModel):
+    """Fuel type item."""
+    value: str = Field(..., description="Fuel type value")
+    label: str = Field(..., description="Fuel type display label")
+    price: float = Field(..., description="Default price in KES per litre")
+    description: str = Field(..., description="Fuel type description")
+
+
+class FuelTypesResponse(BaseModel):
+    """Fuel types response."""
+    fuel_types: List[FuelTypeItem] = Field(..., description="List of fuel types")
+
+
+# ─── Vehicle Conditions Response ─────────────────────────────
+
+class VehicleConditionItem(BaseModel):
+    """Vehicle condition item."""
+    value: str = Field(..., description="Condition value")
+    label: str = Field(..., description="Condition display label")
+    factor: float = Field(..., description="Price adjustment factor")
+    description: str = Field(..., description="Condition description")
+
+
+class VehicleConditionsResponse(BaseModel):
+    """Vehicle conditions response."""
+    conditions: List[VehicleConditionItem] = Field(..., description="List of vehicle conditions")
+
+
+# ─── Purchase Types Response ─────────────────────────────────
+
+class PurchaseTypeItem(BaseModel):
+    """Purchase type item."""
+    value: str = Field(..., description="Purchase type value")
+    label: str = Field(..., description="Purchase type display label")
+    description: str = Field(..., description="Purchase type description")
+
+
+class PurchaseTypesResponse(BaseModel):
+    """Purchase types response."""
+    purchase_types: List[PurchaseTypeItem] = Field(..., description="List of purchase types")
+
+
+# ─── Defaults Response ───────────────────────────────────────
+
+class DefaultsResponse(BaseModel):
+    """Default values for TCO calculator."""
+    defaults: Dict[str, Any] = Field(..., description="Default values")
+
+
 # ============================================================
 # ROUTES
 # ============================================================
@@ -208,6 +287,7 @@ async def calculate_tco(
     
     Returns a comprehensive TCO report including:
     - Total cost, monthly cost, and loan details
+    - Monthly running cost breakdown
     - Cost component breakdown with percentages
     - Year-by-year cost projection
     - Vehicle details and metadata
@@ -293,7 +373,7 @@ async def health():
     }
 
 
-@router.get("/fuel-types")
+@router.get("/fuel-types", response_model=FuelTypesResponse)
 async def get_fuel_types():
     """
     Get available fuel types with prices and descriptions.
@@ -312,7 +392,7 @@ async def get_fuel_types():
     }
 
 
-@router.get("/vehicle-conditions")
+@router.get("/vehicle-conditions", response_model=VehicleConditionsResponse)
 async def get_vehicle_conditions():
     """
     Get available vehicle conditions.
@@ -327,7 +407,7 @@ async def get_vehicle_conditions():
     }
 
 
-@router.get("/purchase-types")
+@router.get("/purchase-types", response_model=PurchaseTypesResponse)
 async def get_purchase_types():
     """
     Get available purchase types.
@@ -342,7 +422,7 @@ async def get_purchase_types():
     }
 
 
-@router.get("/defaults")
+@router.get("/defaults", response_model=DefaultsResponse)
 async def get_defaults():
     """
     Get default values for the TCO calculator.
