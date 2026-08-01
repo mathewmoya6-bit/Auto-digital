@@ -7,8 +7,8 @@ import asyncio
 import logging
 import random
 from datetime import datetime
-from typing import Dict, Any
-from urllib.parse import urljoin
+from typing import Dict, Any, List
+from urllib.parse import urljoin, urlparse
 
 from app.modules.scraper.base_scraper import BaseScraper
 
@@ -21,6 +21,7 @@ class JijiScraper(BaseScraper):
     Scraper for Jiji Kenya vehicle listings.
     """
 
+
     def __init__(self):
 
         super().__init__(
@@ -31,6 +32,7 @@ class JijiScraper(BaseScraper):
         self.search_url = (
             "https://jiji.co.ke/cars"
         )
+
 
 
     async def scrape(
@@ -61,47 +63,32 @@ class JijiScraper(BaseScraper):
 
                 if not soup:
 
+                    logger.warning(
+                        "Empty Jiji response"
+                    )
+
                     continue
 
 
 
-                urls = []
-
-
-                links = soup.select(
-                    "a[data-testid='ad-link']"
+                logger.info(
+                    f"Jiji HTML size: {len(str(soup))}"
                 )
 
 
-                for link in links:
 
-                    href = link.get(
-                        "href"
-                    )
-
-
-                    if href:
-
-                        url = urljoin(
-                            self.base_url,
-                            href
-                        )
-
-
-                        if url not in urls:
-
-                            urls.append(url)
-
+                urls = self._extract_listing_urls(
+                    soup
+                )
 
 
                 logger.info(
-                    f"Found {len(urls)} Jiji links"
+                    f"Jiji URLs found: {len(urls)}"
                 )
 
 
 
                 for url in urls[:limit_per_page]:
-
 
                     listing = await self._parse_listing(
                         url
@@ -135,15 +122,17 @@ class JijiScraper(BaseScraper):
 
             except Exception as e:
 
-                logger.error(
-                    f"Jiji page error: {e}"
+                logger.exception(
+                    f"Jiji page {page} failed"
                 )
 
 
 
         return {
 
-            "listings": listings,
+            "listings":
+                listings,
+
 
             "stats": {
 
@@ -153,13 +142,67 @@ class JijiScraper(BaseScraper):
                 "successful":
                     len(listings),
 
-                "failed": 0
+                "failed":
+                    0
+
             },
+
 
             "completed_at":
                 datetime.utcnow()
                 .isoformat()
+
         }
+
+
+
+    def _extract_listing_urls(
+        self,
+        soup
+    ) -> List[str]:
+
+        urls = []
+
+
+        for link in soup.find_all(
+            "a",
+            href=True
+        ):
+
+            href = link.get(
+                "href"
+            )
+
+
+            if not href:
+
+                continue
+
+
+
+            if (
+                "/cars/" in href
+                or "/vehicle/" in href
+                or "/ad/" in href
+            ):
+
+
+                url = urljoin(
+                    self.base_url,
+                    href
+                )
+
+
+                if url not in urls:
+
+                    urls.append(
+                        url
+                    )
+
+
+
+        return urls
+
 
 
 
@@ -183,198 +226,130 @@ class JijiScraper(BaseScraper):
 
             title = ""
 
-            title_element = soup.select_one(
-                "h1[data-testid='ad-title']"
+            title_tag = soup.find(
+                "h1"
             )
 
 
-            if title_element:
+            if title_tag:
 
-                title = title_element.get_text(
+                title = title_tag.get_text(
                     strip=True
                 )
 
 
 
-            price = None
-
-            price_element = soup.select_one(
-                "span[data-testid='ad-price']"
+            page_text = soup.get_text(
+                " ",
+                strip=True
             )
-
-
-            if price_element:
-
-                price = self._parse_price(
-                    price_element.get_text(
-                        strip=True
-                    )
-                )
-
-
-
-            details = {}
-
-
-            attributes = soup.select(
-                "div[data-testid='ad-attributes'] div"
-            )
-
-
-            for item in attributes:
-
-                label = item.select_one(
-                    "span[data-testid='attribute-label']"
-                )
-
-                value = item.select_one(
-                    "span[data-testid='attribute-value']"
-                )
-
-
-                if label and value:
-
-                    key = label.get_text(
-                        strip=True
-                    ).lower()
-
-
-                    val = value.get_text(
-                        strip=True
-                    )
-
-
-                    details[key] = val
 
 
 
             listing_id = (
-                url.rstrip("/")
+                urlparse(url)
+                .path
+                .rstrip("/")
                 .split("/")
                 [-1]
             )
-
-
-            image = soup.select_one(
-                "img[data-testid='ad-image']"
-            )
-
-
-            image_url = None
-
-            if image:
-
-                image_url = image.get(
-                    "src"
-                )
 
 
 
             return {
 
                 "listing_id":
+
                     listing_id,
 
 
-                "title":
-                    title,
-
-
                 "url":
+
                     url,
 
 
+                "title":
+
+                    title,
+
+
                 "price":
-                    price,
+
+                    self._parse_price(
+                        page_text
+                    ),
 
 
                 "currency":
+
                     "KES",
 
 
                 "make":
-                    details.get(
-                        "make",
-                        ""
-                    ),
+
+                    "",
 
 
                 "model":
-                    details.get(
-                        "model",
-                        ""
-                    ),
+
+                    "",
 
 
                 "year":
+
                     self._parse_year(
-                        details.get(
-                            "year",
-                            ""
-                        )
+                        page_text
                     ),
 
 
                 "mileage":
+
                     self._parse_mileage(
-                        details.get(
-                            "mileage",
-                            ""
-                        )
+                        page_text
                     ),
 
 
                 "engine_size":
+
                     self._parse_engine_size(
-                        details.get(
-                            "engine",
-                            ""
-                        )
+                        page_text
                     ),
 
 
                 "fuel_type":
-                    details.get(
-                        "fuel type",
-                        ""
-                    ),
 
-
-                "transmission":
-                    details.get(
-                        "transmission",
-                        ""
-                    ),
-
-
-                "body_type":
-                    details.get(
-                        "body type",
-                        ""
-                    ),
-
-
-                "location":
-                    details.get(
-                        "location",
-                        ""
-                    ),
-
-
-                "seller_name":
                     "",
 
 
+                "transmission":
+
+                    "",
+
+
+                "body_type":
+
+                    "",
+
+
+                "location":
+
+                    "Kenya",
+
+
+                "seller_name":
+
+                    "Jiji",
+
+
                 "seller_type":
+
                     "Dealer",
 
 
                 "condition":
-                    "Used",
 
+                    "Used"
 
-                "image_url":
-                    image_url
             }
 
 
@@ -382,7 +357,7 @@ class JijiScraper(BaseScraper):
         except Exception as e:
 
             logger.error(
-                f"Jiji parse error {url}: {e}"
+                f"Jiji parse error: {e}"
             )
 
             return {}
