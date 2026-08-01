@@ -1243,7 +1243,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> AI Valuation · Real-time Market Data<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.5
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.6
             </div>
         </footer>
     </div>
@@ -1251,7 +1251,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK
-        // Version 4.5 - Fixed: Correct view name and API endpoint
+        // Version 4.6 - Fixed: duplicated /mpesa/mpesa/ path segment
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1467,7 +1467,9 @@
                 
                 if (response.status === 401) {
                     try {
-                        const { data, error } = await supabaseClient.auth.getSession();
+                        // Force an actual token refresh rather than just re-reading the cached
+                        // session — getSession() alone does not renew an expired token.
+                        const { data, error } = await supabaseClient.auth.refreshSession();
                         if (!error && data.session) {
                             setTokens(data.session);
                             headers['Authorization'] = `Bearer ${data.session.access_token}`;
@@ -1613,7 +1615,9 @@
                 }
 
                 try {
-                    const response = await apiRequest('/mpesa/mpesa/user/services');
+                    // Fixed: was '/mpesa/mpesa/user/services' (duplicated segment, 404'd against
+                    // the real route GET /api/v1/mpesa/user/services)
+                    const response = await apiRequest('/mpesa/user/services');
                     if (!response.ok) {
                         throw new Error(`HTTP ${response.status}`);
                     }
@@ -1662,7 +1666,8 @@
                 try {
                     showToast('🔄 Initiating M-Pesa payment...', 'info');
 
-                    const response = await apiRequest('/mpesa/mpesa/stkpush', {
+                    // Fixed: was '/mpesa/mpesa/stkpush' -> real route is POST /api/v1/mpesa/stkpush
+                    const response = await apiRequest('/mpesa/stkpush', {
                         method: 'POST',
                         body: JSON.stringify({
                             phone: phone,
@@ -1698,7 +1703,9 @@
                     const interval = setInterval(async () => {
                         attempts++;
                         try {
-                            const statusResponse = await apiRequest(`/mpesa/mpesa/status/${encodeURIComponent(checkoutId)}`);
+                            // Fixed: was '/mpesa/mpesa/status/{id}' -> real route is
+                            // GET /api/v1/mpesa/status/{checkout_request_id}
+                            const statusResponse = await apiRequest(`/mpesa/status/${encodeURIComponent(checkoutId)}`);
                             if (statusResponse.ok) {
                                 const statusData = await statusResponse.json();
                                 const normalized = (statusData.status || '').toString().toLowerCase();
@@ -1731,7 +1738,9 @@
 
             async function confirmPayment(checkoutId) {
                 try {
-                    const response = await apiRequest(`/mpesa/mpesa/confirm/${encodeURIComponent(checkoutId)}`, {
+                    // Fixed: was '/mpesa/mpesa/confirm/{id}' -> real route is
+                    // POST /api/v1/mpesa/confirm/{checkout_request_id}
+                    const response = await apiRequest(`/mpesa/confirm/${encodeURIComponent(checkoutId)}`, {
                         method: 'POST'
                     });
                     const data = await response.json().catch(() => ({}));
@@ -2268,7 +2277,8 @@
                     images: images.length > 0 ? images : undefined
                 };
 
-                // CORRECT ENDPOINT: /api/v1/valuation/calculate
+                // Correct endpoint, confirmed against the live OpenAPI schema:
+                // POST /api/v1/valuation/calculate
                 const url = `${CONFIG.API_BASE}/valuation/calculate`;
                 console.log('📤 Valuation Request URL:', url);
                 console.log('📦 Payload:', JSON.stringify(payload, null, 2));
@@ -2276,7 +2286,9 @@
                 const response = await apiRequest('/valuation/calculate', {
                     method: 'POST',
                     body: JSON.stringify(payload),
-                    signal: AbortSignal.timeout(15000)
+                    // Bumped from 15s to 45s: Render free-tier services cold-start after
+                    // idle and the first request after a spin-down can take 20-50s to wake.
+                    signal: AbortSignal.timeout(45000)
                 });
 
                 if (!response.ok) {
