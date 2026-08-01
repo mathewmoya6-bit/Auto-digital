@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Auto-D Kenya - Total Cost of Ownership Calculator</title>
+    <meta name="description" content="Calculate the true multi-year cost of owning any car in Kenya — financing, depreciation, insurance, fuel, maintenance and tyres, all in one report." />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E%F0%9F%9A%97%3C/text%3E%3C/svg%3E">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,6 +21,9 @@
             --text-secondary: #cbd5e1;
             --text-muted: #64748b;
             --border: rgba(255, 255, 255, 0.06);
+            --danger: #ef4444;
+            --success: #22c55e;
+            --info: #3b82f6;
             --font-heading: 'Space Grotesk', sans-serif;
             --font-body: 'Inter', sans-serif;
             --font-mono: 'JetBrains Mono', monospace;
@@ -39,6 +43,23 @@
             color: var(--text-primary);
             min-height: 100vh;
             line-height: 1.6;
+        }
+
+        /* Visible keyboard focus everywhere */
+        a:focus-visible,
+        button:focus-visible,
+        select:focus-visible,
+        input:focus-visible {
+            outline: 2px solid var(--amber);
+            outline-offset: 2px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
         }
 
         /* Scrollbar */
@@ -117,7 +138,16 @@
             color: #ef4444;
         }
 
-        .dashboard-link {
+        .header-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .dashboard-link,
+        .print-btn {
             display: inline-flex;
             align-items: center;
             gap: 8px;
@@ -130,14 +160,20 @@
             font-size: 13px;
             font-weight: 600;
             text-decoration: none;
+            cursor: pointer;
             transition: all 0.3s ease;
-            margin-top: 8px;
         }
-        .dashboard-link:hover {
+        .dashboard-link:hover,
+        .print-btn:hover:not(:disabled) {
             background: rgba(234, 179, 8, 0.2);
             border-color: var(--amber);
             transform: translateY(-2px);
             box-shadow: 0 4px 20px rgba(234, 179, 8, 0.15);
+        }
+        .print-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none !important;
         }
         .dashboard-link .arrow {
             font-size: 16px;
@@ -288,6 +324,11 @@
         .form-group {
             margin-bottom: 12px;
         }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
         .form-group label {
             display: block;
             font-size: 9px;
@@ -296,6 +337,23 @@
             font-family: var(--font-mono);
             letter-spacing: 0.04em;
             text-transform: uppercase;
+        }
+        .form-group .hint {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 3px;
+            display: block;
+        }
+        .form-group .field-error {
+            font-size: 10px;
+            color: var(--danger);
+            margin-top: 3px;
+            display: none;
+        }
+        .form-group.has-error .field-error { display: block; }
+        .form-group.has-error select,
+        .form-group.has-error input {
+            border-color: var(--danger);
         }
         .form-group select,
         .form-group input[type="number"],
@@ -373,6 +431,11 @@
             border-color: rgba(234, 179, 8, 0.4);
             color: var(--amber);
         }
+        .toggle-btn:not(.active) {
+            text-decoration: line-through;
+            opacity: 0.6;
+        }
+        .toggle-btn[aria-pressed="true"] { }
 
         /* ─── Calculate Button ──────────────────────────────── */
         .calc-btn {
@@ -612,6 +675,33 @@
             font-size: 11px;
         }
 
+        /* ─── Empty State ─────────────────────────────────────── */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 60px 24px;
+            color: var(--text-muted);
+        }
+        .empty-state .icon {
+            font-size: 34px;
+            margin-bottom: 12px;
+            opacity: 0.6;
+        }
+        .empty-state .title {
+            font-family: var(--font-heading);
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        .empty-state .desc {
+            font-size: 12px;
+            max-width: 320px;
+        }
+
         /* ─── Toast ──────────────────────────────────────────── */
         .toast {
             position: fixed;
@@ -704,28 +794,35 @@
             .header-left h1 {
                 font-size: 22px;
             }
+            .header-actions { justify-content: flex-start; }
             .stats-grid {
                 grid-template-columns: 1fr 1fr;
             }
+            .form-row { grid-template-columns: 1fr; }
         }
 
         @media print {
             .calculator-panel,
             .dashboard-link,
-            .loading-overlay {
+            .print-btn,
+            .loading-overlay,
+            .toast {
                 display: none !important;
             }
+            body { background: #fff; color: #111; }
             .result-card {
                 break-inside: avoid;
-                border: 1px solid #333;
+                border: 1px solid #ccc;
+                background: #fff;
             }
+            .main-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
 
     <!-- ─── Loading Overlay ──────────────────────────────────── -->
-    <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-overlay" id="loadingOverlay" role="status" aria-live="polite">
         <div class="spinner-large"></div>
         <div class="loading-text">Loading Vehicle Data...</div>
     </div>
@@ -744,9 +841,12 @@
                 </a>
             </div>
             <div class="header-right">
-                <div>Version <span style="color:var(--amber);">v7.0</span></div>
+                <div>Version <span style="color:var(--amber);">v8.0</span></div>
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus">🔓 Not Authenticated</span>
+                </div>
+                <div class="header-actions">
+                    <button type="button" class="print-btn" id="printBtn" disabled>🖨️ Print / Save PDF</button>
                 </div>
             </div>
         </header>
@@ -755,7 +855,7 @@
         <div class="main-grid">
 
             <!-- ─── Calculator Panel ──────────────────────────── -->
-            <section class="calculator-panel">
+            <section class="calculator-panel" aria-label="TCO calculator inputs">
 
                 <!-- Authentication -->
                 <div class="panel-label"><span class="num">🔐</span> Authentication</div>
@@ -766,8 +866,8 @@
                         <button id="btnSignOut" style="display:none;">🚪 Sign Out</button>
                     </div>
                     <div id="authForms">
-                        <input type="email" id="authEmail" placeholder="Email" />
-                        <input type="password" id="authPassword" placeholder="Password" />
+                        <input type="email" id="authEmail" placeholder="Email" autocomplete="email" />
+                        <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password" />
                         <div class="auth-form-actions">
                             <button class="primary" id="btnLogin">Login</button>
                             <button id="btnSignup">Sign Up</button>
@@ -777,7 +877,7 @@
                 </div>
 
                 <!-- Status -->
-                <div id="statusMessage" class="status-message info">
+                <div id="statusMessage" class="status-message info" role="status" aria-live="polite">
                     <span>⏳</span>
                     <span id="statusMessageText">Loading categories...</span>
                 </div>
@@ -821,17 +921,24 @@
                     <select id="variantSelect" disabled><option value="">Select a generation first</option></select>
                 </div>
 
+                <div class="form-group" id="regYearGroup">
+                    <label for="registrationYear">Year of Registration</label>
+                    <select id="registrationYear" disabled></select>
+                    <span class="hint" id="vehicleAgeHint">Determines the vehicle's current age for depreciation.</span>
+                </div>
+
                 <!-- Financial Inputs -->
                 <div class="panel-label"><span class="num">02</span> Financial Details</div>
 
                 <div class="form-group">
                     <label for="purchasePrice">Purchase Price (KES)</label>
-                    <input type="number" id="purchasePrice" value="4500000" min="100000" step="10000" />
+                    <input type="number" id="purchasePrice" value="4500000" min="100000" step="10000" inputmode="numeric" />
                 </div>
 
-                <div class="form-group">
+                <div class="form-group" id="downPaymentGroup">
                     <label for="downPayment">Down Payment (KES)</label>
-                    <input type="number" id="downPayment" value="1000000" min="0" step="10000" />
+                    <input type="number" id="downPayment" value="1000000" min="0" step="10000" inputmode="numeric" />
+                    <span class="field-error" id="downPaymentError">Down payment can't exceed the purchase price.</span>
                 </div>
 
                 <div class="form-group">
@@ -844,6 +951,12 @@
                     <input type="range" id="interestRateRange" min="5" max="28" step="0.5" value="14" />
                 </div>
 
+                <div class="form-group" id="ownershipPeriodGroup">
+                    <label>Ownership Period <span class="range-value" id="valOwnershipPeriod">5 years</span></label>
+                    <input type="range" id="ownershipPeriodRange" min="1" max="10" step="1" value="5" />
+                    <span class="hint">How many years you plan to keep the vehicle — can be longer or shorter than the loan term.</span>
+                </div>
+
                 <!-- Usage Profile -->
                 <div class="panel-label"><span class="num">03</span> Usage Profile</div>
 
@@ -854,7 +967,7 @@
 
                 <div class="form-group">
                     <label for="fuelPriceInput">Fuel Price (KES/L)</label>
-                    <input type="number" id="fuelPriceInput" value="200" min="50" step="5" />
+                    <input type="number" id="fuelPriceInput" value="200" min="0" step="5" inputmode="numeric" />
                 </div>
 
                 <div class="form-group">
@@ -875,11 +988,11 @@
                 <!-- Toggles -->
                 <div class="form-group">
                     <label>Include Components</label>
-                    <div class="toggle-group">
-                        <button type="button" class="toggle-btn active" id="btnDepreciation">📉 Depreciation</button>
-                        <button type="button" class="toggle-btn active" id="btnInsurance">🛡️ Insurance</button>
-                        <button type="button" class="toggle-btn active" id="btnMaintenance">🔧 Maintenance</button>
-                        <button type="button" class="toggle-btn active" id="btnTyres">🔄 Tyres</button>
+                    <div class="toggle-group" role="group" aria-label="Cost components to include">
+                        <button type="button" class="toggle-btn active" id="btnDepreciation" aria-pressed="true">📉 Depreciation</button>
+                        <button type="button" class="toggle-btn active" id="btnInsurance" aria-pressed="true">🛡️ Insurance</button>
+                        <button type="button" class="toggle-btn active" id="btnMaintenance" aria-pressed="true">🔧 Maintenance</button>
+                        <button type="button" class="toggle-btn active" id="btnTyres" aria-pressed="true">🔄 Tyres</button>
                     </div>
                 </div>
 
@@ -910,6 +1023,7 @@
                         <span class="pill" id="transmissionPill">—</span>
                         <span class="pill" id="engineCCDisplay">—</span>
                         <span class="pill" id="bodyTypePill">—</span>
+                        <span class="pill highlight" id="agePill" style="display:none;">—</span>
                     </div>
                     <div id="vehicleExtraSpecs" style="margin-top:6px;font-size:11px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:4px 16px;"></div>
                 </div>
@@ -928,7 +1042,13 @@
                 <!-- Cost Components -->
                 <div class="result-card">
                     <div class="card-title">📊 Cost Components</div>
-                    <div id="componentsList">No data yet</div>
+                    <div id="componentsList">
+                        <div class="empty-state">
+                            <div class="icon">📊</div>
+                            <div class="title">No results yet</div>
+                            <div class="desc">Pick a vehicle and financial details on the left, then calculate to see the cost breakdown here.</div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Year-by-Year -->
@@ -965,6 +1085,7 @@
             let supabaseClient = null;
             let isAuthenticated = false;
             let currentUser = null;
+            let lastResult = null;
 
             // ─── Toggle States ────────────────────────────────────
             let includeDepreciation = true;
@@ -979,10 +1100,14 @@
                 modelSelect: document.getElementById('modelSelect'),
                 generationSelect: document.getElementById('generationSelect'),
                 variantSelect: document.getElementById('variantSelect'),
+                registrationYear: document.getElementById('registrationYear'),
+                vehicleAgeHint: document.getElementById('vehicleAgeHint'),
                 purchasePrice: document.getElementById('purchasePrice'),
                 downPayment: document.getElementById('downPayment'),
+                downPaymentGroup: document.getElementById('downPaymentGroup'),
                 loanTermRange: document.getElementById('loanTermRange'),
                 interestRateRange: document.getElementById('interestRateRange'),
+                ownershipPeriodRange: document.getElementById('ownershipPeriodRange'),
                 mileageRange: document.getElementById('mileageRange'),
                 fuelPriceInput: document.getElementById('fuelPriceInput'),
                 insuranceRange: document.getElementById('insuranceRange'),
@@ -990,6 +1115,7 @@
                 tyreRange: document.getElementById('tyreRange'),
                 valLoanTerm: document.getElementById('valLoanTerm'),
                 valInterestRate: document.getElementById('valInterestRate'),
+                valOwnershipPeriod: document.getElementById('valOwnershipPeriod'),
                 valMileage: document.getElementById('valMileage'),
                 valInsuranceRate: document.getElementById('valInsuranceRate'),
                 valMaintenance: document.getElementById('valMaintenance'),
@@ -999,11 +1125,13 @@
                 btnMaintenance: document.getElementById('btnMaintenance'),
                 btnTyres: document.getElementById('btnTyres'),
                 calculateBtn: document.getElementById('calculateBtn'),
+                printBtn: document.getElementById('printBtn'),
                 vehicleLabel: document.getElementById('vehicleLabel'),
                 fuelPill: document.getElementById('fuelPill'),
                 transmissionPill: document.getElementById('transmissionPill'),
                 engineCCDisplay: document.getElementById('engineCCDisplay'),
                 bodyTypePill: document.getElementById('bodyTypePill'),
+                agePill: document.getElementById('agePill'),
                 vehicleSpecs: document.getElementById('vehicleSpecs'),
                 vehicleExtraSpecs: document.getElementById('vehicleExtraSpecs'),
                 outTotal: document.getElementById('outTotal'),
@@ -1046,11 +1174,13 @@
                 return 'KES ' + Math.round(v).toLocaleString('en-KE');
             }
 
-            function fmtCompact(v) {
-                if (v === undefined || v === null || isNaN(v)) return '0';
-                if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
-                if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
-                return v.toFixed(0);
+            // Escape any value before it is inserted via innerHTML, so vehicle
+            // data or API text can never execute as markup (XSS hardening).
+            function escapeHtml(value) {
+                const str = value === undefined || value === null ? '' : String(value);
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
             }
 
             function showToast(message, type = 'info') {
@@ -1098,6 +1228,40 @@
                     return `${cleanMake} ${cleanVariant}`.trim();
                 }
                 return `${cleanMake} ${cleanModel} ${cleanVariant}`.trim();
+            }
+
+            // ─── Registration year (drives vehicle age for depreciation) ──
+            function populateRegistrationYears() {
+                const currentYear = new Date().getFullYear();
+                const select = el.registrationYear;
+                select.innerHTML = '';
+                for (let y = currentYear; y >= currentYear - 25; y--) {
+                    const opt = document.createElement('option');
+                    opt.value = y;
+                    opt.textContent = y === currentYear ? `${y} (Brand new)` : String(y);
+                    select.appendChild(opt);
+                }
+                // Default to a 3-year-old vehicle, a common used-import age in Kenya
+                select.value = currentYear - 3;
+                updateAgeHint();
+            }
+
+            function getVehicleAge() {
+                const currentYear = new Date().getFullYear();
+                const regYear = parseInt(el.registrationYear.value, 10);
+                if (isNaN(regYear)) return 0;
+                return Math.max(0, currentYear - regYear);
+            }
+
+            function updateAgeHint() {
+                const age = getVehicleAge();
+                el.vehicleAgeHint.textContent = age === 0
+                    ? 'Brand new — no age-based depreciation bracket applies yet.'
+                    : `Vehicle age: ${age} year${age === 1 ? '' : 's'}. This sets the KRA-style depreciation bracket used.`;
+                if (el.agePill) {
+                    el.agePill.style.display = 'inline-block';
+                    el.agePill.textContent = age === 0 ? 'Brand new' : `${age} yr${age === 1 ? '' : 's'} old`;
+                }
             }
 
             // ─── Supabase ─────────────────────────────────────────
@@ -1211,10 +1375,10 @@
             }
 
             function enableControls() {
-                document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach(el => {
-                    if (el.id !== 'makeSelect' && el.id !== 'modelSelect' &&
-                        el.id !== 'generationSelect' && el.id !== 'variantSelect') {
-                        el.disabled = false;
+                document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach(node => {
+                    if (node.id !== 'makeSelect' && node.id !== 'modelSelect' &&
+                        node.id !== 'generationSelect' && node.id !== 'variantSelect') {
+                        node.disabled = false;
                     }
                 });
                 if (el.categorySelect.value) el.makeSelect.disabled = false;
@@ -1225,8 +1389,8 @@
             }
 
             function disableControls() {
-                document.querySelectorAll('.calculator-panel select, .calculator-panel input, .calc-btn').forEach(el => {
-                    el.disabled = true;
+                document.querySelectorAll('.calculator-panel select, .calculator-panel input, .calc-btn').forEach(node => {
+                    node.disabled = true;
                 });
                 el.calculateBtn.disabled = true;
             }
@@ -1526,6 +1690,7 @@
                 const engineCC = variant.engine_size_cc || null;
                 el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
                 el.bodyTypePill.textContent = variant.body_type_name || variant.model_body_type || '—';
+                updateAgeHint();
 
                 const extraSpecs = [
                     { label: 'Trim', value: variant.trim_level || 'Standard' },
@@ -1537,13 +1702,15 @@
                     { label: 'Drive', value: variant.drive_type_name || '—' },
                 ];
 
+                // All values escaped before entering innerHTML — vehicle data
+                // ultimately comes from the shared database, not the client.
                 el.vehicleExtraSpecs.innerHTML = extraSpecs
                     .filter(s => s.value && s.value !== '—' && s.value !== '0' && s.value !== '0 HP')
                     .map(s =>
-                        `<span><span style="color:var(--text-muted);">${s.label}:</span> <span style="color:var(--text-secondary);">${s.value}</span></span>`
+                        `<span><span style="color:var(--text-muted);">${escapeHtml(s.label)}:</span> <span style="color:var(--text-secondary);">${escapeHtml(s.value)}</span></span>`
                     ).join('');
 
-                // Update fuel price default if fuel type is diesel
+                // Update fuel price default if fuel type is diesel/electric
                 if (variant.fuel_type_name && variant.fuel_type_name.toLowerCase().includes('diesel')) {
                     el.fuelPriceInput.value = 190;
                 } else if (variant.fuel_type_name && variant.fuel_type_name.toLowerCase().includes('electric')) {
@@ -1553,14 +1720,33 @@
                 }
             }
 
+            // ─── Validation ────────────────────────────────────────
+            function validateForm() {
+                let valid = true;
+
+                const price = num(el.purchasePrice.value);
+                const down = num(el.downPayment.value);
+                if (down > price) {
+                    el.downPaymentGroup.classList.add('has-error');
+                    valid = false;
+                } else {
+                    el.downPaymentGroup.classList.remove('has-error');
+                }
+
+                return valid;
+            }
+
             // ─── TCO Calculation ──────────────────────────────────
             function buildTCOPayload(formData) {
                 return {
                     variant_id: parseInt(formData.variant_id),
                     purchase_price: parseFloat(formData.purchase_price),
-                    down_payment: parseFloat(formData.down_payment),
+                    down_payment: Math.min(parseFloat(formData.down_payment), parseFloat(formData.purchase_price)),
                     loan_term_years: parseInt(formData.loan_term_years),
                     interest_rate: parseFloat(formData.interest_rate),
+                    ownership_period_years: parseInt(formData.ownership_period_years),
+                    vehicle_registration_year: parseInt(formData.vehicle_registration_year),
+                    vehicle_age_years: parseInt(formData.vehicle_age_years),
                     annual_mileage: parseFloat(formData.annual_mileage),
                     fuel_price: parseFloat(formData.fuel_price),
                     insurance_rate: parseFloat(formData.insurance_rate),
@@ -1634,6 +1820,11 @@
                     return;
                 }
 
+                if (!validateForm()) {
+                    showToast('❌ Please fix the highlighted fields before calculating', 'error');
+                    return;
+                }
+
                 showProgress(10, 'Loading vehicle details...');
                 const variant = await loadVariantDetails(variantId);
                 if (!variant) {
@@ -1647,9 +1838,12 @@
                 const formData = {
                     variant_id: variantId,
                     purchase_price: num(el.purchasePrice.value) || 4500000,
-                    down_payment: num(el.downPayment.value) || 1000000,
+                    down_payment: num(el.downPayment.value) || 0,
                     loan_term_years: parseInt(el.loanTermRange.value) || 3,
                     interest_rate: num(el.interestRateRange.value) || 14,
+                    ownership_period_years: parseInt(el.ownershipPeriodRange.value) || 5,
+                    vehicle_registration_year: parseInt(el.registrationYear.value, 10) || new Date().getFullYear(),
+                    vehicle_age_years: getVehicleAge(),
                     annual_mileage: num(el.mileageRange.value) || 20000,
                     fuel_price: num(el.fuelPriceInput.value) || 200,
                     insurance_rate: num(el.insuranceRange.value) || 3,
@@ -1685,6 +1879,8 @@
             // ─── Render Results ────────────────────────────────────
             function renderResults(result) {
                 if (!result) return;
+                lastResult = result;
+                el.printBtn.disabled = false;
 
                 const totalCost = result.total_cost || 0;
                 const monthlyCost = result.monthly_cost || 0;
@@ -1696,7 +1892,7 @@
                 el.outPayment.textContent = fmt(monthlyPayment);
                 el.outInterest.textContent = fmt(totalInterest);
 
-                // Components
+                // Components — all values escaped before entering innerHTML
                 const components = result.components || [];
                 const componentsList = el.componentsList;
                 componentsList.innerHTML = '';
@@ -1706,7 +1902,7 @@
                         const div = document.createElement('div');
                         div.className = 'comp-item';
                         div.innerHTML = `
-                            <span class="comp-name">${comp.name || 'Unknown'}</span>
+                            <span class="comp-name">${escapeHtml(comp.name || 'Unknown')}</span>
                             <span>
                                 <span class="comp-amount">${fmt(comp.amount || 0)}</span>
                                 <span class="comp-percent">(${(comp.percentage || 0).toFixed(1)}%)</span>
@@ -1715,44 +1911,62 @@
                         componentsList.appendChild(div);
                     });
                 } else {
-                    componentsList.textContent = 'No components data available';
-                    componentsList.style.color = 'var(--text-muted)';
+                    componentsList.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">📊</div>
+                            <div class="title">No component data returned</div>
+                            <div class="desc">The calculation succeeded but didn't include a cost breakdown.</div>
+                        </div>
+                    `;
                 }
 
-                // Yearly breakdown
+                // Yearly breakdown — build with DOM APIs (no innerHTML for data cells)
                 const yearlyData = result.yearly_breakdown || result.yearly || [];
                 if (yearlyData && yearlyData.length > 0) {
                     el.yearlyBreakdownCard.style.display = 'block';
                     const container = el.yearlyBreakdown;
                     container.innerHTML = '';
+
                     const table = document.createElement('table');
-                    table.style.cssText =
-                        'width:100%;font-size:11px;border-collapse:collapse;color:var(--text-secondary);';
-                    table.innerHTML = `
-                        <thead>
-                            <tr style="border-bottom:1px solid var(--border);">
-                                <th style="text-align:left;padding:6px 4px;font-family:var(--font-mono);font-size:9px;text-transform:uppercase;color:var(--text-muted);">Year</th>
-                                <th style="text-align:right;padding:6px 4px;font-family:var(--font-mono);font-size:9px;text-transform:uppercase;color:var(--text-muted);">Total Cost</th>
-                                <th style="text-align:right;padding:6px 4px;font-family:var(--font-mono);font-size:9px;text-transform:uppercase;color:var(--text-muted);">Depreciation</th>
-                                <th style="text-align:right;padding:6px 4px;font-family:var(--font-mono);font-size:9px;text-transform:uppercase;color:var(--text-muted);">Running</th>
-                                <th style="text-align:right;padding:6px 4px;font-family:var(--font-mono);font-size:9px;text-transform:uppercase;color:var(--text-muted);">Insurance</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                    `;
+                    table.style.cssText = 'width:100%;font-size:11px;border-collapse:collapse;color:var(--text-secondary);';
+
+                    const thead = document.createElement('thead');
+                    const headRow = document.createElement('tr');
+                    headRow.style.borderBottom = '1px solid var(--border)';
+                    ['Year', 'Total Cost', 'Depreciation', 'Running', 'Insurance'].forEach((label, i) => {
+                        const th = document.createElement('th');
+                        th.textContent = label;
+                        th.style.cssText = `text-align:${i === 0 ? 'left' : 'right'};padding:6px 4px;font-family:var(--font-mono);font-size:9px;text-transform:uppercase;color:var(--text-muted);`;
+                        headRow.appendChild(th);
+                    });
+                    thead.appendChild(headRow);
+                    table.appendChild(thead);
+
+                    const tbody = document.createElement('tbody');
                     yearlyData.forEach(year => {
                         const row = document.createElement('tr');
                         row.style.borderBottom = '1px solid var(--border)';
-                        row.innerHTML = `
-                            <td style="padding:6px 4px;font-weight:600;color:var(--text-primary);">Year ${year.year || '?'}</td>
-                            <td style="text-align:right;padding:6px 4px;color:var(--amber);">${fmt(year.total_cost || 0)}</td>
-                            <td style="text-align:right;padding:6px 4px;">${fmt(year.depreciation || 0)}</td>
-                            <td style="text-align:right;padding:6px 4px;">${fmt(year.running_cost || 0)}</td>
-                            <td style="text-align:right;padding:6px 4px;">${fmt(year.insurance || 0)}</td>
-                        `;
-                        table.querySelector('tbody').appendChild(row);
+
+                        const cellYear = document.createElement('td');
+                        cellYear.textContent = `Year ${year.year ?? '?'}`;
+                        cellYear.style.cssText = 'padding:6px 4px;font-weight:600;color:var(--text-primary);';
+                        row.appendChild(cellYear);
+
+                        const cellTotal = document.createElement('td');
+                        cellTotal.textContent = fmt(year.total_cost || 0);
+                        cellTotal.style.cssText = 'text-align:right;padding:6px 4px;color:var(--amber);';
+                        row.appendChild(cellTotal);
+
+                        [['depreciation'], ['running_cost'], ['insurance']].forEach(([key]) => {
+                            const cell = document.createElement('td');
+                            cell.textContent = fmt(year[key] || 0);
+                            cell.style.cssText = 'text-align:right;padding:6px 4px;';
+                            row.appendChild(cell);
+                        });
+
+                        tbody.appendChild(row);
                     });
-                    table.innerHTML += '</tbody></table>';
+                    table.appendChild(tbody);
                     container.appendChild(table);
                 } else {
                     el.yearlyBreakdownCard.style.display = 'none';
@@ -1835,7 +2049,10 @@
                     }
                 });
 
+                el.registrationYear.addEventListener('change', updateAgeHint);
+
                 el.calculateBtn.addEventListener('click', calculate);
+                el.printBtn.addEventListener('click', () => window.print());
 
                 // Range inputs - live updates
                 el.loanTermRange.addEventListener('input', function() {
@@ -1843,6 +2060,9 @@
                 });
                 el.interestRateRange.addEventListener('input', function() {
                     el.valInterestRate.textContent = parseFloat(this.value).toFixed(1) + '%';
+                });
+                el.ownershipPeriodRange.addEventListener('input', function() {
+                    el.valOwnershipPeriod.textContent = this.value + ' years';
                 });
                 el.mileageRange.addEventListener('input', function() {
                     el.valMileage.textContent = parseInt(this.value).toLocaleString() + ' km';
@@ -1857,27 +2077,23 @@
                     el.valTyre.textContent = 'KES ' + parseFloat(this.value).toFixed(2);
                 });
 
+                // Live validation
+                el.downPayment.addEventListener('input', validateForm);
+                el.purchasePrice.addEventListener('input', validateForm);
+
                 // Toggle buttons
-                el.btnDepreciation.addEventListener('click', function() {
-                    includeDepreciation = !includeDepreciation;
-                    this.classList.toggle('active');
-                    this.textContent = includeDepreciation ? '📉 Depreciation' : '📉 Depreciation';
-                });
-                el.btnInsurance.addEventListener('click', function() {
-                    includeInsurance = !includeInsurance;
-                    this.classList.toggle('active');
-                    this.textContent = includeInsurance ? '🛡️ Insurance' : '🛡️ Insurance';
-                });
-                el.btnMaintenance.addEventListener('click', function() {
-                    includeMaintenance = !includeMaintenance;
-                    this.classList.toggle('active');
-                    this.textContent = includeMaintenance ? '🔧 Maintenance' : '🔧 Maintenance';
-                });
-                el.btnTyres.addEventListener('click', function() {
-                    includeTyres = !includeTyres;
-                    this.classList.toggle('active');
-                    this.textContent = includeTyres ? '🔄 Tyres' : '🔄 Tyres';
-                });
+                function wireToggle(button, getState, setState) {
+                    button.addEventListener('click', function() {
+                        const next = !getState();
+                        setState(next);
+                        this.classList.toggle('active', next);
+                        this.setAttribute('aria-pressed', String(next));
+                    });
+                }
+                wireToggle(el.btnDepreciation, () => includeDepreciation, v => includeDepreciation = v);
+                wireToggle(el.btnInsurance, () => includeInsurance, v => includeInsurance = v);
+                wireToggle(el.btnMaintenance, () => includeMaintenance, v => includeMaintenance = v);
+                wireToggle(el.btnTyres, () => includeTyres, v => includeTyres = v);
             }
 
             // ─── Init ─────────────────────────────────────────────
@@ -1885,6 +2101,8 @@
                 el.loadingOverlay.classList.add('active');
 
                 try {
+                    populateRegistrationYears();
+
                     const supabaseOk = initSupabase();
                     if (!supabaseOk) {
                         setStatus('error', '❌ Failed to initialize Supabase');
@@ -1908,7 +2126,7 @@
                     initEventListeners();
                     el.loadingOverlay.classList.remove('active');
 
-                    console.log('✅ Auto-D Kenya TCO Calculator v7.0');
+                    console.log('✅ Auto-D Kenya TCO Calculator v8.0');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/ownership/calculate`);
 
