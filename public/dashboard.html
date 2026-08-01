@@ -17,6 +17,8 @@
             --green: #22c55e;
             --blue: #3b82f6;
             --red: #ef4444;
+            --purple: #a855f7;
+            --cyan: #06b6d4;
             --bg: #0a0c15;
             --bg-panel: #111827;
             --text-primary: #f8fafc;
@@ -239,6 +241,60 @@
         .btn-sm { padding: 6px 14px; font-size: 12px; }
         .btn-xs { padding: 4px 10px; font-size: 11px; }
 
+        /* ─── Service Tabs ────────────────────────────────────── */
+        .service-tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--bg);
+            border-radius: 8px;
+            padding: 4px;
+            margin-bottom: 12px;
+            border: 1px solid var(--border);
+            overflow-x: auto;
+        }
+        .service-tab {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text-muted);
+            font-family: var(--font-body);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            white-space: nowrap;
+        }
+        .service-tab:hover {
+            color: var(--text-secondary);
+            background: rgba(255,255,255,0.03);
+        }
+        .service-tab.active {
+            background: var(--amber);
+            color: var(--bg);
+        }
+        .service-tab .tab-icon { margin-right: 6px; }
+        .service-tab .tab-badge {
+            display: inline-block;
+            font-size: 9px;
+            padding: 1px 8px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.15);
+            margin-left: 4px;
+        }
+        .service-tab.active .tab-badge {
+            background: rgba(0,0,0,0.15);
+        }
+        .service-tab .tab-badge.unlocked {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--green);
+        }
+        .service-tab .tab-badge.locked {
+            background: rgba(234, 179, 8, 0.2);
+            color: var(--amber);
+        }
+
+        /* ─── Service Items ────────────────────────────────────── */
         .service-item {
             display: flex;
             justify-content: space-between;
@@ -418,6 +474,8 @@
             .user-info { width: 100%; justify-content: space-between; }
             .card-title { font-size: 17px; }
             th, td { padding: 8px 10px; font-size: 13px; }
+            .service-tabs { flex-wrap: nowrap; }
+            .service-tab { font-size: 12px; padding: 6px 12px; }
         }
 
         @media (max-width: 480px) {
@@ -426,6 +484,7 @@
             .card-title { font-size: 16px; }
             .service-item .service-price { font-size: 16px; }
             .btn { font-size: 13px; padding: 8px 16px; }
+            .service-tab { font-size: 11px; padding: 4px 10px; }
         }
     </style>
 </head>
@@ -449,16 +508,36 @@
         </div>
     </header>
 
-    <!-- ─── AVAILABLE SERVICES ────────────────────────────────────── -->
+    <!-- ─── SERVICE TABS ──────────────────────────────────────────── -->
     <div class="card">
         <div class="card-header">
             <div class="card-title">
-                📋 Your Services
+                🚀 Your Services
                 <span class="badge">Access</span>
             </div>
             <span style="font-size:12px;color:var(--text-muted);">Pay to unlock services</span>
         </div>
-        <div id="services"><span class="loading"><span class="spinner"></span> Loading your services...</span></div>
+
+        <!-- ─── Service Tabs ──────────────────────────────────────── -->
+        <div class="service-tabs" id="serviceTabs">
+            <button class="service-tab active" data-service="valuation" onclick="window.switchServiceTab('valuation')">
+                <span class="tab-icon">💰</span> Valuation
+                <span class="tab-badge locked" id="badge-valuation">🔒</span>
+            </button>
+            <button class="service-tab" data-service="mileage" onclick="window.switchServiceTab('mileage')">
+                <span class="tab-icon">📈</span> Mileage
+                <span class="tab-badge locked" id="badge-mileage">🔒</span>
+            </button>
+            <button class="service-tab" data-service="ownership" onclick="window.switchServiceTab('ownership')">
+                <span class="tab-icon">📊</span> Ownership
+                <span class="tab-badge locked" id="badge-ownership">🔒</span>
+            </button>
+        </div>
+
+        <!-- ─── Service Content ────────────────────────────────────── -->
+        <div id="servicesContainer">
+            <div id="services"><span class="loading"><span class="spinner"></span> Loading your services...</span></div>
+        </div>
     </div>
 
     <!-- ─── M-PESA PAYMENT ─────────────────────────────────────────── -->
@@ -510,7 +589,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// AUTO-D KENYA DASHBOARD - PAYMENT VERIFICATION SYSTEM v3.0
+// AUTO-D KENYA DASHBOARD - SERVICE TABS v4.1
 // ═══════════════════════════════════════════════════════════════
 
 (function() {
@@ -527,19 +606,40 @@
     // ─── SERVICE ROUTES ──────────────────────────────────────────
     const SERVICE_ROUTES = {
         'valuation': '/instant-value.html',
-        'mileage': '/reports.html',
-        'ownership': '/ownership-cost.html',
-        'tco': '/ownership-cost.html',
-        'valuation_report': '/reports.html',
-        'valuation_history': '/valuation-history.html'
+        'mileage': '/mileage.html',
+        'ownership': '/ownership-cost.html'
+    };
+
+    // ─── SERVICE DETAILS ──────────────────────────────────────────
+    const SERVICE_DETAILS = {
+        'valuation': {
+            name: 'Vehicle Valuation',
+            icon: '💰',
+            description: 'Get instant market value for your vehicle',
+            route: '/instant-value.html',
+            color: '#eab308'
+        },
+        'mileage': {
+            name: 'Mileage & Running Cost',
+            icon: '📈',
+            description: 'Calculate running costs per kilometer',
+            route: '/mileage.html',
+            color: '#3b82f6'
+        },
+        'ownership': {
+            name: 'Cost of Ownership',
+            icon: '📊',
+            description: 'Total cost of ownership analysis',
+            route: '/ownership-cost.html',
+            color: '#a855f7'
+        }
     };
 
     // ─── SERVICE NAMES ───────────────────────────────────────────
     const SERVICE_NAMES = {
         'valuation': 'Vehicle Valuation',
         'mileage': 'Mileage & Running Cost',
-        'ownership': 'Cost of Ownership',
-        'tco': 'Total Cost of Ownership'
+        'ownership': 'Cost of Ownership'
     };
 
     // ─── STATE ──────────────────────────────────────────────────
@@ -555,6 +655,8 @@
     let paymentCompleted = false;
     let isPolling = false;
     let serviceAccess = {};
+    let activeTab = 'valuation';
+    let currentServices = [];
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const servicesEl = document.getElementById('services');
@@ -847,12 +949,77 @@
     // ─── CHECK SERVICE ACCESS ─────────────────────────────────
     async function checkServiceAccess(serviceId) {
         try {
-            const result = await api(`/payments/check-access/${serviceId}`);
+            const result = await api(`/mpesa/check-access/${serviceId}`);
             return result.has_access === true;
         } catch (error) {
             console.warn('Access check failed:', error.message);
             return false;
         }
+    }
+
+    // ─── SWITCH SERVICE TAB ──────────────────────────────────
+    window.switchServiceTab = function(serviceCode) {
+        activeTab = serviceCode;
+        
+        // Update tab UI
+        document.querySelectorAll('.service-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.service === serviceCode);
+        });
+        
+        // Update badge status
+        updateTabBadges();
+        
+        // Render services for this tab
+        renderServicesForTab(serviceCode);
+    };
+
+    function updateTabBadges() {
+        const tabs = ['valuation', 'mileage', 'ownership'];
+        tabs.forEach(code => {
+            const badge = document.getElementById(`badge-${code}`);
+            if (badge) {
+                const hasAccess = serviceAccess[code] === true;
+                badge.textContent = hasAccess ? '✅' : '🔒';
+                badge.className = `tab-badge ${hasAccess ? 'unlocked' : 'locked'}`;
+            }
+        });
+    }
+
+    // ─── RENDER SERVICES FOR TAB ──────────────────────────────
+    function renderServicesForTab(serviceCode) {
+        const service = SERVICE_DETAILS[serviceCode];
+        if (!service) return;
+
+        const hasAccess = serviceAccess[serviceCode] === true;
+        const price = getServicePrice(serviceCode);
+
+        servicesEl.innerHTML = `
+            <div class="service-item">
+                <div class="service-info">
+                    <div class="service-name">${service.icon} ${service.name}</div>
+                    <div class="service-desc">${service.description}</div>
+                    <div class="service-status ${hasAccess ? 'unlocked' : 'locked'}">
+                        ${hasAccess ? '✅ Unlocked' : '🔒 Locked'}
+                    </div>
+                </div>
+                <div class="service-actions">
+                    <div class="service-price">KES ${price.toLocaleString()}</div>
+                    ${hasAccess 
+                        ? `<button class="btn btn-success btn-sm" onclick="window.openService('${serviceCode}')">
+                            <i class="fas fa-external-link-alt"></i> Open Report
+                           </button>`
+                        : `<button class="btn btn-primary btn-sm" onclick="window.selectService('${serviceCode}', '${service.name}', ${price})">
+                            <i class="fas fa-shopping-cart"></i> Pay to Unlock
+                           </button>`
+                    }
+                </div>
+            </div>
+        `;
+    }
+
+    function getServicePrice(serviceCode) {
+        const service = currentServices.find(s => s.code === serviceCode);
+        return service ? service.price : 500; // Default price if not found
     }
 
     // ─── LOAD USER SERVICES ────────────────────────────────────
@@ -861,14 +1028,19 @@
             servicesEl.innerHTML = `<span class="loading"><span class="spinner"></span> Loading your services...</span>`;
             
             // Get user services from backend
-            const data = await api('/user/services');
-            serviceAccess = data || {};
+            const data = await api('/mpesa/user/services');
+            serviceAccess = data.services || {};
             
             // Also get available services for pricing
             const servicesData = await api('/mpesa/services');
-            const availableServices = servicesData.services || [];
+            currentServices = servicesData.services || [];
             
-            renderUserServices(availableServices, serviceAccess);
+            // Update tab badges
+            updateTabBadges();
+            
+            // Render active tab
+            renderServicesForTab(activeTab);
+            
             return serviceAccess;
         } catch (error) {
             servicesEl.innerHTML = `
@@ -883,47 +1055,6 @@
         }
     }
 
-    function renderUserServices(services, access) {
-        if (!services || !services.length) {
-            servicesEl.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-icon">📭</div>
-                    <div class="empty-title">No services available</div>
-                    <div class="empty-desc">Check back later for new services</div>
-                </div>
-            `;
-            return;
-        }
-
-        servicesEl.innerHTML = services.map(service => {
-            const code = service.code;
-            const hasAccess = access[code] === true;
-            const statusClass = hasAccess ? 'unlocked' : 'locked';
-            const statusText = hasAccess ? '✅ Unlocked' : '🔒 Locked';
-            const actionBtn = hasAccess 
-                ? `<button class="btn btn-success btn-sm" onclick="window.openService('${code}')">
-                    <i class="fas fa-external-link-alt"></i> Open Report
-                   </button>`
-                : `<button class="btn btn-primary btn-sm" onclick="window.selectService('${code}', '${service.name}', ${service.price})">
-                    <i class="fas fa-shopping-cart"></i> Pay to Unlock
-                   </button>`;
-
-            return `
-                <div class="service-item">
-                    <div class="service-info">
-                        <div class="service-name">${service.icon || '📦'} ${service.name}</div>
-                        <div class="service-desc">${service.description || ''}</div>
-                        <div class="service-status ${statusClass}">${statusText}</div>
-                    </div>
-                    <div class="service-actions">
-                        <div class="service-price">${service.currency || 'KES'} ${Number(service.price).toLocaleString()}</div>
-                        ${actionBtn}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
     // ─── OPEN SERVICE (WITH ACCESS CHECK) ─────────────────────
     window.openService = async function(serviceCode) {
         if (!isAuthenticated) {
@@ -936,9 +1067,7 @@
         
         if (!hasAccess) {
             showToast('🔒 Please pay to unlock this service', 'warning');
-            // Find the service and trigger payment flow
-            const servicesData = await api('/mpesa/services');
-            const service = (servicesData.services || []).find(s => s.code === serviceCode);
+            const service = currentServices.find(s => s.code === serviceCode);
             if (service) {
                 window.selectService(serviceCode, service.name, service.price);
             }
@@ -951,7 +1080,8 @@
         // Redirect to service page
         const route = SERVICE_ROUTES[serviceCode];
         if (route) {
-            showToast(`🚀 Opening ${SERVICE_NAMES[serviceCode] || serviceCode}...`, 'success');
+            const details = SERVICE_DETAILS[serviceCode];
+            showToast(`🚀 Opening ${details?.name || serviceCode}...`, 'success');
             setTimeout(() => {
                 window.location.href = route;
             }, 500);
@@ -1227,7 +1357,7 @@
 
     // ─── INIT ──────────────────────────────────────────────────
     async function init() {
-        console.log('🚗 Auto-D Kenya Dashboard v3.0');
+        console.log('🚗 Auto-D Kenya Dashboard v4.1 - Service Tabs');
         console.log('📡 API Base:', CONFIG.API_BASE);
 
         initSupabase();
@@ -1279,6 +1409,7 @@
         selectService: window.selectService,
         openService: window.openService,
         checkServiceAccess,
+        switchServiceTab: window.switchServiceTab,
         setStatus,
         showToast,
         signIn,
@@ -1287,6 +1418,7 @@
         isAuthenticated: () => isAuthenticated,
         loadDashboard,
         SERVICE_ROUTES,
+        SERVICE_DETAILS,
         CONFIG
     };
 
