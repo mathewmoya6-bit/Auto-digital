@@ -241,7 +241,6 @@
         .btn-sm { padding: 6px 14px; font-size: 12px; }
         .btn-xs { padding: 4px 10px; font-size: 11px; }
 
-        /* ─── Admin Button ────────────────────────────────────── */
         .admin-btn {
             background: linear-gradient(135deg, var(--purple), #7c3aed);
             color: var(--bg);
@@ -263,7 +262,6 @@
             box-shadow: 0 8px 30px rgba(168, 85, 247, 0.3);
         }
 
-        /* ─── Service Tabs ────────────────────────────────────── */
         .service-tabs {
             display: flex;
             gap: 4px;
@@ -316,7 +314,6 @@
             color: var(--amber);
         }
 
-        /* ─── Service Items ────────────────────────────────────── */
         .service-item {
             display: flex;
             justify-content: space-between;
@@ -361,7 +358,6 @@
         }
         .service-item .service-actions { display: flex; align-items: center; gap: 12px; }
 
-        /* ─── Admin Price Indicator ───────────────────────────── */
         .price-source {
             font-size: 9px;
             color: var(--text-muted);
@@ -532,7 +528,6 @@
         .empty-state .empty-title { font-size: 18px; font-weight: 600; color: var(--text-secondary); }
         .empty-state .empty-desc { font-size: 14px; margin-top: 4px; }
 
-        /* ─── Price Update Animation ──────────────────────────── */
         .price-updated {
             animation: priceFlash 0.6s ease;
         }
@@ -541,11 +536,14 @@
             50% { background-color: rgba(234, 179, 8, 0.2); }
         }
 
-        /* ─── Admin Dashboard Link ────────────────────────────── */
         .admin-link-container {
             display: flex;
             justify-content: flex-end;
             margin-bottom: 8px;
+        }
+
+        #priceStatus {
+            margin-right: 4px;
         }
 
         @media (max-width: 768px) {
@@ -692,8 +690,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// AUTO-D KENYA DASHBOARD - FULL ADMIN CONNECTION v8.0
-// Prices managed exclusively via Admin Dashboard
+// AUTO-D KENYA DASHBOARD - SECURE v9.0
+// Backend is the source of truth for access control
 // ═══════════════════════════════════════════════════════════════
 
 (function() {
@@ -706,38 +704,34 @@
         SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
         ADMIN_DASHBOARD_URL: '/admin.html',
         DASHBOARD_URL: '/dashboard.html',
-        PRICE_POLLING_INTERVAL: 30000 // 30 seconds
-    };
-
-    // ─── SERVICE ROUTES ──────────────────────────────────────────
-    const SERVICE_ROUTES = {
-        'valuation': '/instant-value.html',
-        'mileage': '/mileage.html',
-        'ownership': '/ownership-cost.html'
-    };
-
-    // ─── SERVICE DETAILS ──────────────────────────────────────────
-    const SERVICE_DETAILS = {
-        'valuation': {
-            name: 'Vehicle Valuation',
-            icon: '💰',
-            description: 'Get instant market value for your vehicle',
-            route: '/instant-value.html',
-            color: '#eab308'
+        PRICE_POLLING_INTERVAL: 30000,
+        SERVICE_ROUTES: {
+            'valuation': '/instant-value.html',
+            'mileage': '/mileage.html',
+            'ownership': '/ownership-cost.html'
         },
-        'mileage': {
-            name: 'Mileage & Running Cost',
-            icon: '📈',
-            description: 'Calculate running costs per kilometer',
-            route: '/mileage.html',
-            color: '#3b82f6'
-        },
-        'ownership': {
-            name: 'Cost of Ownership',
-            icon: '📊',
-            description: 'Total cost of ownership analysis',
-            route: '/ownership-cost.html',
-            color: '#a855f7'
+        SERVICE_DETAILS: {
+            'valuation': {
+                name: 'Vehicle Valuation',
+                icon: '💰',
+                description: 'Get instant market value for your vehicle',
+                route: '/instant-value.html',
+                color: '#eab308'
+            },
+            'mileage': {
+                name: 'Mileage & Running Cost',
+                icon: '📈',
+                description: 'Calculate running costs per kilometer',
+                route: '/mileage.html',
+                color: '#3b82f6'
+            },
+            'ownership': {
+                name: 'Cost of Ownership',
+                icon: '📊',
+                description: 'Total cost of ownership analysis',
+                route: '/ownership-cost.html',
+                color: '#a855f7'
+            }
         }
     };
 
@@ -753,7 +747,7 @@
     let accessToken = null;
     let paymentCompleted = false;
     let isPolling = false;
-    let serviceAccess = {};
+    let serviceAccess = {};  // Only for UI display, not for security
     let activeTab = 'valuation';
     let currentServices = [];
     let servicePrices = {};
@@ -773,6 +767,21 @@
     const priceUpdateTime = document.getElementById('priceUpdateTime');
     const priceConnectionStatus = document.getElementById('priceConnectionStatus');
     const adminLinkContainer = document.getElementById('adminLinkContainer');
+
+    // ─── SAFE PRICE STATUS UPDATES ─────────────────────────────
+    function updatePriceStatus(className, color) {
+        if (priceStatus) {
+            priceStatus.className = className;
+            priceStatus.style.color = color;
+        }
+    }
+
+    function updatePriceConnection(text, color) {
+        if (priceConnectionStatus) {
+            priceConnectionStatus.textContent = text;
+            priceConnectionStatus.style.color = color;
+        }
+    }
 
     // ─── SUPABASE INIT ──────────────────────────────────────────
     function initSupabase() {
@@ -812,20 +821,18 @@
                 accessToken = session.access_token;
                 localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                 localStorage.setItem('access_token', accessToken);
-                
-                // Check if user is admin
+
                 const userMetadata = currentUser.user_metadata || {};
                 const appMetadata = currentUser.app_metadata || {};
-                isAdmin = userMetadata.role === 'admin' || 
+                isAdmin = userMetadata.role === 'admin' ||
                          appMetadata.role === 'admin' ||
                          userMetadata.is_admin === true ||
                          appMetadata.is_admin === true;
-                
-                // Show/hide admin link
+
                 if (isAdmin) {
                     adminLinkContainer.style.display = 'block';
                 }
-                
+
                 return currentUser;
             }
 
@@ -1072,14 +1079,26 @@
         statusBox.innerHTML = `<span class="${typeMap[type] || 'status-info'}">${message}</span>`;
     }
 
-    // ─── CHECK SERVICE ACCESS ─────────────────────────────────
-    async function checkServiceAccess(serviceId) {
+    // ─── CHECK SERVICE ACCESS (BACKEND VERIFICATION) ──────────
+    async function checkServiceAccess(serviceCode) {
         try {
-            const result = await api(`/mpesa/check-access/${serviceId}`);
+            const result = await api(`/mpesa/check-access/${serviceCode}`);
             return result.has_access === true;
         } catch (error) {
             console.warn('Access check failed:', error.message);
             return false;
+        }
+    }
+
+    // ─── GET USER SERVICES FROM BACKEND ──────────────────────
+    async function getUserServices() {
+        try {
+            const data = await api('/mpesa/user/services');
+            serviceAccess = data.services || {};  // UI display only
+            return serviceAccess;
+        } catch (error) {
+            console.warn('Failed to get user services:', error);
+            return {};
         }
     }
 
@@ -1100,6 +1119,7 @@
         tabs.forEach(code => {
             const badge = document.getElementById(`badge-${code}`);
             if (badge) {
+                // UI display only - security is handled by backend
                 const hasAccess = serviceAccess[code] === true;
                 badge.textContent = hasAccess ? '✅' : '🔒';
                 badge.className = `tab-badge ${hasAccess ? 'unlocked' : 'locked'}`;
@@ -1109,29 +1129,28 @@
 
     // ─── RENDER SERVICES FOR TAB ──────────────────────────────
     function renderServicesForTab(serviceCode) {
-        const service = SERVICE_DETAILS[serviceCode];
+        const service = CONFIG.SERVICE_DETAILS[serviceCode];
         if (!service) return;
 
         const hasAccess = serviceAccess[serviceCode] === true;
         const price = servicePrices[serviceCode];
         const priceKnown = typeof price === 'number' && price > 0;
-        const isLive = lastPriceUpdate !== null;
 
         const priceBlock = priceKnown
             ? `<div class="service-price" id="price-${serviceCode}">KES ${price.toLocaleString()}</div>`
             : `<div class="service-price unavailable" id="price-${serviceCode}">Price unavailable</div>`;
 
         const priceSourceBlock = priceKnown
-            ? `<span class="price-source" id="price-source-${serviceCode}">
-                   Price: <strong id="price-display-${serviceCode}">KES ${price.toLocaleString()}</strong>
+            ? `<span class="price-source">
+                   Price: <strong>KES ${price.toLocaleString()}</strong>
                    <span class="admin-badge">📋 Admin Set</span>
-                   ${isLive ? '<span class="live-badge">🔄 Live</span>' : ''}
                </span>`
-            : `<span class="price-source" id="price-source-${serviceCode}">
-                   <span id="price-display-${serviceCode}">Price not set by admin yet</span>
+            : `<span class="price-source">
+                   <span>Price not set by admin yet</span>
                    <span class="unavailable-badge">${lastPriceLoadFailed ? '⚠️ Load failed' : '⏳ Pending'}</span>
                </span>`;
 
+        // ✅ Security: Button only enables UI flow - backend still verifies
         const actionBlock = hasAccess
             ? `<button class="btn btn-success btn-sm" onclick="window.openService('${serviceCode}')">
                    <i class="fas fa-external-link-alt"></i> Open Report
@@ -1173,7 +1192,6 @@
         }
     }
 
-    // ─── UPDATE PRICE TIMESTAMP ──────────────────────────────
     function updatePriceTimestamp() {
         if (priceUpdateTime) {
             priceUpdateTime.textContent = new Date().toLocaleTimeString();
@@ -1184,10 +1202,8 @@
     async function loadServicePrices(silent = false) {
         try {
             if (!silent) {
-                priceStatus.className = 'fas fa-sync-alt fa-spin';
-                priceStatus.style.color = 'var(--amber)';
-                priceConnectionStatus.textContent = '🔄 Syncing...';
-                priceConnectionStatus.style.color = 'var(--amber)';
+                updatePriceStatus('fas fa-sync-alt fa-spin', 'var(--amber)');
+                updatePriceConnection('🔄 Syncing...', 'var(--amber)');
             }
             
             const servicesData = await api('/mpesa/services');
@@ -1199,13 +1215,10 @@
                 const incomingPrice = typeof service.price === 'number' && service.price > 0
                     ? service.price
                     : null;
-                const oldPrice = servicePrices[code];
 
-                if (incomingPrice === null) {
-                    return;
-                }
+                if (incomingPrice === null) return;
 
-                if (oldPrice !== incomingPrice) {
+                if (servicePrices[code] !== incomingPrice) {
                     pricesChanged = true;
                     servicePrices[code] = incomingPrice;
                     if (activeTab === code) {
@@ -1221,10 +1234,8 @@
             updatePriceTimestamp();
             
             if (!silent) {
-                priceStatus.className = 'fas fa-sync-alt';
-                priceStatus.style.color = 'var(--green)';
-                priceConnectionStatus.textContent = '✅ Connected';
-                priceConnectionStatus.style.color = 'var(--green)';
+                updatePriceStatus('fas fa-sync-alt', 'var(--green)');
+                updatePriceConnection('✅ Connected', 'var(--green)');
                 if (pricesChanged) {
                     showToast('🔄 Service prices updated from admin', 'info');
                 }
@@ -1237,10 +1248,8 @@
             console.warn('Failed to load service prices:', error);
             lastPriceLoadFailed = true;
             if (!silent) {
-                priceStatus.className = 'fas fa-sync-alt';
-                priceStatus.style.color = 'var(--red)';
-                priceConnectionStatus.textContent = '⚠️ Disconnected';
-                priceConnectionStatus.style.color = 'var(--red)';
+                updatePriceStatus('fas fa-sync-alt', 'var(--red)');
+                updatePriceConnection('⚠️ Disconnected', 'var(--red)');
                 showToast('⚠️ Could not load live prices from admin — try refreshing', 'warning');
             }
             return servicePrices;
@@ -1282,8 +1291,8 @@
             
             await loadServicePrices();
             
-            const data = await api('/mpesa/user/services');
-            serviceAccess = data.services || {};
+            // ✅ Get user services from backend (source of truth)
+            await getUserServices();
             
             updateTabBadges();
             renderServicesForTab(activeTab);
@@ -1303,13 +1312,14 @@
         }
     }
 
-    // ─── OPEN SERVICE ─────────────────────────────────────
+    // ─── OPEN SERVICE ──────────────────────────────────────────
     window.openService = async function(serviceCode) {
         if (!isAuthenticated) {
             showToast('⚠️ Please sign in to access services', 'warning');
             return;
         }
 
+        // ✅ BACKEND VERIFICATION - Always check with backend
         const hasAccess = await checkServiceAccess(serviceCode);
         
         if (!hasAccess) {
@@ -1321,11 +1331,10 @@
             return;
         }
 
-        localStorage.removeItem('service_access');
-
-        const route = SERVICE_ROUTES[serviceCode];
+        // ✅ No localStorage caching - always verify on each access
+        const route = CONFIG.SERVICE_ROUTES[serviceCode];
         if (route) {
-            const details = SERVICE_DETAILS[serviceCode];
+            const details = CONFIG.SERVICE_DETAILS[serviceCode];
             showToast(`🚀 Opening ${details?.name || serviceCode}...`, 'success');
             setTimeout(() => {
                 window.location.href = route;
@@ -1538,6 +1547,7 @@
                     localStorage.removeItem('pending_service');
                     localStorage.removeItem('pending_service_name');
 
+                    // ✅ Confirm payment with backend (unlocks service)
                     try {
                         await api(`/mpesa/confirm/${checkoutRequestId}`, {
                             method: 'POST'
@@ -1546,14 +1556,11 @@
                         console.warn('Confirm API warning:', confirmErr);
                     }
 
+                    // ✅ Refresh services from backend (source of truth)
                     await loadUserServices();
-                    localStorage.removeItem('service_access');
-
-                    showToast(`✅ ${serviceName} unlocked! You can now access it.`, 'success');
                     
-                    setTimeout(() => {
-                        window.openService(serviceCode);
-                    }, 1500);
+                    // ✅ No localStorage caching
+                    showToast(`✅ ${serviceName} unlocked! You can now access it.`, 'success');
                 }
 
             } else if (status.status === 'failed' || status.status === 'cancelled') {
@@ -1651,9 +1658,8 @@
 
     // ─── INIT ──────────────────────────────────────────────────
     async function init() {
-        console.log('🚗 Auto-D Kenya Dashboard v8.0 - Full Admin Connection');
+        console.log('🚗 Auto-D Kenya Dashboard v9.0 - Secure Backend Verification');
         console.log('📡 API Base:', CONFIG.API_BASE);
-        console.log('🔄 All prices managed via Admin Dashboard');
 
         initSupabase();
         await getCurrentUser();
@@ -1707,6 +1713,7 @@
         selectService: window.selectService,
         openService: window.openService,
         checkServiceAccess,
+        getUserServices,
         switchServiceTab: window.switchServiceTab,
         refreshPrices: window.refreshPrices,
         setStatus,
