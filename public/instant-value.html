@@ -122,10 +122,14 @@
             color: #22c55e;
         }
         .header-right .auth-status.unauthenticated {
-            background: rgba(239, 68, 68, 0.15);
-            color: #ef4444;
+            background: rgba(148, 163, 184, 0.15);
+            color: #94a3b8;
         }
         .header-right .auth-status.service-unlocked {
+            background: rgba(34, 197, 94, 0.15);
+            color: #22c55e;
+        }
+        .header-right .auth-status.service-locked {
             background: rgba(234, 179, 8, 0.15);
             color: #eab308;
         }
@@ -715,40 +719,29 @@
             100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } 
         }
 
-        .loading-overlay {
-            display: none;
+        /* Slim, non-blocking top progress bar — replaces the old full-screen
+           lock overlay so the page stays interactive while data loads. */
+        .top-loader {
             position: fixed;
             top: 0;
             left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(10, 12, 21, 0.85);
+            height: 3px;
+            width: 0%;
+            background: linear-gradient(90deg, #eab308, #22c55e);
             z-index: 99999;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-            gap: 20px;
+            opacity: 0;
+            transition: opacity 0.2s ease, width 0.3s ease;
+            pointer-events: none;
         }
-        .loading-overlay.active { display: flex; }
-        .loading-overlay .spinner-large {
-            width: 50px;
-            height: 50px;
-            border: 4px solid rgba(234, 179, 8, 0.2);
-            border-top: 4px solid #eab308;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
+        .top-loader.active {
+            opacity: 1;
+            width: 70%;
+            transition: opacity 0.2s ease, width 8s cubic-bezier(0.1, 0.6, 0.3, 1);
         }
-        .loading-overlay .loading-text {
-            color: #eab308;
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-        }
-        .loading-overlay .loading-sub {
-            color: #64748b;
-            font-size: 12px;
-            font-family: 'Inter', sans-serif;
+        .top-loader.done {
+            opacity: 1;
+            width: 100%;
+            transition: width 0.2s ease;
         }
 
         .status-message {
@@ -924,11 +917,7 @@
 </head>
 <body>
 
-    <div class="loading-overlay" id="loadingOverlay">
-        <div class="spinner-large"></div>
-        <div class="loading-text">Loading Vehicle Data...</div>
-        <div class="loading-sub" id="loadingStatus">Connecting to Supabase</div>
-    </div>
+    <div class="top-loader" id="topLoader"></div>
 
     <a class="skip-link" href="#main-content">Skip to main content</a>
 
@@ -950,10 +939,10 @@
                 <div class="version">Version <span>2026.07</span> <span class="auto-d-badge">Auto-D</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div>
-                    <span class="auth-status unauthenticated" id="authStatus">🔓 Not Authenticated</span>
+                    <span class="auth-status unauthenticated" id="authStatus">👋 Not signed in</span>
                 </div>
                 <div id="serviceStatus" style="display:none;">
-                    <span class="auth-status service-unlocked" id="serviceBadge">✅ Valuation Unlocked</span>
+                    <span class="auth-status service-unlocked" id="serviceBadge">✅ Valuation unlocked</span>
                 </div>
             </div>
         </header>
@@ -965,12 +954,12 @@
                 <div class="panel-label"><span class="num">🔐</span> Authentication</div>
                 <div class="auth-section">
                     <div id="authMessage" class="user-email" style="color:var(--text-muted);font-size:10px;">
-                        Sign in to access the valuation tool
+                        Sign in to get your instant vehicle valuation
                     </div>
                     <div class="auth-buttons" id="authButtons">
                         <button class="primary" id="btnSignIn">🔑 Sign In</button>
                         <button id="btnSignOut" style="display:none;">🚪 Sign Out</button>
-                        <button id="btnPurchase" style="display:none;" class="primary">💳 Unlock Valuation (KES 500)</button>
+                        <button id="btnPurchase" style="display:none;" class="primary">💳 Unlock my valuation (KES 500)</button>
                     </div>
                     <div id="authForms" style="display:none;margin-top:8px;">
                         <input type="email" id="authEmail" placeholder="Email" style="margin-bottom:6px;" />
@@ -987,7 +976,7 @@
 
                 <div id="statusMessage" class="status-message info">
                     <span>⏳</span>
-                    <span id="statusMessageText">Loading vehicle data...</span>
+                    <span id="statusMessageText">Getting things ready...</span>
                 </div>
 
                 <div class="form-group">
@@ -1311,8 +1300,7 @@
                 resultReportNum: document.getElementById('resultReportNum'),
                 resultCondition: document.getElementById('resultCondition'),
                 resultCert: document.getElementById('resultCert'),
-                loadingOverlay: document.getElementById('loadingOverlay'),
-                loadingStatus: document.getElementById('loadingStatus'),
+                topLoader: document.getElementById('topLoader'),
                 statusMessage: document.getElementById('statusMessage'),
                 statusMessageText: document.getElementById('statusMessageText'),
                 authStatus: document.getElementById('authStatus'),
@@ -1378,6 +1366,25 @@
                 el.statusMessageText.textContent = message;
                 const iconSpan = el.statusMessage.querySelector('span:first-child');
                 if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
+            }
+
+            // Slim, non-blocking loading indicator (replaces the old full-screen
+            // lock overlay). The page stays fully interactive while this shows.
+            function showLoadingBar() {
+                if (!el.topLoader) return;
+                el.topLoader.classList.remove('done');
+                // Reflow so the width transition restarts cleanly on repeated calls
+                void el.topLoader.offsetWidth;
+                el.topLoader.classList.add('active');
+            }
+
+            function hideLoadingBar() {
+                if (!el.topLoader) return;
+                el.topLoader.classList.remove('active');
+                el.topLoader.classList.add('done');
+                setTimeout(() => {
+                    el.topLoader.classList.remove('done');
+                }, 300);
             }
 
             function getAccessToken() {
@@ -1763,14 +1770,14 @@
             function updateServiceUI() {
                 if (isAuthenticated && isUnlocked) {
                     el.serviceStatus.style.display = 'block';
-                    el.serviceBadge.textContent = '✅ Valuation Unlocked';
+                    el.serviceBadge.textContent = '✅ Valuation unlocked';
                     el.serviceBadge.className = 'auth-status service-unlocked';
                     el.btnPurchase.style.display = 'none';
                     if (el.valuateBtn) el.valuateBtn.disabled = !el.variantSelect.value;
                 } else if (isAuthenticated && !isUnlocked) {
                     el.serviceStatus.style.display = 'block';
-                    el.serviceBadge.textContent = '🔒 Locked - Purchase Required';
-                    el.serviceBadge.className = 'auth-status unauthenticated';
+                    el.serviceBadge.textContent = '🔓 One step left — unlock for KES 500';
+                    el.serviceBadge.className = 'auth-status service-locked';
                     el.btnPurchase.style.display = 'inline-block';
                     if (el.valuateBtn) el.valuateBtn.disabled = true;
                 } else {
@@ -1793,7 +1800,7 @@
                 } else {
                     el.authStatus.textContent = '🔓 Not Authenticated';
                     el.authStatus.className = 'auth-status unauthenticated';
-                    el.authMessage.textContent = 'Sign in to access the valuation tool';
+                    el.authMessage.textContent = 'Sign in to get your instant vehicle valuation';
                     el.btnSignIn.style.display = 'inline-block';
                     el.btnSignOut.style.display = 'none';
                 }
@@ -1802,7 +1809,7 @@
             // ─── API: QUERY THE VIEW ──────────────────────────────────
             async function queryView(select, filter, order) {
                 if (!isUnlocked) {
-                    showToast('⚠️ Please purchase valuation service to access vehicle data', 'warning');
+                    showToast('🔓 Unlock your valuation (KES 500) to browse vehicles', 'warning');
                     return [];
                 }
                 let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
@@ -2389,7 +2396,7 @@
             // ─── VALUATE ────────────────────────────────────────────────
             async function valuate() {
                 if (!isUnlocked) {
-                    showToast('⚠️ Please purchase valuation service first', 'warning');
+                    showToast('🔓 Unlock your valuation (KES 500) to continue', 'warning');
                     return;
                 }
 
@@ -2745,14 +2752,16 @@
 
             // ─── INIT ──────────────────────────────────────────────────
             async function init() {
-                el.loadingOverlay.classList.add('active');
+                // Non-blocking: the page renders and stays interactive immediately,
+                // a slim top bar just shows that data is on its way.
+                showLoadingBar();
 
                 try {
                     const supabaseOk = initSupabase();
                     if (!supabaseOk) {
-                        setStatus('error', '❌ Failed to initialize Supabase');
+                        setStatus('error', "We couldn't connect just now — please refresh the page");
                         showToast('Failed to initialize Supabase', 'error');
-                        el.loadingOverlay.classList.remove('active');
+                        hideLoadingBar();
                         return;
                     }
 
@@ -2777,10 +2786,10 @@
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
-                    setStatus('error', `❌ ${error.message}`);
+                    setStatus('error', "Something went wrong loading vehicle data — please refresh");
                     showToast('Error initializing valuation tool', 'error');
                 } finally {
-                    el.loadingOverlay.classList.remove('active');
+                    hideLoadingBar();
                 }
             }
 
