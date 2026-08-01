@@ -4,13 +4,31 @@
 # TYPE: MODULE - Admin business logic
 
 import logging
-from typing import Dict, Any, List, Optional
+import asyncio
+from decimal import Decimal
+from typing import Dict, Any, Optional, List, Set
 from datetime import datetime, timedelta
+from functools import lru_cache
 
 from app.core.database import get_supabase
-from app.core.exceptions import UnauthorizedException, NotFoundException
+from app.core.exceptions import NotFoundException
 
 logger = logging.getLogger(__name__)
+
+# ─── CONSTANTS ──────────────────────────────────────────────────
+SUCCESS_STATUSES = {"completed", "paid", "success"}
+PAYMENT_STATUSES = {"pending", "completed", "failed", "cancelled", "paid", "success"}
+SERVICE_CODES = {"valuation", "mileage", "ownership", "tco"}
+
+# ─── HELPERS ──────────────────────────────────────────────────
+
+def safe_data(response) -> List[Dict[str, Any]]:
+    """Safely extract data from Supabase response."""
+    return response.data if response and hasattr(response, 'data') else []
+
+def now_iso() -> str:
+    """Get current UTC time as ISO string."""
+    return datetime.utcnow().isoformat()
 
 
 class AdminService:
@@ -18,6 +36,47 @@ class AdminService:
     
     def __init__(self):
         self.supabase = get_supabase()
+        self._services_cache = None
+        self._services_cache_time = None
+        self._services_cache_ttl = 300  # 5 minutes
+    
+    # ─── CACHE HELPERS ──────────────────────────────────────────
+    
+    async def _get_services_map(self) -> Dict[int, Dict[str, Any]]:
+        """
+        Get cached services map.
+        
+        Returns:
+            Dict mapping service_id to service data
+        """
+        now = datetime.utcnow().timestamp()
+        
+        if (self._services_cache is not None and 
+            self._services_cache_time is not None and
+            now - self._services_cache_time < self._services_cache_ttl):
+            return self._services_cache
+        
+        try:
+            response = self.supabase.table("services").select("id, name, code, price, currency").execute()
+            services = safe_data(response)
+            
+            service_map = {}
+            for service in services:
+                service_map[service["id"]] = service
+            
+            self._services_cache = service_map
+            self._services_cache_time = now
+            
+            return service_map
+            
+        except Exception as e:
+            logger.exception("Failed to load services map")
+            return {}
+    
+    def _clear_services_cache(self) -> None:
+        """Clear the services cache."""
+        self._services_cache = None
+        self._services_cache_time = None
     
     # ─── STATISTICS ──────────────────────────────────────────────
     
@@ -29,52 +88,61 @@ class AdminService:
             Dict with user, vehicle, payment, and revenue statistics
         """
         try:
-            # Get user count from auth
-            try:
-                users_response = self.supabase.auth.admin.list_users()
-                total_users = len(users_response.users) if users_response else 0
-            except Exception as e:
-                logger.warning(f"Could not get user count from auth: {e}")
-                total_users = 0
+            # Get user count from auth (paginated)
+            total_users = await self._get_user_count()
             
             # Get vehicle count
-            vehicles_response = self.supabase.table("vehicles").select("count", count="exact").execute()
+            vehicles_response = self.supabase.table("vehicles").select("id", count="exact").execute()
             total_vehicles = vehicles_response.count if vehicles_response else 0
             
-            # Get payment count and total from payments table
-            payments_response = self.supabase.table("payments").select("*").execute()
-            payments = payments_response.data if payments_response else []
+            # Get payment stats - only count and revenue
+            revenue_response = (
+                self.supabase.table("payments")
+                .select("amount, status")
+                .in_("status", list(SUCCESS_STATUSES))
+                .execute()
+            )
             
+            payments = safe_data(revenue_response)
             total_payments = len(payments)
-            completed_payments = [p for p in payments if p.get("status") in ["completed", "paid", "success"]]
-            total_revenue = sum(float(p.get("amount", 0)) for p in completed_payments)
+            total_revenue = sum(Decimal(str(p.get("amount", 0))) for p in payments)
             
             # Get user services count
-            services_response = self.supabase.table("user_services").select("count", count="exact").execute()
+            services_response = self.supabase.table("user_services").select("id", count="exact").execute()
             total_services_purchased = services_response.count if services_response else 0
             
             # Get recent users (last 7 days)
             week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
-            recent_users_response = self.supabase.table("users").select("count", count="exact").gte("created_at", week_ago).execute()
+            recent_users_response = (
+                self.supabase.table("users")
+                .select("id", count="exact")
+                .gte("created_at", week_ago)
+                .execute()
+            )
             new_users_this_week = recent_users_response.count if recent_users_response else 0
             
             # Get active services from database
-            active_services_response = self.supabase.table("services").select("count", count="exact").eq("active", True).execute()
+            active_services_response = (
+                self.supabase.table("services")
+                .select("id", count="exact")
+                .eq("active", True)
+                .execute()
+            )
             active_services = active_services_response.count if active_services_response else 0
             
             return {
                 "total_users": total_users,
                 "total_vehicles": total_vehicles,
                 "total_payments": total_payments,
-                "total_revenue": round(total_revenue, 2),
+                "total_revenue": float(total_revenue),
                 "total_services_purchased": total_services_purchased,
                 "new_users_this_week": new_users_this_week,
                 "active_services": active_services,
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": now_iso()
             }
             
         except Exception as e:
-            logger.error(f"Error getting admin stats: {str(e)}")
+            logger.exception("Error getting admin stats")
             return {
                 "error": str(e),
                 "total_users": 0,
@@ -84,8 +152,19 @@ class AdminService:
                 "total_services_purchased": 0,
                 "new_users_this_week": 0,
                 "active_services": 0,
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": now_iso()
             }
+    
+    async def _get_user_count(self) -> int:
+        """Get total user count with pagination support."""
+        try:
+            response = self.supabase.auth.admin.list_users()
+            if response and hasattr(response, 'users'):
+                return len(response.users)
+            return 0
+        except Exception as e:
+            logger.warning(f"Could not get user count: {e}")
+            return 0
     
     # ─── USERS ────────────────────────────────────────────────────
     
@@ -99,18 +178,22 @@ class AdminService:
         Get all users with pagination.
         
         Args:
-            limit: Number of users to return
-            offset: Pagination offset
+            limit: Number of users to return (1-200)
+            offset: Pagination offset (>= 0)
             search: Optional search term for email
             
         Returns:
             Dict with users list and pagination info
         """
+        # Validate pagination
+        limit = max(1, min(200, limit))
+        offset = max(0, offset)
+        
         try:
             # Get users from Supabase Auth
             response = self.supabase.auth.admin.list_users()
             
-            if not response or not response.users:
+            if not response or not hasattr(response, 'users'):
                 return {"users": [], "total": 0, "limit": limit, "offset": offset}
             
             # Convert to list and filter
@@ -142,13 +225,38 @@ class AdminService:
             # Apply pagination
             paginated_users = users[offset:offset + limit]
             
-            # Get user services for each user
-            for user in paginated_users:
-                try:
-                    services_response = self.supabase.table("user_services").select("*, services(name, code)").eq("user_id", user["id"]).execute()
-                    user["services"] = services_response.data if services_response else []
-                except Exception:
-                    user["services"] = []
+            # Get service map for user services
+            service_map = await self._get_services_map()
+            
+            # Get user services for each user (batch query)
+            if paginated_users:
+                user_ids = [u["id"] for u in paginated_users]
+                services_response = (
+                    self.supabase.table("user_services")
+                    .select("user_id, service_id, status")
+                    .in_("user_id", user_ids)
+                    .execute()
+                )
+                user_services = safe_data(services_response)
+                
+                # Group services by user_id
+                services_by_user = {}
+                for us in user_services:
+                    user_id = us.get("user_id")
+                    if user_id not in services_by_user:
+                        services_by_user[user_id] = []
+                    
+                    service = service_map.get(us.get("service_id"), {})
+                    services_by_user[user_id].append({
+                        "service_id": us.get("service_id"),
+                        "service_name": service.get("name"),
+                        "service_code": service.get("code"),
+                        "status": us.get("status")
+                    })
+                
+                # Attach services to users
+                for user in paginated_users:
+                    user["services"] = services_by_user.get(user["id"], [])
             
             return {
                 "users": paginated_users,
@@ -158,7 +266,7 @@ class AdminService:
             }
             
         except Exception as e:
-            logger.error(f"Error getting users: {str(e)}")
+            logger.exception("Error getting users")
             return {"users": [], "total": 0, "limit": limit, "offset": offset}
     
     async def get_user_by_id(self, user_id: str) -> Dict[str, Any]:
@@ -177,7 +285,7 @@ class AdminService:
         try:
             response = self.supabase.auth.admin.get_user_by_id(user_id)
             
-            if not response or not response.user:
+            if not response or not hasattr(response, 'user'):
                 raise NotFoundException(f"User with ID {user_id} not found")
             
             user = response.user
@@ -194,19 +302,30 @@ class AdminService:
             }
             
             # Get user services
-            services_response = self.supabase.table("user_services").select("*, services(*)").eq("user_id", user_id).execute()
-            user_data["services"] = services_response.data if services_response else []
+            services_response = (
+                self.supabase.table("user_services")
+                .select("*, services(*)")
+                .eq("user_id", user_id)
+                .execute()
+            )
+            user_data["services"] = safe_data(services_response)
             
             # Get user payments
-            payments_response = self.supabase.table("payments").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
-            user_data["payments"] = payments_response.data if payments_response else []
+            payments_response = (
+                self.supabase.table("payments")
+                .select("*")
+                .eq("user_id", user_id)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            user_data["payments"] = safe_data(payments_response)
             
             return user_data
             
         except NotFoundException:
             raise
         except Exception as e:
-            logger.error(f"Error getting user {user_id}: {str(e)}")
+            logger.exception(f"Error getting user {user_id}")
             raise NotFoundException(f"User with ID {user_id} not found")
     
     # ─── PAYMENTS ──────────────────────────────────────────────────
@@ -221,13 +340,21 @@ class AdminService:
         Get all payments with pagination and filtering.
         
         Args:
-            limit: Number of payments to return
-            offset: Pagination offset
-            status: Filter by status (pending, completed, failed)
+            limit: Number of payments to return (1-200)
+            offset: Pagination offset (>= 0)
+            status: Filter by status
             
         Returns:
             Dict with payments list and pagination info
         """
+        # Validate pagination
+        limit = max(1, min(200, limit))
+        offset = max(0, offset)
+        
+        # Validate status
+        if status and status not in PAYMENT_STATUSES:
+            status = None
+        
         try:
             query = self.supabase.table("payments").select("*")
             
@@ -235,25 +362,24 @@ class AdminService:
                 query = query.eq("status", status)
             
             response = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-            payments = response.data if response else []
+            payments = safe_data(response)
             
             # Get total count
-            count_query = self.supabase.table("payments").select("count", count="exact")
+            count_query = self.supabase.table("payments").select("id", count="exact")
             if status:
                 count_query = count_query.eq("status", status)
             count_response = count_query.execute()
             total = count_response.count if count_response else 0
             
-            # Get service names from database
-            for payment in payments:
-                service_id = payment.get("service_id")
-                if service_id:
-                    try:
-                        service_response = self.supabase.table("services").select("name, code").eq("id", service_id).execute()
-                        if service_response.data:
-                            payment["service_name"] = service_response.data[0].get("name")
-                            payment["service_code"] = service_response.data[0].get("code")
-                    except Exception:
+            # Get service map for payments (batch query)
+            if payments:
+                service_map = await self._get_services_map()
+                for payment in payments:
+                    service_id = payment.get("service_id")
+                    if service_id and service_id in service_map:
+                        payment["service_name"] = service_map[service_id].get("name")
+                        payment["service_code"] = service_map[service_id].get("code")
+                    else:
                         payment["service_name"] = "Unknown"
             
             return {
@@ -264,7 +390,7 @@ class AdminService:
             }
             
         except Exception as e:
-            logger.error(f"Error getting payments: {str(e)}")
+            logger.exception("Error getting payments")
             return {"payments": [], "total": 0, "limit": limit, "offset": offset}
     
     # ─── VEHICLES ──────────────────────────────────────────────────
@@ -279,13 +405,17 @@ class AdminService:
         Get all vehicles with pagination.
         
         Args:
-            limit: Number of vehicles to return
-            offset: Pagination offset
+            limit: Number of vehicles to return (1-200)
+            offset: Pagination offset (>= 0)
             verified: Filter by verification status
             
         Returns:
             Dict with vehicles list and pagination info
         """
+        # Validate pagination
+        limit = max(1, min(200, limit))
+        offset = max(0, offset)
+        
         try:
             query = self.supabase.table("vehicles").select("*")
             
@@ -293,10 +423,10 @@ class AdminService:
                 query = query.eq("verified", verified)
             
             response = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-            vehicles = response.data if response else []
+            vehicles = safe_data(response)
             
             # Get total count
-            count_query = self.supabase.table("vehicles").select("count", count="exact")
+            count_query = self.supabase.table("vehicles").select("id", count="exact")
             if verified is not None:
                 count_query = count_query.eq("verified", verified)
             count_response = count_query.execute()
@@ -310,7 +440,7 @@ class AdminService:
             }
             
         except Exception as e:
-            logger.error(f"Error getting vehicles: {str(e)}")
+            logger.exception("Error getting vehicles")
             return {"vehicles": [], "total": 0, "limit": limit, "offset": offset}
     
     # ─── SERVICES ──────────────────────────────────────────────────
@@ -324,15 +454,27 @@ class AdminService:
         """
         try:
             response = self.supabase.table("services").select("*").order("display_order", ascending=True).execute()
-            services = response.data if response else []
+            services = safe_data(response)
             
             # Count purchases for each service
-            for service in services:
-                try:
-                    count_response = self.supabase.table("user_services").select("count", count="exact").eq("service_id", service["id"]).execute()
-                    service["purchase_count"] = count_response.count if count_response else 0
-                except Exception:
-                    service["purchase_count"] = 0
+            if services:
+                service_ids = [s["id"] for s in services]
+                count_response = (
+                    self.supabase.table("user_services")
+                    .select("service_id", count="exact")
+                    .in_("service_id", service_ids)
+                    .execute()
+                )
+                
+                # Group counts by service_id
+                counts = {}
+                for item in safe_data(count_response):
+                    sid = item.get("service_id")
+                    if sid:
+                        counts[sid] = counts.get(sid, 0) + 1
+                
+                for service in services:
+                    service["purchase_count"] = counts.get(service["id"], 0)
             
             return {
                 "services": services,
@@ -340,7 +482,7 @@ class AdminService:
             }
             
         except Exception as e:
-            logger.error(f"Error getting services: {str(e)}")
+            logger.exception("Error getting services")
             return {"services": [], "total": 0}
     
     async def update_service(
@@ -357,19 +499,39 @@ class AdminService:
             
         Returns:
             Updated service data
+            
+        Raises:
+            NotFoundException: If service not found
+            ValueError: If validation fails
         """
+        # Validate data
+        if "price" in data:
+            if data["price"] is not None and data["price"] < 0:
+                raise ValueError("Price cannot be negative")
+        
+        if "display_order" in data:
+            if data["display_order"] is not None and data["display_order"] < 0:
+                raise ValueError("Display order cannot be negative")
+        
+        if "currency" in data:
+            if data["currency"] is not None and not data["currency"].strip():
+                raise ValueError("Currency cannot be empty")
+        
+        if "name" in data:
+            if data["name"] is not None and not data["name"].strip():
+                raise ValueError("Name cannot be empty")
+        
         try:
             # Check if service exists
             response = self.supabase.table("services").select("*").eq("id", service_id).execute()
-            if not response.data:
+            if not safe_data(response):
                 raise NotFoundException(f"Service {service_id} not found")
             
             # Update service
             update_data = {
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": now_iso()
             }
             
-            # Only update fields that are provided
             allowed_fields = ["name", "price", "currency", "description", "icon", "active", "display_order"]
             for field in allowed_fields:
                 if field in data and data[field] is not None:
@@ -377,17 +539,22 @@ class AdminService:
             
             response = self.supabase.table("services").update(update_data).eq("id", service_id).execute()
             
+            # Clear cache
+            self._clear_services_cache()
+            
             logger.info(f"Service {service_id} updated: {update_data}")
             
             return {
                 "message": "Service updated successfully",
-                "service": response.data[0] if response.data else None
+                "service": safe_data(response)[0] if safe_data(response) else None
             }
             
         except NotFoundException:
             raise
+        except ValueError:
+            raise
         except Exception as e:
-            logger.error(f"Error updating service: {str(e)}")
+            logger.exception(f"Error updating service {service_id}")
             raise
     
     async def create_service(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -399,40 +566,61 @@ class AdminService:
             
         Returns:
             Created service data
+            
+        Raises:
+            ValueError: If validation fails
         """
+        # Validate required fields
+        if not data.get("code"):
+            raise ValueError("Service code is required")
+        
+        if not data.get("name"):
+            raise ValueError("Service name is required")
+        
+        if data.get("price") is None:
+            raise ValueError("Service price is required")
+        
+        if data["price"] < 0:
+            raise ValueError("Price cannot be negative")
+        
+        if data["code"] not in SERVICE_CODES:
+            raise ValueError(f"Service code must be one of: {', '.join(SERVICE_CODES)}")
+        
         try:
             # Check if service code already exists
-            if data.get("code"):
-                existing = self.supabase.table("services").select("*").eq("code", data["code"]).execute()
-                if existing.data:
-                    raise ValueError(f"Service with code {data['code']} already exists")
+            existing = self.supabase.table("services").select("*").eq("code", data["code"]).execute()
+            if safe_data(existing):
+                raise ValueError(f"Service with code '{data['code']}' already exists")
             
             service_data = {
-                "code": data.get("code"),
-                "name": data.get("name"),
-                "price": data.get("price"),
+                "code": data["code"],
+                "name": data["name"],
+                "price": data["price"],
                 "currency": data.get("currency", "KES"),
                 "description": data.get("description"),
                 "icon": data.get("icon"),
                 "active": data.get("active", True),
                 "display_order": data.get("display_order", 0),
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
+                "created_at": now_iso(),
+                "updated_at": now_iso()
             }
             
             response = self.supabase.table("services").insert(service_data).execute()
             
-            logger.info(f"Service created: {data.get('code')}")
+            # Clear cache
+            self._clear_services_cache()
+            
+            logger.info(f"Service created: {data['code']}")
             
             return {
                 "message": "Service created successfully",
-                "service": response.data[0] if response.data else None
+                "service": safe_data(response)[0] if safe_data(response) else None
             }
             
-        except ValueError as e:
+        except ValueError:
             raise
         except Exception as e:
-            logger.error(f"Error creating service: {str(e)}")
+            logger.exception(f"Error creating service {data.get('code')}")
             raise
     
     async def delete_service(self, service_id: int) -> Dict[str, Any]:
@@ -444,20 +632,27 @@ class AdminService:
             
         Returns:
             Success message
+            
+        Raises:
+            NotFoundException: If service not found
+            ValueError: If service has user purchases
         """
         try:
             # Check if service exists
             response = self.supabase.table("services").select("*").eq("id", service_id).execute()
-            if not response.data:
+            if not safe_data(response):
                 raise NotFoundException(f"Service {service_id} not found")
             
             # Check if service has user_services records
-            user_services = self.supabase.table("user_services").select("count", count="exact").eq("service_id", service_id).execute()
+            user_services = self.supabase.table("user_services").select("id", count="exact").eq("service_id", service_id).execute()
             if user_services.count and user_services.count > 0:
                 raise ValueError(f"Service has {user_services.count} user purchases. Cannot delete.")
             
             # Delete service
             self.supabase.table("services").delete().eq("id", service_id).execute()
+            
+            # Clear cache
+            self._clear_services_cache()
             
             logger.info(f"Service {service_id} deleted")
             
@@ -468,10 +663,10 @@ class AdminService:
             
         except NotFoundException:
             raise
-        except ValueError as e:
+        except ValueError:
             raise
         except Exception as e:
-            logger.error(f"Error deleting service: {str(e)}")
+            logger.exception(f"Error deleting service {service_id}")
             raise
     
     # ─── USER SERVICES ─────────────────────────────────────────────
@@ -492,30 +687,42 @@ class AdminService:
             
         Returns:
             Updated service data
+            
+        Raises:
+            NotFoundException: If service or user not found
         """
+        if status not in {"active", "suspended", "cancelled"}:
+            raise ValueError(f"Invalid status: {status}")
+        
         try:
             # Check if service exists
             service_response = self.supabase.table("services").select("*").eq("id", service_id).execute()
-            if not service_response.data:
+            if not safe_data(service_response):
                 raise NotFoundException(f"Service {service_id} not found")
             
             # Update or create user service
-            existing = self.supabase.table("user_services").select("*").eq("user_id", user_id).eq("service_id", service_id).execute()
+            existing = (
+                self.supabase.table("user_services")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("service_id", service_id)
+                .execute()
+            )
             
-            if existing.data:
+            if safe_data(existing):
                 # Update existing
                 response = self.supabase.table("user_services").update({
                     "status": status,
-                    "updated_at": datetime.utcnow().isoformat()
-                }).eq("id", existing.data[0]["id"]).execute()
+                    "updated_at": now_iso()
+                }).eq("id", safe_data(existing)[0]["id"]).execute()
             else:
                 # Create new
                 response = self.supabase.table("user_services").insert({
                     "user_id": user_id,
                     "service_id": service_id,
                     "status": status,
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat()
+                    "created_at": now_iso(),
+                    "updated_at": now_iso()
                 }).execute()
             
             logger.info(f"User service updated: user={user_id}, service={service_id}, status={status}")
@@ -525,13 +732,15 @@ class AdminService:
                 "user_id": user_id,
                 "service_id": service_id,
                 "status": status,
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": now_iso()
             }
             
         except NotFoundException:
             raise
+        except ValueError:
+            raise
         except Exception as e:
-            logger.error(f"Error updating user service: {str(e)}")
+            logger.exception(f"Error updating user service for user {user_id}")
             raise
     
     # ─── PLATFORM ANALYTICS ──────────────────────────────────────
@@ -541,25 +750,42 @@ class AdminService:
         Get platform analytics for the specified period.
         
         Args:
-            days: Number of days to analyze
+            days: Number of days to analyze (1-365)
             
         Returns:
             Dict with analytics data
         """
+        days = max(1, min(365, days))
+        
         try:
             start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
             
             # Daily user registrations
-            users_response = self.supabase.table("users").select("created_at").gte("created_at", start_date).execute()
-            user_data = users_response.data if users_response else []
+            users_response = (
+                self.supabase.table("users")
+                .select("created_at")
+                .gte("created_at", start_date)
+                .execute()
+            )
+            user_data = safe_data(users_response)
             
-            # Daily payments
-            payments_response = self.supabase.table("payments").select("*").gte("created_at", start_date).execute()
-            payment_data = payments_response.data if payments_response else []
+            # Daily payments (only needed fields)
+            payments_response = (
+                self.supabase.table("payments")
+                .select("created_at, amount, status")
+                .gte("created_at", start_date)
+                .execute()
+            )
+            payment_data = safe_data(payments_response)
             
             # Daily vehicle additions
-            vehicles_response = self.supabase.table("vehicles").select("created_at").gte("created_at", start_date).execute()
-            vehicle_data = vehicles_response.data if vehicles_response else []
+            vehicles_response = (
+                self.supabase.table("vehicles")
+                .select("created_at")
+                .gte("created_at", start_date)
+                .execute()
+            )
+            vehicle_data = safe_data(vehicles_response)
             
             # Calculate daily stats
             daily_stats = {}
@@ -586,7 +812,8 @@ class AdminService:
                 date_key = payment["created_at"][:10] if payment.get("created_at") else None
                 if date_key in daily_stats:
                     daily_stats[date_key]["payments"] += 1
-                    daily_stats[date_key]["revenue"] += float(payment.get("amount", 0))
+                    if payment.get("status") in SUCCESS_STATUSES:
+                        daily_stats[date_key]["revenue"] += float(payment.get("amount", 0))
             
             for vehicle in vehicle_data:
                 date_key = vehicle["created_at"][:10] if vehicle.get("created_at") else None
@@ -595,7 +822,7 @@ class AdminService:
             
             # Convert to list and sort by date
             analytics = sorted(
-                [daily_stats[date] for date in daily_stats.keys() if date in daily_stats],
+                [daily_stats[date] for date in daily_stats.keys()],
                 key=lambda x: x["date"]
             )
             
@@ -619,7 +846,7 @@ class AdminService:
             }
             
         except Exception as e:
-            logger.error(f"Error getting analytics: {str(e)}")
+            logger.exception("Error getting analytics")
             return {
                 "period_days": days,
                 "daily_stats": [],
@@ -642,36 +869,39 @@ class AdminService:
             
         Returns:
             Success message
+            
+        Raises:
+            NotFoundException: If user not found
         """
         try:
             # Check if user exists
             try:
                 user_response = self.supabase.auth.admin.get_user_by_id(user_id)
-                if not user_response or not user_response.user:
+                if not user_response or not hasattr(user_response, 'user'):
                     raise NotFoundException(f"User {user_id} not found")
             except Exception:
                 raise NotFoundException(f"User {user_id} not found")
             
-            # Delete user from Supabase Auth
-            self.supabase.auth.admin.delete_user(user_id)
-            
-            # Delete user data from tables (cascade will handle)
-            self.supabase.table("vehicles").delete().eq("user_id", user_id).execute()
+            # Delete child tables first (safer order)
             self.supabase.table("user_services").delete().eq("user_id", user_id).execute()
+            self.supabase.table("vehicles").delete().eq("user_id", user_id).execute()
             self.supabase.table("payments").delete().eq("user_id", user_id).execute()
+            
+            # Delete user from Supabase Auth last
+            self.supabase.auth.admin.delete_user(user_id)
             
             logger.info(f"User {user_id} deleted")
             
             return {
                 "message": f"User {user_id} deleted successfully",
                 "user_id": user_id,
-                "deleted_at": datetime.utcnow().isoformat()
+                "deleted_at": now_iso()
             }
             
         except NotFoundException:
             raise
         except Exception as e:
-            logger.error(f"Error deleting user: {str(e)}")
+            logger.exception(f"Error deleting user {user_id}")
             raise
     
     # ─── SYSTEM STATUS ────────────────────────────────────────────
@@ -685,13 +915,13 @@ class AdminService:
         """
         status = {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now_iso(),
             "components": {}
         }
         
         # Check Supabase
         try:
-            self.supabase.table("services").select("count").limit(1).execute()
+            self.supabase.table("services").select("id").limit(1).execute()
             status["components"]["supabase"] = "healthy"
         except Exception as e:
             status["components"]["supabase"] = f"unhealthy: {str(e)}"
@@ -701,7 +931,7 @@ class AdminService:
         try:
             from app.modules.mpesa.service import MpesaService
             mpesa = MpesaService()
-            await mpesa.stk_push._get_access_token()
+            await mpesa.health_check()
             status["components"]["mpesa"] = "healthy"
         except Exception as e:
             status["components"]["mpesa"] = f"unhealthy: {str(e)}"
@@ -710,7 +940,7 @@ class AdminService:
         
         # Check Database
         try:
-            self.supabase.table("payments").select("count").limit(1).execute()
+            self.supabase.table("payments").select("id").limit(1).execute()
             status["components"]["database"] = "healthy"
         except Exception as e:
             status["components"]["database"] = f"unhealthy: {str(e)}"
@@ -732,38 +962,54 @@ class AdminService:
         
         Args:
             service_code: Service code (e.g., 'valuation', 'mileage')
-            price: New price
+            price: New price (must be > 0)
             currency: Currency code
             
         Returns:
             Updated service data
+            
+        Raises:
+            NotFoundException: If service not found
+            ValueError: If price is invalid
         """
+        # Validate price
+        if price <= 0:
+            raise ValueError("Price must be greater than 0")
+        
+        if not currency or not currency.strip():
+            raise ValueError("Currency cannot be empty")
+        
         try:
             # Check if service exists
             response = self.supabase.table("services").select("*").eq("code", service_code).execute()
-            if not response.data:
+            if not safe_data(response):
                 raise NotFoundException(f"Service '{service_code}' not found")
             
             # Update price
             update_data = {
                 "price": price,
                 "currency": currency,
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": now_iso()
             }
             
             response = self.supabase.table("services").update(update_data).eq("code", service_code).execute()
+            
+            # Clear cache
+            self._clear_services_cache()
             
             logger.info(f"Service price updated: {service_code} = {currency} {price}")
             
             return {
                 "message": f"Service '{service_code}' price updated to {currency} {price}",
-                "service": response.data[0] if response.data else None
+                "service": safe_data(response)[0] if safe_data(response) else None
             }
             
         except NotFoundException:
             raise
+        except ValueError:
+            raise
         except Exception as e:
-            logger.error(f"Error updating service price: {str(e)}")
+            logger.exception(f"Error updating service price for {service_code}")
             raise
     
     # ─── REVENUE REPORT ────────────────────────────────────────────
@@ -784,7 +1030,7 @@ class AdminService:
             Revenue report
         """
         try:
-            query = self.supabase.table("payments").select("*").eq("status", "completed")
+            query = self.supabase.table("payments").select("*").in_("status", list(SUCCESS_STATUSES))
             
             if start_date:
                 query = query.gte("created_at", start_date)
@@ -792,31 +1038,38 @@ class AdminService:
                 query = query.lte("created_at", end_date)
             
             response = query.order("created_at", desc=True).execute()
-            payments = response.data if response else []
+            payments = safe_data(response)
             
-            # Calculate revenue by service from database
+            # Get service map for revenue by service
+            service_map = await self._get_services_map()
+            
+            # Calculate revenue by service
             revenue_by_service = {}
             for payment in payments:
-                service_name = payment.get("service_name") or payment.get("service_id")
-                if service_name:
-                    if service_name not in revenue_by_service:
-                        revenue_by_service[service_name] = 0
-                    revenue_by_service[service_name] += float(payment.get("amount", 0))
+                service_id = payment.get("service_id")
+                if service_id and service_id in service_map:
+                    service_name = service_map[service_id].get("name", str(service_id))
+                else:
+                    service_name = payment.get("service_name", "Unknown")
+                
+                if service_name not in revenue_by_service:
+                    revenue_by_service[service_name] = Decimal(0)
+                revenue_by_service[service_name] += Decimal(str(payment.get("amount", 0)))
             
             total_revenue = sum(revenue_by_service.values())
             
             return {
-                "total_revenue": round(total_revenue, 2),
+                "total_revenue": float(total_revenue),
                 "total_transactions": len(payments),
                 "revenue_by_service": {
-                    k: round(v, 2) for k, v in revenue_by_service.items()
+                    k: float(v) for k, v in revenue_by_service.items()
                 },
                 "start_date": start_date,
-                "end_date": end_date or datetime.utcnow().isoformat()
+                "end_date": end_date or now_iso()
             }
             
         except Exception as e:
-            logger.error(f"Error getting revenue report: {str(e)}")
+            logger.exception("Error getting revenue report")
             return {
                 "total_revenue": 0,
                 "total_transactions": 0,
@@ -835,7 +1088,7 @@ class AdminService:
         """
         try:
             response = self.supabase.table("services").select("code, price, currency, name").eq("active", True).execute()
-            services = response.data if response else []
+            services = safe_data(response)
             
             prices = {}
             for service in services:
@@ -852,5 +1105,5 @@ class AdminService:
             }
             
         except Exception as e:
-            logger.error(f"Error getting service prices: {str(e)}")
+            logger.exception("Error getting service prices")
             return {"prices": {}, "services": [], "total": 0}
