@@ -1,0 +1,1746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Auto-D Kenya — Complete Vehicle Report</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+    <style>
+        /* ─── Reset & Base ────────────────────────────────────────── */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0a0c15;
+            color: #f8fafc;
+            padding: 24px;
+            min-height: 100vh;
+        }
+        .report-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* ─── Report Header ────────────────────────────────────────── */
+        .report-header {
+            background: linear-gradient(135deg, #111827, #0a0c15);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 16px;
+            padding: 32px 40px;
+            margin-bottom: 28px;
+            position: relative;
+            overflow: hidden;
+        }
+        .report-header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -10%;
+            width: 40%;
+            height: 200%;
+            background: radial-gradient(ellipse, rgba(234, 179, 8, 0.03), transparent 70%);
+            pointer-events: none;
+        }
+        .report-header .top-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .report-header .logo {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            color: #f8fafc;
+        }
+        .report-header .logo span {
+            color: #eab308;
+        }
+        .report-header .badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #eab308;
+            background: rgba(234, 179, 8, 0.12);
+            padding: 4px 14px;
+            border-radius: 20px;
+            border: 1px solid rgba(234, 179, 8, 0.15);
+            display: inline-block;
+            margin-top: 4px;
+        }
+        .report-header .meta {
+            text-align: right;
+            font-size: 12px;
+            color: #94a3b8;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1.8;
+        }
+        .report-header .meta strong {
+            color: #eab308;
+        }
+        .report-header .subtitle {
+            color: #94a3b8;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        /* ─── Tabs ────────────────────────────────────────────────── */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 28px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            overflow-x: auto;
+        }
+        .tab-btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            color: #94a3b8;
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+        .tab-btn:hover {
+            color: #eab308;
+            background: rgba(234, 179, 8, 0.05);
+        }
+        .tab-btn.active {
+            background: #eab308;
+            color: #0a0c10;
+        }
+        .tab-btn .count {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 0 8px;
+            font-size: 10px;
+            margin-left: 4px;
+        }
+        .tab-btn.active .count {
+            background: rgba(0, 0, 0, 0.15);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* ─── Cards ────────────────────────────────────────────────── */
+        .card {
+            background: #111827;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 24px 28px;
+            margin-bottom: 20px;
+        }
+        .card-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: #eab308;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .card-title .badge {
+            font-size: 9px;
+            font-weight: 500;
+            color: #94a3b8;
+            background: #1e293b;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .card-subtitle {
+            color: #94a3b8;
+            font-size: 12px;
+            margin-bottom: 12px;
+        }
+
+        /* ─── Grids ────────────────────────────────────────────────── */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+        }
+        .grid-4 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 16px;
+        }
+        @media (max-width: 768px) {
+            .grid-2,
+            .grid-3,
+            .grid-4 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ─── Stats ────────────────────────────────────────────────── */
+        .stat-box {
+            background: #0f172a;
+            border-radius: 10px;
+            padding: 16px 20px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            text-align: center;
+        }
+        .stat-box .label {
+            font-size: 10px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .stat-box .value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 24px;
+            font-weight: 700;
+            margin-top: 4px;
+            color: #f8fafc;
+        }
+        .stat-box .value.amber {
+            color: #eab308;
+        }
+        .stat-box .value.green {
+            color: #22c55e;
+        }
+        .stat-box .value.blue {
+            color: #3b82f6;
+        }
+        .stat-box .value.red {
+            color: #ef4444;
+        }
+        .stat-box .sub {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 2px;
+        }
+
+        .stat-box.highlight {
+            border-color: #eab308;
+            background: rgba(234, 179, 8, 0.05);
+        }
+
+        /* ─── Value Display ────────────────────────────────────────── */
+        .value-display {
+            text-align: center;
+            padding: 24px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            margin-bottom: 20px;
+        }
+        .value-display .amount {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 48px;
+            font-weight: 800;
+            color: #22c55e;
+            letter-spacing: -0.5px;
+        }
+        .value-display .amount .currency {
+            font-size: 28px;
+            color: #94a3b8;
+            font-weight: 600;
+        }
+        .value-display .range {
+            color: #94a3b8;
+            font-size: 15px;
+            margin-top: 6px;
+        }
+        .value-display .range strong {
+            color: #eab308;
+        }
+
+        /* ─── Confidence Bar ────────────────────────────────────────── */
+        .confidence-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #0f172a;
+            padding: 10px 16px;
+            border-radius: 8px;
+            margin: 12px 0;
+        }
+        .confidence-bar .track {
+            flex: 1;
+            height: 6px;
+            background: #1e293b;
+            border-radius: 20px;
+            overflow: hidden;
+        }
+        .confidence-bar .fill {
+            height: 100%;
+            border-radius: 20px;
+            background: linear-gradient(90deg, #eab308, #22c55e);
+            transition: width 1s ease;
+        }
+        .confidence-bar .label {
+            font-size: 13px;
+            font-weight: 600;
+            min-width: 60px;
+            text-align: right;
+            color: #94a3b8;
+        }
+
+        /* ─── Tables ────────────────────────────────────────────────── */
+        .table-wrap {
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        th,
+        td {
+            text-align: right;
+            padding: 8px 12px;
+            white-space: nowrap;
+        }
+        th:first-child,
+        td:first-child {
+            text-align: left;
+        }
+        th {
+            color: #94a3b8;
+            font-weight: 600;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        td {
+            border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+        }
+        tr:last-child td {
+            border-bottom: none;
+            font-weight: 700;
+            color: #eab308;
+        }
+        .table-highlight {
+            background: rgba(234, 179, 8, 0.05);
+        }
+        .table-highlight td {
+            color: #eab308;
+            font-weight: 600;
+        }
+
+        /* ─── Cost Breakdown ────────────────────────────────────────── */
+        .cost-breakdown {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .cost-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 12px;
+            background: #0f172a;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+        }
+        .cost-item .label {
+            color: #94a3b8;
+        }
+        .cost-item .value {
+            font-weight: 600;
+            color: #f8fafc;
+        }
+        .cost-item.total {
+            background: rgba(234, 179, 8, 0.08);
+            border-color: #eab308;
+        }
+        .cost-item.total .label {
+            color: #eab308;
+            font-weight: 700;
+        }
+        .cost-item.total .value {
+            color: #eab308;
+            font-weight: 700;
+        }
+
+        /* ─── Vehicle Profile ────────────────────────────────────────── */
+        .vehicle-profile {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            padding: 12px 16px;
+            background: #0f172a;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            margin-bottom: 12px;
+        }
+        .vehicle-profile .name {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 18px;
+            font-weight: 600;
+            color: #f8fafc;
+        }
+        .vehicle-profile .pill {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 12px;
+            border-radius: 20px;
+            background: #1e293b;
+            color: #94a3b8;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .vehicle-profile .pill.fuel {
+            border-left: 3px solid #22c55e;
+        }
+        .vehicle-profile .pill.trans {
+            border-left: 3px solid #3b82f6;
+        }
+        .vehicle-profile .pill.engine {
+            border-left: 3px solid #eab308;
+        }
+        .vehicle-specs {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 4px;
+        }
+        .vehicle-specs .spec {
+            font-size: 10px;
+            color: #94a3b8;
+            padding: 4px 8px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .vehicle-specs .spec .val {
+            color: #eab308;
+            font-weight: 500;
+        }
+
+        /* ─── Recommendations ────────────────────────────────────────── */
+        .rec-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .rec-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 14px;
+            background: #0f172a;
+            border-radius: 6px;
+            border-left: 3px solid #eab308;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+        .rec-item .icon {
+            font-size: 16px;
+        }
+        .rec-item .text {
+            color: #f8fafc;
+        }
+        .rec-item .tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 8px;
+            text-transform: uppercase;
+            padding: 2px 10px;
+            border-radius: 10px;
+            background: rgba(234, 179, 8, 0.12);
+            color: #eab308;
+            margin-left: auto;
+            flex-shrink: 0;
+        }
+        .rec-item.success {
+            border-left-color: #22c55e;
+        }
+        .rec-item.success .tag {
+            background: rgba(34, 197, 94, 0.12);
+            color: #22c55e;
+        }
+        .rec-item.warning {
+            border-left-color: #ef4444;
+        }
+        .rec-item.warning .tag {
+            background: rgba(239, 68, 68, 0.12);
+            color: #ef4444;
+        }
+        .rec-item.info {
+            border-left-color: #3b82f6;
+        }
+        .rec-item.info .tag {
+            background: rgba(59, 130, 246, 0.12);
+            color: #3b82f6;
+        }
+
+        /* ─── Action Buttons ────────────────────────────────────────── */
+        .action-bar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .action-btn {
+            padding: 10px 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            background: transparent;
+            color: #94a3b8;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .action-btn:hover {
+            border-color: #eab308;
+            color: #eab308;
+            background: rgba(234, 179, 8, 0.05);
+        }
+        .action-btn.print {
+            border-color: #3b82f6;
+            color: #3b82f6;
+        }
+        .action-btn.print:hover {
+            background: rgba(59, 130, 246, 0.08);
+        }
+        .action-btn.share {
+            border-color: #22c55e;
+            color: #22c55e;
+        }
+        .action-btn.share:hover {
+            background: rgba(34, 197, 94, 0.08);
+        }
+        .action-btn.export {
+            border-color: #eab308;
+            color: #eab308;
+        }
+        .action-btn.export:hover {
+            background: rgba(234, 179, 8, 0.08);
+        }
+        .action-btn.download {
+            border-color: #8b5cf6;
+            color: #8b5cf6;
+        }
+        .action-btn.download:hover {
+            background: rgba(139, 92, 246, 0.08);
+        }
+
+        /* ─── Footer ────────────────────────────────────────────────── */
+        .report-footer {
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            padding-top: 20px;
+            margin-top: 28px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+            font-size: 11px;
+            color: #64748b;
+        }
+        .report-footer .brand {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            color: #cbd5e1;
+        }
+        .report-footer .brand span {
+            color: #eab308;
+        }
+        .report-footer .meta {
+            text-align: right;
+            line-height: 1.8;
+        }
+        .report-footer .meta strong {
+            color: #94a3b8;
+        }
+
+        /* ─── Disclaimer ────────────────────────────────────────────── */
+        .disclaimer {
+            font-size: 10px;
+            color: #64748b;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            margin-top: 16px;
+            line-height: 1.6;
+        }
+        .disclaimer strong {
+            color: #eab308;
+        }
+
+        /* ─── Responsive ────────────────────────────────────────────── */
+        @media (max-width: 768px) {
+            body {
+                padding: 12px;
+            }
+            .report-header {
+                padding: 20px;
+            }
+            .report-header .top-row {
+                flex-direction: column;
+            }
+            .report-header .meta {
+                text-align: left;
+                width: 100%;
+            }
+            .report-header .logo {
+                font-size: 22px;
+            }
+            .tabs {
+                gap: 2px;
+                padding: 2px;
+            }
+            .tab-btn {
+                padding: 8px 14px;
+                font-size: 11px;
+            }
+            .card {
+                padding: 16px 18px;
+            }
+            .value-display .amount {
+                font-size: 32px;
+            }
+            .stat-box .value {
+                font-size: 20px;
+            }
+            .grid-2,
+            .grid-3,
+            .grid-4 {
+                grid-template-columns: 1fr;
+            }
+            .action-bar {
+                flex-direction: column;
+            }
+            .action-btn {
+                justify-content: center;
+            }
+            .report-footer {
+                flex-direction: column;
+                text-align: center;
+            }
+            .report-footer .meta {
+                text-align: center;
+            }
+        }
+
+        @media print {
+            .action-bar,
+            .tabs {
+                display: none !important;
+            }
+            body {
+                background: #fff !important;
+                color: #000 !important;
+                padding: 20px !important;
+            }
+            .report-header {
+                background: #f5f5f5 !important;
+                border-color: #ddd !important;
+            }
+            .report-header .logo {
+                color: #000 !important;
+            }
+            .report-header .logo span {
+                color: #b8860b !important;
+            }
+            .card {
+                background: #fff !important;
+                border-color: #ddd !important;
+            }
+            .card-title {
+                color: #b8860b !important;
+            }
+            .stat-box {
+                background: #f5f5f5 !important;
+                border-color: #ddd !important;
+            }
+            .stat-box .value {
+                color: #000 !important;
+            }
+            .stat-box .value.amber {
+                color: #b8860b !important;
+            }
+            .stat-box .value.green {
+                color: #22c55e !important;
+            }
+            .stat-box .value.blue {
+                color: #3b82f6 !important;
+            }
+            .stat-box .value.red {
+                color: #ef4444 !important;
+            }
+            .vehicle-profile {
+                background: #f5f5f5 !important;
+                border-color: #ddd !important;
+            }
+            .vehicle-profile .name {
+                color: #000 !important;
+            }
+            .cost-item {
+                background: #f5f5f5 !important;
+                border-color: #ddd !important;
+            }
+            .cost-item .value {
+                color: #000 !important;
+            }
+            .cost-item.total {
+                background: #f5f5f5 !important;
+                border-color: #b8860b !important;
+            }
+            .cost-item.total .label,
+            .cost-item.total .value {
+                color: #b8860b !important;
+            }
+            .value-display .amount {
+                color: #22c55e !important;
+            }
+            .value-display .amount .currency {
+                color: #666 !important;
+            }
+            .value-display .range strong {
+                color: #b8860b !important;
+            }
+            .confidence-bar {
+                background: #f5f5f5 !important;
+            }
+            .confidence-bar .track {
+                background: #ddd !important;
+            }
+            .rec-item {
+                background: #f5f5f5 !important;
+                border-color: #ddd !important;
+            }
+            .rec-item .text {
+                color: #000 !important;
+            }
+            .vehicle-specs .spec {
+                color: #666 !important;
+            }
+            .vehicle-specs .spec .val {
+                color: #b8860b !important;
+            }
+            .table-highlight td {
+                color: #b8860b !important;
+            }
+            .report-footer {
+                border-color: #ddd !important;
+            }
+            .report-footer .brand {
+                color: #000 !important;
+            }
+            .report-footer .brand span {
+                color: #b8860b !important;
+            }
+            .disclaimer {
+                border-color: #ddd !important;
+                background: #f5f5f5 !important;
+            }
+            .disclaimer strong {
+                color: #b8860b !important;
+            }
+            .tab-content {
+                display: block !important;
+            }
+            .tab-content:not(.active) {
+                display: none !important;
+            }
+            .tab-btn {
+                display: none !important;
+            }
+        }
+
+        /* ─── Print Styles ────────────────────────────────────────── */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            .print-only {
+                display: block !important;
+            }
+        }
+        .print-only {
+            display: none;
+        }
+
+        /* ─── Badge ────────────────────────────────────────────────── */
+        .auto-d-badge {
+            display: inline-block;
+            background: rgba(234, 179, 8, 0.15);
+            color: #eab308;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 8px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            border: 1px solid rgba(234, 179, 8, 0.2);
+            margin-left: 6px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="report-container" id="reportContainer">
+
+        <!-- ═══ REPORT HEADER ═══ -->
+        <header class="report-header">
+            <div class="top-row">
+                <div>
+                    <div class="logo">Auto-D <span>Kenya</span></div>
+                    <div class="badge">📋 Complete Vehicle Report</div>
+                    <div class="subtitle">Valuation · Running Cost · Ownership Cost</div>
+                </div>
+                <div class="meta">
+                    <div><strong>Report #</strong> <span id="reportNumber">AUTO-2026-001</span></div>
+                    <div><strong>Generated</strong> <span id="reportDate">—</span></div>
+                    <div><strong>Version</strong> 2026.08 <span class="auto-d-badge">Auto-D</span></div>
+                </div>
+            </div>
+        </header>
+
+        <!-- ═══ TABS ═══ -->
+        <div class="tabs no-print" role="tablist">
+            <button class="tab-btn active" data-tab="tab1" role="tab">
+                📊 Valuation Report <span class="count">1</span>
+            </button>
+            <button class="tab-btn" data-tab="tab2" role="tab">
+                🚗 Mileage & Running Cost <span class="count">2</span>
+            </button>
+            <button class="tab-btn" data-tab="tab3" role="tab">
+                💰 Cost of Ownership <span class="count">3</span>
+            </button>
+        </div>
+
+        <!-- ═══ TAB 1: VALUATION REPORT ═══ -->
+        <div class="tab-content active" id="tab1" role="tabpanel">
+
+            <!-- Vehicle Profile -->
+            <div class="card">
+                <div class="card-title">
+                    🚗 Vehicle Profile
+                    <span class="badge">Module 1</span>
+                </div>
+                <div class="vehicle-profile">
+                    <span class="name" id="vehicleName">2020 Toyota Land Cruiser Prado VX</span>
+                    <span class="pill fuel" id="fuelType">⛽ Petrol</span>
+                    <span class="pill trans" id="transmission">⚙️ Automatic</span>
+                    <span class="pill engine" id="engineSize">🔧 4000cc</span>
+                </div>
+                <div class="vehicle-specs" id="vehicleSpecs">
+                    <span class="spec">🔧 Trim <span class="val" id="trimLevel">VX</span></span>
+                    <span class="spec">⚡ Power <span class="val" id="powerHp">271 HP</span></span>
+                    <span class="spec">🔄 Torque <span class="val" id="torqueNm">430 Nm</span></span>
+                    <span class="spec">⛽ Fuel Consumption <span class="val" id="fuelConsumption">8.5 km/L</span></span>
+                    <span class="spec">💺 Seats <span class="val" id="seats">7</span></span>
+                    <span class="spec">🚪 Doors <span class="val" id="doors">5</span></span>
+                    <span class="spec">🚗 Body <span class="val" id="bodyType">SUV</span></span>
+                    <span class="spec">🏷️ Category <span class="val" id="category">SUV</span></span>
+                </div>
+            </div>
+
+            <!-- Valuation Summary -->
+            <div class="card">
+                <div class="card-title">
+                    💰 Valuation Summary
+                    <span class="badge">Market Value</span>
+                </div>
+                <div class="value-display">
+                    <div class="amount">
+                        <span class="currency">KES</span> <span id="marketValue">5,250,000</span>
+                    </div>
+                    <div class="range">
+                        Expected Range: <strong>KES <span id="rangeMin">4,830,000</span> — <span id="rangeMax">5,670,000</span></strong>
+                    </div>
+                </div>
+
+                <div class="grid-3">
+                    <div class="stat-box highlight">
+                        <div class="label">Market Value</div>
+                        <div class="value amber" id="statMarketValue">KES 5,250,000</div>
+                        <div class="sub">Current market estimate</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Retail Value</div>
+                        <div class="value blue" id="statRetailValue">KES 5,670,000</div>
+                        <div class="sub">Dealer retail price</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Trade-in Value</div>
+                        <div class="value" id="statTradeValue">KES 4,462,500</div>
+                        <div class="sub">Trade-in / wholesale</div>
+                    </div>
+                </div>
+
+                <div class="confidence-bar">
+                    <span style="font-size:14px;">📊</span>
+                    <span style="font-weight:600;color:#94a3b8;font-size:13px;">Confidence</span>
+                    <div class="track">
+                        <div class="fill" id="confidenceFill" style="width:85%;"></div>
+                    </div>
+                    <span class="label" id="confidenceLabel">85%</span>
+                </div>
+            </div>
+
+            <!-- Valuation Details -->
+            <div class="card">
+                <div class="card-title">
+                    📋 Valuation Details
+                    <span class="badge">Factors</span>
+                </div>
+                <div class="grid-2">
+                    <div class="stat-box">
+                        <div class="label">Year</div>
+                        <div class="value" id="detailYear">2020</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Mileage</div>
+                        <div class="value" id="detailMileage">45,000 km</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Condition</div>
+                        <div class="value green" id="detailCondition">Excellent</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Location</div>
+                        <div class="value" id="detailLocation">Nairobi</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Accident History</div>
+                        <div class="value green" id="detailAccident">None</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Previous Owners</div>
+                        <div class="value" id="detailOwners">1</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Value Adjustments -->
+            <div class="card">
+                <div class="card-title">
+                    📊 Value Adjustments
+                    <span class="badge">Factors Applied</span>
+                </div>
+                <div id="adjustmentsList">
+                    <div class="grid-2">
+                        <div class="cost-item">
+                            <span class="label">📅 Age Adjustment</span>
+                            <span class="value green">+5.0%</span>
+                        </div>
+                        <div class="cost-item">
+                            <span class="label">📊 Mileage Adjustment</span>
+                            <span class="value negative">-2.5%</span>
+                        </div>
+                        <div class="cost-item">
+                            <span class="label">📍 Location Adjustment</span>
+                            <span class="value green">+2.0%</span>
+                        </div>
+                        <div class="cost-item">
+                            <span class="label">⭐ Condition Adjustment</span>
+                            <span class="value green">+10.0%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recommendations -->
+            <div class="card">
+                <div class="card-title">
+                    💡 Smart Recommendations
+                    <span class="badge">AI</span>
+                </div>
+                <div class="rec-list" id="valuationRecs">
+                    <div class="rec-item success">
+                        <span class="icon">✅</span>
+                        <span class="text">Excellent condition — vehicle retains high market value</span>
+                        <span class="tag">Valuation</span>
+                    </div>
+                    <div class="rec-item info">
+                        <span class="icon">📊</span>
+                        <span class="text">Market demand for this model is strong in Nairobi</span>
+                        <span class="tag">Market</span>
+                    </div>
+                    <div class="rec-item success">
+                        <span class="icon">💰</span>
+                        <span class="text">Trade-in value is 15% below retail — consider private sale</span>
+                        <span class="tag">Selling</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ TAB 2: MILEAGE & RUNNING COST ═══ -->
+        <div class="tab-content" id="tab2" role="tabpanel">
+
+            <!-- Trip Summary -->
+            <div class="card">
+                <div class="card-title">
+                    🚗 Trip Summary
+                    <span class="badge">Mileage Rate</span>
+                </div>
+                <div class="value-display">
+                    <div class="amount" style="font-size:36px;">
+                        <span class="currency">KES</span> <span id="tripTotal">12,450</span>
+                    </div>
+                    <div class="range">
+                        at <strong>KES <span id="tripCostPerKm">83.00</span>/km</strong> over <strong id="tripDistance">150</strong> km
+                    </div>
+                </div>
+
+                <div class="cost-breakdown" id="tripBreakdown">
+                    <div class="cost-item">
+                        <span class="label">Fuel</span>
+                        <span class="value">KES <span id="tripFuel">4,500</span></span>
+                    </div>
+                    <div class="cost-item">
+                        <span class="label">Service</span>
+                        <span class="value">KES <span id="tripService">2,250</span></span>
+                    </div>
+                    <div class="cost-item">
+                        <span class="label">Tyres</span>
+                        <span class="value">KES <span id="tripTyres">1,200</span></span>
+                    </div>
+                    <div class="cost-item">
+                        <span class="label">Insurance</span>
+                        <span class="value">KES <span id="tripInsurance">2,400</span></span>
+                    </div>
+                    <div class="cost-item">
+                        <span class="label">Depreciation</span>
+                        <span class="value">KES <span id="tripDepreciation">2,100</span></span>
+                    </div>
+                    <div class="cost-item total">
+                        <span class="label">TOTAL</span>
+                        <span class="value">KES <span id="tripTotalDisplay">12,450</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Per KM Breakdown -->
+            <div class="card">
+                <div class="card-title">
+                    📊 Cost per km Breakdown
+                    <span class="badge">Running Cost</span>
+                </div>
+                <div class="grid-4" id="perKmGrid">
+                    <div class="stat-box">
+                        <div class="label">Fuel</div>
+                        <div class="value blue" id="perKmFuel">30.00</div>
+                        <div class="sub">KES/km</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Service</div>
+                        <div class="value" id="perKmService">15.00</div>
+                        <div class="sub">KES/km</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Tyres</div>
+                        <div class="value" id="perKmTyres">8.00</div>
+                        <div class="sub">KES/km</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Insurance</div>
+                        <div class="value" id="perKmInsurance">16.00</div>
+                        <div class="sub">KES/km</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Depreciation</div>
+                        <div class="value" id="perKmDepreciation">14.00</div>
+                        <div class="sub">KES/km</div>
+                    </div>
+                    <div class="stat-box highlight" style="grid-column: span 1;">
+                        <div class="label">TOTAL</div>
+                        <div class="value amber" id="perKmTotal">83.00</div>
+                        <div class="sub">KES/km</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Monthly & Annual -->
+            <div class="card">
+                <div class="card-title">
+                    📅 Monthly & Annual Costs
+                    <span class="badge">Budgeting</span>
+                </div>
+                <div class="grid-2">
+                    <div>
+                        <h4 style="color:#94a3b8;font-size:12px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📆 Monthly</h4>
+                        <div class="cost-breakdown" id="monthlyGrid">
+                            <div class="cost-item">
+                                <span class="label">Fuel</span>
+                                <span class="value">KES <span id="monthlyFuel">33,333</span></span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Service</span>
+                                <span class="value">KES <span id="monthlyService">16,667</span></span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Tyres</span>
+                                <span class="value">KES <span id="monthlyTyres">8,333</span></span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Insurance</span>
+                                <span class="value">KES <span id="monthlyInsurance">17,778</span></span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Depreciation</span>
+                                <span class="value">KES <span id="monthlyDepreciation">15,556</span></span>
+                            </div>
+                            <div class="cost-item total">
+                                <span class="label">TOTAL</span>
+                                <span class="value">KES <span id="monthlyTotal">91,667</span></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 style="color:#94a3b8;font-size:12px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📅 Annual</h4>
+                        <div class="cost-breakdown" id="annualGrid">
+                            <div class="cost-item">
+                                <span class="label">Fuel</span>
+                                <span class="value">KES <span id="annualFuel">400,000</span></span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Service</span>
+                                <span class="value">KES <span id="annualService">200,000</span></span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Tyres</span>
+                                <span class="value">KES <span id="annualTyres">100,000</span></span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Insurance</span>
+                                <span class="value">KES <span id="annualInsurance">213,333</span></span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Depreciation</span>
+                                <span class="value">KES <span id="annualDepreciation">186,667</span></span>
+                            </div>
+                            <div class="cost-item total">
+                                <span class="label">TOTAL</span>
+                                <span class="value">KES <span id="annualTotal">1,100,000</span></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5-Year Projection -->
+            <div class="card">
+                <div class="card-title">
+                    📈 5-Year Running Cost Projection
+                    <span class="badge">Long-term Planning</span>
+                </div>
+                <div class="grid-4" id="fiveYearStats">
+                    <div class="stat-box">
+                        <div class="label">Original Price</div>
+                        <div class="value amber" id="originalPrice">KES 5,250,000</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Est. Resale Value</div>
+                        <div class="value green" id="resaleValue">KES 3,150,000</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">5-Yr Depreciation</div>
+                        <div class="value red" id="depreciationPct">40%</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">5-Yr Running Cost</div>
+                        <div class="value amber" id="fiveYearTotal">KES 5,500,000</div>
+                    </div>
+                </div>
+
+                <div class="table-wrap" style="margin-top:12px;">
+                    <table id="yearlyTable">
+                        <thead>
+                            <tr>
+                                <th>Year</th>
+                                <th>Fuel</th>
+                                <th>Service</th>
+                                <th>Tyres</th>
+                                <th>Insurance</th>
+                                <th>Depreciation</th>
+                                <th>Total</th>
+                                <th>Value</th>
+                            </tr>
+                        </thead>
+                        <tbody id="yearlyBody">
+                            <tr>
+                                <td>Year 1</td>
+                                <td>KES 400,000</td>
+                                <td>KES 200,000</td>
+                                <td>KES 100,000</td>
+                                <td>KES 213,333</td>
+                                <td>KES 186,667</td>
+                                <td>KES 1,100,000</td>
+                                <td>KES 5,063,333</td>
+                            </tr>
+                            <tr>
+                                <td>Year 2</td>
+                                <td>KES 412,000</td>
+                                <td>KES 206,000</td>
+                                <td>KES 103,000</td>
+                                <td>KES 219,733</td>
+                                <td>KES 192,267</td>
+                                <td>KES 1,133,000</td>
+                                <td>KES 4,871,066</td>
+                            </tr>
+                            <tr>
+                                <td>Year 3</td>
+                                <td>KES 424,360</td>
+                                <td>KES 212,180</td>
+                                <td>KES 106,090</td>
+                                <td>KES 226,325</td>
+                                <td>KES 198,035</td>
+                                <td>KES 1,166,990</td>
+                                <td>KES 4,673,031</td>
+                            </tr>
+                            <tr>
+                                <td>Year 4</td>
+                                <td>KES 437,091</td>
+                                <td>KES 218,545</td>
+                                <td>KES 109,273</td>
+                                <td>KES 233,115</td>
+                                <td>KES 203,976</td>
+                                <td>KES 1,202,000</td>
+                                <td>KES 4,469,055</td>
+                            </tr>
+                            <tr>
+                                <td>Year 5</td>
+                                <td>KES 450,204</td>
+                                <td>KES 225,102</td>
+                                <td>KES 112,551</td>
+                                <td>KES 240,109</td>
+                                <td>KES 210,095</td>
+                                <td>KES 1,238,061</td>
+                                <td>KES 4,258,960</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Total</strong></td>
+                                <td colspan="5"></td>
+                                <td><strong>KES 5,840,051</strong></td>
+                                <td><strong>KES 4,258,960</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ TAB 3: COST OF OWNERSHIP ═══ -->
+        <div class="tab-content" id="tab3" role="tabpanel">
+
+            <!-- Ownership Summary -->
+            <div class="card">
+                <div class="card-title">
+                    💰 Total Cost of Ownership
+                    <span class="badge">5-Year</span>
+                </div>
+                <div class="value-display">
+                    <div class="amount" style="font-size:42px;">
+                        <span class="currency">KES</span> <span id="totalOwnershipCost">10,740,000</span>
+                    </div>
+                    <div class="range">
+                        Total cost including purchase price over <strong id="ownershipYears">5</strong> years
+                    </div>
+                </div>
+
+                <div class="grid-4" id="ownershipBreakdown">
+                    <div class="stat-box highlight">
+                        <div class="label">Purchase Price</div>
+                        <div class="value amber" id="ownerPurchasePrice">KES 5,250,000</div>
+                        <div class="sub">Initial cost</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Running Cost</div>
+                        <div class="value blue" id="ownerRunningCost">KES 5,840,051</div>
+                        <div class="sub">Fuel + Service + Tyres + Insurance</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Depreciation</div>
+                        <div class="value red" id="ownerDepreciation">KES 2,100,000</div>
+                        <div class="sub">Value loss over 5 years</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Total Cost</div>
+                        <div class="value green" id="ownerTotal">KES 10,740,000</div>
+                        <div class="sub">Total including depreciation</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cost Breakdown by Category -->
+            <div class="card">
+                <div class="card-title">
+                    📊 Cost Breakdown by Category
+                    <span class="badge">5-Year</span>
+                </div>
+                <div id="costCategoryBreakdown">
+                    <div class="grid-3">
+                        <div class="stat-box">
+                            <div class="label">Purchase</div>
+                            <div class="value amber" id="catPurchase">KES 5,250,000</div>
+                            <div class="sub">49% of total</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="label">Running Costs</div>
+                            <div class="value blue" id="catRunning">KES 3,740,051</div>
+                            <div class="sub">35% of total</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="label">Depreciation</div>
+                            <div class="value red" id="catDepreciation">KES 1,750,000</div>
+                            <div class="sub">16% of total</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detailed Cost Breakdown -->
+            <div class="card">
+                <div class="card-title">
+                    📋 Detailed Cost Breakdown
+                    <span class="badge">5-Year</span>
+                </div>
+                <div class="grid-2">
+                    <div>
+                        <h4 style="color:#94a3b8;font-size:11px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">🚗 Purchase & Depreciation</h4>
+                        <div class="cost-breakdown" id="purchaseBreakdown">
+                            <div class="cost-item">
+                                <span class="label">Purchase Price</span>
+                                <span class="value">KES 5,250,000</span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Registration / Taxes</span>
+                                <span class="value">KES 525,000</span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Insurance (1st year)</span>
+                                <span class="value">KES 213,333</span>
+                            </div>
+                            <div class="cost-item total">
+                                <span class="label">Total Purchase Cost</span>
+                                <span class="value">KES 5,988,333</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 style="color:#94a3b8;font-size:11px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📆 Running Costs</h4>
+                        <div class="cost-breakdown" id="runningBreakdown">
+                            <div class="cost-item">
+                                <span class="label">Fuel (5 years)</span>
+                                <span class="value">KES 2,123,655</span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Service (5 years)</span>
+                                <span class="value">KES 1,061,827</span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Tyres (5 years)</span>
+                                <span class="value">KES 530,914</span>
+                            </div>
+                            <div class="cost-item">
+                                <span class="label">Insurance (5 years)</span>
+                                <span class="value">KES 1,132,655</span>
+                            </div>
+                            <div class="cost-item total">
+                                <span class="label">Total Running Cost</span>
+                                <span class="value">KES 4,849,051</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Monthly Ownership Cost -->
+            <div class="card">
+                <div class="card-title">
+                    📆 Monthly Ownership Cost
+                    <span class="badge">Budget Planning</span>
+                </div>
+                <div class="grid-4" id="monthlyOwnershipGrid">
+                    <div class="stat-box">
+                        <div class="label">Loan Payment</div>
+                        <div class="value" id="monthlyLoan">KES 87,500</div>
+                        <div class="sub">5-year loan @ 14%</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Insurance</div>
+                        <div class="value" id="monthlyOwnInsurance">KES 17,778</div>
+                        <div class="sub">Monthly premium</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Fuel</div>
+                        <div class="value" id="monthlyOwnFuel">KES 33,333</div>
+                        <div class="sub">Monthly fuel cost</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Total Monthly</div>
+                        <div class="value amber" id="monthlyOwnTotal">KES 138,611</div>
+                        <div class="sub">Total monthly cost</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recommendations -->
+            <div class="card">
+                <div class="card-title">
+                    💡 Cost-Saving Recommendations
+                    <span class="badge">AI</span>
+                </div>
+                <div class="rec-list" id="ownershipRecs">
+                    <div class="rec-item success">
+                        <span class="icon">✅</span>
+                        <span class="text">Good value retention — vehicle holds 60% of value after 5 years</span>
+                        <span class="tag">Value</span>
+                    </div>
+                    <div class="rec-item warning">
+                        <span class="icon">⚠️</span>
+                        <span class="text">Fuel costs represent 35% of running costs — consider more efficient vehicle</span>
+                        <span class="tag">Fuel</span>
+                    </div>
+                    <div class="rec-item info">
+                        <span class="icon">💡</span>
+                        <span class="text">Insurance premium of 4% of value — compare quotes annually</span>
+                        <span class="tag">Insurance</span>
+                    </div>
+                    <div class="rec-item info">
+                        <span class="icon">📊</span>
+                        <span class="text">Monthly cost of KES 138,611 — ensure this fits your budget</span>
+                        <span class="tag">Budget</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ ACTION BAR ═══ -->
+        <div class="card no-print" style="border-color:rgba(255,255,255,0.04);">
+            <div class="action-bar">
+                <button class="action-btn print" id="printBtn">🖨️ Print Report</button>
+                <button class="action-btn share" id="shareBtn">📤 Share</button>
+                <button class="action-btn export" id="exportBtn">📥 Export PDF</button>
+                <button class="action-btn download" id="downloadBtn">⬇️ Download Data</button>
+            </div>
+        </div>
+
+        <!-- ═══ DISCLAIMER ═══ -->
+        <div class="disclaimer">
+            ⚠️ <strong>Disclaimer:</strong> All figures are estimates based on Auto-D recommended Kenyan market rates as of 2026.
+            Actual costs vary by make, model, dealer, insurer, and driving conditions.
+            Use this as a planning guide only — <strong>not financial advice</strong>.
+        </div>
+
+        <!-- ═══ FOOTER ═══ -->
+        <footer class="report-footer">
+            <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
+            <div class="meta">
+                <strong>Engine:</strong> Valuation · Mileage Rate · Cost of Ownership<br />
+                <span>https://auto-digital.onrender.com</span> · v5.0
+            </div>
+        </footer>
+
+    </div>
+
+    <script>
+        // ═══════════════════════════════════════════════════════════════
+        // AUTO-D KENYA - COMPLETE VEHICLE REPORT
+        // Version 5.0
+        // ═══════════════════════════════════════════════════════════════
+
+        (function() {
+            'use strict';
+
+            // ─── TABS ──────────────────────────────────────────────────
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabContents = {
+                tab1: document.getElementById('tab1'),
+                tab2: document.getElementById('tab2'),
+                tab3: document.getElementById('tab3')
+            };
+
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    // Remove active from all buttons
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+
+                    // Hide all tab contents
+                    Object.values(tabContents).forEach(tc => tc.classList.remove('active'));
+
+                    // Show the selected tab
+                    const tabId = this.dataset.tab;
+                    if (tabContents[tabId]) {
+                        tabContents[tabId].classList.add('active');
+                    }
+                });
+            });
+
+            // ─── REPORT NUMBER ──────────────────────────────────────
+            const reportNum = 'AUTO-' + new Date().getFullYear() + '-' +
+                String(Math.floor(Math.random() * 9000) + 1000);
+            document.getElementById('reportNumber').textContent = reportNum;
+
+            // ─── REPORT DATE ──────────────────────────────────────────
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('en-KE', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            document.getElementById('reportDate').textContent = dateStr;
+
+            // ─── PRINT ──────────────────────────────────────────────────
+            document.getElementById('printBtn').addEventListener('click', function() {
+                window.print();
+            });
+
+            // ─── SHARE ──────────────────────────────────────────────────
+            document.getElementById('shareBtn').addEventListener('click', function() {
+                const url = window.location.href;
+                const text =
+                    `Auto-D Kenya Complete Vehicle Report\nReport #: ${reportNum}\nGenerated: ${dateStr}\n\nView full report at: ${url}`;
+
+                if (navigator.share) {
+                    navigator.share({
+                        title: 'Auto-D Kenya Vehicle Report',
+                        text: text,
+                        url: url
+                    }).catch(() => {});
+                } else {
+                    navigator.clipboard.writeText(text + '\n' + url).then(() => {
+                        showToast('📋 Report link copied to clipboard!', 'success');
+                    }).catch(() => showToast('Share not available', 'error'));
+                }
+            });
+
+            // ─── EXPORT PDF ────────────────────────────────────────────
+            document.getElementById('exportBtn').addEventListener('click', function() {
+                showToast('📥 PDF export will be available soon!', 'info');
+            });
+
+            // ─── DOWNLOAD DATA ──────────────────────────────────────────
+            document.getElementById('downloadBtn').addEventListener('click', function() {
+                // Collect data from the page
+                const data = {
+                    report: {
+                        number: reportNum,
+                        generated: dateStr,
+                        version: '2026.08'
+                    },
+                    vehicle: {
+                        name: document.getElementById('vehicleName').textContent,
+                        fuel: document.getElementById('fuelType').textContent,
+                        transmission: document.getElementById('transmission').textContent,
+                        engine: document.getElementById('engineSize').textContent,
+                        specs: {
+                            trim: document.getElementById('trimLevel').textContent,
+                            power: document.getElementById('powerHp').textContent,
+                            torque: document.getElementById('torqueNm').textContent,
+                            consumption: document.getElementById('fuelConsumption').textContent,
+                            seats: document.getElementById('seats').textContent,
+                            doors: document.getElementById('doors').textContent,
+                            body: document.getElementById('bodyType').textContent,
+                            category: document.getElementById('category').textContent
+                        }
+                    },
+                    valuation: {
+                        market_value: document.getElementById('marketValue').textContent,
+                        range_min: document.getElementById('rangeMin').textContent,
+                        range_max: document.getElementById('rangeMax').textContent,
+                        retail_value: document.getElementById('statRetailValue').textContent,
+                        trade_value: document.getElementById('statTradeValue').textContent,
+                        confidence: document.getElementById('confidenceLabel').textContent,
+                        year: document.getElementById('detailYear').textContent,
+                        mileage: document.getElementById('detailMileage').textContent,
+                        condition: document.getElementById('detailCondition').textContent,
+                        location: document.getElementById('detailLocation').textContent
+                    },
+                    running_cost: {
+                        trip_total: document.getElementById('tripTotal').textContent,
+                        cost_per_km: document.getElementById('tripCostPerKm').textContent,
+                        distance: document.getElementById('tripDistance').textContent,
+                        breakdown: {
+                            fuel: document.getElementById('tripFuel').textContent,
+                            service: document.getElementById('tripService').textContent,
+                            tyres: document.getElementById('tripTyres').textContent,
+                            insurance: document.getElementById('tripInsurance').textContent,
+                            depreciation: document.getElementById('tripDepreciation').textContent
+                        }
+                    },
+                    ownership: {
+                        total_cost: document.getElementById('totalOwnershipCost').textContent,
+                        purchase_price: document.getElementById('ownerPurchasePrice').textContent,
+                        running_cost: document.getElementById('ownerRunningCost').textContent,
+                        depreciation: document.getElementById('ownerDepreciation').textContent,
+                        monthly_total: document.getElementById('monthlyOwnTotal').textContent
+                    }
+                };
+
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `auto-d-report-${reportNum}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                showToast('✅ Data downloaded successfully!', 'success');
+            });
+
+            // ─── TOAST ──────────────────────────────────────────────────
+            function showToast(message, type = 'info') {
+                const existing = document.querySelector('.toast');
+                if (existing) existing.remove();
+
+                const toast = document.createElement('div');
+                toast.className = `toast toast-${type}`;
+                toast.textContent = message;
+                toast.style.cssText = `
+                        position: fixed;
+                        bottom: 20px;
+                        right: 20px;
+                        padding: 12px 24px;
+                        border-radius: 8px;
+                        z-index: 9999;
+                        font-weight: 500;
+                        animation: slideIn .3s ease;
+                        max-width: 380px;
+                        font-size: 13px;
+                        background: ${type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : '#3b82f6'};
+                        color: ${type === 'success' ? '#000' : '#fff'};
+                        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                    `;
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 4000);
+            }
+
+            // ─── CONFETTI ──────────────────────────────────────────────
+            // Only fire if there's a valuation result
+            const marketValue = document.getElementById('marketValue').textContent;
+            if (marketValue && marketValue !== '0' && marketValue !== '—') {
+                setTimeout(fireConfetti, 800);
+            }
+
+            function fireConfetti() {
+                const container = document.createElement('div');
+                container.className = 'confetti-container';
+                container.style.cssText = `
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        pointer-events: none;
+                        z-index: 9999;
+                        overflow: hidden;
+                    `;
+                document.body.appendChild(container);
+
+                const colors = ['#eab308', '#22c55e', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#f59e0b'];
+                for (let i = 0; i < 60; i++) {
+                    const piece = document.createElement('div');
+                    piece.style.cssText = `
+                            position: absolute;
+                            left: ${Math.random() * 100}%;
+                            width: ${Math.random() * 8 + 4}px;
+                            height: ${Math.random() * 8 + 4}px;
+                            border-radius: ${Math.random() > 0.5 ? '50%' : '2px'};
+                            background: ${colors[Math.floor(Math.random() * colors.length)]};
+                            animation: confettiFall ${Math.random() * 2 + 2}s linear forwards;
+                            animation-delay: ${Math.random() * 2}s;
+                            transform: translateY(-20px) rotate(${Math.random() * 360}deg);
+                        `;
+                    container.appendChild(piece);
+                }
+
+                // Add keyframes dynamically
+                const style = document.createElement('style');
+                style.textContent = `
+                        @keyframes confettiFall {
+                            0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+                            100% { transform: translateY(100vh) rotate(${Math.random() * 720 + 360}deg); opacity: 0; }
+                        }
+                    `;
+                document.head.appendChild(style);
+
+                setTimeout(() => {
+                    container.remove();
+                    style.remove();
+                }, 5000);
+            }
+
+            // ─── KEYBOARD NAVIGATION ──────────────────────────────────
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    const toast = document.querySelector('.toast');
+                    if (toast) toast.remove();
+                }
+
+                // Tab navigation with arrow keys
+                if (e.ctrlKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                    e.preventDefault();
+                    const currentTab = document.querySelector('.tab-btn.active');
+                    const tabs = Array.from(document.querySelectorAll('.tab-btn'));
+                    const currentIndex = tabs.indexOf(currentTab);
+                    let newIndex;
+
+                    if (e.key === 'ArrowRight') {
+                        newIndex = (currentIndex + 1) % tabs.length;
+                    } else {
+                        newIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+                    }
+
+                    tabs[newIndex].click();
+                }
+            });
+
+            console.log('✅ Auto-D Kenya Complete Vehicle Report loaded');
+            console.log(`📋 Report #: ${reportNum}`);
+            console.log(`📅 Generated: ${dateStr}`);
+            console.log('🖨️ Press Ctrl+P to print, Ctrl+Shift+Arrow to switch tabs');
+
+        })();
+    </script>
+
+</body>
+</html>
