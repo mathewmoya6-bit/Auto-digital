@@ -4,7 +4,6 @@
 # ================================================================
 
 import logging
-from typing import Optional
 
 from fastapi import (
     APIRouter,
@@ -13,8 +12,7 @@ from fastapi import (
     Query
 )
 
-from pydantic import BaseModel
-
+from pydantic import BaseModel, Field
 
 from app.modules.scraper.service import ScraperService
 
@@ -33,25 +31,33 @@ service = ScraperService()
 
 
 # ================================================================
-# Schemas
+# Request Schema
 # ================================================================
-
 
 class ScraperRequest(BaseModel):
 
-    source: str = "jiji"
+    source: str = Field(
+        default="jiji",
+        description="Scraper source"
+    )
 
-    pages: int = 3
+    pages: int = Field(
+        default=3,
+        ge=1,
+        le=50
+    )
 
-    limit_per_page: int = 20
-
+    limit_per_page: int = Field(
+        default=20,
+        ge=1,
+        le=100
+    )
 
 
 
 # ================================================================
-# Start scraper
+# Start Scraper
 # ================================================================
-
 
 @router.post("/start")
 async def start_scraper(
@@ -61,10 +67,20 @@ async def start_scraper(
 
     try:
 
+        logger.info(
+            f"Starting scraper source={request.source}"
+        )
+
+
         job_id = await service.start_scraper(
             source=request.source,
             pages=request.pages,
             limit_per_page=request.limit_per_page
+        )
+
+
+        logger.info(
+            f"Created scraper job {job_id}"
         )
 
 
@@ -81,23 +97,23 @@ async def start_scraper(
 
             "success": True,
 
-            "job_id":
-                job_id,
+            "job_id": job_id,
 
-            "source":
-                request.source,
+            "source": request.source,
 
-            "status":
-                "started"
+            "pages": request.pages,
+
+            "limit_per_page": request.limit_per_page,
+
+            "status": "queued"
 
         }
 
 
     except Exception as e:
 
-
         logger.exception(
-            "Failed starting scraper"
+            "Scraper start failed"
         )
 
 
@@ -108,36 +124,37 @@ async def start_scraper(
 
 
 
-
-
 # ================================================================
-# Job status
+# Get Job Status
 # ================================================================
-
 
 @router.get("/job/{job_id}")
-async def get_job_status(
+async def job_status(
     job_id: int
 ):
 
+    try:
 
-    result = await service.get_job_status(
-        job_id
-    )
+        return await service.get_job_status(
+            job_id
+        )
 
 
-    return result
+    except Exception as e:
 
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 
 # ================================================================
-# Job history
+# Job History
 # ================================================================
-
 
 @router.get("/jobs")
-async def get_jobs(
+async def job_history(
     limit: int = Query(
         20,
         ge=1,
@@ -150,36 +167,29 @@ async def get_jobs(
     )
 ):
 
-
     return await service.get_job_history(
-        limit,
-        offset
+        limit=limit,
+        offset=offset
     )
 
 
 
-
 # ================================================================
-# Available sources
+# Available Sources
 # ================================================================
-
 
 @router.get("/sources")
-async def get_sources():
-
+async def sources():
 
     return await service.get_sources()
 
 
 
-
 # ================================================================
-# Health
+# Health Check
 # ================================================================
-
 
 @router.get("/health")
 async def health():
-
 
     return await service.health_check()
