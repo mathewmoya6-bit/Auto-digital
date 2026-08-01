@@ -4,19 +4,21 @@
 # ================================================================
 
 
-from app.modules.scraper.base_scraper import BaseScraper
+from .base_scraper import BaseScraper
 
-from app.modules.scraper.jiji import JijiScraper
+from .jiji import JijiScraper
 
-from app.modules.scraper.cheki import ChekiScraper
+from .cheki import ChekiScraper
 
-from app.modules.scraper.autochek import AutochekScraper
+from .autochek import AutochekScraper
 
-from app.modules.scraper.beepbeep import BeepBeepScraper
+from .beepbeep import BeepBeepScraper
 
-from app.modules.scraper.worker import ScraperWorker
+from .vehicle_lookup import VehicleLookup
 
-from app.modules.scraper.service import ScraperService
+from .worker import ScraperWorker
+
+from .service import ScraperService
 
 
 
@@ -31,6 +33,8 @@ __all__ = [
     "AutochekScraper",
 
     "BeepBeepScraper",
+
+    "VehicleLookup",
 
     "ScraperWorker",
 
