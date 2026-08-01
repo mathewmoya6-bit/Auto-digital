@@ -8,27 +8,21 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-          integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
-          crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        /* ─── CSS Variables ────────────────────────────────────────── */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
-            --amber-light: #fde68a;
             --green: #22c55e;
             --blue: #3b82f6;
             --red: #ef4444;
             --bg: #0a0c15;
             --bg-panel: #111827;
-            --bg-surface: #1a2332;
             --text-primary: #f8fafc;
             --text-secondary: #cbd5e1;
             --text-muted: #64748b;
             --border: rgba(255, 255, 255, 0.06);
-            --border-light: rgba(255, 255, 255, 0.1);
             --radius: 12px;
             --shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
             --font-heading: 'Space Grotesk', sans-serif;
@@ -517,7 +511,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// AUTO-D KENYA DASHBOARD - PRODUCTION READY v2.1
+// AUTO-D KENYA DASHBOARD - ADMIN COMMUNICATION READY
 // ═══════════════════════════════════════════════════════════════
 
 (function() {
@@ -528,6 +522,7 @@
         API_BASE: 'https://auto-digital.onrender.com/api/v1',
         SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
         SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
+        ADMIN_API_BASE: 'https://auto-digital.onrender.com/admin/api/v1',
         DASHBOARD_URL: '/dashboard.html'
     };
 
@@ -537,7 +532,8 @@
         'mileage': '/reports.html',
         'ownership': '/ownership-cost.html',
         'tco': '/ownership-cost.html',
-        'valuation_report': '/reports.html'
+        'valuation_report': '/reports.html',
+        'valuation_history': '/valuation-history.html'
     };
 
     // ─── STATE ──────────────────────────────────────────────────
@@ -764,7 +760,12 @@
             headers['Authorization'] = `Bearer ${token}`;
         }
 
-        const url = CONFIG.API_BASE + path;
+        // Use admin API for admin endpoints
+        const baseUrl = path.startsWith('/admin') ? CONFIG.ADMIN_API_BASE : CONFIG.API_BASE;
+        const url = baseUrl + path;
+
+        console.log(`📡 API Request: ${options.method || 'GET'} ${url}`);
+
         const response = await fetch(url, {
             ...options,
             headers,
@@ -895,6 +896,7 @@
         payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${selectedServicePrice} KES for ${selectedServiceName}`;
 
         setStatus(`✅ Selected: ${selectedServiceName} (${selectedServicePrice} KES)`, 'success');
+        showToast(`✅ Selected ${selectedServiceName} for ${selectedServicePrice} KES`, 'success');
     };
 
     // ─── LOAD PAYMENTS ──────────────────────────────────────────
@@ -952,7 +954,7 @@
                             <tr>
                                 <td>${p.service_name || '-'}</td>
                                 <td><strong>${p.currency || 'KES'} ${Number(p.amount || 0).toLocaleString()}</strong></td>
-                                <td><span class="status-badge ${p.status}">${p.status}</span></td>
+                                <td><span class="status-badge ${p.status || 'pending'}">${p.status || 'pending'}</span></td>
                                 <td style="font-size:13px;color:var(--text-muted);">${p.created_at ? new Date(p.created_at).toLocaleString() : '-'}</td>
                             </tr>
                         `).join('')}
@@ -1014,18 +1016,22 @@
         try {
             setStatus('📱 Initiating STK Push...', 'pending');
 
+            const payload = {
+                phone: phone,
+                service_id: selectedService,
+                description: selectedServiceName || selectedService,
+                request_id: null,
+                amount: selectedServicePrice
+            };
+
+            console.log('📤 STK Push Payload:', payload);
+
             const result = await api('/mpesa/stkpush', {
                 method: 'POST',
-                body: JSON.stringify({
-                    phone: phone,
-                    service_id: selectedService,
-                    description: selectedServiceName || selectedService,
-                    request_id: null,
-                    amount: selectedServicePrice
-                })
+                body: JSON.stringify(payload)
             });
 
-            checkoutRequestId = result.checkout_request_id;
+            checkoutRequestId = result.checkout_request_id || result.CheckoutRequestID;
 
             setStatus(
                 `📱 STK Push sent!\n` +
@@ -1071,9 +1077,12 @@
         }
 
         try {
+            console.log(`📡 Checking payment status: ${checkoutRequestId}`);
             const status = await api(`/mpesa/status/${checkoutRequestId}`);
 
-            if (status.status === 'completed' || status.status === 'paid') {
+            console.log('📥 Payment Status Response:', status);
+
+            if (status.status === 'completed' || status.status === 'paid' || status.status === 'success') {
                 setStatus(
                     `✅ Payment completed successfully!\n` +
                     `Receipt: ${status.mpesa_receipt || status.transaction_id || 'N/A'}`,
@@ -1110,7 +1119,7 @@
                 }
 
             } else if (status.status === 'failed' || status.status === 'cancelled') {
-                setStatus(`❌ Payment failed.\n${status.result_desc || 'Transaction declined'}`, 'error');
+                setStatus(`❌ Payment failed.\n${status.result_desc || status.message || 'Transaction declined'}`, 'error');
 
                 clearInterval(statusTimer);
                 statusTimer = null;
@@ -1135,12 +1144,27 @@
         }
     }
 
+    // ─── ADMIN COMMUNICATION ──────────────────────────────────
+    async function checkAdminStatus() {
+        try {
+            const response = await api('/admin/status');
+            console.log('📡 Admin Status:', response);
+            return response;
+        } catch (error) {
+            console.warn('Admin status check failed:', error.message);
+            return null;
+        }
+    }
+
     // ─── LOAD DASHBOARD ──────────────────────────────────────────
     async function loadDashboard() {
         await Promise.all([
             loadServices(),
             loadPayments()
         ]);
+
+        // Check admin status (silent)
+        checkAdminStatus();
 
         if (!isAuthenticated) {
             setStatus('🔐 Sign in to make payments and view your history.', 'info');
@@ -1165,6 +1189,7 @@
     async function init() {
         console.log('🚗 Auto-D Kenya Dashboard v2.1');
         console.log('📡 API Base:', CONFIG.API_BASE);
+        console.log('📡 Admin API Base:', CONFIG.ADMIN_API_BASE);
 
         initSupabase();
         await getCurrentUser();
@@ -1221,7 +1246,8 @@
         isAuthenticated: () => isAuthenticated,
         loadDashboard,
         SERVICE_ROUTES,
-        CONFIG
+        CONFIG,
+        checkAdminStatus
     };
 
     if (document.readyState === 'loading') {
