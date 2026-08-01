@@ -3,16 +3,25 @@
 # ================================================================
 # TYPE: MODULE - Admin Pydantic schemas
 
-from typing import Literal, Optional
+from typing import Any, Literal
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ─── CONSTANTS ──────────────────────────────────────────────────
 
 SERVICE_CODES = Literal["valuation", "mileage", "ownership", "tco"]
 USER_SERVICE_STATUS = Literal["active", "suspended", "cancelled"]
-PAYMENT_STATUS = Literal["pending", "completed", "failed", "cancelled", "paid", "success"]
+PAYMENT_STATUS = Literal[
+    "pending",
+    "processing",
+    "completed",
+    "paid",
+    "success",
+    "failed",
+    "cancelled",
+    "expired"
+]
 COMPONENT_STATUS = Literal["healthy", "unhealthy", "degraded"]
 
 
@@ -43,7 +52,7 @@ class CreateServiceRequest(BaseModel):
     """Create service request."""
     model_config = ConfigDict(from_attributes=True)
     
-    code: SERVICE_CODES = Field(..., description="Service code (unique)", examples=["valuation"])
+    code: str = Field(..., description="Service code (unique)", examples=["valuation"])
     name: str = Field(..., description="Service name", examples=["Vehicle Valuation"])
     price: float = Field(..., gt=0, description="Service price", examples=[500.0])
     currency: str = Field("KES", description="Currency code", examples=["KES"])
@@ -58,13 +67,13 @@ class UpdateUserServiceRequest(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     user_id: str = Field(..., description="User ID", examples=["abc-123-def-456"])
-    service_id: int = Field(..., description="Service ID", examples=[1])
+    service_id: str = Field(..., description="Service ID", examples=["123e4567-e89b-12d3-a456-426614174000"])
     status: USER_SERVICE_STATUS = Field(..., description="Service status", examples=["active"])
 
 
 # ─── RESPONSE SCHEMAS ─────────────────────────────────────────────
 
-class AdminStats(BaseModel):
+class AdminStatsResponse(BaseModel):
     """Admin statistics response."""
     model_config = ConfigDict(from_attributes=True)
     
@@ -83,7 +92,7 @@ class AdminUserService(BaseModel):
     """User service item."""
     model_config = ConfigDict(from_attributes=True)
     
-    service_id: int = Field(..., description="Service ID")
+    service_id: str = Field(..., description="Service ID")
     service_name: str = Field(..., description="Service name")
     service_code: str = Field(..., description="Service code")
     status: USER_SERVICE_STATUS = Field(..., description="Service status")
@@ -103,41 +112,13 @@ class AdminUser(BaseModel):
     services: list[AdminUserService] = Field(default_factory=list, description="User services")
 
 
-class AdminUserDetail(AdminUser):
-    """Detailed admin user with payments."""
-    model_config = ConfigDict(from_attributes=True)
-    
-    class AppMetadata(BaseModel):
-    role: str | None = None
-
-class UserMetadata(BaseModel):
-    full_name: str | None = None
-    phone: str | None = None
-
-class AdminUserDetail(BaseModel):
-    ...
-    app_metadata: AppMetadata = Field(default_factory=AppMetadata)
-    user_metadata: UserMetadata = Field(default_factory=UserMetadata)
-    payments: list[AdminPayment] = Field(default_factory=list))
-
-
-class AdminUsersResponse(BaseModel):
-    """Admin users response."""
-    model_config = ConfigDict(from_attributes=True)
-    
-    users: list[AdminUser] = Field(..., description="List of users")
-    total: int = Field(..., description="Total users")
-    limit: int = Field(..., description="Limit used")
-    offset: int = Field(..., description="Offset used")
-
-
 class AdminPayment(BaseModel):
     """Admin payment item."""
     model_config = ConfigDict(from_attributes=True)
     
     id: str = Field(..., description="Payment ID")
     user_id: str | None = Field(None, description="User ID")
-    service_id: int | None = Field(None, description="Service ID")
+    service_id: str | None = Field(None, description="Service ID")
     service_name: str | None = Field(None, description="Service name")
     service_code: str | None = Field(None, description="Service code")
     amount: float = Field(..., description="Payment amount")
@@ -148,6 +129,25 @@ class AdminPayment(BaseModel):
     mpesa_receipt: str | None = Field(None, description="M-Pesa receipt")
     created_at: datetime = Field(..., description="Creation timestamp")
     completed_at: datetime | None = Field(None, description="Completion timestamp")
+
+
+class AdminUserDetail(AdminUser):
+    """Detailed admin user with payments."""
+    model_config = ConfigDict(from_attributes=True)
+    
+    app_metadata: dict[str, Any] = Field(default_factory=dict, description="App metadata")
+    user_metadata: dict[str, Any] = Field(default_factory=dict, description="User metadata")
+    payments: list[AdminPayment] = Field(default_factory=list, description="User payments")
+
+
+class AdminUsersResponse(BaseModel):
+    """Admin users response."""
+    model_config = ConfigDict(from_attributes=True)
+    
+    users: list[AdminUser] = Field(..., description="List of users")
+    total: int = Field(..., description="Total users")
+    limit: int = Field(..., description="Limit used")
+    offset: int = Field(..., description="Offset used")
 
 
 class AdminPaymentsResponse(BaseModel):
@@ -188,7 +188,7 @@ class AdminService(BaseModel):
     """Admin service item."""
     model_config = ConfigDict(from_attributes=True)
     
-    id: int = Field(..., description="Service ID")
+    id: str = Field(..., description="Service ID")
     code: str = Field(..., description="Service code")
     name: str = Field(..., description="Service name")
     price: float = Field(..., description="Service price")
@@ -260,14 +260,6 @@ class AdminStatusResponse(BaseModel):
     components: ComponentStatus = Field(..., description="Component statuses")
 
 
-class RevenueByService(BaseModel):
-    """Revenue by service."""
-    model_config = ConfigDict(from_attributes=True)
-    
-    service_name: str = Field(..., description="Service name")
-    revenue: float = Field(..., description="Revenue amount")
-
-
 class RevenueReportResponse(BaseModel):
     """Revenue report response."""
     model_config = ConfigDict(from_attributes=True)
@@ -304,9 +296,9 @@ class UserServiceItem(BaseModel):
     """User service item."""
     model_config = ConfigDict(from_attributes=True)
     
-    id: int = Field(..., description="User service ID")
+    id: str = Field(..., description="User service ID")
     user_id: str = Field(..., description="User ID")
-    service_id: int = Field(..., description="Service ID")
+    service_id: str = Field(..., description="Service ID")
     status: USER_SERVICE_STATUS = Field(..., description="Service status")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last updated timestamp")
@@ -329,7 +321,7 @@ class SuccessResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     success: bool = Field(True, description="Success status")
-    message: str = Field(..., description="Success message")
+    message: str = Field("Success", description="Success message")
 
 
 class DeleteResponse(BaseModel):
@@ -338,8 +330,8 @@ class DeleteResponse(BaseModel):
     
     success: bool = Field(True, description="Success status")
     message: str = Field(..., description="Delete message")
-    id: str | int = Field(..., description="Deleted entity ID")
-    deleted_at: datetime = Field(..., description="Deletion timestamp")
+    id: str | int | None = Field(None, description="Deleted entity ID")
+    deleted_at: datetime | None = Field(None, description="Deletion timestamp")
 
 
 class CreateServiceResponse(SuccessResponse):
@@ -368,7 +360,7 @@ class UpdateUserServiceResponse(SuccessResponse):
     model_config = ConfigDict(from_attributes=True)
     
     user_id: str = Field(..., description="User ID")
-    service_id: int = Field(..., description="Service ID")
+    service_id: str = Field(..., description="Service ID")
     status: USER_SERVICE_STATUS = Field(..., description="Updated status")
     updated_at: datetime = Field(..., description="Update timestamp")
 
@@ -384,7 +376,7 @@ class DeleteServiceResponse(DeleteResponse):
     """Delete service response."""
     model_config = ConfigDict(from_attributes=True)
     
-    service_id: int = Field(..., description="Deleted service ID")
+    service_id: str = Field(..., description="Deleted service ID")
 
 
 # ─── HEALTH RESPONSE ─────────────────────────────────────────────
