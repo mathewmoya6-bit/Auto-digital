@@ -1,30 +1,36 @@
 # app/modules/scraper/jiji.py
-# Auto-D Kenya - Jiji Scraper
 # ================================================================
-# TYPE: MODULE - Jiji specific scraper
+# Auto-D Kenya - Jiji Vehicle Scraper
+# ================================================================
 
 import asyncio
-import random
 import logging
+import random
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import Dict, Any
 from urllib.parse import urljoin
 
-from app.scrapers.base_scraper import BaseScraper
+from app.modules.scraper.base_scraper import BaseScraper
+
 
 logger = logging.getLogger(__name__)
 
 
 class JijiScraper(BaseScraper):
-    """Scraper for Jiji Kenya vehicle listings."""
+    """
+    Scraper for Jiji Kenya vehicle listings.
+    """
 
     def __init__(self):
+
         super().__init__(
             source_name="jiji",
             base_url="https://jiji.co.ke"
         )
 
-        self.search_url = "https://jiji.co.ke/cars"
+        self.search_url = (
+            "https://jiji.co.ke/cars"
+        )
 
 
     async def scrape(
@@ -35,29 +41,32 @@ class JijiScraper(BaseScraper):
 
         listings = []
 
+
         for page in range(1, pages + 1):
 
             logger.info(
-                f"Scraping Jiji page {page}"
+                f"Jiji scraping page {page}"
             )
+
 
             try:
 
-                params = {
-                    "page": page,
-                    "limit": limit_per_page
-                }
-
                 soup = await self._fetch_page(
                     self.search_url,
-                    params
+                    {
+                        "page": page
+                    }
                 )
 
+
                 if not soup:
-                    break
+
+                    continue
+
 
 
                 urls = []
+
 
                 links = soup.select(
                     "a[data-testid='ad-link']"
@@ -66,7 +75,10 @@ class JijiScraper(BaseScraper):
 
                 for link in links:
 
-                    href = link.get("href")
+                    href = link.get(
+                        "href"
+                    )
+
 
                     if href:
 
@@ -75,21 +87,32 @@ class JijiScraper(BaseScraper):
                             href
                         )
 
+
                         if url not in urls:
+
                             urls.append(url)
 
 
+
                 logger.info(
-                    f"Found {len(urls)} listings"
+                    f"Found {len(urls)} Jiji links"
                 )
+
 
 
                 for url in urls[:limit_per_page]:
 
-                    listing = await self._parse_listing(url)
+
+                    listing = await self._parse_listing(
+                        url
+                    )
+
 
                     if listing:
-                        listings.append(listing)
+
+                        listings.append(
+                            listing
+                        )
 
 
                     await asyncio.sleep(
@@ -100,6 +123,7 @@ class JijiScraper(BaseScraper):
                     )
 
 
+
                 await asyncio.sleep(
                     random.uniform(
                         1,
@@ -108,13 +132,12 @@ class JijiScraper(BaseScraper):
                 )
 
 
+
             except Exception as e:
 
                 logger.error(
                     f"Jiji page error: {e}"
                 )
-
-                continue
 
 
 
@@ -131,13 +154,11 @@ class JijiScraper(BaseScraper):
                     len(listings),
 
                 "failed": 0
-
             },
 
             "completed_at":
                 datetime.utcnow()
                 .isoformat()
-
         }
 
 
@@ -149,61 +170,64 @@ class JijiScraper(BaseScraper):
 
         try:
 
-            soup = await self._fetch_page(url)
+            soup = await self._fetch_page(
+                url
+            )
 
 
             if not soup:
+
                 return {}
 
 
 
-            title_elem = soup.select_one(
+            title = ""
+
+            title_element = soup.select_one(
                 "h1[data-testid='ad-title']"
             )
 
-            title = (
-                title_elem
-                .get_text(strip=True)
-                if title_elem
-                else ""
-            )
+
+            if title_element:
+
+                title = title_element.get_text(
+                    strip=True
+                )
 
 
 
-            price_elem = soup.select_one(
+            price = None
+
+            price_element = soup.select_one(
                 "span[data-testid='ad-price']"
             )
 
 
-            price_text = (
-                price_elem
-                .get_text(strip=True)
-                if price_elem
-                else ""
-            )
+            if price_element:
 
-
-            price = self._parse_price(
-                price_text
-            )
+                price = self._parse_price(
+                    price_element.get_text(
+                        strip=True
+                    )
+                )
 
 
 
             details = {}
 
 
-            sections = soup.select(
+            attributes = soup.select(
                 "div[data-testid='ad-attributes'] div"
             )
 
 
-            for section in sections:
+            for item in attributes:
 
-                label = section.select_one(
+                label = item.select_one(
                     "span[data-testid='attribute-label']"
                 )
 
-                value = section.select_one(
+                value = item.select_one(
                     "span[data-testid='attribute-value']"
                 )
 
@@ -214,22 +238,13 @@ class JijiScraper(BaseScraper):
                         strip=True
                     ).lower()
 
-                    details[key] = value.get_text(
+
+                    val = value.get_text(
                         strip=True
                     )
 
 
-
-            image = soup.select_one(
-                "img[data-testid='ad-image']"
-            )
-
-
-            image_url = (
-                image.get("src")
-                if image
-                else None
-            )
+                    details[key] = val
 
 
 
@@ -240,10 +255,17 @@ class JijiScraper(BaseScraper):
             )
 
 
-            if not listing_id:
+            image = soup.select_one(
+                "img[data-testid='ad-image']"
+            )
 
-                listing_id = (
-                    f"jiji-{int(datetime.utcnow().timestamp())}"
+
+            image_url = None
+
+            if image:
+
+                image_url = image.get(
+                    "src"
                 )
 
 
@@ -258,12 +280,30 @@ class JijiScraper(BaseScraper):
                     title,
 
 
+                "url":
+                    url,
+
+
                 "price":
                     price,
 
 
                 "currency":
                     "KES",
+
+
+                "make":
+                    details.get(
+                        "make",
+                        ""
+                    ),
+
+
+                "model":
+                    details.get(
+                        "model",
+                        ""
+                    ),
 
 
                 "year":
@@ -284,33 +324,13 @@ class JijiScraper(BaseScraper):
                     ),
 
 
-                "make":
-                    details.get(
-                        "make",
-                        ""
+                "engine_size":
+                    self._parse_engine_size(
+                        details.get(
+                            "engine",
+                            ""
+                        )
                     ),
-
-
-                "model":
-                    details.get(
-                        "model",
-                        ""
-                    ),
-
-
-                "location":
-                    details.get(
-                        "location",
-                        ""
-                    ),
-
-
-                "url":
-                    url,
-
-
-                "image_url":
-                    image_url,
 
 
                 "fuel_type":
@@ -334,12 +354,10 @@ class JijiScraper(BaseScraper):
                     ),
 
 
-                "engine_size":
-                    self._parse_engine_size(
-                        details.get(
-                            "engine",
-                            ""
-                        )
+                "location":
+                    details.get(
+                        "location",
+                        ""
                     ),
 
 
@@ -352,8 +370,11 @@ class JijiScraper(BaseScraper):
 
 
                 "condition":
-                    "Used"
+                    "Used",
 
+
+                "image_url":
+                    image_url
             }
 
 
@@ -361,7 +382,7 @@ class JijiScraper(BaseScraper):
         except Exception as e:
 
             logger.error(
-                f"Parse listing failed {url}: {e}"
+                f"Jiji parse error {url}: {e}"
             )
 
             return {}
