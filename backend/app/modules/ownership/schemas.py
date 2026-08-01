@@ -1,5 +1,6 @@
 # app/modules/ownership/schemas.py
 """Ownership (TCO) schemas for Auto-D Kenya"""
+import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
@@ -296,69 +297,3 @@ def create_tco_response(
         currency=currency,
         calculated_at=datetime.utcnow().isoformat()
     )
-
-
-# ─── EXAMPLE RESPONSE ─────────────────────────────────────────────
-
-"""
-TCO RESPONSE EXAMPLE:
-
-{
-    "total_cost": 5240000.00,
-    "monthly_cost": 87333.33,
-    "monthly_payment": 128000.00,
-    "total_interest": 160000.00,
-    "cost_per_km": 52.40,
-    "total_depreciation": 450000.00,
-    "resale_value": 4050000.00,
-    
-    "components": [
-        {"name": "Purchase Price", "amount": 4500000.00, "percentage": 85.9},
-        {"name": "Loan Interest", "amount": 160000.00, "percentage": 3.1},
-        {"name": "Fuel", "amount": 240000.00, "percentage": 4.6},
-        {"name": "Maintenance", "amount": 90000.00, "percentage": 1.7},
-        {"name": "Tyres", "amount": 48000.00, "percentage": 0.9},
-        {"name": "Insurance", "amount": 180000.00, "percentage": 3.4},
-        {"name": "Depreciation", "amount": 450000.00, "percentage": 8.6}
-    ],
-    
-    "yearly_breakdown": [
-        {
-            "year": 1,
-            "total_cost": 1048000.00,
-            "depreciation": 90000.00,
-            "running_cost": 111600.00,
-            "insurance": 36000.00,
-            "loan_payment": 1536000.00,
-            "fuel": 48000.00,
-            "maintenance": 18000.00,
-            "tyres": 9600.00,
-            "vehicle_value": 4410000.00
-        }
-    ],
-    
-    "loan_details": {
-        "principal": 3500000.00,
-        "interest_rate": 14.0,
-        "term_years": 3,
-        "term_months": 36,
-        "total_payment": 4600000.00,
-        "purchase_type": "finance"
-    },
-    
-    "vehicle_details": {
-        "variant_id": 123,
-        "make": "Toyota",
-        "model": "Land Cruiser Prado",
-        "variant": "VX",
-        "fuel_type": "Petrol",
-        "fuel_type_display": "Petrol",
-        "vehicle_condition": "new",
-        "purchase_type": "finance",
-        "vehicle_year": 2024
-    },
-    
-    "currency": "KES",
-    "calculated_at": "2026-01-01T12:00:00.000Z"
-}
-"""
