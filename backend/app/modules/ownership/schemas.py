@@ -112,6 +112,16 @@ class TCORequest(BaseModel):
 
 # ─── RESPONSE SCHEMAS ─────────────────────────────────────────────
 
+class MonthlyBreakdown(BaseModel):
+    """Monthly running cost breakdown."""
+    loan_payment: float = Field(..., description="Monthly loan payment")
+    fuel: float = Field(..., description="Monthly fuel cost")
+    maintenance: float = Field(..., description="Monthly maintenance cost")
+    tyres: float = Field(..., description="Monthly tyre cost")
+    insurance: float = Field(..., description="Monthly insurance cost")
+    total: float = Field(..., description="Total monthly running cost")
+
+
 class TCOComponent(BaseModel):
     """Single cost component with percentage."""
     name: str = Field(..., description="Component name")
@@ -140,6 +150,7 @@ class VehicleDetails(BaseModel):
     vehicle_condition: str = Field(..., description="Vehicle condition: new or used")
     purchase_type: str = Field(..., description="Purchase type: cash or finance")
     vehicle_year: int = Field(..., description="Vehicle year")
+    vehicle_type: str = Field("ice", description="Vehicle type: ice, hybrid, ev")
 
 
 class YearlyBreakdownItem(BaseModel):
@@ -167,6 +178,9 @@ class TCOResponse(BaseModel):
     cost_per_km: float = Field(..., description="Cost per kilometer")
     total_depreciation: float = Field(..., description="Total depreciation over period")
     resale_value: float = Field(..., description="Estimated resale value")
+    
+    # ─── Monthly Breakdown ───────────────────────────────────────
+    monthly_breakdown: MonthlyBreakdown = Field(..., description="Monthly running cost breakdown")
     
     # ─── Components ──────────────────────────────────────────────
     components: List[TCOComponent] = Field(..., description="Cost components breakdown")
@@ -256,6 +270,7 @@ def create_tco_response(
     cost_per_km: float,
     total_depreciation: float,
     resale_value: float,
+    monthly_breakdown: Dict[str, float],
     components: List[Dict[str, Any]],
     yearly_breakdown: List[Dict[str, Any]],
     loan_details: Dict[str, Any],
@@ -273,6 +288,7 @@ def create_tco_response(
         cost_per_km: Cost per kilometer
         total_depreciation: Total depreciation
         resale_value: Estimated resale value
+        monthly_breakdown: Monthly running cost breakdown
         components: Cost components breakdown
         yearly_breakdown: Year-by-year breakdown
         loan_details: Loan calculation details
@@ -290,6 +306,7 @@ def create_tco_response(
         cost_per_km=round(cost_per_km, 2),
         total_depreciation=round(total_depreciation, 2),
         resale_value=round(resale_value, 2),
+        monthly_breakdown=MonthlyBreakdown(**monthly_breakdown),
         components=[TCOComponent(**comp) for comp in components],
         yearly_breakdown=[YearlyBreakdownItem(**year) for year in yearly_breakdown],
         loan_details=LoanDetails(**loan_details),
