@@ -1,98 +1,306 @@
 # app/modules/reports/pdf.py
-# Auto-D Kenya - PDF Report Generator
-# ================================================================
-# TYPE: MODULE - PDF generation for reports
 
 import io
 from datetime import datetime
+
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, cm
-from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+from reportlab.lib.units import cm
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 
 class PDFGenerator:
-    """PDF report generator."""
-    
+
+    PRIMARY = colors.HexColor("#0F172A")
+    GOLD = colors.HexColor("#F59E0B")
+    GREEN = colors.HexColor("#16A34A")
+    LIGHT = colors.HexColor("#F8FAFC")
+    BORDER = colors.HexColor("#CBD5E1")
+
     @staticmethod
-    def generate_valuation_report(data: dict) -> bytes:
-        """Generate a valuation report PDF."""
+    def money(value):
+        try:
+            return f"KES {float(value):,.0f}"
+        except:
+            return "KES 0"
+
+    @staticmethod
+    def generate_valuation_report(report):
+
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
-        styles = getSampleStyleSheet()
-        
-        # Custom styles
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=24,
-            textColor=colors.HexColor('#eab308'),
-            alignment=TA_CENTER
+
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=1.2 * cm,
+            leftMargin=1.2 * cm,
+            topMargin=1.2 * cm,
+            bottomMargin=1.2 * cm,
         )
-        
-        # Build content
+
+        styles = getSampleStyleSheet()
+
+        title = ParagraphStyle(
+            "Title",
+            parent=styles["Heading1"],
+            alignment=TA_CENTER,
+            textColor=PDFGenerator.PRIMARY,
+            fontSize=22,
+            spaceAfter=12,
+        )
+
+        heading = ParagraphStyle(
+            "Heading",
+            parent=styles["Heading2"],
+            textColor=PDFGenerator.GOLD,
+            spaceAfter=6,
+        )
+
+        normal = styles["BodyText"]
+
         story = []
-        
-        # Title
-        story.append(Paragraph("Auto-D Kenya Valuation Report", title_style))
-        story.append(Spacer(1, 0.25 * inch))
-        
-        # Date
-        story.append(Paragraph(f"Generated: {datetime.utcnow().strftime('%B %d, %Y')}", styles['Normal']))
-        story.append(Spacer(1, 0.25 * inch))
-        
-        # Vehicle details
-        vehicle = data.get("vehicle", {})
-        valuation = data.get("valuation", {})
-        
-        vehicle_data = [
-            ["Vehicle", f"{vehicle.get('make_model', 'N/A')}"],
-            ["Plate", f"{vehicle.get('plate', 'N/A')}"],
-            ["Year", f"{vehicle.get('year', 'N/A')}"],
-            ["Mileage", f"{vehicle.get('mileage', 0):,} km"]
-        ]
-        
-        table = Table(vehicle_data, colWidths=[2*inch, 3*inch])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#1a2332')),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#0a0c15')),
-            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#334155'))
-        ]))
-        story.append(table)
-        story.append(Spacer(1, 0.25 * inch))
-        
-        # Valuation results
-        story.append(Paragraph("Valuation Results", styles['Heading2']))
-        story.append(Spacer(1, 0.1 * inch))
-        
-        valuation_data = [
-            ["Market Value", f"KES {valuation.get('market_value', 0):,.0f}"],
-            ["Retail Value", f"KES {valuation.get('retail_value', 0):,.0f}"],
-            ["Trade Value", f"KES {valuation.get('trade_value', 0):,.0f}"],
-            ["Confidence Score", f"{valuation.get('confidence_score', 0)}%"]
-        ]
-        
-        table2 = Table(valuation_data, colWidths=[2*inch, 3*inch])
-        table2.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#1a2332')),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#0a0c15')),
-            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#334155'))
-        ]))
-        story.append(table2)
-        
-        # Build PDF
+
+        valuation = report.get("valuation", {})
+        vehicle = valuation.get("vehicle", {})
+
+        story.append(
+            Paragraph(
+                "<b>AUTO-D KENYA</b><br/>Vehicle Valuation Report",
+                title,
+            )
+        )
+
+        story.append(
+            Paragraph(
+                datetime.now().strftime(
+                    "Generated %d %B %Y %H:%M"
+                ),
+                normal,
+            )
+        )
+
+        story.append(Spacer(1, 0.5 * cm))
+
+        # Main Value
+
+        value = valuation.get(
+            "estimated_vehicle_value",
+            valuation.get("market_value", 0),
+        )
+
+        big = ParagraphStyle(
+            "big",
+            parent=styles["Heading1"],
+            alignment=TA_CENTER,
+            textColor=PDFGenerator.GREEN,
+            fontSize=30,
+        )
+
+        story.append(
+            Paragraph(
+                PDFGenerator.money(value),
+                big,
+            )
+        )
+
+        story.append(
+            Paragraph(
+                "<b>Estimated Market Value</b>",
+                ParagraphStyle(
+                    "center",
+                    alignment=TA_CENTER,
+                ),
+            )
+        )
+
+        story.append(Spacer(1, 0.4 * cm))
+
+        vr = valuation.get("estimated_value_range", {})
+
+        confidence = valuation.get("confidence_score", 0)
+
+        summary_table = Table(
+            [
+                [
+                    "Confidence",
+                    f"{confidence}%",
+                ],
+                [
+                    "Value Range",
+                    f"{PDFGenerator.money(vr.get('minimum',0))}  -  {PDFGenerator.money(vr.get('maximum',0))}",
+                ],
+                [
+                    "Retail",
+                    PDFGenerator.money(
+                        valuation.get("retail_value", 0)
+                    ),
+                ],
+                [
+                    "Dealer",
+                    PDFGenerator.money(
+                        valuation.get("dealer_value", 0)
+                    ),
+                ],
+                [
+                    "Trade In",
+                    PDFGenerator.money(
+                        valuation.get("trade_value", 0)
+                    ),
+                ],
+            ],
+            colWidths=[5 * cm, 10 * cm],
+        )
+
+        summary_table.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.3, PDFGenerator.BORDER),
+                    ("BACKGROUND", (0, 0), (0, -1), PDFGenerator.LIGHT),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+
+        story.append(summary_table)
+
+        story.append(Spacer(1, 0.5 * cm))
+
+        story.append(Paragraph("Vehicle Profile", heading))
+
+        vehicle_table = Table(
+            [
+                ["Make", vehicle.get("make", "")],
+                ["Model", vehicle.get("model", "")],
+                ["Variant", vehicle.get("variant", "")],
+                ["Year", vehicle.get("year", "")],
+                ["Mileage", f"{vehicle.get('mileage',0):,} km"],
+                ["Fuel", vehicle.get("fuel_type", "")],
+                ["Transmission", vehicle.get("transmission", "")],
+                ["Engine", f"{vehicle.get('engine_size_cc',0)} cc"],
+                ["Body", vehicle.get("body_type", "")],
+                ["Condition", vehicle.get("condition", "")],
+                ["Location", vehicle.get("location", "")],
+            ],
+            colWidths=[5 * cm, 10 * cm],
+        )
+
+        vehicle_table.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.25, PDFGenerator.BORDER),
+                    ("BACKGROUND", (0, 0), (0, -1), PDFGenerator.LIGHT),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+
+        story.append(vehicle_table)
+
+        story.append(Spacer(1, 0.5 * cm))
+
+        story.append(
+            Paragraph("Valuation Factors", heading)
+        )
+
+        factors = Table(
+            [
+                ["Mileage", valuation.get("mileage_factor", 1)],
+                ["Condition", valuation.get("condition_factor", 1)],
+                ["Accident", valuation.get("accident_factor", 1)],
+                ["Location", valuation.get("location_factor", 1)],
+                ["Demand", valuation.get("demand_factor", 1)],
+                ["Trend", valuation.get("trend_factor", 1)],
+                ["Features", valuation.get("feature_factor", 1)],
+            ],
+            colWidths=[5 * cm, 10 * cm],
+        )
+
+        factors.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.25, PDFGenerator.BORDER),
+                    ("BACKGROUND", (0, 0), (0, -1), PDFGenerator.LIGHT),
+                ]
+            )
+        )
+
+        story.append(factors)
+
+        story.append(Spacer(1, 0.5 * cm))
+
+        story.append(
+            Paragraph(
+                "Valuation Summary",
+                heading,
+            )
+        )
+
+        story.append(
+            Paragraph(
+                valuation.get(
+                    "price_explanation",
+                    {},
+                ).get(
+                    "summary",
+                    "Vehicle valued using AUTO-D market valuation engine.",
+                ),
+                normal,
+            )
+        )
+
+        story.append(Spacer(1, 0.5 * cm))
+
+        story.append(
+            Paragraph(
+                "Methodology",
+                heading,
+            )
+        )
+
+        story.append(
+            Paragraph(
+                """
+                This valuation is calculated using the AUTO-D valuation engine
+                based on verified market transactions, dealer pricing,
+                depreciation modelling, mileage analysis,
+                regional market demand and vehicle condition.
+                """,
+                normal,
+            )
+        )
+
+        story.append(Spacer(1, 0.5 * cm))
+
+        story.append(
+            Paragraph(
+                "Disclaimer",
+                heading,
+            )
+        )
+
+        story.append(
+            Paragraph(
+                """
+                This report provides an indicative market value only.
+                It is not a guarantee of sale price or insurance settlement.
+                Final value may vary following physical inspection,
+                maintenance history and prevailing market conditions.
+                """,
+                normal,
+            )
+        )
+
         doc.build(story)
-        buffer.seek(0)
-        return buffer.getvalue()
+
+        pdf = buffer.getvalue()
+        buffer.close()
+
+        return pdf
