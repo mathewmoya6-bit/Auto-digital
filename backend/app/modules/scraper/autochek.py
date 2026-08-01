@@ -1,85 +1,324 @@
 # app/modules/scraper/autochek.py
-# Auto-D Kenya - Autochek Scraper
 # ================================================================
-# TYPE: MODULE - Autochek specific scraper
+# Auto-D Kenya - Autochek Vehicle Scraper
+# ================================================================
 
 import asyncio
-import random
 import logging
-from typing import List, Dict, Any
+import random
+from datetime import datetime
+from urllib.parse import urljoin
+from typing import Dict, Any
 
-from app.scrapers.base_scraper import BaseScraper
+from app.modules.scraper.base_scraper import BaseScraper
+
 
 logger = logging.getLogger(__name__)
 
 
 class AutochekScraper(BaseScraper):
-    """Scraper for Autochek.co.ke."""
-    
+    """
+    Scraper for Autochek vehicle listings.
+    """
+
+
     def __init__(self):
+
         super().__init__(
             source_name="autochek",
-            base_url="https://www.autochek.co.ke"
+            base_url="https://autochek.africa"
         )
-        self.api_url = "https://api.autochek.co.ke/v1/listings"
-    
-    async def scrape(self, pages: int = 3, limit_per_page: int = 20) -> List[Dict[str, Any]]:
-        """
-        Scrape vehicle listings from Autochek.
-        
-        Args:
-            pages: Number of pages to scrape
-            limit_per_page: Number of listings per page
-            
-        Returns:
-            List of vehicle listings
-        """
-        all_listings = []
-        
+
+        self.search_url = (
+            "https://autochek.africa/ke/cars"
+        )
+
+
+
+    async def scrape(
+        self,
+        pages: int = 3,
+        limit_per_page: int = 20
+    ) -> Dict[str, Any]:
+
+        listings = []
+
+
         for page in range(1, pages + 1):
-            logger.info(f"Scraping Autochek page {page}")
-            
+
+            logger.info(
+                f"Autochek scraping page {page}"
+            )
+
+
             try:
-                params = {
-                    "page": page,
-                    "limit": limit_per_page,
-                    "status": "active",
-                    "sort": "newest"
-                }
-                
-                data = await self._fetch_json(self.api_url, params)
-                
-                if data and data.get("data"):
-                    for item in data["data"]:
-                        listing = {
-                            "listing_id": str(item.get("id", "")),
-                            "title": item.get("title", ""),
-                            "price": item.get("price", 0),
-                            "description": item.get("description", ""),
-                            "mileage": item.get("mileage", 0),
-                            "year": item.get("year", 0),
-                            "make": item.get("make", {}).get("name", "") if item.get("make") else "",
-                            "model": item.get("model", {}).get("name", "") if item.get("model") else "",
-                            "variant": item.get("variant", {}).get("name", "") if item.get("variant") else "",
-                            "location": item.get("location", {}).get("city", "") if item.get("location") else "",
-                            "url": item.get("url", ""),
-                            "image_url": item.get("images", [{}])[0].get("url", "") if item.get("images") else "",
-                            "fuel_type": item.get("fuel_type", ""),
-                            "transmission": item.get("transmission", ""),
-                            "body_type": item.get("body_type", ""),
-                            "engine_size": item.get("engine_size", ""),
-                            "seller": item.get("seller", {}).get("name", "") if item.get("seller") else ""
-                        }
-                        all_listings.append(listing)
-                
-                logger.info(f"Scraped {len(data.get('data', []))} listings from Autochek page {page}")
-                
-                # Delay between pages
-                await asyncio.sleep(random.uniform(0.5, 1.5))
-                
+
+                soup = await self._fetch_page(
+                    self.search_url,
+                    {
+                        "page": page
+                    }
+                )
+
+
+                if not soup:
+
+                    continue
+
+
+
+                urls = []
+
+
+                for link in soup.find_all("a"):
+
+                    href = link.get(
+                        "href"
+                    )
+
+
+                    if href:
+
+                        url = urljoin(
+                            self.base_url,
+                            href
+                        )
+
+
+                        if (
+                            "/cars/" in url
+                            and url not in urls
+                        ):
+
+                            urls.append(url)
+
+
+
+                for url in urls[:limit_per_page]:
+
+                    listing = await self._parse_listing(
+                        url
+                    )
+
+
+                    if listing:
+
+                        listings.append(
+                            listing
+                        )
+
+
+                    await asyncio.sleep(
+                        random.uniform(
+                            0.5,
+                            1.5
+                        )
+                    )
+
+
+
+                await asyncio.sleep(
+                    random.uniform(
+                        1,
+                        2
+                    )
+                )
+
+
+
             except Exception as e:
-                logger.error(f"Error scraping Autochek page {page}: {str(e)}")
-                break
-        
-        logger.info(f"Scraped {len(all_listings)} total listings from Autochek")
-        return all_listings
+
+                logger.error(
+                    f"Autochek page error: {e}"
+                )
+
+
+
+        return {
+
+            "listings":
+                listings,
+
+
+            "stats": {
+
+                "total_scraped":
+                    len(listings),
+
+                "successful":
+                    len(listings),
+
+                "failed":
+                    0
+
+            },
+
+
+            "completed_at":
+                datetime.utcnow()
+                .isoformat()
+
+        }
+
+
+
+
+
+    async def _parse_listing(
+        self,
+        url: str
+    ) -> Dict[str, Any]:
+
+        try:
+
+            soup = await self._fetch_page(
+                url
+            )
+
+
+            if not soup:
+
+                return {}
+
+
+
+            title = ""
+
+
+            title_element = soup.find(
+                "h1"
+            )
+
+
+            if title_element:
+
+                title = title_element.get_text(
+                    strip=True
+                )
+
+
+
+            page_text = soup.get_text(
+                " ",
+                strip=True
+            )
+
+
+
+            return {
+
+                "listing_id":
+
+                    url.rstrip("/")
+                    .split("/")
+                    [-1],
+
+
+
+                "title":
+
+                    title,
+
+
+
+                "url":
+
+                    url,
+
+
+
+                "price":
+
+                    self._parse_price(
+                        page_text
+                    ),
+
+
+
+                "currency":
+
+                    "KES",
+
+
+
+                "make":
+
+                    "",
+
+
+
+                "model":
+
+                    "",
+
+
+
+                "year":
+
+                    None,
+
+
+
+                "mileage":
+
+                    None,
+
+
+
+                "engine_size":
+
+                    None,
+
+
+
+                "fuel_type":
+
+                    "",
+
+
+
+                "transmission":
+
+                    "",
+
+
+
+                "body_type":
+
+                    "",
+
+
+
+                "location":
+
+                    "Kenya",
+
+
+
+                "seller_name":
+
+                    "Autochek",
+
+
+
+                "seller_type":
+
+                    "Dealer",
+
+
+
+                "condition":
+
+                    "Used"
+
+            }
+
+
+
+        except Exception as e:
+
+            logger.error(
+                f"Autochek parse failed: {e}"
+            )
+
+            return {}
