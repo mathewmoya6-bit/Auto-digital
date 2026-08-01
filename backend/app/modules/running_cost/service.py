@@ -19,15 +19,14 @@ class RunningCostService:
         self._variant_cache = {}
 
         # ─── DEFAULT FALLBACK VALUES (only used if DB is unreachable) ───
-        # ✅ FIX 9: Constants moved to DB - these are just fallbacks
         self._default_fuel_prices = {
             "petrol": 193.00,
             "diesel": 180.00,
             "electric": 20.00,
             "hybrid": 193.00,
-            "gas": 150.00,      # ✅ Added LPG/CNG
-            "lpg": 150.00,      # ✅ Added LPG
-            "cng": 140.00       # ✅ Added CNG
+            "gas": 150.00,
+            "lpg": 150.00,
+            "cng": 140.00
         }
 
         self._default_maintenance_rates = {
@@ -35,9 +34,9 @@ class RunningCostService:
             "diesel": 3.00,
             "electric": 1.50,
             "hybrid": 2.00,
-            "gas": 2.20,        # ✅ Added LPG
-            "lpg": 2.20,        # ✅ Added LPG
-            "cng": 2.00         # ✅ Added CNG
+            "gas": 2.20,
+            "lpg": 2.20,
+            "cng": 2.00
         }
 
         self._default_insurance_rates = {
@@ -232,6 +231,31 @@ class RunningCostService:
         """Get variant data from cache or database"""
         return await self._get_variant_data_cached(variant_id)
 
+    # ─── VEHICLE VALUE ──────────────────────────────────────────────
+
+    async def _get_vehicle_value(self, variant_id: int) -> float:
+        """Get vehicle purchase price from database"""
+        try:
+            variant = await self.get_variant_data(variant_id)
+            purchase_price = variant.get("purchase_price")
+            if purchase_price and purchase_price > 0:
+                return float(purchase_price)
+            
+            # Try to get from vehicle_master_specs fallback
+            result = self.supabase.table("vehicle_master_specs")\
+                .select("purchase_price")\
+                .eq("variant_id", variant_id)\
+                .single()\
+                .execute()
+            
+            if result.data and result.data.get("purchase_price", 0) > 0:
+                return float(result.data["purchase_price"])
+            
+            return 2500000.0  # Default fallback
+        except Exception as e:
+            logger.warning(f"Could not get vehicle value for variant {variant_id}: {e}")
+            return 2500000.0
+
     # ─── MAIN CALCULATION ───────────────────────────────────────────
 
     async def calculate_running_cost(self, request: RunningCostRequest, user_id: int) -> Dict[str, Any]:
@@ -288,12 +312,26 @@ class RunningCostService:
         vehicle_year = request.year or variant.get("generation_start_year", 2020)
         vehicle_age = max(0, current_year - vehicle_year)
 
-        purchase_price = variant.get("purchase_price") or 2500000
+        # ─── Fix 5: Get vehicle value from database ──────────────────
+        purchase_price = await self._get_vehicle_value(request.variant_id)
         if purchase_price <= 0:
-            purchase_price = 2500000
+            purchase_price = 2500000.0
             logger.warning(f"Invalid purchase price, using default: {purchase_price}")
 
         initial_vehicle_cost = purchase_price
+
+        # ─── Fix 6: Fuel consumption from database ──────────────────
+        fuel_efficiency = variant.get("fuel_consumption_combined")
+        if fuel_efficiency and fuel_efficiency > 0:
+            fuel_efficiency = float(fuel_efficiency)
+        else:
+            # Fallback to calculation if not available
+            fuel_efficiency = self._calculate_fuel_efficiency(
+                engine_size, vehicle_year, request.trip_type, fuel_type
+            )
+            if fuel_efficiency <= 0:
+                fuel_efficiency = 10.0
+                logger.warning(f"Invalid fuel efficiency, using default: {fuel_efficiency}")
 
         # ─── Fuel price ──────────────────────────────────────────────
         fuel_price = request.fuel_price or config["fuel_prices"].get(fuel_type, 193.00)
@@ -301,23 +339,30 @@ class RunningCostService:
             fuel_price = 193.00
             logger.warning(f"Invalid fuel price, using default: {fuel_price}")
 
-        # ─── Fuel efficiency ─────────────────────────────────────────
-        fuel_efficiency = self._calculate_fuel_efficiency(
-            engine_size, vehicle_year, request.trip_type, fuel_type
-        )
-        if fuel_efficiency <= 0:
-            fuel_efficiency = 10.0
-            logger.warning(f"Invalid fuel efficiency, using default: {fuel_efficiency}")
+        # ─── Fix 10: Driving factors ────────────────────────────────
+        driving_style = getattr(request, 'driving_style', 'moderate')
+        trip_type = getattr(request, 'trip_type', 'mixed')
+        usage_type = getattr(request, 'usage_type', 'private')
+        condition = getattr(request, 'condition', 'good')
+        location = getattr(request, 'location', 'urban')
 
-        # ─── Calculate costs ─────────────────────────────────────────
+        # ─── Calculate driving factors ──────────────────────────────
+        driving_factor = self._calculate_driving_factor(driving_style, trip_type, usage_type, condition, location)
+
+        # ─── Calculate costs with inclusion flags ──────────────────
+        include_insurance = getattr(request, 'include_insurance', True)
+        include_tyres = getattr(request, 'include_tyres', True)
+        include_maintenance = getattr(request, 'include_maintenance', True)
+        include_depreciation = getattr(request, 'include_depreciation', True)
+
         # Fuel cost
-        fuel_cost_per_km = fuel_price / fuel_efficiency
+        fuel_cost_per_km = (fuel_price / fuel_efficiency) * driving_factor
         fuel_cost_trip = fuel_cost_per_km * request.distance
 
         # Maintenance cost
         maintenance_rate = config["maintenance_rates"].get(fuel_type, 2.50)
         age_factor = 1 + (vehicle_age * 0.05)
-        maintenance_cost_per_km = maintenance_rate * age_factor
+        maintenance_cost_per_km = maintenance_rate * age_factor * driving_factor
         maintenance_cost_trip = maintenance_cost_per_km * request.distance
 
         # Tyre cost
@@ -334,21 +379,82 @@ class RunningCostService:
         insurance_per_km = annual_insurance / request.annual_mileage
         insurance_cost_trip = insurance_per_km * request.distance
 
-        # Depreciation
-        depreciation_rate = self._get_depreciation_rate(vehicle_age, config["depreciation_rates"])
-
-        # Compound depreciation
+        # ─── Fix 7: Yearly depreciation ─────────────────────────────
+        # Calculate depreciation for each year up to vehicle age
+        total_depreciation = 0
         remaining_value = initial_vehicle_cost
-        for _ in range(min(vehicle_age, 15)):
-            remaining_value *= (1 - depreciation_rate)
+        yearly_depreciation_data = []
+        
+        for year in range(vehicle_age):
+            dep_rate = self._get_depreciation_rate(year, config["depreciation_rates"])
+            depreciation_amount = remaining_value * dep_rate
+            total_depreciation += depreciation_amount
+            remaining_value -= depreciation_amount
+            yearly_depreciation_data.append({
+                "year": year + 1,
+                "rate": dep_rate,
+                "amount": depreciation_amount,
+                "remaining_value": max(remaining_value, initial_vehicle_cost * 0.15)
+            })
+            
+            if remaining_value <= initial_vehicle_cost * 0.15:
+                break
 
         remaining_value = max(remaining_value, initial_vehicle_cost * 0.15)
         resale_value = remaining_value
-        annual_depreciation = initial_vehicle_cost - remaining_value
+        annual_depreciation = total_depreciation / max(vehicle_age, 1)
         depreciation_per_km = annual_depreciation / request.annual_mileage
         depreciation_cost_trip = depreciation_per_km * request.distance
 
-        # Total costs
+        # ─── Apply inclusion flags ──────────────────────────────────
+        if not include_insurance:
+            insurance_cost_trip = 0
+            insurance_per_km = 0
+            annual_insurance = 0
+        
+        if not include_tyres:
+            tyre_cost_trip = 0
+            tyre_cost_per_km = 0
+        
+        if not include_maintenance:
+            maintenance_cost_trip = 0
+            maintenance_cost_per_km = 0
+        
+        if not include_depreciation:
+            depreciation_cost_trip = 0
+            depreciation_per_km = 0
+            annual_depreciation = 0
+
+        # ─── Fix 8: Finance calculation ─────────────────────────────
+        financed = getattr(request, 'financed', False)
+        interest_rate = getattr(request, 'interest_rate', 14.0) / 100  # Default 14% APR
+        loan_term = getattr(request, 'loan_term', 48)  # Months
+        down_payment = getattr(request, 'down_payment', 0.2)  # 20% default
+
+        finance_data = {}
+        if financed:
+            loan_amount = purchase_price * (1 - down_payment)
+            monthly_interest_rate = interest_rate / 12
+            if monthly_interest_rate > 0:
+                monthly_payment = loan_amount * (monthly_interest_rate * (1 + monthly_interest_rate) ** loan_term) / \
+                                 ((1 + monthly_interest_rate) ** loan_term - 1)
+            else:
+                monthly_payment = loan_amount / loan_term
+            
+            total_interest = (monthly_payment * loan_term) - loan_amount
+            
+            finance_data = {
+                "financed": True,
+                "loan_amount": round(loan_amount, 2),
+                "down_payment": round(purchase_price * down_payment, 2),
+                "interest_rate": round(interest_rate * 100, 2),
+                "loan_term": loan_term,
+                "monthly_payment": round(monthly_payment, 2),
+                "total_interest": round(total_interest, 2),
+                "total_cost": round(monthly_payment * loan_term, 2)
+            }
+
+        # ─── Total costs ──────────────────────────────────────────────
         total_cost_per_km = (
             fuel_cost_per_km + maintenance_cost_per_km +
             tyre_cost_per_km + insurance_per_km + depreciation_per_km
@@ -374,12 +480,47 @@ class RunningCostService:
             insurance_rate,
             vehicle_year,
             engine_size,
-            config["depreciation_rates"]
+            config["depreciation_rates"],
+            driving_factor,
+            include_insurance,
+            include_tyres,
+            include_maintenance,
+            include_depreciation
         )
 
         # ─── Build response ──────────────────────────────────────────
         try:
             response = {
+                # ─── Fix 1: Trip Summary ─────────────────────────────
+                "tripTotal": round(total_cost_trip, 2),
+                "tripCostPerKm": round(total_cost_per_km, 2),
+                "fuelCostTrip": round(fuel_cost_trip, 2),
+                "serviceTrip": round(maintenance_cost_trip, 2),
+                "tyreTrip": round(tyre_cost_trip, 2),
+                "insuranceTrip": round(insurance_cost_trip, 2),
+                "depreciationTrip": round(depreciation_cost_trip, 2),
+
+                # ─── Fix 2: Per KM ──────────────────────────────────
+                "fuelCostPerKm": round(fuel_cost_per_km, 2),
+                "servicePerKm": round(maintenance_cost_per_km, 2),
+                "tyrePerKm": round(tyre_cost_per_km, 2),
+                "insurancePerKm": round(insurance_per_km, 2),
+                "depreciationPerKm": round(depreciation_per_km, 2),
+
+                # ─── Fix 3: Monthly ─────────────────────────────────
+                "monthlyFuel": round(monthly_fuel, 2),
+                "monthlyService": round(monthly_service, 2),
+                "monthlyTyre": round(monthly_tyre, 2),
+                "monthlyInsurance": round(monthly_insurance, 2),
+                "monthlyDepreciation": round(monthly_depreciation, 2),
+
+                # ─── Fix 4: Annual ──────────────────────────────────
+                "annualFuel": round(monthly_fuel * 12, 2),
+                "annualService": round(monthly_service * 12, 2),
+                "annualTyre": round(monthly_tyre * 12, 2),
+                "annualInsurance": round(annual_insurance, 2),
+                "annualDepreciation": round(monthly_depreciation * 12, 2),
+
                 # ─── Legacy fields ────────────────────────────────────
                 "distance": request.distance,
                 "cost_per_km": round(total_cost_per_km, 2),
@@ -454,7 +595,7 @@ class RunningCostService:
                     "purchase_price": round(initial_vehicle_cost, 2),
                     "current_value": round(remaining_value, 2),
                     "resale_value": round(resale_value, 2),
-                    "depreciation_rate": round(depreciation_rate, 3),
+                    "depreciation_rate": round(self._get_depreciation_rate(vehicle_age, config["depreciation_rates"]), 3),
                     "fuel_type": fuel_type.capitalize(),
                     "fuel_efficiency": round(fuel_efficiency, 1),
                     "engine_size": round(engine_size, 1),
@@ -463,29 +604,32 @@ class RunningCostService:
                 },
                 "calculated_at": datetime.utcnow().isoformat(),
 
-                # ─── Flat camelCase fields required by response_model ─
-                "tripTotal": round(total_cost_trip, 2),
-                "tripCostPerKm": round(total_cost_per_km, 2),
-                "fuelCostTrip": round(fuel_cost_trip, 2),
-                "serviceTrip": round(maintenance_cost_trip, 2),
-                "tyreTrip": round(tyre_cost_trip, 2),
-                "insuranceTrip": round(insurance_cost_trip, 2),
-                "depreciationTrip": round(depreciation_cost_trip, 2),
-                "fuelCostPerKm": round(fuel_cost_per_km, 2),
-                "servicePerKm": round(maintenance_cost_per_km, 2),
-                "tyrePerKm": round(tyre_cost_per_km, 2),
-                "insurancePerKm": round(insurance_per_km, 2),
-                "depreciationPerKm": round(depreciation_per_km, 2),
-                "monthlyFuel": round(monthly_fuel, 2),
-                "monthlyService": round(monthly_service, 2),
-                "monthlyTyre": round(monthly_tyre, 2),
-                "monthlyInsurance": round(monthly_insurance, 2),
-                "monthlyDepreciation": round(monthly_depreciation, 2),
-                "annualFuel": round(monthly_fuel * 12, 2),
-                "annualService": round(monthly_service * 12, 2),
-                "annualTyre": round(monthly_tyre * 12, 2),
-                "annualInsurance": round(annual_insurance, 2),
-                "annualDepreciation": round(monthly_depreciation * 12, 2),
+                # ─── Fix 8: Finance data ────────────────────────────
+                "finance": finance_data,
+
+                # ─── Fix 9: Request options ──────────────────────────
+                "options": {
+                    "include_insurance": include_insurance,
+                    "include_tyres": include_tyres,
+                    "include_maintenance": include_maintenance,
+                    "include_depreciation": include_depreciation,
+                    "financed": financed
+                },
+
+                # ─── Fix 10: Driving factors ─────────────────────────
+                "driving_factors": {
+                    "driving_style": driving_style,
+                    "trip_type": trip_type,
+                    "usage_type": usage_type,
+                    "condition": condition,
+                    "location": location,
+                    "factor": round(driving_factor, 2)
+                },
+
+                # ─── Yearly depreciation breakdown ──────────────────
+                "depreciation_breakdown": yearly_depreciation_data,
+
+                # ─── Legacy camelCase fields ────────────────────────
                 "total5YearCost": round(sum(y["total"] for y in five_year_data), 2),
                 "originalCost": round(initial_vehicle_cost, 2),
                 "ageAdjustedCost": round(remaining_value, 2),
@@ -500,9 +644,62 @@ class RunningCostService:
             logger.exception(f"Running cost calculation failed: {str(e)}")
             raise
 
+    def _calculate_driving_factor(self, driving_style: str, trip_type: str, 
+                                  usage_type: str, condition: str, location: str) -> float:
+        """Calculate driving factor multiplier based on driving conditions"""
+        # Base factor
+        factor = 1.0
+        
+        # Driving style impact
+        style_factors = {
+            "economical": 0.85,
+            "moderate": 1.0,
+            "sporty": 1.15,
+            "aggressive": 1.25
+        }
+        factor *= style_factors.get(driving_style, 1.0)
+        
+        # Trip type impact
+        trip_factors = {
+            "urban": 1.1,
+            "highway": 0.85,
+            "mixed": 1.0,
+            "offroad": 1.2
+        }
+        factor *= trip_factors.get(trip_type, 1.0)
+        
+        # Usage type impact
+        usage_factors = {
+            "private": 1.0,
+            "commercial": 1.1,
+            "fleet": 1.05,
+            "rental": 1.15
+        }
+        factor *= usage_factors.get(usage_type, 1.0)
+        
+        # Condition impact
+        condition_factors = {
+            "excellent": 0.95,
+            "good": 1.0,
+            "fair": 1.05,
+            "poor": 1.15
+        }
+        factor *= condition_factors.get(condition, 1.0)
+        
+        # Location impact
+        location_factors = {
+            "urban": 1.05,
+            "suburban": 1.0,
+            "rural": 0.95,
+            "remote": 1.1
+        }
+        factor *= location_factors.get(location, 1.0)
+        
+        return factor
+
     def _calculate_fuel_efficiency(self, engine_size: float, year: int,
                                    trip_type: str, fuel_type: str) -> float:
-        """Calculate fuel efficiency in km/litre"""
+        """Calculate fuel efficiency in km/litre (fallback method)"""
         base_efficiency = {
             "petrol": 12.0,
             "diesel": 14.0,
@@ -543,7 +740,12 @@ class RunningCostService:
                                   maintenance_rate: float, tyre_cost_per_km: float,
                                   insurance_rate: float, vehicle_year: int,
                                   engine_size: float,
-                                  depreciation_rates: Dict[int, float]) -> list:
+                                  depreciation_rates: Dict[int, float],
+                                  driving_factor: float,
+                                  include_insurance: bool,
+                                  include_tyres: bool,
+                                  include_maintenance: bool,
+                                  include_depreciation: bool) -> list:
         """Calculate 5-year cost projection"""
         data = []
         current_value = purchase_price
@@ -557,14 +759,25 @@ class RunningCostService:
                 engine_size, vehicle_year + year - 1, request.trip_type, fuel_type
             )
 
-            fuel_cost = (annual_mileage / max(fuel_efficiency, 0.1)) * fuel_price
-            service_cost = maintenance_rate * annual_mileage * (1 + (age * 0.03))
+            fuel_cost = (annual_mileage / max(fuel_efficiency, 0.1)) * fuel_price * driving_factor
+            service_cost = maintenance_rate * annual_mileage * (1 + (age * 0.03)) * driving_factor
             tyre_cost = tyre_cost_per_km * annual_mileage
             insurance_cost = purchase_price * insurance_rate * (1 - min(age * 0.02, 0.4))
+            
+            # Apply inclusion flags for projection
+            if not include_insurance:
+                insurance_cost = 0
+            if not include_tyres:
+                tyre_cost = 0
+            if not include_maintenance:
+                service_cost = 0
 
             dep_rate = self._get_depreciation_rate(age, depreciation_rates)
             depreciation = current_value * dep_rate
             current_value -= depreciation
+            
+            if not include_depreciation:
+                depreciation = 0
 
             running_cost = fuel_cost + service_cost + tyre_cost + insurance_cost + depreciation
             total = running_cost
