@@ -21,6 +21,7 @@ class TCOEngine:
     - Depreciation with yearly rates
     - Inflation adjustment
     - Year-by-year breakdown
+    - Monthly running cost breakdown
     - Cost per KM
     - Resale value
     - Component percentage breakdown
@@ -173,6 +174,29 @@ class TCOEngine:
             include_inflation=request.include_inflation
         )
         
+        # ─── Calculate monthly breakdown ──────────────────────────
+        # Use first year as average monthly (or calculate across years)
+        if yearly_breakdown and len(yearly_breakdown) > 0:
+            first_year = yearly_breakdown[0]
+            monthly_breakdown = {
+                "loan_payment": round(loan_details["monthly_payment"], 2),
+                "fuel": round(first_year["fuel"] / 12, 2),
+                "maintenance": round(first_year["maintenance"] / 12, 2),
+                "tyres": round(first_year["tyres"] / 12, 2),
+                "insurance": round(first_year["insurance"] / 12, 2),
+                "total": round((first_year["fuel"] + first_year["maintenance"] + 
+                               first_year["tyres"] + first_year["insurance"]) / 12, 2)
+            }
+        else:
+            monthly_breakdown = {
+                "loan_payment": round(loan_details["monthly_payment"], 2),
+                "fuel": 0.0,
+                "maintenance": 0.0,
+                "tyres": 0.0,
+                "insurance": 0.0,
+                "total": 0.0
+            }
+        
         # ─── Calculate totals ──────────────────────────────────────
         total_running_cost = sum(y["running_cost"] for y in yearly_breakdown)
         total_depreciation = sum(y["depreciation"] for y in yearly_breakdown) if request.include_depreciation else 0
@@ -214,7 +238,8 @@ class TCOEngine:
             "fuel_type_display": fuel_type.capitalize(),
             "vehicle_condition": request.vehicle_condition,
             "purchase_type": request.purchase_type,
-            "vehicle_year": request.vehicle_year
+            "vehicle_year": request.vehicle_year,
+            "vehicle_type": request.vehicle_type
         }
         
         # ─── Return complete response ─────────────────────────────
@@ -227,6 +252,9 @@ class TCOEngine:
             "cost_per_km": round(cost_per_km, 2),
             "total_depreciation": round(total_depreciation, 2),
             "resale_value": round(resale_value, 2),
+            
+            # Monthly Breakdown
+            "monthly_breakdown": monthly_breakdown,
             
             # Components
             "components": components,
@@ -276,7 +304,6 @@ class TCOEngine:
     
     def _calculate_annual_maintenance(self, annual_mileage: float, maintenance_rate: float, fuel_type: str) -> float:
         """Calculate annual maintenance cost."""
-        # Use provided rate or fallback to default
         if maintenance_rate > 0:
             return maintenance_rate * annual_mileage
         return self.MAINTENANCE_RATES.get(fuel_type, 2.50) * annual_mileage
@@ -435,8 +462,7 @@ class TCOEngine:
                 "percentage": round((total_interest / total_cost) * 100, 1) if total_cost > 0 else 0
             })
         
-        # Running costs (approximate split - actual from yearly breakdown)
-        # We'll split by rough percentages from the calculation
+        # Running costs
         components.append({
             "name": "Running Costs",
             "amount": round(total_running_cost, 2),
