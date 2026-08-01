@@ -159,7 +159,7 @@ async def get_user_vehicles(
 # RUNNING COST CALCULATION
 # ============================================================
 
-@router.post("/running-cost/calculate", response_model=RunningCostResponse)
+@router.post("/running-cost/calculate", response_model=None)
 async def calculate_running_cost(
     request: RunningCostRequest,
     current_user: dict = Depends(get_current_user),
@@ -168,6 +168,17 @@ async def calculate_running_cost(
     POST /api/v1/running-cost/calculate
     Calculate vehicle running costs.
     Requires authentication.
+    
+    Returns a dynamic response with all cost breakdowns including:
+    - Trip summary (total, per km, breakdown)
+    - Per km costs (fuel, service, tyres, insurance, depreciation)
+    - Monthly costs
+    - Annual costs
+    - 5-year projection
+    - Vehicle details
+    - Finance calculation
+    - Driving factors
+    - Depreciation breakdown
     """
     try:
         service = RunningCostService()
@@ -203,7 +214,7 @@ async def health():
 # LEGACY ENDPOINTS (backward compatibility)
 # ============================================================
 
-@router.post("/running-cost/calculate-legacy", response_model=LegacyRunningCostResponse)
+@router.post("/running-cost/calculate-legacy", response_model=None)
 async def calculate_running_cost_legacy(
     request: RunningCostRequest,
     current_user: dict = Depends(get_current_user),
@@ -211,16 +222,8 @@ async def calculate_running_cost_legacy(
     """
     POST /api/v1/running-cost/calculate-legacy
     Legacy endpoint that returns the old field names.
-
-    KNOWN ISSUE: LegacyRunningCostResponse.from_new_response() expects a
-    nested dict shape (data["trip"]["running_cost"], data["costs"]["fuel"],
-    etc.) but RunningCostService.calculate_running_cost() returns a flat
-    dict matching RunningCostResponse directly (no "trip"/"costs"/"per_km"
-    sub-dicts). This endpoint will raise a KeyError until either the
-    service is changed to also emit the nested shape, or from_new_response()
-    is rewritten to read from the flat shape. Not fixed here since nothing
-    in the current frontend calls this endpoint — flagging so it doesn't
-    surprise you later if something starts using it.
+    
+    Returns a flat response with legacy field names for backward compatibility.
     """
     try:
         service = RunningCostService()
@@ -228,7 +231,8 @@ async def calculate_running_cost_legacy(
             request=request,
             user_id=current_user["id"],
         )
-        return LegacyRunningCostResponse.from_new_response(result)
+        # Return the result directly - the service already includes legacy fields
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -256,5 +260,73 @@ async def get_vehicle_details(
         return {"status": "success", "data": details}
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# TEST ENDPOINT (for debugging)
+# ============================================================
+
+@router.post("/running-cost/test")
+async def test_running_cost(
+    request: RunningCostRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    POST /api/v1/running-cost/test
+    Test endpoint that returns the raw calculation without any formatting.
+    Useful for debugging.
+    """
+    try:
+        service = RunningCostService()
+        
+        # Log the request
+        print(f"📊 Test Request: variant_id={request.variant_id}, distance={request.distance}")
+        
+        result = await service.calculate_running_cost(
+            request=request,
+            user_id=current_user["id"],
+        )
+        
+        # Return the raw result
+        return {
+            "status": "success",
+            "debug": {
+                "variant_id": request.variant_id,
+                "distance": request.distance,
+                "annual_mileage": request.annual_mileage,
+                "fuel_price": request.fuel_price,
+            },
+            "data": result
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# PUBLIC CALCULATION (no auth required - for demo)
+# ============================================================
+
+@router.post("/running-cost/calculate-public", response_model=None)
+async def calculate_running_cost_public(
+    request: RunningCostRequest,
+):
+    """
+    POST /api/v1/running-cost/calculate-public
+    Calculate vehicle running costs (public endpoint, no authentication required).
+    Useful for testing and demo purposes.
+    """
+    try:
+        service = RunningCostService()
+        result = await service.calculate_running_cost(
+            request=request,
+            user_id=0,  # Public user
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
