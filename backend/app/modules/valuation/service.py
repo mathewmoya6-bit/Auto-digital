@@ -6,6 +6,7 @@
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
+import secrets
 
 from app.modules.valuation.engine import ValuationEngine
 from app.core.database import get_supabase
@@ -23,9 +24,9 @@ class ValuationService:
     
     async def calculate_valuation(
         self,
-        variant_id: int,  # FIX 1: Changed from str to int
+        variant_id: int,
         year: int,
-        mileage: int,  # FIX 4: Changed from float to int
+        mileage: int,
         condition: str = "good",
         accident_history: str = "none",
         location: str = "nairobi",
@@ -44,26 +45,23 @@ class ValuationService:
             user_id: Optional user ID for saving history
             
         Returns:
-            Dict[str, Any]: Valuation results with market_value, retail_value, etc.
+            Dict[str, Any]: Complete valuation report with metadata
         """
-        # FIX 3: Validate variant_id
-        if not variant_id:
-            raise NotFoundException("Variant ID required")
+        # Validate variant_id
+        if not variant_id or variant_id <= 0:
+            raise NotFoundException("Valid variant ID required")
         
-        if variant_id <= 0:
-            raise NotFoundException("Invalid variant ID")
-        
-        # FIX 5: Normalize condition
+        # Normalize condition
         condition = condition.lower() if condition else "good"
-        allowed_conditions = ["excellent", "good", "fair", "poor"]
+        allowed_conditions = ["excellent", "very_good", "good", "fair", "poor"]
         if condition not in allowed_conditions:
             logger.warning(f"Unknown condition '{condition}', defaulting to 'good'")
             condition = "good"
         
-        # FIX 6: Normalize location
+        # Normalize location
         location = location.lower() if location else "nairobi"
         
-        # FIX 2: Get variant data using correct column name
+        # Get variant data
         try:
             variant_response = self.supabase.table("vehicle_variants").select("*").eq("id", variant_id).execute()
             
@@ -92,38 +90,105 @@ class ValuationService:
             logger.error(f"Valuation engine error: {str(e)}")
             raise
         
-        # FIX 7: Safely get values with fallbacks
+        # Safely get values with fallbacks
         market_value = result.get("market_value", 0)
         retail_value = result.get("retail_value", 0)
         trade_value = result.get("trade_value", 0)
         confidence_score = result.get("confidence_score", 50)
+        adjustments = result.get("adjustments", {})
         
         # Ensure we have at least some value
         if market_value == 0 and retail_value == 0 and trade_value == 0:
             logger.warning(f"Valuation returned all zeros for variant {variant_id}")
-            # Use a fallback estimation
             fallback_value = self._estimate_fallback_value(variant_data, year, mileage)
             market_value = fallback_value
             retail_value = fallback_value * 1.08
             trade_value = fallback_value * 0.85
             confidence_score = 30
         
-        # Build result with safe values
-        safe_result = {
-            "market_value": market_value,
-            "retail_value": retail_value,
-            "trade_value": trade_value,
-            "dealer_value": result.get("dealer_value", retail_value * 0.95),
-            "confidence_score": confidence_score,
+        # Generate report number
+        timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+        random_suffix = secrets.token_hex(4).upper()
+        report_number = f"AUTO-VAL-{timestamp}-{random_suffix}"
+        
+        # ─── BUILD COMPLETE RESPONSE ──────────────────────────────────
+        
+        # 1. Report Metadata
+        report = {
+            "title": "AUTO-D Vehicle Valuation Report",
+            "report_number": report_number,
+            "generated_at": datetime.utcnow().isoformat(),
+            "status": "Completed",
+            "version": "1.0"
+        }
+        
+        # 2. Vehicle Information
+        vehicle = {
+            "variant_id": variant_id,
+            "variant_name": variant_data.get("name", "Unknown"),
+            "make": variant_data.get("make_name", "Unknown"),
+            "model": variant_data.get("model_name", "Unknown"),
             "year": year,
             "mileage": mileage,
-            "condition": condition,
-            "location": location,
-            "variant_id": variant_id,
-            "variant_name": variant_data.get("name", ""),
-            "make_name": variant_data.get("make_name", ""),
-            "model_name": variant_data.get("model_name", ""),
-            "calculated_at": datetime.utcnow().isoformat()
+            "condition": condition.title(),
+            "location": location.title(),
+            "fuel_type": variant_data.get("fuel_type_name", "Unknown"),
+            "transmission": variant_data.get("transmission_type_name", "Unknown"),
+            "engine_size_cc": variant_data.get("engine_size_cc", 0),
+            "body_type": variant_data.get("body_type_name", "Unknown")
+        }
+        
+        # 3. Valuation Results
+        estimated_value_range = {
+            "minimum": round(market_value * 0.95, 2),
+            "maximum": round(market_value * 1.05, 2)
+        }
+        
+        valuation = {
+            "estimated_vehicle_value": round(market_value, 2),
+            "retail_value": round(retail_value, 2),
+            "trade_value": round(trade_value, 2),
+            "dealer_value": round(result.get("dealer_value", retail_value * 0.95), 2),
+            "currency": "KES",
+            "confidence_score": confidence_score,
+            "estimated_value_range": estimated_value_range
+        }
+        
+        # 4. Analysis
+        valuation_methodology = [
+            "Vehicle age ({})".format(year),
+            "Mileage ({:,} km)".format(mileage),
+            "Vehicle condition ({})".format(condition.title()),
+            "Vehicle specifications",
+            "Location ({})".format(location.title()),
+            "Depreciation model",
+            "Market comparables analysis"
+        ]
+        
+        analysis = {
+            "valuation_methodology": valuation_methodology,
+            "adjustments": adjustments,
+            "engine_version": "AUTO-D AI Valuation Engine v1.2"
+        }
+        
+        # 5. Disclaimer
+        disclaimer = (
+            "This valuation is generated using the AUTO-D vehicle valuation model. "
+            "It represents an indicative estimate based on vehicle specifications, "
+            "age, mileage, condition, depreciation modelling and regional factors. "
+            "It should not be interpreted as the current market asking price, "
+            "dealer retail price, trade-in value or guaranteed selling price. "
+            "Actual transaction values may vary depending on inspection results, "
+            "ownership history, maintenance records and prevailing market conditions."
+        )
+        
+        # ─── BUILD FINAL RESPONSE ─────────────────────────────────────
+        safe_result = {
+            "report": report,
+            "vehicle": vehicle,
+            "valuation": valuation,
+            "analysis": analysis,
+            "disclaimer": disclaimer
         }
         
         # Save to history if user is authenticated
@@ -136,6 +201,7 @@ class ValuationService:
                     "retail_value": retail_value,
                     "trade_value": trade_value,
                     "confidence_score": confidence_score,
+                    "report_number": report_number,
                     "year": year,
                     "mileage": mileage,
                     "location": location,
@@ -150,10 +216,9 @@ class ValuationService:
                     logger.info(f"Valuation history saved for user {user_id}")
                 except Exception as e:
                     # Try without optional columns if they don't exist
-                    if "accident_history" in str(e) or "location" in str(e):
-                        # Remove problematic columns
+                    if "accident_history" in str(e) or "location" in str(e) or "report_number" in str(e):
                         safe_history = {k: v for k, v in history_data.items() 
-                                      if k not in ["accident_history", "location"]}
+                                      if k not in ["accident_history", "location", "report_number"]}
                         self.supabase.table("valuation_reports").insert(safe_history).execute()
                         logger.info(f"Valuation history saved (without optional fields) for user {user_id}")
                     else:
@@ -162,6 +227,7 @@ class ValuationService:
             except Exception as e:
                 logger.warning(f"Failed to save valuation history: {str(e)}")
         
+        logger.info(f"Valuation report {report_number} generated for variant {variant_id}")
         return safe_result
     
     def _estimate_fallback_value(self, variant_data: Dict[str, Any], year: int, mileage: int) -> float:
@@ -293,3 +359,69 @@ class ValuationService:
                 "lowest_value": 0,
                 "last_valuation": None
             }
+
+
+# ─── RESPONSE SCHEMA FOR REFERENCE ──────────────────────────────────
+
+"""
+VALUATION RESPONSE STRUCTURE:
+
+{
+    "report": {
+        "title": "AUTO-D Vehicle Valuation Report",
+        "report_number": "AUTO-VAL-20260101120000-ABCD",
+        "generated_at": "2026-01-01T12:00:00.000Z",
+        "status": "Completed",
+        "version": "1.0"
+    },
+    
+    "vehicle": {
+        "variant_id": 123,
+        "variant_name": "Prado VX",
+        "make": "Toyota",
+        "model": "Land Cruiser Prado",
+        "year": 2020,
+        "mileage": 50000,
+        "condition": "Good",
+        "location": "Nairobi",
+        "fuel_type": "Petrol",
+        "transmission": "Automatic",
+        "engine_size_cc": 4000,
+        "body_type": "SUV"
+    },
+    
+    "valuation": {
+        "estimated_vehicle_value": 5250000.00,
+        "retail_value": 5670000.00,
+        "trade_value": 4462500.00,
+        "dealer_value": 5386500.00,
+        "currency": "KES",
+        "confidence_score": 85,
+        "estimated_value_range": {
+            "minimum": 4987500.00,
+            "maximum": 5512500.00
+        }
+    },
+    
+    "analysis": {
+        "valuation_methodology": [
+            "Vehicle age (2020)",
+            "Mileage (50,000 km)",
+            "Vehicle condition (Good)",
+            "Vehicle specifications",
+            "Location (Nairobi)",
+            "Depreciation model",
+            "Market comparables analysis"
+        ],
+        "adjustments": {
+            "age": 0.95,
+            "mileage": 0.98,
+            "condition": 1.05,
+            "location": 1.02
+        },
+        "engine_version": "AUTO-D AI Valuation Engine v1.2"
+    },
+    
+    "disclaimer": "This valuation is generated using the AUTO-D vehicle valuation model. It represents an indicative estimate based on vehicle specifications, age, mileage, condition, depreciation modelling and regional factors. It should not be interpreted as the current market asking price, dealer retail price, trade-in value or guaranteed selling price. Actual transaction values may vary depending on inspection results, ownership history, maintenance records and prevailing market conditions."
+}
+"""
