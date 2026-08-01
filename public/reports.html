@@ -4,9 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Auto-D Kenya — Complete Vehicle Report</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E" />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        /* ─── Reset & Base ────────────────────────────────────────── */
+        /* ─── CSS Variables ────────────────────────────────────────── */
+        :root {
+            --amber: #eab308;
+            --amber-dark: #ca8a04;
+            --green: #22c55e;
+            --blue: #3b82f6;
+            --cyan: #06b6d4;
+            --red: #ef4444;
+            --bg: #0a0c15;
+            --bg-panel: #111827;
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --text-muted: #64748b;
+            --border: rgba(255, 255, 255, 0.06);
+            --font-heading: 'Space Grotesk', sans-serif;
+            --font-body: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
         * {
             box-sizing: border-box;
             margin: 0;
@@ -16,12 +36,54 @@
             font-family: 'Inter', sans-serif;
             background: #0a0c15;
             color: #f8fafc;
-            padding: 24px;
             min-height: 100vh;
         }
-        .report-container {
-            max-width: 1200px;
+        .wrap {
+            max-width: 1440px;
             margin: 0 auto;
+            padding: 28px 32px 60px;
+        }
+
+        /* ─── Skip Link ────────────────────────────────────────────── */
+        .skip-link {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            background: #eab308;
+            color: #0a0c10;
+            padding: 8px 16px;
+            z-index: 100;
+            transition: top 0.3s;
+            font-weight: 600;
+            font-size: 14px;
+            border-radius: 0 0 8px 0;
+        }
+        .skip-link:focus {
+            top: 0;
+        }
+
+        /* ─── Top Loader ───────────────────────────────────────────── */
+        .top-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 3px;
+            width: 0%;
+            background: linear-gradient(90deg, #eab308, #22c55e);
+            z-index: 99999;
+            opacity: 0;
+            transition: opacity 0.2s ease, width 0.3s ease;
+            pointer-events: none;
+        }
+        .top-loader.active {
+            opacity: 1;
+            width: 70%;
+            transition: opacity 0.2s ease, width 8s cubic-bezier(0.1, 0.6, 0.3, 1);
+        }
+        .top-loader.done {
+            opacity: 1;
+            width: 100%;
+            transition: width 0.2s ease;
         }
 
         /* ─── Report Header ────────────────────────────────────────── */
@@ -29,7 +91,7 @@
             background: linear-gradient(135deg, #111827, #0a0c15);
             border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 16px;
-            padding: 32px 40px;
+            padding: 28px 36px;
             margin-bottom: 28px;
             position: relative;
             overflow: hidden;
@@ -50,6 +112,8 @@
             align-items: flex-start;
             flex-wrap: wrap;
             gap: 16px;
+            position: relative;
+            z-index: 1;
         }
         .report-header .logo {
             font-family: 'Space Grotesk', sans-serif;
@@ -78,7 +142,7 @@
             font-size: 12px;
             color: #94a3b8;
             font-family: 'JetBrains Mono', monospace;
-            line-height: 1.8;
+            line-height: 1.9;
         }
         .report-header .meta strong {
             color: #eab308;
@@ -87,6 +151,37 @@
             color: #94a3b8;
             font-size: 14px;
             margin-top: 4px;
+        }
+
+        /* ─── Status Message ───────────────────────────────────────── */
+        .status-message {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status-message.error {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+        .status-message.warning {
+            background: rgba(234, 179, 8, 0.12);
+            border: 1px solid rgba(234, 179, 8, 0.2);
+            color: #eab308;
+        }
+        .status-message.success {
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+        .status-message.info {
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
         }
 
         /* ─── Tabs ────────────────────────────────────────────────── */
@@ -99,9 +194,13 @@
             margin-bottom: 28px;
             border: 1px solid rgba(255, 255, 255, 0.06);
             overflow-x: auto;
+            position: sticky;
+            top: 8px;
+            z-index: 50;
+            backdrop-filter: blur(8px);
         }
         .tab-btn {
-            padding: 12px 24px;
+            padding: 10px 22px;
             border: none;
             border-radius: 8px;
             background: transparent;
@@ -158,6 +257,10 @@
             border-radius: 12px;
             padding: 24px 28px;
             margin-bottom: 20px;
+            transition: border-color 0.3s ease;
+        }
+        .card:hover {
+            border-color: rgba(234, 179, 8, 0.15);
         }
         .card-title {
             font-family: 'Space Grotesk', sans-serif;
@@ -168,13 +271,14 @@
             align-items: center;
             gap: 10px;
             margin-bottom: 16px;
+            flex-wrap: wrap;
         }
         .card-title .badge {
             font-size: 9px;
             font-weight: 500;
             color: #94a3b8;
             background: #1e293b;
-            padding: 2px 10px;
+            padding: 2px 12px;
             border-radius: 20px;
             font-family: 'JetBrains Mono', monospace;
         }
@@ -200,10 +304,22 @@
             grid-template-columns: 1fr 1fr 1fr 1fr;
             gap: 16px;
         }
+        .grid-5 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+            gap: 16px;
+        }
+        @media (max-width: 1024px) {
+            .grid-4,
+            .grid-5 {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+        }
         @media (max-width: 768px) {
             .grid-2,
             .grid-3,
-            .grid-4 {
+            .grid-4,
+            .grid-5 {
                 grid-template-columns: 1fr;
             }
         }
@@ -215,6 +331,11 @@
             padding: 16px 20px;
             border: 1px solid rgba(255, 255, 255, 0.04);
             text-align: center;
+            transition: all 0.3s ease;
+        }
+        .stat-box:hover {
+            border-color: rgba(234, 179, 8, 0.15);
+            transform: translateY(-2px);
         }
         .stat-box .label {
             font-size: 10px;
@@ -225,10 +346,11 @@
         }
         .stat-box .value {
             font-family: 'Space Grotesk', sans-serif;
-            font-size: 24px;
+            font-size: 22px;
             font-weight: 700;
             margin-top: 4px;
             color: #f8fafc;
+            word-break: break-word;
         }
         .stat-box .value.amber {
             color: #eab308;
@@ -247,7 +369,6 @@
             color: #64748b;
             margin-top: 2px;
         }
-
         .stat-box.highlight {
             border-color: #eab308;
             background: rgba(234, 179, 8, 0.05);
@@ -266,6 +387,7 @@
             font-weight: 800;
             color: #22c55e;
             letter-spacing: -0.5px;
+            word-break: break-word;
         }
         .value-display .amount .currency {
             font-size: 28px;
@@ -290,6 +412,7 @@
             padding: 10px 16px;
             border-radius: 8px;
             margin: 12px 0;
+            flex-wrap: wrap;
         }
         .confidence-bar .track {
             flex: 1;
@@ -297,12 +420,13 @@
             background: #1e293b;
             border-radius: 20px;
             overflow: hidden;
+            min-width: 60px;
         }
         .confidence-bar .fill {
             height: 100%;
             border-radius: 20px;
             background: linear-gradient(90deg, #eab308, #22c55e);
-            transition: width 1s ease;
+            transition: width 1.5s ease;
         }
         .confidence-bar .label {
             font-size: 13px;
@@ -345,22 +469,17 @@
         }
         tr:last-child td {
             border-bottom: none;
-            font-weight: 700;
-            color: #eab308;
-        }
-        .table-highlight {
-            background: rgba(234, 179, 8, 0.05);
         }
         .table-highlight td {
             color: #eab308;
-            font-weight: 600;
+            font-weight: 700;
         }
 
         /* ─── Cost Breakdown ────────────────────────────────────────── */
         .cost-breakdown {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: 8px;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 6px;
             margin-top: 8px;
         }
         .cost-item {
@@ -372,13 +491,24 @@
             border: 1px solid rgba(255, 255, 255, 0.04);
             font-family: 'JetBrains Mono', monospace;
             font-size: 11px;
+            align-items: center;
+            gap: 8px;
         }
         .cost-item .label {
             color: #94a3b8;
+            font-size: 10px;
         }
         .cost-item .value {
             font-weight: 600;
             color: #f8fafc;
+            font-size: 11px;
+            text-align: right;
+        }
+        .cost-item .value.green {
+            color: #22c55e;
+        }
+        .cost-item .value.red {
+            color: #ef4444;
         }
         .cost-item.total {
             background: rgba(234, 179, 8, 0.08);
@@ -397,7 +527,7 @@
         .vehicle-profile {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 12px;
             flex-wrap: wrap;
             padding: 12px 16px;
             background: #0f172a;
@@ -468,6 +598,7 @@
         }
         .rec-item .icon {
             font-size: 16px;
+            flex-shrink: 0;
         }
         .rec-item .text {
             color: #f8fafc;
@@ -529,38 +660,56 @@
             align-items: center;
             gap: 8px;
         }
-        .action-btn:hover {
+        .action-btn:hover:not(:disabled) {
             border-color: #eab308;
             color: #eab308;
             background: rgba(234, 179, 8, 0.05);
+        }
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
         .action-btn.print {
             border-color: #3b82f6;
             color: #3b82f6;
         }
-        .action-btn.print:hover {
+        .action-btn.print:hover:not(:disabled) {
             background: rgba(59, 130, 246, 0.08);
         }
         .action-btn.share {
             border-color: #22c55e;
             color: #22c55e;
         }
-        .action-btn.share:hover {
+        .action-btn.share:hover:not(:disabled) {
             background: rgba(34, 197, 94, 0.08);
         }
         .action-btn.export {
             border-color: #eab308;
             color: #eab308;
         }
-        .action-btn.export:hover {
+        .action-btn.export:hover:not(:disabled) {
             background: rgba(234, 179, 8, 0.08);
         }
         .action-btn.download {
             border-color: #8b5cf6;
             color: #8b5cf6;
         }
-        .action-btn.download:hover {
+        .action-btn.download:hover:not(:disabled) {
             background: rgba(139, 92, 246, 0.08);
+        }
+        .action-btn .spinner-small {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         /* ─── Footer ────────────────────────────────────────────────── */
@@ -608,13 +757,96 @@
             color: #eab308;
         }
 
+        /* ─── Toast ────────────────────────────────────────────────── */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 14px 24px;
+            border-radius: 10px;
+            z-index: 99999;
+            font-weight: 500;
+            animation: slideIn .3s ease;
+            max-width: 420px;
+            font-size: 13px;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+        }
+        .toast-success {
+            background: #22c55e;
+            color: #000;
+        }
+        .toast-error {
+            background: #ef4444;
+            color: #fff;
+        }
+        .toast-info {
+            background: #3b82f6;
+            color: #fff;
+        }
+        .toast-warning {
+            background: #eab308;
+            color: #000;
+        }
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(80px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* ─── Badge ────────────────────────────────────────────────── */
+        .auto-d-badge {
+            display: inline-block;
+            background: rgba(234, 179, 8, 0.15);
+            color: #eab308;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 8px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            border: 1px solid rgba(234, 179, 8, 0.2);
+            margin-left: 6px;
+        }
+
+        /* ─── Confetti ────────────────────────────────────────────── */
+        .confetti-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9998;
+            overflow: hidden;
+        }
+        .confetti-piece {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            animation: confettiFall linear forwards;
+        }
+        @keyframes confettiFall {
+            0% {
+                transform: translateY(-20px) rotate(0deg);
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(100vh) rotate(720deg);
+                opacity: 0;
+            }
+        }
+
         /* ─── Responsive ────────────────────────────────────────────── */
         @media (max-width: 768px) {
-            body {
-                padding: 12px;
+            .wrap {
+                padding: 16px 12px 40px;
             }
             .report-header {
-                padding: 20px;
+                padding: 20px 18px;
             }
             .report-header .top-row {
                 flex-direction: column;
@@ -629,6 +861,7 @@
             .tabs {
                 gap: 2px;
                 padding: 2px;
+                top: 0;
             }
             .tab-btn {
                 padding: 8px 14px;
@@ -641,12 +874,7 @@
                 font-size: 32px;
             }
             .stat-box .value {
-                font-size: 20px;
-            }
-            .grid-2,
-            .grid-3,
-            .grid-4 {
-                grid-template-columns: 1fr;
+                font-size: 18px;
             }
             .action-bar {
                 flex-direction: column;
@@ -661,9 +889,31 @@
             .report-footer .meta {
                 text-align: center;
             }
+            .cost-breakdown {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        @media (max-width: 480px) {
+            .cost-breakdown {
+                grid-template-columns: 1fr;
+            }
+            .vehicle-profile .name {
+                font-size: 15px;
+            }
+            .vehicle-specs {
+                grid-template-columns: 1fr 1fr;
+            }
+            .value-display .amount {
+                font-size: 26px;
+            }
+            .value-display .amount .currency {
+                font-size: 18px;
+            }
         }
 
+        /* ─── Print ────────────────────────────────────────────────── */
         @media print {
+            .top-loader,
             .action-bar,
             .tabs {
                 display: none !important;
@@ -671,7 +921,10 @@
             body {
                 background: #fff !important;
                 color: #000 !important;
+            }
+            .wrap {
                 padding: 20px !important;
+                max-width: 100% !important;
             }
             .report-header {
                 background: #f5f5f5 !important;
@@ -686,6 +939,7 @@
             .card {
                 background: #fff !important;
                 border-color: #ddd !important;
+                page-break-inside: avoid;
             }
             .card-title {
                 color: #b8860b !important;
@@ -788,40 +1042,18 @@
                 display: none !important;
             }
         }
-
-        /* ─── Print Styles ────────────────────────────────────────── */
-        @media print {
-            .no-print {
-                display: none !important;
-            }
-            .print-only {
-                display: block !important;
-            }
-        }
-        .print-only {
-            display: none;
-        }
-
-        /* ─── Badge ────────────────────────────────────────────────── */
-        .auto-d-badge {
-            display: inline-block;
-            background: rgba(234, 179, 8, 0.15);
-            color: #eab308;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            padding: 2px 8px;
-            border-radius: 10px;
-            border: 1px solid rgba(234, 179, 8, 0.2);
-            margin-left: 6px;
-        }
     </style>
 </head>
 <body>
 
-    <div class="report-container" id="reportContainer">
+    <div class="top-loader" id="topLoader"></div>
+
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <div class="wrap" id="main-content" role="main">
 
         <!-- ═══ REPORT HEADER ═══ -->
-        <header class="report-header">
+        <header class="report-header" role="banner">
             <div class="top-row">
                 <div>
                     <div class="logo">Auto-D <span>Kenya</span></div>
@@ -836,16 +1068,22 @@
             </div>
         </header>
 
+        <!-- ═══ STATUS MESSAGE ═══ -->
+        <div id="statusMessage" class="status-message info">
+            <span>⏳</span>
+            <span id="statusMessageText">Loading vehicle report...</span>
+        </div>
+
         <!-- ═══ TABS ═══ -->
         <div class="tabs no-print" role="tablist">
-            <button class="tab-btn active" data-tab="tab1" role="tab">
-                📊 Valuation Report <span class="count">1</span>
+            <button class="tab-btn active" data-tab="tab1" role="tab" aria-selected="true">
+                📊 Valuation <span class="count">1</span>
             </button>
-            <button class="tab-btn" data-tab="tab2" role="tab">
-                🚗 Mileage & Running Cost <span class="count">2</span>
+            <button class="tab-btn" data-tab="tab2" role="tab" aria-selected="false">
+                🚗 Running Cost <span class="count">2</span>
             </button>
-            <button class="tab-btn" data-tab="tab3" role="tab">
-                💰 Cost of Ownership <span class="count">3</span>
+            <button class="tab-btn" data-tab="tab3" role="tab" aria-selected="false">
+                💰 Ownership <span class="count">3</span>
             </button>
         </div>
 
@@ -859,20 +1097,20 @@
                     <span class="badge">Module 1</span>
                 </div>
                 <div class="vehicle-profile">
-                    <span class="name" id="vehicleName">2020 Toyota Land Cruiser Prado VX</span>
-                    <span class="pill fuel" id="fuelType">⛽ Petrol</span>
-                    <span class="pill trans" id="transmission">⚙️ Automatic</span>
-                    <span class="pill engine" id="engineSize">🔧 4000cc</span>
+                    <span class="name" id="vehicleName">Loading...</span>
+                    <span class="pill fuel" id="fuelType">⛽ —</span>
+                    <span class="pill trans" id="transmission">⚙️ —</span>
+                    <span class="pill engine" id="engineSize">🔧 —</span>
                 </div>
                 <div class="vehicle-specs" id="vehicleSpecs">
-                    <span class="spec">🔧 Trim <span class="val" id="trimLevel">VX</span></span>
-                    <span class="spec">⚡ Power <span class="val" id="powerHp">271 HP</span></span>
-                    <span class="spec">🔄 Torque <span class="val" id="torqueNm">430 Nm</span></span>
-                    <span class="spec">⛽ Fuel Consumption <span class="val" id="fuelConsumption">8.5 km/L</span></span>
-                    <span class="spec">💺 Seats <span class="val" id="seats">7</span></span>
-                    <span class="spec">🚪 Doors <span class="val" id="doors">5</span></span>
-                    <span class="spec">🚗 Body <span class="val" id="bodyType">SUV</span></span>
-                    <span class="spec">🏷️ Category <span class="val" id="category">SUV</span></span>
+                    <span class="spec">🔧 Trim <span class="val" id="trimLevel">—</span></span>
+                    <span class="spec">⚡ Power <span class="val" id="powerHp">—</span></span>
+                    <span class="spec">🔄 Torque <span class="val" id="torqueNm">—</span></span>
+                    <span class="spec">⛽ Fuel Consumption <span class="val" id="fuelConsumption">—</span></span>
+                    <span class="spec">💺 Seats <span class="val" id="seats">—</span></span>
+                    <span class="spec">🚪 Doors <span class="val" id="doors">—</span></span>
+                    <span class="spec">🚗 Body <span class="val" id="bodyType">—</span></span>
+                    <span class="spec">🏷️ Category <span class="val" id="category">—</span></span>
                 </div>
             </div>
 
@@ -884,27 +1122,27 @@
                 </div>
                 <div class="value-display">
                     <div class="amount">
-                        <span class="currency">KES</span> <span id="marketValue">5,250,000</span>
+                        <span class="currency">KES</span> <span id="marketValue">—</span>
                     </div>
                     <div class="range">
-                        Expected Range: <strong>KES <span id="rangeMin">4,830,000</span> — <span id="rangeMax">5,670,000</span></strong>
+                        Expected Range: <strong>KES <span id="rangeMin">—</span> — <span id="rangeMax">—</span></strong>
                     </div>
                 </div>
 
                 <div class="grid-3">
                     <div class="stat-box highlight">
                         <div class="label">Market Value</div>
-                        <div class="value amber" id="statMarketValue">KES 5,250,000</div>
+                        <div class="value amber" id="statMarketValue">KES —</div>
                         <div class="sub">Current market estimate</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Retail Value</div>
-                        <div class="value blue" id="statRetailValue">KES 5,670,000</div>
+                        <div class="value blue" id="statRetailValue">KES —</div>
                         <div class="sub">Dealer retail price</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Trade-in Value</div>
-                        <div class="value" id="statTradeValue">KES 4,462,500</div>
+                        <div class="value" id="statTradeValue">KES —</div>
                         <div class="sub">Trade-in / wholesale</div>
                     </div>
                 </div>
@@ -913,9 +1151,9 @@
                     <span style="font-size:14px;">📊</span>
                     <span style="font-weight:600;color:#94a3b8;font-size:13px;">Confidence</span>
                     <div class="track">
-                        <div class="fill" id="confidenceFill" style="width:85%;"></div>
+                        <div class="fill" id="confidenceFill" style="width:0%;"></div>
                     </div>
-                    <span class="label" id="confidenceLabel">85%</span>
+                    <span class="label" id="confidenceLabel">0%</span>
                 </div>
             </div>
 
@@ -925,30 +1163,30 @@
                     📋 Valuation Details
                     <span class="badge">Factors</span>
                 </div>
-                <div class="grid-2">
+                <div class="grid-3">
                     <div class="stat-box">
                         <div class="label">Year</div>
-                        <div class="value" id="detailYear">2020</div>
+                        <div class="value" id="detailYear">—</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Mileage</div>
-                        <div class="value" id="detailMileage">45,000 km</div>
+                        <div class="value" id="detailMileage">—</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Condition</div>
-                        <div class="value green" id="detailCondition">Excellent</div>
+                        <div class="value green" id="detailCondition">—</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Location</div>
-                        <div class="value" id="detailLocation">Nairobi</div>
+                        <div class="value" id="detailLocation">—</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Accident History</div>
-                        <div class="value green" id="detailAccident">None</div>
+                        <div class="value green" id="detailAccident">—</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Previous Owners</div>
-                        <div class="value" id="detailOwners">1</div>
+                        <div class="value" id="detailOwners">—</div>
                     </div>
                 </div>
             </div>
@@ -960,22 +1198,22 @@
                     <span class="badge">Factors Applied</span>
                 </div>
                 <div id="adjustmentsList">
-                    <div class="grid-2">
+                    <div class="grid-2" id="adjustmentsGrid">
                         <div class="cost-item">
                             <span class="label">📅 Age Adjustment</span>
-                            <span class="value green">+5.0%</span>
+                            <span class="value" id="adjAge">—</span>
                         </div>
                         <div class="cost-item">
                             <span class="label">📊 Mileage Adjustment</span>
-                            <span class="value negative">-2.5%</span>
+                            <span class="value" id="adjMileage">—</span>
                         </div>
                         <div class="cost-item">
                             <span class="label">📍 Location Adjustment</span>
-                            <span class="value green">+2.0%</span>
+                            <span class="value" id="adjLocation">—</span>
                         </div>
                         <div class="cost-item">
                             <span class="label">⭐ Condition Adjustment</span>
-                            <span class="value green">+10.0%</span>
+                            <span class="value" id="adjCondition">—</span>
                         </div>
                     </div>
                 </div>
@@ -988,20 +1226,10 @@
                     <span class="badge">AI</span>
                 </div>
                 <div class="rec-list" id="valuationRecs">
-                    <div class="rec-item success">
-                        <span class="icon">✅</span>
-                        <span class="text">Excellent condition — vehicle retains high market value</span>
-                        <span class="tag">Valuation</span>
-                    </div>
                     <div class="rec-item info">
-                        <span class="icon">📊</span>
-                        <span class="text">Market demand for this model is strong in Nairobi</span>
-                        <span class="tag">Market</span>
-                    </div>
-                    <div class="rec-item success">
-                        <span class="icon">💰</span>
-                        <span class="text">Trade-in value is 15% below retail — consider private sale</span>
-                        <span class="tag">Selling</span>
+                        <span class="icon">💡</span>
+                        <span class="text">Loading recommendations...</span>
+                        <span class="tag">AI</span>
                     </div>
                 </div>
             </div>
@@ -1018,37 +1246,37 @@
                 </div>
                 <div class="value-display">
                     <div class="amount" style="font-size:36px;">
-                        <span class="currency">KES</span> <span id="tripTotal">12,450</span>
+                        <span class="currency">KES</span> <span id="tripTotal">—</span>
                     </div>
                     <div class="range">
-                        at <strong>KES <span id="tripCostPerKm">83.00</span>/km</strong> over <strong id="tripDistance">150</strong> km
+                        at <strong>KES <span id="tripCostPerKm">—</span>/km</strong> over <strong id="tripDistance">—</strong> km
                     </div>
                 </div>
 
                 <div class="cost-breakdown" id="tripBreakdown">
                     <div class="cost-item">
                         <span class="label">Fuel</span>
-                        <span class="value">KES <span id="tripFuel">4,500</span></span>
+                        <span class="value">KES <span id="tripFuel">—</span></span>
                     </div>
                     <div class="cost-item">
                         <span class="label">Service</span>
-                        <span class="value">KES <span id="tripService">2,250</span></span>
+                        <span class="value">KES <span id="tripService">—</span></span>
                     </div>
                     <div class="cost-item">
                         <span class="label">Tyres</span>
-                        <span class="value">KES <span id="tripTyres">1,200</span></span>
+                        <span class="value">KES <span id="tripTyres">—</span></span>
                     </div>
                     <div class="cost-item">
                         <span class="label">Insurance</span>
-                        <span class="value">KES <span id="tripInsurance">2,400</span></span>
+                        <span class="value">KES <span id="tripInsurance">—</span></span>
                     </div>
                     <div class="cost-item">
                         <span class="label">Depreciation</span>
-                        <span class="value">KES <span id="tripDepreciation">2,100</span></span>
+                        <span class="value">KES <span id="tripDepreciation">—</span></span>
                     </div>
                     <div class="cost-item total">
                         <span class="label">TOTAL</span>
-                        <span class="value">KES <span id="tripTotalDisplay">12,450</span></span>
+                        <span class="value">KES <span id="tripTotalDisplay">—</span></span>
                     </div>
                 </div>
             </div>
@@ -1062,32 +1290,32 @@
                 <div class="grid-4" id="perKmGrid">
                     <div class="stat-box">
                         <div class="label">Fuel</div>
-                        <div class="value blue" id="perKmFuel">30.00</div>
+                        <div class="value blue" id="perKmFuel">—</div>
                         <div class="sub">KES/km</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Service</div>
-                        <div class="value" id="perKmService">15.00</div>
+                        <div class="value" id="perKmService">—</div>
                         <div class="sub">KES/km</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Tyres</div>
-                        <div class="value" id="perKmTyres">8.00</div>
+                        <div class="value" id="perKmTyres">—</div>
                         <div class="sub">KES/km</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Insurance</div>
-                        <div class="value" id="perKmInsurance">16.00</div>
+                        <div class="value" id="perKmInsurance">—</div>
                         <div class="sub">KES/km</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Depreciation</div>
-                        <div class="value" id="perKmDepreciation">14.00</div>
+                        <div class="value" id="perKmDepreciation">—</div>
                         <div class="sub">KES/km</div>
                     </div>
                     <div class="stat-box highlight" style="grid-column: span 1;">
                         <div class="label">TOTAL</div>
-                        <div class="value amber" id="perKmTotal">83.00</div>
+                        <div class="value amber" id="perKmTotal">—</div>
                         <div class="sub">KES/km</div>
                     </div>
                 </div>
@@ -1101,60 +1329,60 @@
                 </div>
                 <div class="grid-2">
                     <div>
-                        <h4 style="color:#94a3b8;font-size:12px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📆 Monthly</h4>
+                        <h4 style="color:#94a3b8;font-size:11px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📆 Monthly</h4>
                         <div class="cost-breakdown" id="monthlyGrid">
                             <div class="cost-item">
                                 <span class="label">Fuel</span>
-                                <span class="value">KES <span id="monthlyFuel">33,333</span></span>
+                                <span class="value">KES <span id="monthlyFuel">—</span></span>
                             </div>
                             <div class="cost-item">
                                 <span class="label">Service</span>
-                                <span class="value">KES <span id="monthlyService">16,667</span></span>
+                                <span class="value">KES <span id="monthlyService">—</span></span>
                             </div>
                             <div class="cost-item">
                                 <span class="label">Tyres</span>
-                                <span class="value">KES <span id="monthlyTyres">8,333</span></span>
+                                <span class="value">KES <span id="monthlyTyres">—</span></span>
                             </div>
                             <div class="cost-item">
                                 <span class="label">Insurance</span>
-                                <span class="value">KES <span id="monthlyInsurance">17,778</span></span>
+                                <span class="value">KES <span id="monthlyInsurance">—</span></span>
                             </div>
                             <div class="cost-item">
                                 <span class="label">Depreciation</span>
-                                <span class="value">KES <span id="monthlyDepreciation">15,556</span></span>
+                                <span class="value">KES <span id="monthlyDepreciation">—</span></span>
                             </div>
                             <div class="cost-item total">
                                 <span class="label">TOTAL</span>
-                                <span class="value">KES <span id="monthlyTotal">91,667</span></span>
+                                <span class="value">KES <span id="monthlyTotal">—</span></span>
                             </div>
                         </div>
                     </div>
                     <div>
-                        <h4 style="color:#94a3b8;font-size:12px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📅 Annual</h4>
+                        <h4 style="color:#94a3b8;font-size:11px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📅 Annual</h4>
                         <div class="cost-breakdown" id="annualGrid">
                             <div class="cost-item">
                                 <span class="label">Fuel</span>
-                                <span class="value">KES <span id="annualFuel">400,000</span></span>
+                                <span class="value">KES <span id="annualFuel">—</span></span>
                             </div>
                             <div class="cost-item">
                                 <span class="label">Service</span>
-                                <span class="value">KES <span id="annualService">200,000</span></span>
+                                <span class="value">KES <span id="annualService">—</span></span>
                             </div>
                             <div class="cost-item">
                                 <span class="label">Tyres</span>
-                                <span class="value">KES <span id="annualTyres">100,000</span></span>
+                                <span class="value">KES <span id="annualTyres">—</span></span>
                             </div>
                             <div class="cost-item">
                                 <span class="label">Insurance</span>
-                                <span class="value">KES <span id="annualInsurance">213,333</span></span>
+                                <span class="value">KES <span id="annualInsurance">—</span></span>
                             </div>
                             <div class="cost-item">
                                 <span class="label">Depreciation</span>
-                                <span class="value">KES <span id="annualDepreciation">186,667</span></span>
+                                <span class="value">KES <span id="annualDepreciation">—</span></span>
                             </div>
                             <div class="cost-item total">
                                 <span class="label">TOTAL</span>
-                                <span class="value">KES <span id="annualTotal">1,100,000</span></span>
+                                <span class="value">KES <span id="annualTotal">—</span></span>
                             </div>
                         </div>
                     </div>
@@ -1170,19 +1398,19 @@
                 <div class="grid-4" id="fiveYearStats">
                     <div class="stat-box">
                         <div class="label">Original Price</div>
-                        <div class="value amber" id="originalPrice">KES 5,250,000</div>
+                        <div class="value amber" id="originalPrice">KES —</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Est. Resale Value</div>
-                        <div class="value green" id="resaleValue">KES 3,150,000</div>
+                        <div class="value green" id="resaleValue">KES —</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">5-Yr Depreciation</div>
-                        <div class="value red" id="depreciationPct">40%</div>
+                        <div class="value red" id="depreciationPct">—</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">5-Yr Running Cost</div>
-                        <div class="value amber" id="fiveYearTotal">KES 5,500,000</div>
+                        <div class="value amber" id="fiveYearTotal">KES —</div>
                     </div>
                 </div>
 
@@ -1202,60 +1430,9 @@
                         </thead>
                         <tbody id="yearlyBody">
                             <tr>
-                                <td>Year 1</td>
-                                <td>KES 400,000</td>
-                                <td>KES 200,000</td>
-                                <td>KES 100,000</td>
-                                <td>KES 213,333</td>
-                                <td>KES 186,667</td>
-                                <td>KES 1,100,000</td>
-                                <td>KES 5,063,333</td>
-                            </tr>
-                            <tr>
-                                <td>Year 2</td>
-                                <td>KES 412,000</td>
-                                <td>KES 206,000</td>
-                                <td>KES 103,000</td>
-                                <td>KES 219,733</td>
-                                <td>KES 192,267</td>
-                                <td>KES 1,133,000</td>
-                                <td>KES 4,871,066</td>
-                            </tr>
-                            <tr>
-                                <td>Year 3</td>
-                                <td>KES 424,360</td>
-                                <td>KES 212,180</td>
-                                <td>KES 106,090</td>
-                                <td>KES 226,325</td>
-                                <td>KES 198,035</td>
-                                <td>KES 1,166,990</td>
-                                <td>KES 4,673,031</td>
-                            </tr>
-                            <tr>
-                                <td>Year 4</td>
-                                <td>KES 437,091</td>
-                                <td>KES 218,545</td>
-                                <td>KES 109,273</td>
-                                <td>KES 233,115</td>
-                                <td>KES 203,976</td>
-                                <td>KES 1,202,000</td>
-                                <td>KES 4,469,055</td>
-                            </tr>
-                            <tr>
-                                <td>Year 5</td>
-                                <td>KES 450,204</td>
-                                <td>KES 225,102</td>
-                                <td>KES 112,551</td>
-                                <td>KES 240,109</td>
-                                <td>KES 210,095</td>
-                                <td>KES 1,238,061</td>
-                                <td>KES 4,258,960</td>
-                            </tr>
-                            <tr>
-                                <td><strong>Total</strong></td>
-                                <td colspan="5"></td>
-                                <td><strong>KES 5,840,051</strong></td>
-                                <td><strong>KES 4,258,960</strong></td>
+                                <td colspan="8" style="text-align:center;color:#64748b;font-size:13px;padding:24px;">
+                                    ⏳ Loading projection data...
+                                </td>
                             </tr>
                         </tbody>
                     </table>
@@ -1274,7 +1451,7 @@
                 </div>
                 <div class="value-display">
                     <div class="amount" style="font-size:42px;">
-                        <span class="currency">KES</span> <span id="totalOwnershipCost">10,740,000</span>
+                        <span class="currency">KES</span> <span id="totalOwnershipCost">—</span>
                     </div>
                     <div class="range">
                         Total cost including purchase price over <strong id="ownershipYears">5</strong> years
@@ -1284,22 +1461,22 @@
                 <div class="grid-4" id="ownershipBreakdown">
                     <div class="stat-box highlight">
                         <div class="label">Purchase Price</div>
-                        <div class="value amber" id="ownerPurchasePrice">KES 5,250,000</div>
+                        <div class="value amber" id="ownerPurchasePrice">KES —</div>
                         <div class="sub">Initial cost</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Running Cost</div>
-                        <div class="value blue" id="ownerRunningCost">KES 5,840,051</div>
+                        <div class="value blue" id="ownerRunningCost">KES —</div>
                         <div class="sub">Fuel + Service + Tyres + Insurance</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Depreciation</div>
-                        <div class="value red" id="ownerDepreciation">KES 2,100,000</div>
+                        <div class="value red" id="ownerDepreciation">KES —</div>
                         <div class="sub">Value loss over 5 years</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Total Cost</div>
-                        <div class="value green" id="ownerTotal">KES 10,740,000</div>
+                        <div class="value green" id="ownerTotal">KES —</div>
                         <div class="sub">Total including depreciation</div>
                     </div>
                 </div>
@@ -1311,23 +1488,21 @@
                     📊 Cost Breakdown by Category
                     <span class="badge">5-Year</span>
                 </div>
-                <div id="costCategoryBreakdown">
-                    <div class="grid-3">
-                        <div class="stat-box">
-                            <div class="label">Purchase</div>
-                            <div class="value amber" id="catPurchase">KES 5,250,000</div>
-                            <div class="sub">49% of total</div>
-                        </div>
-                        <div class="stat-box">
-                            <div class="label">Running Costs</div>
-                            <div class="value blue" id="catRunning">KES 3,740,051</div>
-                            <div class="sub">35% of total</div>
-                        </div>
-                        <div class="stat-box">
-                            <div class="label">Depreciation</div>
-                            <div class="value red" id="catDepreciation">KES 1,750,000</div>
-                            <div class="sub">16% of total</div>
-                        </div>
+                <div class="grid-3" id="costCategoryBreakdown">
+                    <div class="stat-box">
+                        <div class="label">Purchase</div>
+                        <div class="value amber" id="catPurchase">KES —</div>
+                        <div class="sub">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Running Costs</div>
+                        <div class="value blue" id="catRunning">KES —</div>
+                        <div class="sub">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="label">Depreciation</div>
+                        <div class="value red" id="catDepreciation">KES —</div>
+                        <div class="sub">—</div>
                     </div>
                 </div>
             </div>
@@ -1344,44 +1519,44 @@
                         <div class="cost-breakdown" id="purchaseBreakdown">
                             <div class="cost-item">
                                 <span class="label">Purchase Price</span>
-                                <span class="value">KES 5,250,000</span>
+                                <span class="value" id="purchasePriceDetail">KES —</span>
                             </div>
                             <div class="cost-item">
                                 <span class="label">Registration / Taxes</span>
-                                <span class="value">KES 525,000</span>
+                                <span class="value" id="registrationTax">KES —</span>
                             </div>
                             <div class="cost-item">
                                 <span class="label">Insurance (1st year)</span>
-                                <span class="value">KES 213,333</span>
+                                <span class="value" id="firstYearInsurance">KES —</span>
                             </div>
                             <div class="cost-item total">
                                 <span class="label">Total Purchase Cost</span>
-                                <span class="value">KES 5,988,333</span>
+                                <span class="value" id="totalPurchaseCost">KES —</span>
                             </div>
                         </div>
                     </div>
                     <div>
-                        <h4 style="color:#94a3b8;font-size:11px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📆 Running Costs</h4>
+                        <h4 style="color:#94a3b8;font-size:11px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📆 Running Costs (5-Year)</h4>
                         <div class="cost-breakdown" id="runningBreakdown">
                             <div class="cost-item">
-                                <span class="label">Fuel (5 years)</span>
-                                <span class="value">KES 2,123,655</span>
+                                <span class="label">Fuel</span>
+                                <span class="value" id="runningFuel">KES —</span>
                             </div>
                             <div class="cost-item">
-                                <span class="label">Service (5 years)</span>
-                                <span class="value">KES 1,061,827</span>
+                                <span class="label">Service</span>
+                                <span class="value" id="runningService">KES —</span>
                             </div>
                             <div class="cost-item">
-                                <span class="label">Tyres (5 years)</span>
-                                <span class="value">KES 530,914</span>
+                                <span class="label">Tyres</span>
+                                <span class="value" id="runningTyres">KES —</span>
                             </div>
                             <div class="cost-item">
-                                <span class="label">Insurance (5 years)</span>
-                                <span class="value">KES 1,132,655</span>
+                                <span class="label">Insurance</span>
+                                <span class="value" id="runningInsurance">KES —</span>
                             </div>
                             <div class="cost-item total">
                                 <span class="label">Total Running Cost</span>
-                                <span class="value">KES 4,849,051</span>
+                                <span class="value" id="totalRunningCost">KES —</span>
                             </div>
                         </div>
                     </div>
@@ -1397,22 +1572,22 @@
                 <div class="grid-4" id="monthlyOwnershipGrid">
                     <div class="stat-box">
                         <div class="label">Loan Payment</div>
-                        <div class="value" id="monthlyLoan">KES 87,500</div>
+                        <div class="value" id="monthlyLoan">KES —</div>
                         <div class="sub">5-year loan @ 14%</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Insurance</div>
-                        <div class="value" id="monthlyOwnInsurance">KES 17,778</div>
+                        <div class="value" id="monthlyOwnInsurance">KES —</div>
                         <div class="sub">Monthly premium</div>
                     </div>
                     <div class="stat-box">
                         <div class="label">Fuel</div>
-                        <div class="value" id="monthlyOwnFuel">KES 33,333</div>
+                        <div class="value" id="monthlyOwnFuel">KES —</div>
                         <div class="sub">Monthly fuel cost</div>
                     </div>
-                    <div class="stat-box">
+                    <div class="stat-box highlight">
                         <div class="label">Total Monthly</div>
-                        <div class="value amber" id="monthlyOwnTotal">KES 138,611</div>
+                        <div class="value amber" id="monthlyOwnTotal">KES —</div>
                         <div class="sub">Total monthly cost</div>
                     </div>
                 </div>
@@ -1425,25 +1600,10 @@
                     <span class="badge">AI</span>
                 </div>
                 <div class="rec-list" id="ownershipRecs">
-                    <div class="rec-item success">
-                        <span class="icon">✅</span>
-                        <span class="text">Good value retention — vehicle holds 60% of value after 5 years</span>
-                        <span class="tag">Value</span>
-                    </div>
-                    <div class="rec-item warning">
-                        <span class="icon">⚠️</span>
-                        <span class="text">Fuel costs represent 35% of running costs — consider more efficient vehicle</span>
-                        <span class="tag">Fuel</span>
-                    </div>
                     <div class="rec-item info">
                         <span class="icon">💡</span>
-                        <span class="text">Insurance premium of 4% of value — compare quotes annually</span>
-                        <span class="tag">Insurance</span>
-                    </div>
-                    <div class="rec-item info">
-                        <span class="icon">📊</span>
-                        <span class="text">Monthly cost of KES 138,611 — ensure this fits your budget</span>
-                        <span class="tag">Budget</span>
+                        <span class="text">Loading recommendations...</span>
+                        <span class="tag">AI</span>
                     </div>
                 </div>
             </div>
@@ -1452,10 +1612,21 @@
         <!-- ═══ ACTION BAR ═══ -->
         <div class="card no-print" style="border-color:rgba(255,255,255,0.04);">
             <div class="action-bar">
-                <button class="action-btn print" id="printBtn">🖨️ Print Report</button>
-                <button class="action-btn share" id="shareBtn">📤 Share</button>
-                <button class="action-btn export" id="exportBtn">📥 Export PDF</button>
-                <button class="action-btn download" id="downloadBtn">⬇️ Download Data</button>
+                <button class="action-btn print" id="printBtn" aria-label="Print report">
+                    <i class="fas fa-print"></i> Print Report
+                </button>
+                <button class="action-btn share" id="shareBtn" aria-label="Share report">
+                    <i class="fas fa-share-alt"></i> Share
+                </button>
+                <button class="action-btn export" id="exportBtn" aria-label="Export as PDF">
+                    <i class="fas fa-file-pdf"></i> Export PDF
+                </button>
+                <button class="action-btn download" id="downloadBtn" aria-label="Download data">
+                    <i class="fas fa-download"></i> Download Data
+                </button>
+                <button class="action-btn" id="refreshBtn" aria-label="Refresh report">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
             </div>
         </div>
 
@@ -1467,11 +1638,11 @@
         </div>
 
         <!-- ═══ FOOTER ═══ -->
-        <footer class="report-footer">
+        <footer class="report-footer" role="contentinfo">
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> Valuation · Mileage Rate · Cost of Ownership<br />
-                <span>https://auto-digital.onrender.com</span> · v5.0
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.0
             </div>
         </footer>
 
@@ -1480,154 +1651,206 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - COMPLETE VEHICLE REPORT
-        // Version 5.0
+        // Version 5.0 - Production Grade
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
 
-            // ─── TABS ──────────────────────────────────────────────────
-            const tabBtns = document.querySelectorAll('.tab-btn');
-            const tabContents = {
-                tab1: document.getElementById('tab1'),
-                tab2: document.getElementById('tab2'),
-                tab3: document.getElementById('tab3')
+            // ─── CONFIG ──────────────────────────────────────────────
+            const CONFIG = {
+                API_BASE: 'https://auto-digital.onrender.com/api/v1',
+                SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
+                SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
+                DASHBOARD_URL: '/dashboard.html',
+                CACHE_TTL: 300000, // 5 minutes
+                REQUEST_TIMEOUT: 30000 // 30 seconds
             };
 
-            tabBtns.forEach(btn => {
-                btn.addEventListener('click', function() {
-                    // Remove active from all buttons
-                    tabBtns.forEach(b => b.classList.remove('active'));
-                    this.classList.add('active');
+            // ─── STATE ──────────────────────────────────────────────
+            let state = {
+                reportData: null,
+                variantData: null,
+                valuationData: null,
+                runningCostData: null,
+                isLoading: false,
+                isAuthenticated: false,
+                currentUser: null,
+                error: null
+            };
 
-                    // Hide all tab contents
-                    Object.values(tabContents).forEach(tc => tc.classList.remove('active'));
+            // ─── DOM REFS ────────────────────────────────────────────
+            const el = {
+                // Header
+                reportNumber: document.getElementById('reportNumber'),
+                reportDate: document.getElementById('reportDate'),
+                statusMessage: document.getElementById('statusMessage'),
+                statusMessageText: document.getElementById('statusMessageText'),
 
-                    // Show the selected tab
-                    const tabId = this.dataset.tab;
-                    if (tabContents[tabId]) {
-                        tabContents[tabId].classList.add('active');
-                    }
-                });
-            });
+                // Vehicle Profile
+                vehicleName: document.getElementById('vehicleName'),
+                fuelType: document.getElementById('fuelType'),
+                transmission: document.getElementById('transmission'),
+                engineSize: document.getElementById('engineSize'),
+                trimLevel: document.getElementById('trimLevel'),
+                powerHp: document.getElementById('powerHp'),
+                torqueNm: document.getElementById('torqueNm'),
+                fuelConsumption: document.getElementById('fuelConsumption'),
+                seats: document.getElementById('seats'),
+                doors: document.getElementById('doors'),
+                bodyType: document.getElementById('bodyType'),
+                category: document.getElementById('category'),
+                vehicleSpecs: document.getElementById('vehicleSpecs'),
 
-            // ─── REPORT NUMBER ──────────────────────────────────────
-            const reportNum = 'AUTO-' + new Date().getFullYear() + '-' +
-                String(Math.floor(Math.random() * 9000) + 1000);
-            document.getElementById('reportNumber').textContent = reportNum;
+                // Valuation
+                marketValue: document.getElementById('marketValue'),
+                rangeMin: document.getElementById('rangeMin'),
+                rangeMax: document.getElementById('rangeMax'),
+                statMarketValue: document.getElementById('statMarketValue'),
+                statRetailValue: document.getElementById('statRetailValue'),
+                statTradeValue: document.getElementById('statTradeValue'),
+                confidenceFill: document.getElementById('confidenceFill'),
+                confidenceLabel: document.getElementById('confidenceLabel'),
+                detailYear: document.getElementById('detailYear'),
+                detailMileage: document.getElementById('detailMileage'),
+                detailCondition: document.getElementById('detailCondition'),
+                detailLocation: document.getElementById('detailLocation'),
+                detailAccident: document.getElementById('detailAccident'),
+                detailOwners: document.getElementById('detailOwners'),
+                adjustmentsGrid: document.getElementById('adjustmentsGrid'),
+                valuationRecs: document.getElementById('valuationRecs'),
 
-            // ─── REPORT DATE ──────────────────────────────────────────
-            const now = new Date();
-            const dateStr = now.toLocaleDateString('en-KE', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-            document.getElementById('reportDate').textContent = dateStr;
+                // Running Cost
+                tripTotal: document.getElementById('tripTotal'),
+                tripCostPerKm: document.getElementById('tripCostPerKm'),
+                tripDistance: document.getElementById('tripDistance'),
+                tripFuel: document.getElementById('tripFuel'),
+                tripService: document.getElementById('tripService'),
+                tripTyres: document.getElementById('tripTyres'),
+                tripInsurance: document.getElementById('tripInsurance'),
+                tripDepreciation: document.getElementById('tripDepreciation'),
+                tripTotalDisplay: document.getElementById('tripTotalDisplay'),
+                perKmFuel: document.getElementById('perKmFuel'),
+                perKmService: document.getElementById('perKmService'),
+                perKmTyres: document.getElementById('perKmTyres'),
+                perKmInsurance: document.getElementById('perKmInsurance'),
+                perKmDepreciation: document.getElementById('perKmDepreciation'),
+                perKmTotal: document.getElementById('perKmTotal'),
+                monthlyFuel: document.getElementById('monthlyFuel'),
+                monthlyService: document.getElementById('monthlyService'),
+                monthlyTyres: document.getElementById('monthlyTyres'),
+                monthlyInsurance: document.getElementById('monthlyInsurance'),
+                monthlyDepreciation: document.getElementById('monthlyDepreciation'),
+                monthlyTotal: document.getElementById('monthlyTotal'),
+                annualFuel: document.getElementById('annualFuel'),
+                annualService: document.getElementById('annualService'),
+                annualTyres: document.getElementById('annualTyres'),
+                annualInsurance: document.getElementById('annualInsurance'),
+                annualDepreciation: document.getElementById('annualDepreciation'),
+                annualTotal: document.getElementById('annualTotal'),
+                originalPrice: document.getElementById('originalPrice'),
+                resaleValue: document.getElementById('resaleValue'),
+                depreciationPct: document.getElementById('depreciationPct'),
+                fiveYearTotal: document.getElementById('fiveYearTotal'),
+                yearlyBody: document.getElementById('yearlyBody'),
 
-            // ─── PRINT ──────────────────────────────────────────────────
-            document.getElementById('printBtn').addEventListener('click', function() {
-                window.print();
-            });
+                // Ownership
+                totalOwnershipCost: document.getElementById('totalOwnershipCost'),
+                ownershipYears: document.getElementById('ownershipYears'),
+                ownerPurchasePrice: document.getElementById('ownerPurchasePrice'),
+                ownerRunningCost: document.getElementById('ownerRunningCost'),
+                ownerDepreciation: document.getElementById('ownerDepreciation'),
+                ownerTotal: document.getElementById('ownerTotal'),
+                catPurchase: document.getElementById('catPurchase'),
+                catRunning: document.getElementById('catRunning'),
+                catDepreciation: document.getElementById('catDepreciation'),
+                purchasePriceDetail: document.getElementById('purchasePriceDetail'),
+                registrationTax: document.getElementById('registrationTax'),
+                firstYearInsurance: document.getElementById('firstYearInsurance'),
+                totalPurchaseCost: document.getElementById('totalPurchaseCost'),
+                runningFuel: document.getElementById('runningFuel'),
+                runningService: document.getElementById('runningService'),
+                runningTyres: document.getElementById('runningTyres'),
+                runningInsurance: document.getElementById('runningInsurance'),
+                totalRunningCost: document.getElementById('totalRunningCost'),
+                monthlyLoan: document.getElementById('monthlyLoan'),
+                monthlyOwnInsurance: document.getElementById('monthlyOwnInsurance'),
+                monthlyOwnFuel: document.getElementById('monthlyOwnFuel'),
+                monthlyOwnTotal: document.getElementById('monthlyOwnTotal'),
+                ownershipRecs: document.getElementById('ownershipRecs'),
 
-            // ─── SHARE ──────────────────────────────────────────────────
-            document.getElementById('shareBtn').addEventListener('click', function() {
-                const url = window.location.href;
-                const text =
-                    `Auto-D Kenya Complete Vehicle Report\nReport #: ${reportNum}\nGenerated: ${dateStr}\n\nView full report at: ${url}`;
+                // Actions
+                printBtn: document.getElementById('printBtn'),
+                shareBtn: document.getElementById('shareBtn'),
+                exportBtn: document.getElementById('exportBtn'),
+                downloadBtn: document.getElementById('downloadBtn'),
+                refreshBtn: document.getElementById('refreshBtn'),
+                topLoader: document.getElementById('topLoader'),
 
-                if (navigator.share) {
-                    navigator.share({
-                        title: 'Auto-D Kenya Vehicle Report',
-                        text: text,
-                        url: url
-                    }).catch(() => {});
-                } else {
-                    navigator.clipboard.writeText(text + '\n' + url).then(() => {
-                        showToast('📋 Report link copied to clipboard!', 'success');
-                    }).catch(() => showToast('Share not available', 'error'));
+                // Tabs
+                tabBtns: document.querySelectorAll('.tab-btn'),
+                tabContents: {
+                    tab1: document.getElementById('tab1'),
+                    tab2: document.getElementById('tab2'),
+                    tab3: document.getElementById('tab3')
                 }
-            });
+            };
 
-            // ─── EXPORT PDF ────────────────────────────────────────────
-            document.getElementById('exportBtn').addEventListener('click', function() {
-                showToast('📥 PDF export will be available soon!', 'info');
-            });
+            // ─── HELPERS ──────────────────────────────────────────────
 
-            // ─── DOWNLOAD DATA ──────────────────────────────────────────
-            document.getElementById('downloadBtn').addEventListener('click', function() {
-                // Collect data from the page
-                const data = {
-                    report: {
-                        number: reportNum,
-                        generated: dateStr,
-                        version: '2026.08'
-                    },
-                    vehicle: {
-                        name: document.getElementById('vehicleName').textContent,
-                        fuel: document.getElementById('fuelType').textContent,
-                        transmission: document.getElementById('transmission').textContent,
-                        engine: document.getElementById('engineSize').textContent,
-                        specs: {
-                            trim: document.getElementById('trimLevel').textContent,
-                            power: document.getElementById('powerHp').textContent,
-                            torque: document.getElementById('torqueNm').textContent,
-                            consumption: document.getElementById('fuelConsumption').textContent,
-                            seats: document.getElementById('seats').textContent,
-                            doors: document.getElementById('doors').textContent,
-                            body: document.getElementById('bodyType').textContent,
-                            category: document.getElementById('category').textContent
-                        }
-                    },
-                    valuation: {
-                        market_value: document.getElementById('marketValue').textContent,
-                        range_min: document.getElementById('rangeMin').textContent,
-                        range_max: document.getElementById('rangeMax').textContent,
-                        retail_value: document.getElementById('statRetailValue').textContent,
-                        trade_value: document.getElementById('statTradeValue').textContent,
-                        confidence: document.getElementById('confidenceLabel').textContent,
-                        year: document.getElementById('detailYear').textContent,
-                        mileage: document.getElementById('detailMileage').textContent,
-                        condition: document.getElementById('detailCondition').textContent,
-                        location: document.getElementById('detailLocation').textContent
-                    },
-                    running_cost: {
-                        trip_total: document.getElementById('tripTotal').textContent,
-                        cost_per_km: document.getElementById('tripCostPerKm').textContent,
-                        distance: document.getElementById('tripDistance').textContent,
-                        breakdown: {
-                            fuel: document.getElementById('tripFuel').textContent,
-                            service: document.getElementById('tripService').textContent,
-                            tyres: document.getElementById('tripTyres').textContent,
-                            insurance: document.getElementById('tripInsurance').textContent,
-                            depreciation: document.getElementById('tripDepreciation').textContent
-                        }
-                    },
-                    ownership: {
-                        total_cost: document.getElementById('totalOwnershipCost').textContent,
-                        purchase_price: document.getElementById('ownerPurchasePrice').textContent,
-                        running_cost: document.getElementById('ownerRunningCost').textContent,
-                        depreciation: document.getElementById('ownerDepreciation').textContent,
-                        monthly_total: document.getElementById('monthlyOwnTotal').textContent
-                    }
+            function num(v) {
+                const n = parseFloat(v);
+                return isNaN(n) ? 0 : n;
+            }
+
+            function formatCurrency(val) {
+                if (val === undefined || val === null || isNaN(val)) return '0';
+                return Number(val).toLocaleString('en-KE', {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
+                });
+            }
+
+            function formatNumber(val) {
+                if (val === undefined || val === null || isNaN(val)) return '0';
+                return Number(val).toLocaleString('en-KE');
+            }
+
+            function formatPercent(val) {
+                if (val === undefined || val === null || isNaN(val)) return '0%';
+                return Number(val).toFixed(1) + '%';
+            }
+
+            function getUrlParams() {
+                const params = new URLSearchParams(window.location.search);
+                return {
+                    variantId: params.get('variant_id'),
+                    reportId: params.get('report_id'),
+                    year: params.get('year'),
+                    mileage: params.get('mileage'),
+                    condition: params.get('condition'),
+                    location: params.get('location'),
+                    distance: params.get('distance'),
+                    annualMileage: params.get('annual_mileage'),
+                    fuelPrice: params.get('fuel_price'),
+                    make: params.get('make'),
+                    model: params.get('model'),
+                    variant: params.get('variant')
                 };
+            }
 
-                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `auto-d-report-${reportNum}.json`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+            function getAccessToken() {
+                return localStorage.getItem('access_token');
+            }
 
-                showToast('✅ Data downloaded successfully!', 'success');
-            });
+            function setStatus(type, message) {
+                const icons = { error: '❌', warning: '⚠️', success: '✅', info: '⏳' };
+                el.statusMessage.className = `status-message ${type}`;
+                el.statusMessageText.textContent = message;
+                const iconSpan = el.statusMessage.querySelector('span:first-child');
+                if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
+            }
 
-            // ─── TOAST ──────────────────────────────────────────────────
             function showToast(message, type = 'info') {
                 const existing = document.querySelector('.toast');
                 if (existing) existing.remove();
@@ -1635,109 +1858,857 @@
                 const toast = document.createElement('div');
                 toast.className = `toast toast-${type}`;
                 toast.textContent = message;
-                toast.style.cssText = `
-                        position: fixed;
-                        bottom: 20px;
-                        right: 20px;
-                        padding: 12px 24px;
-                        border-radius: 8px;
-                        z-index: 9999;
-                        font-weight: 500;
-                        animation: slideIn .3s ease;
-                        max-width: 380px;
-                        font-size: 13px;
-                        background: ${type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : '#3b82f6'};
-                        color: ${type === 'success' ? '#000' : '#fff'};
-                        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-                    `;
+                toast.setAttribute('role', 'alert');
+                toast.setAttribute('aria-live', 'polite');
                 document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 4000);
+
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateX(80px)';
+                    setTimeout(() => toast.remove(), 300);
+                }, 4000);
+            }
+
+            function showLoading(show) {
+                if (!el.topLoader) return;
+                if (show) {
+                    el.topLoader.classList.remove('done');
+                    void el.topLoader.offsetWidth;
+                    el.topLoader.classList.add('active');
+                    setStatus('info', 'Loading report data...');
+                } else {
+                    el.topLoader.classList.remove('active');
+                    el.topLoader.classList.add('done');
+                    setTimeout(() => {
+                        el.topLoader.classList.remove('done');
+                    }, 500);
+                }
+                state.isLoading = show;
+            }
+
+            function escapeHTML(str) {
+                if (!str) return '';
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            }
+
+            // ─── API REQUEST ──────────────────────────────────────────
+
+            async function apiRequest(endpoint, options = {}) {
+                const url = `${CONFIG.API_BASE}${endpoint}`;
+                const token = getAccessToken();
+
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    ...options.headers
+                };
+
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT);
+
+                try {
+                    const response = await fetch(url, {
+                        ...options,
+                        headers,
+                        credentials: 'include',
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    if (!response.ok) {
+                        let errorData;
+                        try {
+                            errorData = await response.json();
+                        } catch (e) {
+                            errorData = { message: `HTTP ${response.status}` };
+                        }
+                        throw new Error(errorData.detail || errorData.message || `HTTP ${response.status}`);
+                    }
+
+                    return await response.json();
+
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    if (error.name === 'AbortError') {
+                        throw new Error('Request timed out. Please try again.');
+                    }
+                    throw error;
+                }
+            }
+
+            // ─── FETCH VEHICLE DATA ──────────────────────────────────
+
+            async function fetchVariantData(variantId) {
+                try {
+                    const result = await apiRequest(`/variant/${variantId}`);
+                    if (result && result.data) {
+                        return result.data;
+                    }
+                    return result;
+                } catch (error) {
+                    console.error('Error fetching variant:', error);
+                    return null;
+                }
+            }
+
+            // ─── FETCH VALUATION ──────────────────────────────────────
+
+            async function fetchValuation(variantId, year, mileage, condition, location) {
+                try {
+                    const payload = {
+                        variant_id: parseInt(variantId),
+                        year: parseInt(year) || 2020,
+                        mileage: parseInt(mileage) || 50000,
+                        condition: condition || 'good',
+                        accident_history: 'none',
+                        location: location || 'nairobi'
+                    };
+
+                    const result = await apiRequest('/valuation/calculate', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+
+                    return result;
+
+                } catch (error) {
+                    console.error('Valuation error:', error);
+                    throw error;
+                }
+            }
+
+            // ─── FETCH RUNNING COST ──────────────────────────────────
+
+            async function fetchRunningCost(variantId, distance, annualMileage, fuelPrice, year) {
+                try {
+                    const payload = {
+                        variant_id: parseInt(variantId),
+                        distance: parseFloat(distance) || 150,
+                        annual_mileage: parseFloat(annualMileage) || 20000,
+                        fuel_price: parseFloat(fuelPrice) || 200,
+                        trip_type: 'mixed',
+                        driving_style: 'normal',
+                        usage_type: 'private',
+                        location: 'nairobi',
+                        condition: 'good',
+                        year: parseInt(year) || 2020,
+                        financed: false,
+                        include_insurance: true,
+                        include_maintenance: true,
+                        include_tyres: true,
+                        include_depreciation: true,
+                        years: 5
+                    };
+
+                    const result = await apiRequest('/running-cost/calculate', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+
+                    return result;
+
+                } catch (error) {
+                    console.error('Running cost error:', error);
+                    throw error;
+                }
+            }
+
+            // ─── RENDER VEHICLE PROFILE ──────────────────────────────
+
+            function renderVehicleProfile(variant) {
+                if (!variant) return;
+
+                const make = variant.make_name || '';
+                const model = variant.model_name || '';
+                const variantName = variant.variant_name || '';
+                const fullName = [make, model, variantName].filter(Boolean).join(' ') || 'Unknown Vehicle';
+
+                el.vehicleName.textContent = fullName;
+                el.fuelType.textContent = variant.fuel_type_name ? `⛽ ${variant.fuel_type_name}` : '⛽ —';
+                el.transmission.textContent = variant.transmission_type_name ? `⚙️ ${variant.transmission_type_name}` : '⚙️ —';
+                el.engineSize.textContent = variant.engine_size_cc ? `🔧 ${variant.engine_size_cc}cc` : '🔧 —';
+
+                el.trimLevel.textContent = variant.trim_level || '—';
+                el.powerHp.textContent = variant.power_hp ? `${variant.power_hp} HP` : '—';
+                el.torqueNm.textContent = variant.torque_nm ? `${variant.torque_nm} Nm` : '—';
+                el.fuelConsumption.textContent = variant.fuel_consumption_combined ? `${variant.fuel_consumption_combined} km/L` : '—';
+                el.seats.textContent = variant.seats || '—';
+                el.doors.textContent = variant.doors || '—';
+                el.bodyType.textContent = variant.body_type_name || variant.model_body_type || '—';
+                el.category.textContent = variant.category_name || '—';
+            }
+
+            // ─── RENDER VALUATION ────────────────────────────────────
+
+            function renderValuation(data) {
+                if (!data) {
+                    showToast('No valuation data available', 'warning');
+                    return;
+                }
+
+                const marketValue = data.market_value || data.retail_value || data.value || 0;
+                const retailValue = data.retail_value || marketValue * 1.08;
+                const tradeValue = data.trade_value || marketValue * 0.85;
+
+                // Market value display
+                el.marketValue.textContent = formatCurrency(marketValue);
+
+                // Range
+                const rangeMin = Math.round(marketValue * 0.92);
+                const rangeMax = Math.round(marketValue * 1.08);
+                el.rangeMin.textContent = formatCurrency(rangeMin);
+                el.rangeMax.textContent = formatCurrency(rangeMax);
+
+                // Stats
+                el.statMarketValue.textContent = `KES ${formatCurrency(marketValue)}`;
+                el.statRetailValue.textContent = `KES ${formatCurrency(retailValue)}`;
+                el.statTradeValue.textContent = `KES ${formatCurrency(tradeValue)}`;
+
+                // Confidence
+                const confidence = data.confidence_score || 75;
+                setTimeout(() => {
+                    el.confidenceFill.style.width = `${Math.min(confidence, 98)}%`;
+                }, 200);
+                el.confidenceLabel.textContent = `${Math.round(confidence)}%`;
+
+                // Details
+                el.detailYear.textContent = data.year || '—';
+                el.detailMileage.textContent = data.mileage ? `${formatNumber(data.mileage)} km` : '—';
+                el.detailCondition.textContent = data.condition || '—';
+                el.detailLocation.textContent = data.location || '—';
+                el.detailAccident.textContent = data.accident_history || 'None';
+                el.detailOwners.textContent = data.previous_owners || '1';
+
+                // Adjustments
+                const adjustments = data.adjustments || {};
+                const adjLabels = {
+                    age: '📅 Age',
+                    mileage: '📊 Mileage',
+                    location: '📍 Location',
+                    condition: '⭐ Condition',
+                    accident: '⚠️ Accident'
+                };
+
+                let hasAdjustments = false;
+                const adjItems = el.adjustmentsGrid.querySelectorAll('.cost-item');
+                adjItems.forEach(item => {
+                    const labelEl = item.querySelector('.label');
+                    const valueEl = item.querySelector('.value');
+                    if (!labelEl || !valueEl) return;
+
+                    const key = labelEl.textContent.trim().split(' ').pop()?.toLowerCase() || '';
+                    const adjValue = adjustments[key] || adjustments[key + '_factor'] || 1.0;
+
+                    if (adjValue !== 1.0 && adjValue !== undefined) {
+                        hasAdjustments = true;
+                        const pct = (adjValue - 1.0) * 100;
+                        const sign = pct > 0 ? '+' : '';
+                        const cls = pct >= 0 ? 'green' : 'red';
+                        valueEl.textContent = `${sign}${pct.toFixed(1)}%`;
+                        valueEl.className = `value ${cls}`;
+                    } else {
+                        valueEl.textContent = '0%';
+                        valueEl.className = 'value';
+                    }
+                });
+
+                if (!hasAdjustments) {
+                    // Show neutral message
+                    adjItems.forEach(item => {
+                        const valueEl = item.querySelector('.value');
+                        if (valueEl) {
+                            valueEl.textContent = '0%';
+                            valueEl.className = 'value';
+                        }
+                    });
+                }
+
+                // Recommendations
+                const recs = [];
+                if (marketValue > 5000000) {
+                    recs.push({
+                        icon: '💰',
+                        text: 'Premium vehicle — consider comprehensive insurance coverage',
+                        type: 'info'
+                    });
+                }
+                if (confidence > 80) {
+                    recs.push({
+                        icon: '✅',
+                        text: 'High confidence valuation — market data strongly supports this estimate',
+                        type: 'success'
+                    });
+                }
+                if (data.mileage && data.mileage > 80000) {
+                    recs.push({
+                        icon: '🔧',
+                        text: 'Higher mileage — factor in upcoming major service costs',
+                        type: 'warning'
+                    });
+                }
+                if (recs.length === 0) {
+                    recs.push({
+                        icon: '📊',
+                        text: 'Valuation complete. Use this estimate as a guide for pricing decisions.',
+                        type: 'info'
+                    });
+                }
+
+                el.valuationRecs.innerHTML = recs.map(rec =>
+                    `<div class="rec-item ${rec.type}">
+                        <span class="icon">${rec.icon}</span>
+                        <span class="text">${rec.text}</span>
+                        <span class="tag">${rec.type.toUpperCase()}</span>
+                    </div>`
+                ).join('');
+            }
+
+            // ─── RENDER RUNNING COST ──────────────────────────────────
+
+            function renderRunningCost(data) {
+                if (!data) {
+                    showToast('No running cost data available', 'warning');
+                    return;
+                }
+
+                // Trip summary
+                const tripTotal = data.tripTotal || data.trip?.running_cost || 0;
+                const costPerKm = data.tripCostPerKm || data.trip?.cost_per_km || 0;
+                const distance = data.distance || data.trip?.distance || 150;
+
+                el.tripTotal.textContent = formatCurrency(tripTotal);
+                el.tripCostPerKm.textContent = formatCurrency(costPerKm);
+                el.tripDistance.textContent = formatNumber(distance);
+
+                // Trip breakdown
+                const costs = data.costs || {};
+                const fuel = costs.fuel || data.fuel_cost || 0;
+                const service = costs.service || data.service_cost || 0;
+                const tyres = costs.tyres || data.tyre_cost || 0;
+                const insurance = costs.insurance || data.insurance_cost || 0;
+                const depreciation = costs.depreciation || data.depreciation_cost || 0;
+
+                el.tripFuel.textContent = formatCurrency(fuel);
+                el.tripService.textContent = formatCurrency(service);
+                el.tripTyres.textContent = formatCurrency(tyres);
+                el.tripInsurance.textContent = formatCurrency(insurance);
+                el.tripDepreciation.textContent = formatCurrency(depreciation);
+                el.tripTotalDisplay.textContent = formatCurrency(tripTotal);
+
+                // Per km
+                const perKm = data.per_km || {};
+                el.perKmFuel.textContent = formatCurrency(perKm.fuel || data.fuelCostPerKm || 0);
+                el.perKmService.textContent = formatCurrency(perKm.service || data.servicePerKm || 0);
+                el.perKmTyres.textContent = formatCurrency(perKm.tyres || data.tyrePerKm || 0);
+                el.perKmInsurance.textContent = formatCurrency(perKm.insurance || data.insurancePerKm || 0);
+                el.perKmDepreciation.textContent = formatCurrency(perKm.depreciation || data.depreciationPerKm || 0);
+                el.perKmTotal.textContent = formatCurrency(costPerKm);
+
+                // Monthly
+                const monthly = data.monthly || {};
+                el.monthlyFuel.textContent = formatCurrency(monthly.fuel || data.monthlyFuel || 0);
+                el.monthlyService.textContent = formatCurrency(monthly.service || data.monthlyService || 0);
+                el.monthlyTyres.textContent = formatCurrency(monthly.tyres || data.monthlyTyre || 0);
+                el.monthlyInsurance.textContent = formatCurrency(monthly.insurance || data.monthlyInsurance || 0);
+                el.monthlyDepreciation.textContent = formatCurrency(monthly.depreciation || data.monthlyDepreciation || 0);
+                el.monthlyTotal.textContent = formatCurrency(monthly.total || data.monthly?.total || 0);
+
+                // Annual
+                const annual = data.annual || {};
+                el.annualFuel.textContent = formatCurrency(annual.fuel || data.annualFuel || 0);
+                el.annualService.textContent = formatCurrency(annual.service || data.annualService || 0);
+                el.annualTyres.textContent = formatCurrency(annual.tyres || data.annualTyre || 0);
+                el.annualInsurance.textContent = formatCurrency(annual.insurance || data.annualInsurance || 0);
+                el.annualDepreciation.textContent = formatCurrency(annual.depreciation || data.annualDepreciation || 0);
+                el.annualTotal.textContent = formatCurrency(annual.total || data.annual?.total || 0);
+
+                // 5-Year projection
+                const projection = data.projection || {};
+                const years = projection.years || data.fiveYearData || [];
+
+                if (years.length > 0) {
+                    renderYearlyTable(years);
+                    const total5Year = projection.total_5_year_cost || data.total5YearCost || 0;
+                    el.fiveYearTotal.textContent = `KES ${formatCurrency(total5Year)}`;
+                }
+
+                // Original price and resale
+                const vehicle = data.vehicle || {};
+                const purchasePrice = vehicle.purchase_price || data.purchase_price || 2500000;
+                const resale = vehicle.resale_value || data.resale_value || purchasePrice * 0.6;
+
+                el.originalPrice.textContent = `KES ${formatCurrency(purchasePrice)}`;
+                el.resaleValue.textContent = `KES ${formatCurrency(resale)}`;
+
+                const depPct = purchasePrice > 0 ? Math.round((1 - resale / purchasePrice) * 100) : 0;
+                el.depreciationPct.textContent = `${depPct}%`;
+
+                // Update ownership costs
+                updateOwnershipCosts(purchasePrice, tripTotal, resale);
+            }
+
+            // ─── RENDER YEARLY TABLE ──────────────────────────────────
+
+            function renderYearlyTable(years) {
+                const tbody = el.yearlyBody;
+                tbody.innerHTML = '';
+
+                let totalFuel = 0,
+                    totalService = 0,
+                    totalTyres = 0,
+                    totalInsurance = 0,
+                    totalDepreciation = 0,
+                    totalRunning = 0;
+
+                years.forEach((year, index) => {
+                    const fuel = year.fuel || year.fuel_cost || 0;
+                    const service = year.service || year.service_cost || 0;
+                    const tyres = year.tyres || year.tyre_cost || 0;
+                    const insurance = year.insurance || year.insurance_cost || 0;
+                    const depreciation = year.depreciation || year.depreciation_cost || 0;
+                    const total = year.total || year.total_cost || 0;
+                    const value = year.value || year.remaining_value || 0;
+
+                    totalFuel += fuel;
+                    totalService += service;
+                    totalTyres += tyres;
+                    totalInsurance += insurance;
+                    totalDepreciation += depreciation;
+                    totalRunning += total;
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>Year ${year.year || index + 1}</td>
+                        <td>KES ${formatCurrency(fuel)}</td>
+                        <td>KES ${formatCurrency(service)}</td>
+                        <td>KES ${formatCurrency(tyres)}</td>
+                        <td>KES ${formatCurrency(insurance)}</td>
+                        <td>KES ${formatCurrency(depreciation)}</td>
+                        <td><strong>KES ${formatCurrency(total)}</strong></td>
+                        <td>KES ${formatCurrency(value)}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+                // Total row
+                const totalTr = document.createElement('tr');
+                totalTr.className = 'table-highlight';
+                totalTr.innerHTML = `
+                    <td><strong>Total</strong></td>
+                    <td>KES ${formatCurrency(totalFuel)}</td>
+                    <td>KES ${formatCurrency(totalService)}</td>
+                    <td>KES ${formatCurrency(totalTyres)}</td>
+                    <td>KES ${formatCurrency(totalInsurance)}</td>
+                    <td>KES ${formatCurrency(totalDepreciation)}</td>
+                    <td><strong>KES ${formatCurrency(totalRunning)}</strong></td>
+                    <td>KES ${formatCurrency(years[years.length - 1]?.value || 0)}</td>
+                `;
+                tbody.appendChild(totalTr);
+            }
+
+            // ─── UPDATE OWNERSHIP COSTS ──────────────────────────────
+
+            function updateOwnershipCosts(purchasePrice, annualRunningCost, resaleValue) {
+                const fiveYearRunning = annualRunningCost * 5;
+                const depreciation = purchasePrice - (resaleValue || purchasePrice * 0.6);
+                const totalOwnership = purchasePrice + fiveYearRunning;
+
+                // Ownership summary
+                el.totalOwnershipCost.textContent = formatCurrency(totalOwnership);
+                el.ownershipYears.textContent = '5';
+                el.ownerPurchasePrice.textContent = `KES ${formatCurrency(purchasePrice)}`;
+                el.ownerRunningCost.textContent = `KES ${formatCurrency(fiveYearRunning)}`;
+                el.ownerDepreciation.textContent = `KES ${formatCurrency(depreciation)}`;
+                el.ownerTotal.textContent = `KES ${formatCurrency(totalOwnership)}`;
+
+                // Category breakdown
+                const total = purchasePrice + fiveYearRunning;
+                const purchasePct = total > 0 ? Math.round((purchasePrice / total) * 100) : 0;
+                const runningPct = total > 0 ? Math.round((fiveYearRunning / total) * 100) : 0;
+                const depPct = total > 0 ? Math.round((depreciation / total) * 100) : 0;
+
+                el.catPurchase.textContent = `KES ${formatCurrency(purchasePrice)}`;
+                el.catPurchase.nextElementSibling.textContent = `${purchasePct}% of total`;
+                el.catRunning.textContent = `KES ${formatCurrency(fiveYearRunning)}`;
+                el.catRunning.nextElementSibling.textContent = `${runningPct}% of total`;
+                el.catDepreciation.textContent = `KES ${formatCurrency(depreciation)}`;
+                el.catDepreciation.nextElementSibling.textContent = `${depPct}% of total`;
+
+                // Detailed breakdown
+                const registration = purchasePrice * 0.1;
+                const firstYearInsurance = purchasePrice * 0.04;
+
+                el.purchasePriceDetail.textContent = `KES ${formatCurrency(purchasePrice)}`;
+                el.registrationTax.textContent = `KES ${formatCurrency(registration)}`;
+                el.firstYearInsurance.textContent = `KES ${formatCurrency(firstYearInsurance)}`;
+                el.totalPurchaseCost.textContent = `KES ${formatCurrency(purchasePrice + registration + firstYearInsurance)}`;
+
+                // Running costs breakdown (5-year)
+                const fuelCost = fiveYearRunning * 0.35;
+                const serviceCost = fiveYearRunning * 0.20;
+                const tyreCost = fiveYearRunning * 0.15;
+                const insuranceCost = fiveYearRunning * 0.30;
+
+                el.runningFuel.textContent = `KES ${formatCurrency(fuelCost)}`;
+                el.runningService.textContent = `KES ${formatCurrency(serviceCost)}`;
+                el.runningTyres.textContent = `KES ${formatCurrency(tyreCost)}`;
+                el.runningInsurance.textContent = `KES ${formatCurrency(insuranceCost)}`;
+                el.totalRunningCost.textContent = `KES ${formatCurrency(fiveYearRunning)}`;
+
+                // Monthly ownership
+                const loanAmount = purchasePrice * 0.8;
+                const monthlyRate = 0.14 / 12;
+                const months = 60;
+                const monthlyPayment = loanAmount * (monthlyRate * Math.pow(1 + monthlyRate, months)) /
+                    (Math.pow(1 + monthlyRate, months) - 1);
+
+                el.monthlyLoan.textContent = `KES ${formatCurrency(monthlyPayment)}`;
+                el.monthlyOwnInsurance.textContent = `KES ${formatCurrency(firstYearInsurance / 12)}`;
+                el.monthlyOwnFuel.textContent = `KES ${formatCurrency(annualRunningCost / 12 * 0.35)}`;
+
+                const totalMonthly = monthlyPayment + (firstYearInsurance / 12) + (annualRunningCost / 12 * 0.35);
+                el.monthlyOwnTotal.textContent = `KES ${formatCurrency(totalMonthly)}`;
+
+                // Ownership recommendations
+                const recs = [];
+                if (depreciation / purchasePrice < 0.3) {
+                    recs.push({
+                        icon: '✅',
+                        text: 'Excellent value retention — vehicle holds value well',
+                        type: 'success'
+                    });
+                } else if (depreciation / purchasePrice > 0.5) {
+                    recs.push({
+                        icon: '⚠️',
+                        text: 'High depreciation — consider buying used to avoid initial value loss',
+                        type: 'warning'
+                    });
+                }
+                if (annualRunningCost / purchasePrice > 0.25) {
+                    recs.push({
+                        icon: '📊',
+                        text: 'Running costs are high relative to vehicle value — consider efficiency improvements',
+                        type: 'warning'
+                    });
+                }
+                if (totalMonthly / purchasePrice < 0.03) {
+                    recs.push({
+                        icon: '✅',
+                        text: 'Monthly cost is well within budget — affordable ownership',
+                        type: 'success'
+                    });
+                }
+                if (recs.length === 0) {
+                    recs.push({
+                        icon: '💡',
+                        text: 'Review the full breakdown to understand your total cost of ownership',
+                        type: 'info'
+                    });
+                }
+
+                el.ownershipRecs.innerHTML = recs.map(rec =>
+                    `<div class="rec-item ${rec.type}">
+                        <span class="icon">${rec.icon}</span>
+                        <span class="text">${rec.text}</span>
+                        <span class="tag">${rec.type.toUpperCase()}</span>
+                    </div>`
+                ).join('');
+            }
+
+            // ─── GENERATE REPORT ──────────────────────────────────────
+
+            async function generateReport() {
+                const params = getUrlParams();
+
+                if (!params.variantId) {
+                    setStatus('warning', '⚠️ No vehicle selected. Please select a vehicle first.');
+                    el.vehicleName.textContent = 'No vehicle selected';
+                    return;
+                }
+
+                showLoading(true);
+                setStatus('info', 'Loading vehicle data...');
+
+                try {
+                    // 1. Fetch variant data
+                    const variant = await fetchVariantData(params.variantId);
+                    if (variant) {
+                        state.variantData = variant;
+                        renderVehicleProfile(variant);
+                    }
+
+                    // 2. Fetch valuation
+                    setStatus('info', 'Calculating valuation...');
+                    const valuation = await fetchValuation(
+                        params.variantId,
+                        params.year || 2020,
+                        params.mileage || 50000,
+                        params.condition || 'good',
+                        params.location || 'nairobi'
+                    );
+                    if (valuation) {
+                        state.valuationData = valuation;
+                        renderValuation(valuation);
+                    }
+
+                    // 3. Fetch running cost
+                    setStatus('info', 'Calculating running costs...');
+                    const runningCost = await fetchRunningCost(
+                        params.variantId,
+                        params.distance || 150,
+                        params.annualMileage || 20000,
+                        params.fuelPrice || 200,
+                        params.year || 2020
+                    );
+                    if (runningCost) {
+                        state.runningCostData = runningCost;
+                        renderRunningCost(runningCost);
+                    }
+
+                    // 4. Build report data
+                    state.reportData = {
+                        variant: state.variantData,
+                        valuation: state.valuationData,
+                        running_cost: state.runningCostData,
+                        generated_at: new Date().toISOString(),
+                        params: params
+                    };
+
+                    setStatus('success', '✅ Report generated successfully!');
+                    showToast('✅ Vehicle report ready!', 'success');
+
+                    // Trigger confetti for celebration
+                    if (state.valuationData?.market_value > 0) {
+                        setTimeout(fireConfetti, 500);
+                    }
+
+                } catch (error) {
+                    console.error('Report generation error:', error);
+                    setStatus('error', `❌ ${error.message}`);
+                    showToast(`❌ ${error.message}`, 'error');
+                } finally {
+                    showLoading(false);
+                }
             }
 
             // ─── CONFETTI ──────────────────────────────────────────────
-            // Only fire if there's a valuation result
-            const marketValue = document.getElementById('marketValue').textContent;
-            if (marketValue && marketValue !== '0' && marketValue !== '—') {
-                setTimeout(fireConfetti, 800);
-            }
 
             function fireConfetti() {
                 const container = document.createElement('div');
                 container.className = 'confetti-container';
-                container.style.cssText = `
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        pointer-events: none;
-                        z-index: 9999;
-                        overflow: hidden;
-                    `;
                 document.body.appendChild(container);
 
                 const colors = ['#eab308', '#22c55e', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#f59e0b'];
                 for (let i = 0; i < 60; i++) {
                     const piece = document.createElement('div');
-                    piece.style.cssText = `
-                            position: absolute;
-                            left: ${Math.random() * 100}%;
-                            width: ${Math.random() * 8 + 4}px;
-                            height: ${Math.random() * 8 + 4}px;
-                            border-radius: ${Math.random() > 0.5 ? '50%' : '2px'};
-                            background: ${colors[Math.floor(Math.random() * colors.length)]};
-                            animation: confettiFall ${Math.random() * 2 + 2}s linear forwards;
-                            animation-delay: ${Math.random() * 2}s;
-                            transform: translateY(-20px) rotate(${Math.random() * 360}deg);
-                        `;
+                    piece.className = 'confetti-piece';
+                    piece.style.left = Math.random() * 100 + '%';
+                    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+                    piece.style.width = (Math.random() * 8 + 4) + 'px';
+                    piece.style.height = (Math.random() * 8 + 4) + 'px';
+                    piece.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                    piece.style.animationDelay = (Math.random() * 2) + 's';
                     container.appendChild(piece);
                 }
 
-                // Add keyframes dynamically
-                const style = document.createElement('style');
-                style.textContent = `
-                        @keyframes confettiFall {
-                            0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
-                            100% { transform: translateY(100vh) rotate(${Math.random() * 720 + 360}deg); opacity: 0; }
-                        }
-                    `;
-                document.head.appendChild(style);
-
-                setTimeout(() => {
-                    container.remove();
-                    style.remove();
-                }, 5000);
+                setTimeout(() => container.remove(), 5000);
             }
 
-            // ─── KEYBOARD NAVIGATION ──────────────────────────────────
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') {
-                    const toast = document.querySelector('.toast');
-                    if (toast) toast.remove();
-                }
+            // ─── TAB HANDLING ─────────────────────────────────────────
 
-                // Tab navigation with arrow keys
-                if (e.ctrlKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-                    e.preventDefault();
-                    const currentTab = document.querySelector('.tab-btn.active');
-                    const tabs = Array.from(document.querySelectorAll('.tab-btn'));
-                    const currentIndex = tabs.indexOf(currentTab);
-                    let newIndex;
+            function setupTabs() {
+                el.tabBtns.forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const tabId = this.dataset.tab;
 
-                    if (e.key === 'ArrowRight') {
-                        newIndex = (currentIndex + 1) % tabs.length;
+                        // Update buttons
+                        el.tabBtns.forEach(b => {
+                            b.classList.remove('active');
+                            b.setAttribute('aria-selected', 'false');
+                        });
+                        this.classList.add('active');
+                        this.setAttribute('aria-selected', 'true');
+
+                        // Update content
+                        Object.keys(el.tabContents).forEach(key => {
+                            el.tabContents[key].classList.remove('active');
+                        });
+                        if (el.tabContents[tabId]) {
+                            el.tabContents[tabId].classList.add('active');
+                        }
+                    });
+                });
+            }
+
+            // ─── ACTION HANDLERS ──────────────────────────────────────
+
+            function setupActions() {
+                // Print
+                el.printBtn.addEventListener('click', () => {
+                    window.print();
+                });
+
+                // Share
+                el.shareBtn.addEventListener('click', async () => {
+                    const url = window.location.href;
+                    const reportNum = el.reportNumber.textContent;
+                    const text =
+                        `Auto-D Kenya Vehicle Report\nReport #: ${reportNum}\nVehicle: ${el.vehicleName.textContent}\nMarket Value: ${el.marketValue.textContent}\n\nView full report: ${url}`;
+
+                    try {
+                        if (navigator.share) {
+                            await navigator.share({
+                                title: 'Auto-D Kenya Vehicle Report',
+                                text: text,
+                                url: url
+                            });
+                        } else {
+                            await navigator.clipboard.writeText(text + '\n' + url);
+                            showToast('📋 Report link copied to clipboard!', 'success');
+                        }
+                    } catch (error) {
+                        if (error.name !== 'AbortError') {
+                            showToast('Share failed: ' + error.message, 'error');
+                        }
+                    }
+                });
+
+                // Export PDF
+                el.exportBtn.addEventListener('click', () => {
+                    showToast('📥 PDF export feature coming soon!', 'info');
+                });
+
+                // Download Data
+                el.downloadBtn.addEventListener('click', () => {
+                    try {
+                        const data = {
+                            report: {
+                                number: el.reportNumber.textContent,
+                                generated: el.reportDate.textContent,
+                                version: '2026.08'
+                            },
+                            vehicle: state.variantData || null,
+                            valuation: state.valuationData || null,
+                            running_cost: state.runningCostData || null,
+                            params: getUrlParams(),
+                            exported_at: new Date().toISOString()
+                        };
+
+                        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `auto-d-report-${el.reportNumber.textContent}.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+
+                        showToast('✅ Data downloaded successfully!', 'success');
+                    } catch (error) {
+                        showToast('❌ Download failed: ' + error.message, 'error');
+                    }
+                });
+
+                // Refresh
+                el.refreshBtn.addEventListener('click', () => {
+                    const params = getUrlParams();
+                    if (params.variantId) {
+                        generateReport();
                     } else {
-                        newIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+                        window.location.reload();
+                    }
+                });
+            }
+
+            // ─── KEYBOARD SHORTCUTS ───────────────────────────────────
+
+            function setupKeyboardShortcuts() {
+                document.addEventListener('keydown', (e) => {
+                    // Ctrl+P = Print
+                    if (e.ctrlKey && e.key === 'p') {
+                        // Let default print dialog show
+                        return;
                     }
 
-                    tabs[newIndex].click();
-                }
-            });
+                    // Ctrl+Shift+Left/Right = Tab navigation
+                    if (e.ctrlKey && e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                        e.preventDefault();
+                        const currentTab = document.querySelector('.tab-btn.active');
+                        const tabs = Array.from(el.tabBtns);
+                        const currentIndex = tabs.indexOf(currentTab);
+                        let newIndex;
 
-            console.log('✅ Auto-D Kenya Complete Vehicle Report loaded');
-            console.log(`📋 Report #: ${reportNum}`);
-            console.log(`📅 Generated: ${dateStr}`);
-            console.log('🖨️ Press Ctrl+P to print, Ctrl+Shift+Arrow to switch tabs');
+                        if (e.key === 'ArrowRight') {
+                            newIndex = (currentIndex + 1) % tabs.length;
+                        } else {
+                            newIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+                        }
+
+                        tabs[newIndex].click();
+                    }
+
+                    // Escape = Close toast
+                    if (e.key === 'Escape') {
+                        const toast = document.querySelector('.toast');
+                        if (toast) toast.remove();
+                    }
+                });
+            }
+
+            // ─── INIT ──────────────────────────────────────────────────
+
+            async function init() {
+                console.log('🚗 Auto-D Kenya Complete Vehicle Report');
+                console.log('📋 Version 5.0 - Production Grade');
+
+                // Setup
+                setupTabs();
+                setupActions();
+                setupKeyboardShortcuts();
+
+                // Set report number
+                const reportNum = 'AUTO-' + new Date().getFullYear() + '-' +
+                    String(Math.floor(Math.random() * 9000) + 1000);
+                el.reportNumber.textContent = reportNum;
+
+                // Set report date
+                const now = new Date();
+                el.reportDate.textContent = now.toLocaleDateString('en-KE', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                // Generate report
+                await generateReport();
+
+                // Expose for debugging
+                window.__report = {
+                    state: state,
+                    config: CONFIG,
+                    refresh: generateReport,
+                    formatCurrency: formatCurrency,
+                    formatNumber: formatNumber
+                };
+
+                console.log('✅ Report initialized');
+                console.log('📋 Report #:', reportNum);
+                console.log('🔧 Debug: window.__report');
+            }
+
+            // ─── START ──────────────────────────────────────────────────
+
+            document.addEventListener('DOMContentLoaded', init);
 
         })();
     </script>
