@@ -719,8 +719,7 @@
             100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } 
         }
 
-        /* Slim, non-blocking top progress bar — replaces the old full-screen
-           lock overlay so the page stays interactive while data loads. */
+        /* Slim, non-blocking top progress bar */
         .top-loader {
             position: fixed;
             top: 0;
@@ -942,7 +941,7 @@
                     <span class="auth-status unauthenticated" id="authStatus">👋 Not signed in</span>
                 </div>
                 <div id="serviceStatus" style="display:none;">
-                    <span class="auth-status service-unlocked" id="serviceBadge">✅ Valuation unlocked</span>
+                    <span class="auth-status service-unlocked" id="serviceBadge">✅ Valuation ready</span>
                 </div>
             </div>
         </header>
@@ -959,7 +958,6 @@
                     <div class="auth-buttons" id="authButtons">
                         <button class="primary" id="btnSignIn">🔑 Sign In</button>
                         <button id="btnSignOut" style="display:none;">🚪 Sign Out</button>
-                        <button id="btnPurchase" style="display:none;" class="primary">💳 Unlock my valuation (KES 500)</button>
                     </div>
                     <div id="authForms" style="display:none;margin-top:8px;">
                         <input type="email" id="authEmail" placeholder="Email" style="margin-bottom:6px;" />
@@ -1232,7 +1230,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> AI Valuation · Real-time Market Data<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.6
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.7
             </div>
         </footer>
     </div>
@@ -1240,7 +1238,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK
-        // Version 4.6 - Fixed: duplicated /mpesa/mpesa/ path segment
+        // Version 4.7 - Removed payment unlock flow
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1250,7 +1248,7 @@
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                VIEW_NAME: 'vehicle_master_specs',  // Fixed: correct view name
+                VIEW_NAME: 'vehicle_master_specs',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html'
             };
@@ -1259,11 +1257,9 @@
             let supabaseClient = null;
             let isAuthenticated = false;
             let currentUser = null;
-            let isUnlocked = false;
             let currentVariantData = null;
             let capturedPhotos = {};
             let uploadedImagePreviews = {};
-            let serviceAccess = null;
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1311,7 +1307,6 @@
                 authPassword: document.getElementById('authPassword'),
                 btnSignIn: document.getElementById('btnSignIn'),
                 btnSignOut: document.getElementById('btnSignOut'),
-                btnPurchase: document.getElementById('btnPurchase'),
                 btnLogin: document.getElementById('btnLogin'),
                 btnSignup: document.getElementById('btnSignup'),
                 btnCancelAuth: document.getElementById('btnCancelAuth'),
@@ -1368,12 +1363,9 @@
                 if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
             }
 
-            // Slim, non-blocking loading indicator (replaces the old full-screen
-            // lock overlay). The page stays fully interactive while this shows.
             function showLoadingBar() {
                 if (!el.topLoader) return;
                 el.topLoader.classList.remove('done');
-                // Reflow so the width transition restarts cleanly on repeated calls
                 void el.topLoader.offsetWidth;
                 el.topLoader.classList.add('active');
             }
@@ -1391,10 +1383,6 @@
                 return localStorage.getItem('access_token');
             }
 
-            function getRefreshToken() {
-                return localStorage.getItem('refresh_token');
-            }
-
             function setTokens(session) {
                 if (session) {
                     localStorage.setItem('access_token', session.access_token);
@@ -1410,17 +1398,6 @@
                 localStorage.removeItem('user_id');
                 localStorage.removeItem('user_email');
                 localStorage.removeItem('auto_d_user');
-            }
-
-            function normalizePhone(raw) {
-                let phone = (raw || '').replace(/\D/g, '');
-                if (phone.startsWith('254')) phone = phone.slice(3);
-                if (phone.startsWith('0')) phone = phone.slice(1);
-                return phone;
-            }
-
-            function isValidSafaricomPhone(phone) {
-                return /^(7\d{8}|11\d{7})$/.test(phone);
             }
 
             function getVehicleName(make, model, variant) {
@@ -1474,8 +1451,6 @@
                 
                 if (response.status === 401) {
                     try {
-                        // Force an actual token refresh rather than just re-reading the cached
-                        // session — getSession() alone does not renew an expired token.
                         const { data, error } = await supabaseClient.auth.refreshSession();
                         if (!error && data.session) {
                             setTokens(data.session);
@@ -1489,9 +1464,7 @@
 
                     clearTokens();
                     isAuthenticated = false;
-                    isUnlocked = false;
                     updateAuthUI();
-                    updateServiceUI();
                     showToast('Session expired. Please sign in again.', 'warning');
                     throw new Error('Authentication required');
                 }
@@ -1531,7 +1504,7 @@
                     setTokens(data.session);
                     
                     updateAuthUI();
-                    await checkServiceAccess();
+                    updateServiceUI();
                     
                     showToast('✅ Signed in successfully!', 'success');
                     return true;
@@ -1562,8 +1535,6 @@
                     clearTokens();
                     currentUser = null;
                     isAuthenticated = false;
-                    serviceAccess = null;
-                    isUnlocked = false;
                     updateAuthUI();
                     updateServiceUI();
                     showToast('🔓 Signed out', 'info');
@@ -1579,8 +1550,6 @@
                     const { data, error } = await supabaseClient.auth.getSession();
                     if (error) throw error;
 
-                    const wasAuthenticated = isAuthenticated;
-
                     if (data.session) {
                         currentUser = data.session;
                         isAuthenticated = true;
@@ -1592,12 +1561,7 @@
                     }
 
                     updateAuthUI();
-                    await checkServiceAccess();
-
-                    if (wasAuthenticated && !isAuthenticated) {
-                        showToast('Your session has expired. Please sign in again.', 'warning');
-                    }
-
+                    updateServiceUI();
                     return isAuthenticated;
                 } catch (error) {
                     console.warn('⚠️ Auth check failed:', error.message);
@@ -1605,189 +1569,11 @@
                     isAuthenticated = false;
                     clearTokens();
                     updateAuthUI();
-                    await checkServiceAccess();
-                    return false;
-                }
-            }
-
-            // ─── SERVICE ACCESS ──────────────────────────────────────
-            async function checkServiceAccess() {
-                const wasUnlocked = isUnlocked;
-
-                if (!isAuthenticated) {
-                    serviceAccess = null;
-                    isUnlocked = false;
-                    updateServiceUI();
-                    return false;
-                }
-
-                try {
-                    // Fixed: was '/mpesa/mpesa/user/services' (duplicated segment, 404'd against
-                    // the real route GET /api/v1/mpesa/user/services)
-                    const response = await apiRequest('/mpesa/user/services');
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-                    
-                    const data = await response.json();
-                    serviceAccess = data;
-                    
-                    const valuationService = (data.services || []).find(s => s.service_id === 'valuation');
-                    isUnlocked = !!valuationService;
-                    
-                    updateServiceUI();
-
-                    if (isUnlocked && !wasUnlocked) {
-                        await populateCategories();
-                    }
-
-                    return isUnlocked;
-                } catch (error) {
-                    console.warn('⚠️ Service check failed:', error.message);
-                    serviceAccess = null;
-                    isUnlocked = false;
                     updateServiceUI();
                     return false;
                 }
             }
 
-            // ─── PURCHASE / PAYMENT FLOW ──────────────────────────────
-            async function purchaseValuation() {
-                if (!isAuthenticated) {
-                    showToast('⚠️ Please sign in first', 'warning');
-                    return false;
-                }
-
-                let phone = null;
-                while (phone === null) {
-                    const raw = prompt('Enter M-Pesa phone number (e.g., 0712345678):');
-                    if (raw === null) return false;
-                    const normalized = normalizePhone(raw);
-                    if (isValidSafaricomPhone(normalized)) {
-                        phone = normalized;
-                    } else {
-                        showToast('❌ Enter a valid Safaricom number (07X or 011X)', 'error');
-                    }
-                }
-
-                try {
-                    showToast('🔄 Initiating M-Pesa payment...', 'info');
-
-                    // Fixed: was '/mpesa/mpesa/stkpush' -> real route is POST /api/v1/mpesa/stkpush
-                    const response = await apiRequest('/mpesa/stkpush', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            phone: phone,
-                            service_id: 'valuation',
-                            description: 'Auto-D: Instant Vehicle Value',
-                            user_id: currentUser?.user?.id || localStorage.getItem('user_id')
-                        })
-                    });
-
-                    if (!response.ok) {
-                        const error = await response.json().catch(() => ({}));
-                        throw new Error(error.detail || error.message || 'Payment initiation failed');
-                    }
-
-                    const data = await response.json();
-                    const checkoutId = data.checkout_request_id || data.checkoutRequestID;
-                    if (!checkoutId) {
-                        throw new Error('No checkout ID returned by server');
-                    }
-
-                    showToast('📱 STK Push sent! Check your phone and enter your M-Pesa PIN.', 'success');
-
-                    return await pollPaymentStatus(checkoutId);
-                } catch (error) {
-                    showToast('❌ ' + error.message, 'error');
-                    return false;
-                }
-            }
-
-            async function pollPaymentStatus(checkoutId, maxAttempts = 60) {
-                let attempts = 0;
-                return new Promise((resolve) => {
-                    const interval = setInterval(async () => {
-                        attempts++;
-                        try {
-                            // Fixed: was '/mpesa/mpesa/status/{id}' -> real route is
-                            // GET /api/v1/mpesa/status/{checkout_request_id}
-                            const statusResponse = await apiRequest(`/mpesa/status/${encodeURIComponent(checkoutId)}`);
-                            if (statusResponse.ok) {
-                                const statusData = await statusResponse.json();
-                                const normalized = (statusData.status || '').toString().toLowerCase();
-
-                                if (normalized === 'completed' || normalized === 'success' || normalized === 'paid') {
-                                    clearInterval(interval);
-                                    showToast('✅ Payment received, confirming...', 'success');
-                                    const confirmed = await confirmPayment(checkoutId);
-                                    resolve(confirmed);
-                                    return;
-                                } else if (normalized === 'failed' || normalized === 'cancelled' || normalized === 'canceled' || normalized === 'error') {
-                                    clearInterval(interval);
-                                    showToast('❌ Payment failed: ' + (statusData.description || statusData.message || 'Please try again'), 'error');
-                                    resolve(false);
-                                    return;
-                                }
-                            }
-                        } catch (e) {
-                            console.warn('Status poll error:', e);
-                        }
-
-                        if (attempts >= maxAttempts) {
-                            clearInterval(interval);
-                            showToast('⏰ Payment confirmation timed out. If you already paid, please refresh the page in a minute.', 'warning');
-                            resolve(false);
-                        }
-                    }, 2000);
-                });
-            }
-
-            async function confirmPayment(checkoutId) {
-                try {
-                    // Fixed: was '/mpesa/mpesa/confirm/{id}' -> real route is
-                    // POST /api/v1/mpesa/confirm/{checkout_request_id}
-                    const response = await apiRequest(`/mpesa/confirm/${encodeURIComponent(checkoutId)}`, {
-                        method: 'POST'
-                    });
-                    const data = await response.json().catch(() => ({}));
-                    const confirmed = response.ok && (data.success === true || data.status === 'completed');
-
-                    if (confirmed) {
-                        showToast('✅ Payment confirmed! Valuation unlocked.', 'success');
-                        await checkServiceAccess();
-                        return true;
-                    }
-
-                    showToast('⚠️ Payment could not be confirmed yet. Please wait or contact support.', 'warning');
-                    return false;
-                } catch (error) {
-                    showToast('❌ Error confirming payment: ' + error.message, 'error');
-                    return false;
-                }
-            }
-
-            function updateServiceUI() {
-                if (isAuthenticated && isUnlocked) {
-                    el.serviceStatus.style.display = 'block';
-                    el.serviceBadge.textContent = '✅ Valuation unlocked';
-                    el.serviceBadge.className = 'auth-status service-unlocked';
-                    el.btnPurchase.style.display = 'none';
-                    if (el.valuateBtn) el.valuateBtn.disabled = !el.variantSelect.value;
-                } else if (isAuthenticated && !isUnlocked) {
-                    el.serviceStatus.style.display = 'block';
-                    el.serviceBadge.textContent = '🔓 One step left — unlock for KES 500';
-                    el.serviceBadge.className = 'auth-status service-locked';
-                    el.btnPurchase.style.display = 'inline-block';
-                    if (el.valuateBtn) el.valuateBtn.disabled = true;
-                } else {
-                    el.serviceStatus.style.display = 'none';
-                    el.btnPurchase.style.display = 'none';
-                    if (el.valuateBtn) el.valuateBtn.disabled = true;
-                }
-            }
-
-            // ─── UPDATE AUTH UI ──────────────────────────────────────
             function updateAuthUI() {
                 if (isAuthenticated && currentUser) {
                     const email = currentUser.user?.email || 'user';
@@ -1806,10 +1592,22 @@
                 }
             }
 
+            function updateServiceUI() {
+                if (isAuthenticated) {
+                    el.serviceStatus.style.display = 'block';
+                    el.serviceBadge.textContent = '✅ Valuation ready';
+                    el.serviceBadge.className = 'auth-status service-unlocked';
+                    if (el.valuateBtn) el.valuateBtn.disabled = !el.variantSelect.value;
+                } else {
+                    el.serviceStatus.style.display = 'none';
+                    if (el.valuateBtn) el.valuateBtn.disabled = true;
+                }
+            }
+
             // ─── API: QUERY THE VIEW ──────────────────────────────────
             async function queryView(select, filter, order) {
-                if (!isUnlocked) {
-                    showToast('🔓 Unlock your valuation (KES 500) to browse vehicles', 'warning');
+                if (!isAuthenticated) {
+                    showToast('⚠️ Please sign in to browse vehicles', 'warning');
                     return [];
                 }
                 let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
@@ -1962,7 +1760,7 @@
                     select.appendChild(opt);
                 });
 
-                select.disabled = !isUnlocked;
+                select.disabled = !isAuthenticated;
                 setStatus('success', `✅ Loaded ${categories.length} categories`);
             }
 
@@ -1978,7 +1776,7 @@
                 el.variantSelect.disabled = true;
                 el.valuateBtn.disabled = true;
 
-                if (!categoryId || !isUnlocked) return;
+                if (!categoryId || !isAuthenticated) return;
 
                 const makes = await loadMakes(categoryId);
 
@@ -2010,7 +1808,7 @@
                 el.variantSelect.disabled = true;
                 el.valuateBtn.disabled = true;
 
-                if (!makeId || !isUnlocked) return;
+                if (!makeId || !isAuthenticated) return;
 
                 const models = await loadModels(makeId);
 
@@ -2040,7 +1838,7 @@
                 el.variantSelect.disabled = true;
                 el.valuateBtn.disabled = true;
 
-                if (!modelId || !isUnlocked) return;
+                if (!modelId || !isAuthenticated) return;
 
                 const generations = await loadGenerations(modelId);
 
@@ -2067,7 +1865,7 @@
                 select.disabled = true;
                 el.valuateBtn.disabled = true;
 
-                if (!generationId || !isUnlocked) return;
+                if (!generationId || !isAuthenticated) return;
 
                 const variants = await loadVariants(generationId);
 
@@ -2284,8 +2082,6 @@
                     images: images.length > 0 ? images : undefined
                 };
 
-                // Correct endpoint, confirmed against the live OpenAPI schema:
-                // POST /api/v1/valuation/calculate
                 const url = `${CONFIG.API_BASE}/valuation/calculate`;
                 console.log('📤 Valuation Request URL:', url);
                 console.log('📦 Payload:', JSON.stringify(payload, null, 2));
@@ -2293,8 +2089,6 @@
                 const response = await apiRequest('/valuation/calculate', {
                     method: 'POST',
                     body: JSON.stringify(payload),
-                    // Bumped from 15s to 45s: Render free-tier services cold-start after
-                    // idle and the first request after a spin-down can take 20-50s to wake.
                     signal: AbortSignal.timeout(45000)
                 });
 
@@ -2395,8 +2189,8 @@
 
             // ─── VALUATE ────────────────────────────────────────────────
             async function valuate() {
-                if (!isUnlocked) {
-                    showToast('🔓 Unlock your valuation (KES 500) to continue', 'warning');
+                if (!isAuthenticated) {
+                    showToast('⚠️ Please sign in first', 'warning');
                     return;
                 }
 
@@ -2623,8 +2417,6 @@
 
             // ─── EVENT LISTENERS ─────────────────────────────────────────
             function initEventListeners() {
-                el.btnPurchase.addEventListener('click', purchaseValuation);
-
                 el.btnSignIn.addEventListener('click', () => {
                     el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
                 });
@@ -2663,7 +2455,7 @@
 
                 el.categorySelect.addEventListener('change', async function() {
                     const catId = this.value;
-                    if (catId && isUnlocked) {
+                    if (catId && isAuthenticated) {
                         await populateMakes(catId);
                         el.modelSelect.value = '';
                         el.generationSelect.value = '';
@@ -2674,7 +2466,7 @@
                 });
 
                 el.makeSelect.addEventListener('change', async function() {
-                    if (!isUnlocked) return;
+                    if (!isAuthenticated) return;
                     const makeId = this.value;
                     if (makeId) {
                         await populateModels(makeId);
@@ -2686,7 +2478,7 @@
                 });
 
                 el.modelSelect.addEventListener('change', async function() {
-                    if (!isUnlocked) return;
+                    if (!isAuthenticated) return;
                     const modelId = this.value;
                     if (modelId) {
                         await populateGenerations(modelId);
@@ -2697,7 +2489,7 @@
                 });
 
                 el.generationSelect.addEventListener('change', async function() {
-                    if (!isUnlocked) return;
+                    if (!isAuthenticated) return;
                     const genId = this.value;
                     if (genId) {
                         await populateVariants(genId);
@@ -2707,7 +2499,7 @@
                 });
 
                 el.variantSelect.addEventListener('change', async function() {
-                    if (!isUnlocked) return;
+                    if (!isAuthenticated) return;
                     const variantId = this.value;
                     if (variantId) {
                         el.valuateBtn.disabled = false;
@@ -2752,8 +2544,6 @@
 
             // ─── INIT ──────────────────────────────────────────────────
             async function init() {
-                // Non-blocking: the page renders and stays interactive immediately,
-                // a slim top bar just shows that data is on its way.
                 showLoadingBar();
 
                 try {
@@ -2780,7 +2570,6 @@
 
                     console.log('✅ Auto-D Kenya Instant Value Check initialized');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
-                    console.log(`🔓 Service Unlocked: ${isUnlocked ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Base: ${CONFIG.API_BASE}`);
                     console.log(`📊 View: ${CONFIG.VIEW_NAME}`);
 
