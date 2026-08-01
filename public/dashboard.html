@@ -241,6 +241,28 @@
         .btn-sm { padding: 6px 14px; font-size: 12px; }
         .btn-xs { padding: 4px 10px; font-size: 11px; }
 
+        /* ─── Admin Button ────────────────────────────────────── */
+        .admin-btn {
+            background: linear-gradient(135deg, var(--purple), #7c3aed);
+            color: var(--bg);
+            border: none;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-weight: 600;
+            font-size: 13px;
+            font-family: var(--font-body);
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+        .admin-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(168, 85, 247, 0.3);
+        }
+
         /* ─── Service Tabs ────────────────────────────────────── */
         .service-tabs {
             display: flex;
@@ -519,6 +541,13 @@
             50% { background-color: rgba(234, 179, 8, 0.2); }
         }
 
+        /* ─── Admin Dashboard Link ────────────────────────────── */
+        .admin-link-container {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 8px;
+        }
+
         @media (max-width: 768px) {
             .container { padding: 16px; }
             .card { padding: 18px 20px; }
@@ -532,6 +561,7 @@
             th, td { padding: 8px 10px; font-size: 13px; }
             .service-tabs { flex-wrap: nowrap; }
             .service-tab { font-size: 12px; padding: 6px 12px; }
+            .admin-link-container { justify-content: center; }
         }
 
         @media (max-width: 480px) {
@@ -564,6 +594,14 @@
         </div>
     </header>
 
+    <!-- ─── ADMIN DASHBOARD LINK ──────────────────────────────────── -->
+    <div class="admin-link-container" id="adminLinkContainer" style="display:none;">
+        <a href="/admin.html" class="admin-btn" target="_blank">
+            <i class="fas fa-cog"></i> Admin Dashboard
+            <span class="badge" style="background:rgba(255,255,255,0.15);font-size:8px;padding:1px 6px;border-radius:4px;">Manage Prices</span>
+        </a>
+    </div>
+
     <!-- ─── SERVICE TABS ──────────────────────────────────────────── -->
     <div class="card">
         <div class="card-header">
@@ -571,11 +609,16 @@
                 🚀 Your Services
                 <span class="badge">Access</span>
                 <span class="badge" style="background:rgba(34,197,94,0.15);color:var(--green);">Live Prices</span>
+                <span class="badge" style="background:rgba(168,85,247,0.15);color:var(--purple);font-size:8px;" id="priceConnectionStatus">🔄 Connected</span>
             </div>
-            <span style="font-size:12px;color:var(--text-muted);">
-                <i class="fas fa-sync-alt" id="priceStatus" style="color:var(--green);"></i>
-                Prices update automatically
-            </span>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span style="font-size:11px;color:var(--text-muted);" id="priceLastUpdated">
+                    Last updated: <span id="priceUpdateTime">—</span>
+                </span>
+                <button class="btn btn-sm btn-outline" onclick="window.__AUTOD?.refreshPrices()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
         </div>
 
         <!-- ─── Service Tabs ──────────────────────────────────────── -->
@@ -649,7 +692,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// AUTO-D KENYA DASHBOARD - REAL-TIME PRICE SYNC v7.0
+// AUTO-D KENYA DASHBOARD - FULL ADMIN CONNECTION v8.0
+// Prices managed exclusively via Admin Dashboard
 // ═══════════════════════════════════════════════════════════════
 
 (function() {
@@ -660,8 +704,8 @@
         API_BASE: 'https://auto-digital.onrender.com/api/v1',
         SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
         SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
+        ADMIN_DASHBOARD_URL: '/admin.html',
         DASHBOARD_URL: '/dashboard.html',
-        PRICE_REFRESH_INTERVAL: 10000, // 10 seconds
         PRICE_POLLING_INTERVAL: 30000 // 30 seconds
     };
 
@@ -712,15 +756,11 @@
     let serviceAccess = {};
     let activeTab = 'valuation';
     let currentServices = [];
-    // Prices are only ever populated from the admin-managed `services` table
-    // (via /mpesa/services and the Supabase Realtime subscription below).
-    // A service code with no entry here means "price not yet known" —
-    // never fall back to a guessed number.
     let servicePrices = {};
-    let priceRefreshTimer = null;
     let pricePollingTimer = null;
     let lastPriceUpdate = null;
     let lastPriceLoadFailed = false;
+    let isAdmin = false;
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const servicesEl = document.getElementById('services');
@@ -730,6 +770,9 @@
     const payBtn = document.getElementById('payBtn');
     const authSection = document.getElementById('authSection');
     const priceStatus = document.getElementById('priceStatus');
+    const priceUpdateTime = document.getElementById('priceUpdateTime');
+    const priceConnectionStatus = document.getElementById('priceConnectionStatus');
+    const adminLinkContainer = document.getElementById('adminLinkContainer');
 
     // ─── SUPABASE INIT ──────────────────────────────────────────
     function initSupabase() {
@@ -769,6 +812,20 @@
                 accessToken = session.access_token;
                 localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                 localStorage.setItem('access_token', accessToken);
+                
+                // Check if user is admin
+                const userMetadata = currentUser.user_metadata || {};
+                const appMetadata = currentUser.app_metadata || {};
+                isAdmin = userMetadata.role === 'admin' || 
+                         appMetadata.role === 'admin' ||
+                         userMetadata.is_admin === true ||
+                         appMetadata.is_admin === true;
+                
+                // Show/hide admin link
+                if (isAdmin) {
+                    adminLinkContainer.style.display = 'block';
+                }
+                
                 return currentUser;
             }
 
@@ -856,6 +913,8 @@
         currentUser = null;
         isAuthenticated = false;
         accessToken = null;
+        isAdmin = false;
+        adminLinkContainer.style.display = 'none';
         localStorage.removeItem('auto_d_user');
         localStorage.removeItem('access_token');
         renderAuthUI();
@@ -868,11 +927,12 @@
     function renderAuthUI() {
         if (isAuthenticated && currentUser) {
             const name = currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || 'User';
+            const adminBadge = isAdmin ? ' <span style="color:var(--purple);font-size:10px;font-weight:600;">(Admin)</span>' : '';
             authSection.innerHTML = `
                 <div class="user-info">
                     <div class="user-avatar">${name[0].toUpperCase()}</div>
                     <div>
-                        <div class="user-name">${name}</div>
+                        <div class="user-name">${name}${adminBadge}</div>
                         <div class="user-email">${currentUser.email}</div>
                     </div>
                     <button class="btn btn-sm btn-danger" onclick="window.__auth.signOut()">
@@ -1027,15 +1087,11 @@
     window.switchServiceTab = function(serviceCode) {
         activeTab = serviceCode;
         
-        // Update tab UI
         document.querySelectorAll('.service-tab').forEach(tab => {
             tab.classList.toggle('active', tab.dataset.service === serviceCode);
         });
         
-        // Update badge status
         updateTabBadges();
-        
-        // Render services for this tab
         renderServicesForTab(serviceCode);
     };
 
@@ -1052,16 +1108,12 @@
     }
 
     // ─── RENDER SERVICES FOR TAB ──────────────────────────────
-    // Prices are ONLY ever read from servicePrices, which is populated
-    // exclusively by loadServicePrices() (admin API) and the Supabase
-    // Realtime subscription. If a code isn't present, the price is
-    // genuinely unknown and the UI says so instead of guessing.
     function renderServicesForTab(serviceCode) {
         const service = SERVICE_DETAILS[serviceCode];
         if (!service) return;
 
         const hasAccess = serviceAccess[serviceCode] === true;
-        const price = servicePrices[serviceCode]; // may be undefined
+        const price = servicePrices[serviceCode];
         const priceKnown = typeof price === 'number' && price > 0;
         const isLive = lastPriceUpdate !== null;
 
@@ -1112,9 +1164,6 @@
 
     // ─── UPDATE PRICE DISPLAY ─────────────────────────────────
     function updatePriceDisplay(serviceCode, newPrice) {
-        // A price just arrived (or changed) — the safest way to reflect it
-        // everywhere (amount, label, admin badge, button state) is to
-        // re-render this tab rather than patch fragments individually.
         if (activeTab !== serviceCode) return;
         renderServicesForTab(serviceCode);
         const serviceItem = document.getElementById(`service-item-${serviceCode}`);
@@ -1124,20 +1173,26 @@
         }
     }
 
+    // ─── UPDATE PRICE TIMESTAMP ──────────────────────────────
+    function updatePriceTimestamp() {
+        if (priceUpdateTime) {
+            priceUpdateTime.textContent = new Date().toLocaleTimeString();
+        }
+    }
+
     // ─── LOAD SERVICE PRICES FROM ADMIN ──────────────────────
     async function loadServicePrices(silent = false) {
         try {
             if (!silent) {
                 priceStatus.className = 'fas fa-sync-alt fa-spin';
                 priceStatus.style.color = 'var(--amber)';
+                priceConnectionStatus.textContent = '🔄 Syncing...';
+                priceConnectionStatus.style.color = 'var(--amber)';
             }
             
-            // Get available services with prices from backend
             const servicesData = await api('/mpesa/services');
             currentServices = servicesData.services || [];
             
-            // Extract prices into a lookup map — only accept real, positive
-            // prices from the admin API. Never invent a number.
             let pricesChanged = false;
             currentServices.forEach(service => {
                 const code = service.code;
@@ -1147,7 +1202,6 @@
                 const oldPrice = servicePrices[code];
 
                 if (incomingPrice === null) {
-                    // Admin hasn't set a price for this service — leave it unset.
                     return;
                 }
 
@@ -1164,10 +1218,13 @@
             
             lastPriceUpdate = new Date();
             lastPriceLoadFailed = false;
+            updatePriceTimestamp();
             
             if (!silent) {
                 priceStatus.className = 'fas fa-sync-alt';
                 priceStatus.style.color = 'var(--green)';
+                priceConnectionStatus.textContent = '✅ Connected';
+                priceConnectionStatus.style.color = 'var(--green)';
                 if (pricesChanged) {
                     showToast('🔄 Service prices updated from admin', 'info');
                 }
@@ -1182,25 +1239,29 @@
             if (!silent) {
                 priceStatus.className = 'fas fa-sync-alt';
                 priceStatus.style.color = 'var(--red)';
+                priceConnectionStatus.textContent = '⚠️ Disconnected';
+                priceConnectionStatus.style.color = 'var(--red)';
                 showToast('⚠️ Could not load live prices from admin — try refreshing', 'warning');
             }
-            // No fallback numbers — if admin prices can't be loaded, the UI
-            // shows "Price unavailable" and blocks payment rather than
-            // guessing a figure that could be wrong.
             return servicePrices;
         }
     }
 
-    // ─── REAL-TIME PRICE POLLING ─────────────────────────────
+    // ─── REFRESH PRICES ──────────────────────────────────────
+    window.refreshPrices = async function() {
+        showToast('🔄 Refreshing prices...', 'info');
+        await loadServicePrices(false);
+        showToast('✅ Prices refreshed from admin', 'success');
+    };
+
+    // ─── PRICE POLLING ─────────────────────────────────────────
     function startPricePolling() {
-        // Clear existing timers
         stopPricePolling();
         
-        // Poll every 30 seconds for price changes
         pricePollingTimer = setInterval(async () => {
             if (isAuthenticated) {
                 console.log('🔄 Polling for price updates...');
-                await loadServicePrices(true); // Silent update
+                await loadServicePrices(true);
             }
         }, CONFIG.PRICE_POLLING_INTERVAL);
         
@@ -1212,10 +1273,6 @@
             clearInterval(pricePollingTimer);
             pricePollingTimer = null;
         }
-        if (priceRefreshTimer) {
-            clearInterval(priceRefreshTimer);
-            priceRefreshTimer = null;
-        }
     }
 
     // ─── LOAD USER SERVICES ────────────────────────────────────
@@ -1223,20 +1280,13 @@
         try {
             servicesEl.innerHTML = `<span class="loading"><span class="spinner"></span> Loading your services...</span>`;
             
-            // Load prices from admin first
             await loadServicePrices();
             
-            // Get user services from backend
             const data = await api('/mpesa/user/services');
             serviceAccess = data.services || {};
             
-            // Update tab badges
             updateTabBadges();
-            
-            // Render active tab
             renderServicesForTab(activeTab);
-            
-            // Start price polling for real-time updates
             startPricePolling();
             
             return serviceAccess;
@@ -1253,14 +1303,13 @@
         }
     }
 
-    // ─── OPEN SERVICE (WITH ACCESS CHECK) ─────────────────────
+    // ─── OPEN SERVICE ─────────────────────────────────────
     window.openService = async function(serviceCode) {
         if (!isAuthenticated) {
             showToast('⚠️ Please sign in to access services', 'warning');
             return;
         }
 
-        // Check access before opening
         const hasAccess = await checkServiceAccess(serviceCode);
         
         if (!hasAccess) {
@@ -1272,10 +1321,8 @@
             return;
         }
 
-        // Clear cached access
         localStorage.removeItem('service_access');
 
-        // Redirect to service page
         const route = SERVICE_ROUTES[serviceCode];
         if (route) {
             const details = SERVICE_DETAILS[serviceCode];
@@ -1288,10 +1335,7 @@
         }
     };
 
-    // ─── SELECT SERVICE (FOR PAYMENT) ────────────────────────
-    // Price is always looked up live from servicePrices (admin-sourced).
-    // If it isn't known yet, we refuse to start a payment rather than
-    // charging a guessed amount.
+    // ─── SELECT SERVICE ──────────────────────────────────────
     window.selectService = function(code, name) {
         const price = servicePrices[code];
         if (typeof price !== 'number' || price <= 0) {
@@ -1494,7 +1538,6 @@
                     localStorage.removeItem('pending_service');
                     localStorage.removeItem('pending_service_name');
 
-                    // Confirm payment with backend
                     try {
                         await api(`/mpesa/confirm/${checkoutRequestId}`, {
                             method: 'POST'
@@ -1503,15 +1546,11 @@
                         console.warn('Confirm API warning:', confirmErr);
                     }
 
-                    // Reload services to update access
                     await loadUserServices();
-                    
-                    // Clear cached access
                     localStorage.removeItem('service_access');
 
                     showToast(`✅ ${serviceName} unlocked! You can now access it.`, 'success');
                     
-                    // Auto-open the service
                     setTimeout(() => {
                         window.openService(serviceCode);
                     }, 1500);
@@ -1543,6 +1582,49 @@
         }
     }
 
+    // ─── SUPABASE REALTIME PRICE UPDATES ──────────────────────
+    function setupRealtimePriceUpdates() {
+        if (!supabaseClient) return;
+
+        try {
+            const channel = supabaseClient
+                .channel('services-changes')
+                .on(
+                    'postgres_changes',
+                    {
+                        event: 'UPDATE',
+                        schema: 'public',
+                        table: 'services'
+                    },
+                    (payload) => {
+                        console.log('🔄 Real-time price update received:', payload);
+                        
+                        const updatedService = payload.new;
+                        if (updatedService && updatedService.code && typeof updatedService.price === 'number' && updatedService.price > 0) {
+                            const code = updatedService.code;
+                            const newPrice = updatedService.price;
+                            
+                            servicePrices[code] = newPrice;
+                            lastPriceUpdate = new Date();
+                            updatePriceTimestamp();
+                            
+                            if (activeTab === code) {
+                                updatePriceDisplay(code, newPrice);
+                            }
+                            
+                            showToast(`🔄 ${updatedService.name || code} price updated to KES ${newPrice.toLocaleString()}`, 'info');
+                        }
+                    }
+                )
+                .subscribe();
+
+            console.log('✅ Supabase Realtime price updates enabled');
+            window.__realtimeChannel = channel;
+        } catch (error) {
+            console.warn('⚠️ Could not setup real-time updates:', error);
+        }
+    }
+
     // ─── LOAD DASHBOARD ──────────────────────────────────────────
     async function loadDashboard() {
         await loadUserServices();
@@ -1569,9 +1651,9 @@
 
     // ─── INIT ──────────────────────────────────────────────────
     async function init() {
-        console.log('🚗 Auto-D Kenya Dashboard v7.0 - Real-Time Price Sync (no hardcoded prices)');
+        console.log('🚗 Auto-D Kenya Dashboard v8.0 - Full Admin Connection');
         console.log('📡 API Base:', CONFIG.API_BASE);
-        console.log(`🔄 Price refresh interval: ${CONFIG.PRICE_POLLING_INTERVAL/1000}s`);
+        console.log('🔄 All prices managed via Admin Dashboard');
 
         initSupabase();
         await getCurrentUser();
@@ -1591,6 +1673,8 @@
                     currentUser = null;
                     isAuthenticated = false;
                     accessToken = null;
+                    isAdmin = false;
+                    adminLinkContainer.style.display = 'none';
                     localStorage.removeItem('auto_d_user');
                     localStorage.removeItem('access_token');
                     renderAuthUI();
@@ -1601,8 +1685,8 @@
         }
 
         await loadDashboard();
+        setupRealtimePriceUpdates();
 
-        // Check for pending payment on page load
         const pendingCheckout = localStorage.getItem('pending_checkout');
         const pendingService = localStorage.getItem('pending_service');
         if (pendingCheckout && pendingService) {
@@ -1611,57 +1695,6 @@
             selectedServiceName = localStorage.getItem('pending_service_name') || pendingService;
             setStatus(`⏳ Resuming pending payment...\nCheckout ID: ${checkoutRequestId}`, 'pending');
             startStatusPolling();
-        }
-
-        // Setup real-time price updates via Supabase Realtime (if available)
-        setupRealtimePriceUpdates();
-    }
-
-    // ─── SUPABASE REALTIME PRICE UPDATES ──────────────────────
-    function setupRealtimePriceUpdates() {
-        if (!supabaseClient) return;
-
-        try {
-            // Subscribe to changes on the services table
-            const channel = supabaseClient
-                .channel('services-changes')
-                .on(
-                    'postgres_changes',
-                    {
-                        event: 'UPDATE',
-                        schema: 'public',
-                        table: 'services'
-                    },
-                    (payload) => {
-                        console.log('🔄 Real-time price update received:', payload);
-                        
-                        const updatedService = payload.new;
-                        if (updatedService && updatedService.code && typeof updatedService.price === 'number' && updatedService.price > 0) {
-                            const code = updatedService.code;
-                            const newPrice = updatedService.price;
-                            
-                            // Update in-memory prices — straight from the admin table,
-                            // never a guessed fallback.
-                            servicePrices[code] = newPrice;
-                            lastPriceUpdate = new Date();
-                            
-                            // Update UI if this tab is active
-                            if (activeTab === code) {
-                                updatePriceDisplay(code, newPrice);
-                            }
-                            
-                            showToast(`🔄 ${updatedService.name || code} price updated to KES ${newPrice.toLocaleString()}`, 'info');
-                        }
-                    }
-                )
-                .subscribe();
-
-            console.log('✅ Supabase Realtime price updates enabled');
-            
-            // Store channel for cleanup
-            window.__realtimeChannel = channel;
-        } catch (error) {
-            console.warn('⚠️ Could not setup real-time updates, falling back to polling:', error);
         }
     }
 
@@ -1675,12 +1708,14 @@
         openService: window.openService,
         checkServiceAccess,
         switchServiceTab: window.switchServiceTab,
+        refreshPrices: window.refreshPrices,
         setStatus,
         showToast,
         signIn,
         signOut,
         currentUser: () => currentUser,
         isAuthenticated: () => isAuthenticated,
+        isAdmin: () => isAdmin,
         loadDashboard,
         loadServicePrices,
         servicePrices: () => servicePrices,
