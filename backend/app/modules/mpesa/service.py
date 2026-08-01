@@ -4,7 +4,7 @@
 # TYPE: MODULE - M-Pesa business logic
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
 from app.core.database import get_supabase
@@ -22,6 +22,8 @@ class MpesaService:
         self.repository = MpesaRepository()
         self.stk_push = StkPushService()
         self.supabase = get_supabase()
+
+    # ─── INITIATE PAYMENT ──────────────────────────────────────────
 
     async def initiate_payment(
         self,
@@ -47,7 +49,6 @@ class MpesaService:
             Dict with checkout_request_id, message, and status
         """
         # ─── STEP 1: Look up service in the services table ──────────────
-        # Use .single() to get exactly one record
         service = (
             self.supabase
             .table("services")
@@ -64,13 +65,12 @@ class MpesaService:
         service_data = service.data
         
         # ─── STEP 2: Extract all data from the service record ──────────
-        # ✅ All prices come from the services table - NO HARDCODED PRICES
-        service_db_id = service_data["id"]        # Integer ID for payments table
-        service_name = service_data["name"]        # Human-readable name
-        price = float(service_data["price"])       # Price from database
-        currency = service_data.get("currency", "KES")  # Currency from database
+        service_db_id = service_data["id"]
+        service_name = service_data["name"]
+        price = float(service_data["price"])
+        currency = service_data.get("currency", "KES")
         
-        # Allow amount override if provided (for admin adjustments)
+        # Allow amount override if provided
         if amount is not None:
             price = float(amount)
             logger.info(f"Amount override: using {price} instead of database price {service_data['price']}")
@@ -80,37 +80,27 @@ class MpesaService:
         # Generate checkout ID
         checkout_id = f"CHK-{service_id[:4]}-{str(int(datetime.utcnow().timestamp()))[-6:]}"
         
-        # ─── STEP 3: Initiate STK Push with the correct amount ──────────
-        # ✅ Use price from database, not the optional amount parameter
+        # ─── STEP 3: Initiate STK Push ──────────────────────────────────
         result = await self.stk_push.initiate_push(
             phone=phone,
-            amount=price,  # ✅ FIX: Use price from database
-            description=service_name,  # ✅ FIX: Use service name from database
+            amount=price,
+            description=service_name,
             checkout_request_id=checkout_id,
             user_id=user_id,
             service_id=service_id
         )
         
-        # ─── STEP 4: Save the payment record with correct data ──────────
-        # ✅ FIX: Use integer service ID, service name, currency, merchant ID
+        # ─── STEP 4: Save the payment record ────────────────────────────
         await self.repository.create_payment({
             "user_id": user_id,
             "request_id": request_id,
-            
-            # ✅ Integer ID from the services table (not the string code)
             "service_id": service_db_id,
-            
-            # ✅ Human-readable name from the services table
             "service_name": service_name,
-            
             "amount": price,
-            "currency": currency,  # ✅ From database, not hardcoded
-            
+            "currency": currency,
             "phone": phone,
-            
             "checkout_request_id": result["checkout_request_id"],
-            "merchant_request_id": result.get("merchant_request_id"),  # ✅ Include merchant ID
-            
+            "merchant_request_id": result.get("merchant_request_id"),
             "status": "pending",
         })
         
@@ -121,6 +111,8 @@ class MpesaService:
             "message": result.get("customer_message", "STK push sent successfully"),
             "status": "pending"
         }
+
+    # ─── PAYMENT STATUS ─────────────────────────────────────────────
 
     async def get_payment_status(self, checkout_request_id: str, user_id: str) -> Dict[str, Any]:
         """
@@ -143,6 +135,8 @@ class MpesaService:
             "phone": payment.get("phone"),
             "created_at": payment.get("created_at")
         }
+
+    # ─── CONFIRM PAYMENT ────────────────────────────────────────────
 
     async def confirm_payment(self, checkout_request_id: str, user_id: str) -> Dict[str, Any]:
         """
@@ -176,71 +170,199 @@ class MpesaService:
         
         return {"status": "completed", "message": "Payment confirmed"}
 
-    async def unlock_service(self, user_id: str, service_id: str) -> None:
+    # ─── SERVICE ACCESS ─────────────────────────────────────────────
+
+    async def check_service_access(self, user_id: str, service_code: str) -> Dict[str, Any]:
+        """
+        Check if a user has access to a service.
+        
+        Args:
+            user_id: User ID
+            service_code: Service code (e.g., "valuation", "mileage")
+            
+        Returns:
+            Dict with has_access boolean and details
+        """
+        try:
+            # First get the service ID from code
+            service = (
+                self.supabase
+                .table("services")
+                .select("id")
+                .eq("code", service_code)
+                .eq("active", True)
+                .single()
+                .execute()
+            )
+            
+            if not service.data:
+                return {
+                    "has_access": False,
+                    "status": "service_not_found",
+                    "message": f"Service '{service_code}' not found"
+                }
+            
+            service_id = service.data["id"]
+            
+            # Check user_services table
+            response = (
+                self.supabase
+                .table("user_services")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("service_id", service_id)
+                .execute()
+            )
+            
+            if not response.data or len(response.data) == 0:
+                return {
+                    "has_access": False,
+                    "status": "no_record",
+                    "message": "No access record found"
+                }
+            
+            record = response.data[0]
+            status = record.get("status")
+            expires_at = record.get("expires_at")
+            
+            # Check if expired
+            if expires_at:
+                try:
+                    expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                    if datetime.utcnow() > expires:
+                        return {
+                            "has_access": False,
+                            "status": "expired",
+                            "message": "Access has expired"
+                        }
+                except:
+                    pass
+            
+            # Check if active
+            if status in ["active", "completed", "paid", "success"]:
+                return {
+                    "has_access": True,
+                    "status": status,
+                    "expires_at": expires_at,
+                    "message": "Access granted"
+                }
+            else:
+                return {
+                    "has_access": False,
+                    "status": status,
+                    "message": f"Access status: {status}"
+                }
+                
+        except Exception as e:
+            logger.error(f"Error checking service access: {e}")
+            return {
+                "has_access": False,
+                "status": "error",
+                "message": str(e)
+            }
+
+    async def unlock_service(self, user_id: str, service_id: str, payment_id: Optional[int] = None) -> None:
         """
         Unlock a service for a user.
         
         Args:
             user_id: User ID
             service_id: Service ID (numeric - the id from the services table)
+            payment_id: Payment ID (optional)
         """
         try:
             # Check if user already has this service
             existing = (
                 self.supabase
-                    .table("user_services")
-                    .select("*")
-                    .eq("user_id", user_id)
-                    .eq("service_id", service_id)
-                    .execute()
+                .table("user_services")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("service_id", service_id)
+                .execute()
             )
+            
+            expires_at = (datetime.utcnow() + timedelta(days=365)).isoformat()
             
             if existing.data:
                 # Update existing record
-                self.supabase.table("user_services").update({
+                update_data = {
                     "status": "active",
-                    "purchased_at": datetime.utcnow().isoformat()
-                }).eq("id", existing.data[0]["id"]).execute()
+                    "expires_at": expires_at,
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+                if payment_id:
+                    update_data["payment_id"] = payment_id
+                
+                self.supabase.table("user_services").update(update_data).eq("id", existing.data[0]["id"]).execute()
+                logger.info(f"User service updated: user={user_id}, service={service_id}")
             else:
                 # Create new record
-                self.supabase.table("user_services").insert({
+                insert_data = {
                     "user_id": user_id,
                     "service_id": service_id,
                     "status": "active",
-                    "purchased_at": datetime.utcnow().isoformat()
-                }).execute()
-            
-            logger.info(f"Service {service_id} unlocked for user {user_id}")
+                    "expires_at": expires_at,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+                if payment_id:
+                    insert_data["payment_id"] = payment_id
+                
+                self.supabase.table("user_services").insert(insert_data).execute()
+                logger.info(f"User service created: user={user_id}, service={service_id}")
             
         except Exception as e:
             logger.error(f"Error unlocking service: {str(e)}")
             raise
 
-    async def get_user_services(self, user_id: str) -> List[Dict[str, Any]]:
+    # ─── USER SERVICES ──────────────────────────────────────────────
+
+    async def get_user_services(self, user_id: str) -> Dict[str, bool]:
         """
-        Get all services for a user.
+        Get all services a user has access to.
         
         Args:
             user_id: User ID
             
         Returns:
-            List of user services with service details
+            Dict with service_code as key and boolean access status
         """
         try:
             response = (
                 self.supabase
-                    .table("user_services")
-                    .select("*, services(*)")
-                    .eq("user_id", user_id)
-                    .execute()
+                .table("user_services")
+                .select("services(code, name, price, description, icon)")
+                .eq("user_id", user_id)
+                .eq("status", "active")
+                .execute()
             )
             
-            logger.info(f"Found {len(response.data)} services for user {user_id}")
-            return response.data
+            services = {}
+            now = datetime.utcnow()
+            
+            if response.data:
+                for record in response.data:
+                    service = record.get("services", {})
+                    code = service.get("code")
+                    if code:
+                        # Check expiry
+                        expires_at = record.get("expires_at")
+                        is_expired = False
+                        if expires_at:
+                            try:
+                                expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                                if now > expires:
+                                    is_expired = True
+                            except:
+                                pass
+                        
+                        services[code] = not is_expired
+            
+            return services
             
         except Exception as e:
-            logger.error(f"Error getting user services: {str(e)}")
-            return []
+            logger.error(f"Error getting user services: {e}")
+            return {}
 
     async def get_user_payments(self, user_id: str) -> List[Dict[str, Any]]:
         """
@@ -265,14 +387,13 @@ class MpesaService:
             List of service codes (strings from the services table code column)
         """
         try:
-            # Get paid services from user_services
             response = (
                 self.supabase
-                    .table("user_services")
-                    .select("services(code)")
-                    .eq("user_id", user_id)
-                    .eq("status", "active")
-                    .execute()
+                .table("user_services")
+                .select("services(code)")
+                .eq("user_id", user_id)
+                .eq("status", "active")
+                .execute()
             )
             
             services = []
@@ -287,6 +408,8 @@ class MpesaService:
             logger.error(f"Error getting user paid services: {str(e)}")
             return []
 
+    # ─── AVAILABLE SERVICES ─────────────────────────────────────────
+
     async def get_available_services(self) -> List[Dict[str, Any]]:
         """
         Get all available services.
@@ -297,11 +420,11 @@ class MpesaService:
         try:
             response = (
                 self.supabase
-                    .table("services")
-                    .select("*")
-                    .eq("active", True)
-                    .order("display_order", ascending=True)
-                    .execute()
+                .table("services")
+                .select("*")
+                .eq("active", True)
+                .order("display_order", ascending=True)
+                .execute()
             )
             
             logger.info(f"Found {len(response.data)} available services")
@@ -324,12 +447,12 @@ class MpesaService:
         try:
             response = (
                 self.supabase
-                    .table("services")
-                    .select("*")
-                    .eq("code", service_code)
-                    .eq("active", True)
-                    .single()
-                    .execute()
+                .table("services")
+                .select("*")
+                .eq("code", service_code)
+                .eq("active", True)
+                .single()
+                .execute()
             )
             
             return response.data if response.data else None
@@ -337,6 +460,8 @@ class MpesaService:
         except Exception as e:
             logger.error(f"Error getting service by code {service_code}: {str(e)}")
             return None
+
+    # ─── CALLBACK HANDLING ──────────────────────────────────────────
 
     async def handle_callback(
         self,
@@ -351,6 +476,8 @@ class MpesaService:
     ) -> Dict[str, Any]:
         """
         Handle M-Pesa callback.
+        
+        This is the ONLY place where services should be unlocked.
         
         Args:
             checkout_request_id: Checkout request ID
@@ -384,10 +511,16 @@ class MpesaService:
                 callback_payload=callback_payload
             )
             
-            # If successful, unlock service
+            # ─── UNLOCK SERVICE ONLY ON SUCCESS (ResultCode == 0) ─────
             if result_code == "0" and payment.get("user_id") and payment.get("service_id"):
-                await self.unlock_service(payment["user_id"], payment["service_id"])
-                logger.info(f"Service unlocked via callback for {checkout_request_id}")
+                await self.unlock_service(
+                    user_id=payment["user_id"],
+                    service_id=payment["service_id"],
+                    payment_id=payment.get("id")
+                )
+                logger.info(f"✅ Service unlocked via callback for {checkout_request_id}")
+            else:
+                logger.warning(f"Callback failed: {result_code} - {result_desc}")
             
             return {
                 "status": "updated",
@@ -398,3 +531,18 @@ class MpesaService:
         except Exception as e:
             logger.error(f"Error handling callback: {str(e)}")
             raise
+
+    # ─── CHECK PAYMENT ACCESS ───────────────────────────────────────
+
+    async def check_payment_access(self, user_id: str, service_code: str) -> Dict[str, Any]:
+        """
+        Check payment access for a service.
+        
+        Args:
+            user_id: User ID
+            service_code: Service code
+            
+        Returns:
+            Dict with has_access boolean
+        """
+        return await self.check_service_access(user_id, service_code)
