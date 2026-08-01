@@ -1,7 +1,8 @@
 # app/modules/scraper/vehicle_lookup.py
 # ================================================================
-# Auto-D Kenya - Vehicle Lookup Service
+# Auto-D Kenya - Vehicle Lookup
 # ================================================================
+
 
 import logging
 
@@ -22,8 +23,9 @@ class VehicleLookup:
 
     async def get_make_id(
         self,
-        make_name: str
+        make_name
     ):
+
 
         if not make_name:
 
@@ -32,28 +34,28 @@ class VehicleLookup:
 
         try:
 
-            result = (
+            response = (
                 self.supabase
                 .table("vehicle_makes")
                 .select("id")
                 .ilike(
                     "name",
-                    make_name
+                    make_name.strip()
                 )
                 .limit(1)
                 .execute()
             )
 
 
-            if result.data:
+            if response.data:
 
-                return result.data[0]["id"]
+                return response.data[0]["id"]
 
 
         except Exception as e:
 
             logger.error(
-                f"Make lookup failed {e}"
+                f"Make lookup error: {e}"
             )
 
 
@@ -66,7 +68,7 @@ class VehicleLookup:
     async def get_model_id(
         self,
         make_id,
-        model_name: str
+        model_name
     ):
 
 
@@ -75,10 +77,9 @@ class VehicleLookup:
             return None
 
 
-
         try:
 
-            result = (
+            response = (
                 self.supabase
                 .table("vehicle_models")
                 .select("id")
@@ -88,23 +89,22 @@ class VehicleLookup:
                 )
                 .ilike(
                     "name",
-                    model_name
+                    model_name.strip()
                 )
                 .limit(1)
                 .execute()
             )
 
 
-            if result.data:
+            if response.data:
 
-                return result.data[0]["id"]
-
+                return response.data[0]["id"]
 
 
         except Exception as e:
 
             logger.error(
-                f"Model lookup failed {e}"
+                f"Model lookup error: {e}"
             )
 
 
@@ -114,7 +114,7 @@ class VehicleLookup:
 
 
 
-    async def resolve_vehicle(
+    async def resolve(
         self,
         listing
     ):
