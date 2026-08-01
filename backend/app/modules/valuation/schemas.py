@@ -44,11 +44,30 @@ class ValuationRequest(BaseModel):
     @field_validator('location')
     @classmethod
     def validate_location(cls, v: str) -> str:
-        # Normalize location to lowercase
         return v.lower().strip()
 
 
 # ─── RESPONSE SCHEMAS ─────────────────────────────────────────────
+
+# ─── LEGACY VALUATION RESPONSE (for backward compatibility) ─────
+
+class ValuationResponse(BaseModel):
+    """Legacy valuation response (deprecated - use ValuationReportResponse)."""
+    variant_id: int
+    market_value: float
+    retail_value: float
+    trade_value: float
+    dealer_value: float = 0
+    confidence_score: float = 0
+    base_price: float = 0
+    age_factor: float = 0
+    mileage_factor: float = 0
+    location_factor: float = 0
+    condition_factor: float = 0
+    accident_factor: float = 0
+
+
+# ─── NEW REPORT STRUCTURE ─────────────────────────────────────────
 
 class ReportMetadata(BaseModel):
     """Report metadata section."""
@@ -87,6 +106,8 @@ class ValuationResult(BaseModel):
     retail_value: float = Field(..., description="Retail value")
     trade_value: float = Field(..., description="Trade-in value")
     dealer_value: float = Field(..., description="Dealer value")
+    insurance_value: Optional[float] = Field(None, description="Insurance value")
+    private_sale_value: Optional[float] = Field(None, description="Private sale value")
     currency: str = Field("KES", description="Currency code")
     confidence_score: int = Field(..., description="Confidence score (0-100)")
     estimated_value_range: ValueRange = Field(..., description="Value range")
@@ -97,6 +118,7 @@ class ValuationAnalysis(BaseModel):
     valuation_methodology: List[str] = Field(..., description="Methodology list")
     adjustments: Dict[str, float] = Field(default_factory=dict, description="Value adjustments")
     engine_version: str = Field(..., description="Engine version")
+    explanation: Optional[str] = Field(None, description="AI-generated explanation")
 
 
 class ValuationReportResponse(BaseModel):
@@ -108,43 +130,7 @@ class ValuationReportResponse(BaseModel):
     disclaimer: str = Field(..., description="Legal disclaimer")
 
 
-# ─── LEGACY RESPONSE (for backward compatibility) ────────────────
-
-class LegacyValuationResponse(BaseModel):
-    """Legacy flat response structure (deprecated)."""
-    report_number: str
-    generated_at: str
-    estimated_vehicle_value: float
-    retail_value: float
-    trade_value: float
-    dealer_value: float
-    currency: str
-    confidence_score: int
-    estimated_value_range: ValueRange
-    vehicle: VehicleInfo
-    analysis: ValuationAnalysis
-    disclaimer: str
-    
-    @classmethod
-    def from_report(cls, report: ValuationReportResponse) -> "LegacyValuationResponse":
-        """Convert from new report format to legacy format."""
-        return cls(
-            report_number=report.report.report_number,
-            generated_at=report.report.generated_at,
-            estimated_vehicle_value=report.valuation.estimated_vehicle_value,
-            retail_value=report.valuation.retail_value,
-            trade_value=report.valuation.trade_value,
-            dealer_value=report.valuation.dealer_value,
-            currency=report.valuation.currency,
-            confidence_score=report.valuation.confidence_score,
-            estimated_value_range=report.valuation.estimated_value_range,
-            vehicle=report.vehicle,
-            analysis=report.analysis,
-            disclaimer=report.disclaimer
-        )
-
-
-# ─── SIMPLE RESPONSE (for quick API calls) ────────────────────────
+# ─── SIMPLE RESPONSE ──────────────────────────────────────────────
 
 class SimpleValuationResponse(BaseModel):
     """Simple valuation response for quick lookups."""
@@ -231,18 +217,7 @@ def create_valuation_report(
 ) -> ValuationReportResponse:
     """
     Factory function to create a valuation report response.
-    
-    Args:
-        variant_id: Vehicle variant ID
-        variant_data: Variant data from database
-        valuation_result: Valuation calculation results
-        adjustments: Value adjustments
-        report_number: Optional custom report number
-        
-    Returns:
-        ValuationReportResponse: Complete valuation report
     """
-    from datetime import datetime
     import secrets
     
     if not report_number:
@@ -250,10 +225,11 @@ def create_valuation_report(
         random_suffix = secrets.token_hex(4).upper()
         report_number = f"AUTO-VAL-{timestamp}-{random_suffix}"
     
-    market_value = valuation_result.get("market_value", 0)
+    market_value = valuation_result.get("market_value", valuation_result.get("estimated_vehicle_value", 0))
     retail_value = valuation_result.get("retail_value", market_value * 1.08)
     trade_value = valuation_result.get("trade_value", market_value * 0.85)
-    confidence_score = valuation_result.get("confidence_score", 75)
+    dealer_value = valuation_result.get("dealer_value", market_value * 0.92)
+    confidence = valuation_result.get("confidence_score", 75)
     
     return ValuationReportResponse(
         report=ReportMetadata(
@@ -281,12 +257,14 @@ def create_valuation_report(
             estimated_vehicle_value=market_value,
             retail_value=retail_value,
             trade_value=trade_value,
-            dealer_value=valuation_result.get("dealer_value", retail_value * 0.95),
+            dealer_value=dealer_value,
+            insurance_value=valuation_result.get("insurance_value", market_value * 1.05),
+            private_sale_value=valuation_result.get("private_sale_value", market_value * 1.10),
             currency="KES",
-            confidence_score=confidence_score,
+            confidence_score=confidence,
             estimated_value_range=ValueRange(
-                minimum=market_value * 0.95,
-                maximum=market_value * 1.05
+                minimum=market_value * (0.95 if confidence >= 85 else 0.92),
+                maximum=market_value * (1.05 if confidence >= 85 else 1.08)
             )
         ),
         analysis=ValuationAnalysis(
@@ -300,7 +278,8 @@ def create_valuation_report(
                 "Market comparables analysis"
             ],
             adjustments=adjustments or {},
-            engine_version="AUTO-D AI Valuation Engine v1.2"
+            engine_version="AUTO-D AI Valuation Engine v1.3",
+            explanation=valuation_result.get("explanation", "Valuation based on standard market factors.")
         ),
         disclaimer=(
             "This valuation is generated using the AUTO-D vehicle valuation model. "
@@ -312,3 +291,39 @@ def create_valuation_report(
             "ownership history, maintenance records and prevailing market conditions."
         )
     )
+
+
+# ─── LEGACY CONVERTER ─────────────────────────────────────────────
+
+class LegacyValuationResponse(BaseModel):
+    """Legacy flat response structure for backward compatibility."""
+    report_number: str
+    generated_at: str
+    estimated_vehicle_value: float
+    retail_value: float
+    trade_value: float
+    dealer_value: float
+    currency: str
+    confidence_score: int
+    estimated_value_range: ValueRange
+    vehicle: VehicleInfo
+    analysis: ValuationAnalysis
+    disclaimer: str
+    
+    @classmethod
+    def from_report(cls, report: ValuationReportResponse) -> "LegacyValuationResponse":
+        """Convert from new report format to legacy format."""
+        return cls(
+            report_number=report.report.report_number,
+            generated_at=report.report.generated_at,
+            estimated_vehicle_value=report.valuation.estimated_vehicle_value,
+            retail_value=report.valuation.retail_value,
+            trade_value=report.valuation.trade_value,
+            dealer_value=report.valuation.dealer_value,
+            currency=report.valuation.currency,
+            confidence_score=report.valuation.confidence_score,
+            estimated_value_range=report.valuation.estimated_value_range,
+            vehicle=report.vehicle,
+            analysis=report.analysis,
+            disclaimer=report.disclaimer
+        )
