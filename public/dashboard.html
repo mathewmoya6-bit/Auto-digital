@@ -517,23 +517,30 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// AUTO-D KENYA DASHBOARD - PRODUCTION READY
+// AUTO-D KENYA DASHBOARD - PRODUCTION READY v2.1
 // ═══════════════════════════════════════════════════════════════
 
 (function() {
     'use strict';
 
-    const API_BASE = 'https://auto-digital.onrender.com/api/v1';
-    const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+    // ─── CONFIGURATION ──────────────────────────────────────────
+    const CONFIG = {
+        API_BASE: 'https://auto-digital.onrender.com/api/v1',
+        SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
+        SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
+        DASHBOARD_URL: '/dashboard.html'
+    };
 
     // ─── SERVICE ROUTES ──────────────────────────────────────────
     const SERVICE_ROUTES = {
         'valuation': '/instant-value.html',
-        'mileage': '/mileage.html',
-        'ownership': '/ownership-cost.html'
+        'mileage': '/reports.html',
+        'ownership': '/ownership-cost.html',
+        'tco': '/ownership-cost.html',
+        'valuation_report': '/reports.html'
     };
 
+    // ─── STATE ──────────────────────────────────────────────────
     let supabaseClient = null;
     let selectedService = null;
     let selectedServiceName = null;
@@ -544,6 +551,7 @@
     let isAuthenticated = false;
     let accessToken = null;
     let paymentCompleted = false;
+    let isPolling = false;
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const servicesEl = document.getElementById('services');
@@ -561,7 +569,7 @@
                 return null;
             }
             const { createClient } = supabase;
-            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+            supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
                 auth: {
                     autoRefreshToken: true,
                     persistSession: true,
@@ -756,7 +764,8 @@
             headers['Authorization'] = `Bearer ${token}`;
         }
 
-        const response = await fetch(API_BASE + path, {
+        const url = CONFIG.API_BASE + path;
+        const response = await fetch(url, {
             ...options,
             headers,
             credentials: 'include'
@@ -770,7 +779,7 @@
                         accessToken = session.access_token;
                         localStorage.setItem('access_token', accessToken);
                         headers['Authorization'] = `Bearer ${accessToken}`;
-                        const retryResponse = await fetch(API_BASE + path, {
+                        const retryResponse = await fetch(url, {
                             ...options,
                             headers,
                             credentials: 'include'
@@ -1011,7 +1020,8 @@
                     phone: phone,
                     service_id: selectedService,
                     description: selectedServiceName || selectedService,
-                    request_id: null
+                    request_id: null,
+                    amount: selectedServicePrice
                 })
             });
 
@@ -1046,12 +1056,19 @@
         if (statusTimer) {
             clearInterval(statusTimer);
         }
+        isPolling = true;
         statusTimer = setInterval(checkPaymentStatus, 5000);
         setTimeout(checkPaymentStatus, 1000);
     }
 
     async function checkPaymentStatus() {
         if (!checkoutRequestId) return;
+        if (paymentCompleted) {
+            clearInterval(statusTimer);
+            statusTimer = null;
+            isPolling = false;
+            return;
+        }
 
         try {
             const status = await api(`/mpesa/status/${checkoutRequestId}`);
@@ -1065,6 +1082,7 @@
 
                 clearInterval(statusTimer);
                 statusTimer = null;
+                isPolling = false;
                 localStorage.removeItem('pending_checkout');
 
                 if (!paymentCompleted) {
@@ -1072,7 +1090,6 @@
                     showToast('✅ Payment completed! Redirecting...', 'success');
                     await loadPayments();
 
-                    // ─── ✅ REDIRECT TO SERVICE PAGE ──────────────────
                     const serviceCode = localStorage.getItem('pending_service') || selectedService;
                     const serviceName = localStorage.getItem('pending_service_name') || selectedServiceName;
                     
@@ -1097,6 +1114,7 @@
 
                 clearInterval(statusTimer);
                 statusTimer = null;
+                isPolling = false;
                 localStorage.removeItem('pending_checkout');
                 localStorage.removeItem('pending_service');
                 localStorage.removeItem('pending_service_name');
@@ -1145,8 +1163,8 @@
 
     // ─── INIT ──────────────────────────────────────────────────
     async function init() {
-        console.log('🚗 Auto-D Kenya Dashboard v2.0');
-        console.log('📡 API Base:', API_BASE);
+        console.log('🚗 Auto-D Kenya Dashboard v2.1');
+        console.log('📡 API Base:', CONFIG.API_BASE);
 
         initSupabase();
         await getCurrentUser();
@@ -1202,7 +1220,8 @@
         currentUser: () => currentUser,
         isAuthenticated: () => isAuthenticated,
         loadDashboard,
-        SERVICE_ROUTES
+        SERVICE_ROUTES,
+        CONFIG
     };
 
     if (document.readyState === 'loading') {
