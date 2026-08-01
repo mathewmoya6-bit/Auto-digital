@@ -1,33 +1,39 @@
 # app/modules/scraper/__init__.py
+# ================================================================
 # Auto-D Kenya - Scraper Module
 # ================================================================
 
-"""Scraper module for Auto-D Kenya."""
 
-from .router import router
-from .service import ScraperService
-from .worker import ScraperWorker
-from .autochek import AutochekScraper
-from .jiji import JijiScraper
-from .carapi import CarApiScraper
-from .schemas import (
-    ScraperRunRequest,
-    ScraperRunResponse,
-    ScraperStatusResponse,
-    ScraperSourceResponse,
-    ScraperHealthResponse
-)
+from app.modules.scraper.base_scraper import BaseScraper
+
+from app.modules.scraper.jiji import JijiScraper
+
+from app.modules.scraper.cheki import ChekiScraper
+
+from app.modules.scraper.autochek import AutochekScraper
+
+from app.modules.scraper.beepbeep import BeepBeepScraper
+
+from app.modules.scraper.worker import ScraperWorker
+
+from app.modules.scraper.service import ScraperService
+
+
 
 __all__ = [
-    "router",
-    "ScraperService",
-    "ScraperWorker",
-    "AutochekScraper",
+
+    "BaseScraper",
+
     "JijiScraper",
-    "CarApiScraper",
-    "ScraperRunRequest",
-    "ScraperRunResponse",
-    "ScraperStatusResponse",
-    "ScraperSourceResponse",
-    "ScraperHealthResponse"
+
+    "ChekiScraper",
+
+    "AutochekScraper",
+
+    "BeepBeepScraper",
+
+    "ScraperWorker",
+
+    "ScraperService"
+
 ]
