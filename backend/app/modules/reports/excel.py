@@ -1,94 +1,362 @@
 # app/modules/reports/excel.py
+# ================================================================
 # Auto-D Kenya - Excel Report Generator
 # ================================================================
-# TYPE: MODULE - Excel generation for reports
 
 import io
 from datetime import datetime
+
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import (
+    Font,
+    PatternFill,
+    Border,
+    Side,
+    Alignment,
+)
 from openpyxl.utils import get_column_letter
 
 
 class ExcelGenerator:
-    """Excel report generator."""
-    
+    """Professional Excel Report Generator."""
+
+    DARK = "0F172A"
+    GOLD = "F59E0B"
+    GREEN = "16A34A"
+    LIGHT = "F8FAFC"
+    BORDER = "CBD5E1"
+
     @staticmethod
-    def generate_valuation_report(data: dict) -> bytes:
-        """Generate a valuation report Excel file."""
+    def money(value):
+        try:
+            return float(value)
+        except Exception:
+            return 0
+
+    @staticmethod
+    def generate_valuation_report(report: dict) -> bytes:
+
         wb = Workbook()
-        
-        # Get active worksheet
         ws = wb.active
-        ws.title = "Valuation Report"
-        
+        ws.title = "Valuation Summary"
+
+        valuation = report.get("valuation", {})
+        vehicle = valuation.get("vehicle", {})
+        explanation = valuation.get("price_explanation", {})
+        value_range = valuation.get("estimated_value_range", {})
+
+        # ----------------------------------------------------
         # Styles
-        header_font = Font(bold=True, color="FFFFFF", size=12)
-        header_fill = PatternFill(start_color="1a2332", end_color="1a2332", fill_type="solid")
-        border = Border(
-            left=Side(style='thin', color='334155'),
-            right=Side(style='thin', color='334155'),
-            top=Side(style='thin', color='334155'),
-            bottom=Side(style='thin', color='334155')
+        # ----------------------------------------------------
+
+        title_font = Font(size=20, bold=True, color=ExcelGenerator.DARK)
+        heading_font = Font(size=13, bold=True, color="FFFFFF")
+        label_font = Font(bold=True)
+        value_font = Font(size=24, bold=True, color=ExcelGenerator.GREEN)
+
+        gold_fill = PatternFill(
+            fill_type="solid",
+            start_color=ExcelGenerator.GOLD,
+            end_color=ExcelGenerator.GOLD,
         )
-        
-        # Title
-        ws['A1'] = "Auto-D Kenya Valuation Report"
-        ws['A1'].font = Font(bold=True, size=16)
-        ws.merge_cells('A1:D1')
-        
-        # Date
-        ws['A2'] = f"Generated: {datetime.utcnow().strftime('%B %d, %Y')}"
-        ws.merge_cells('A2:D2')
-        
-        # Blank row
-        ws.append([])
-        
-        # Vehicle details section
-        ws['A4'] = "Vehicle Details"
-        ws['A4'].font = Font(bold=True, size=14)
-        
-        # Vehicle data
-        vehicle = data.get("vehicle", {})
-        ws.append(["Make/Model", vehicle.get('make_model', 'N/A')])
-        ws.append(["Plate", vehicle.get('plate', 'N/A')])
-        ws.append(["Year", vehicle.get('year', 'N/A')])
-        ws.append(["Mileage", f"{vehicle.get('mileage', 0):,} km"])
-        
-        # Blank row
-        ws.append([])
-        
-        # Valuation results section
-        ws['A10'] = "Valuation Results"
-        ws['A10'].font = Font(bold=True, size=14)
-        
-        valuation = data.get("valuation", {})
-        ws.append(["Market Value", f"KES {valuation.get('market_value', 0):,.0f}"])
-        ws.append(["Retail Value", f"KES {valuation.get('retail_value', 0):,.0f}"])
-        ws.append(["Trade Value", f"KES {valuation.get('trade_value', 0):,.0f}"])
-        ws.append(["Confidence Score", f"{valuation.get('confidence_score', 0)}%"])
-        
-        # Apply styles
-        for row in ws.iter_rows(min_row=4, max_row=ws.max_row):
-            for cell in row:
-                cell.border = border
-        
-        # Auto-fit columns
-        for col in range(1, 5):
-            column_letter = get_column_letter(col)
-            max_length = 0
-            for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=col, max_col=col):
-                for cell in row:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-            adjusted_width = min(max_length + 2, 30)
-            ws.column_dimensions[column_letter].width = adjusted_width
-        
-        # Save to bytes
+
+        light_fill = PatternFill(
+            fill_type="solid",
+            start_color=ExcelGenerator.LIGHT,
+            end_color=ExcelGenerator.LIGHT,
+        )
+
+        thin = Side(style="thin", color=ExcelGenerator.BORDER)
+
+        border = Border(
+            left=thin,
+            right=thin,
+            top=thin,
+            bottom=thin,
+        )
+
+        center = Alignment(horizontal="center")
+        left = Alignment(horizontal="left")
+
+        row = 1
+
+        # ----------------------------------------------------
+        # Header
+        # ----------------------------------------------------
+
+        ws.merge_cells("A1:F1")
+        ws["A1"] = "AUTO-D KENYA"
+        ws["A1"].font = title_font
+        ws["A1"].alignment = center
+
+        row += 1
+
+        ws.merge_cells("A2:F2")
+        ws["A2"] = "Vehicle Valuation Report"
+        ws["A2"].alignment = center
+        ws["A2"].font = Font(size=16, bold=True)
+
+        row = 4
+
+        ws["A4"] = "Generated"
+        ws["B4"] = datetime.now().strftime("%d %B %Y %H:%M")
+
+        row = 6
+
+        # ----------------------------------------------------
+        # Estimated Value
+        # ----------------------------------------------------
+
+        ws.merge_cells("A6:F6")
+        ws["A6"] = "ESTIMATED MARKET VALUE"
+        ws["A6"].fill = gold_fill
+        ws["A6"].font = heading_font
+        ws["A6"].alignment = center
+
+        row = 7
+
+        ws.merge_cells("A7:F7")
+
+        value = valuation.get(
+            "estimated_vehicle_value",
+            valuation.get("market_value", 0),
+        )
+
+        ws["A7"] = value
+        ws["A7"].number_format = '"KES" #,##0'
+        ws["A7"].font = value_font
+        ws["A7"].alignment = center
+
+        row = 9
+
+        ws["A9"] = "Confidence"
+        ws["B9"] = f"{valuation.get('confidence_score',0)}%"
+
+        ws["D9"] = "Value Range"
+
+        ws["E9"] = (
+            f"KES {value_range.get('minimum',0):,.0f}"
+            f" - "
+            f"KES {value_range.get('maximum',0):,.0f}"
+        )
+
+        row = 11
+
+        # ----------------------------------------------------
+        # Vehicle Profile
+        # ----------------------------------------------------
+
+        ws["A11"] = "Vehicle Profile"
+        ws["A11"].fill = gold_fill
+        ws["A11"].font = heading_font
+
+        profile = [
+            ("Make", vehicle.get("make")),
+            ("Model", vehicle.get("model")),
+            ("Variant", vehicle.get("variant")),
+            ("Year", vehicle.get("year")),
+            ("Mileage", f"{vehicle.get('mileage',0):,} km"),
+            ("Fuel", vehicle.get("fuel_type")),
+            ("Transmission", vehicle.get("transmission")),
+            ("Engine", f"{vehicle.get('engine_size_cc',0)} cc"),
+            ("Body", vehicle.get("body_type")),
+            ("Condition", vehicle.get("condition")),
+            ("Location", vehicle.get("location")),
+        ]
+
+        row = 12
+
+        for label, value in profile:
+            ws[f"A{row}"] = label
+            ws[f"B{row}"] = value
+
+            ws[f"A{row}"].font = label_font
+            ws[f"A{row}"].fill = light_fill
+
+            ws[f"A{row}"].border = border
+            ws[f"B{row}"].border = border
+
+            row += 1
+
+        row += 1
+
+        # ----------------------------------------------------
+        # Values
+        # ----------------------------------------------------
+
+        ws[f"A{row}"] = "Valuation Results"
+        ws[f"A{row}"].fill = gold_fill
+        ws[f"A{row}"].font = heading_font
+
+        row += 1
+
+        values = [
+            ("Market Value", valuation.get("market_value")),
+            ("Retail Value", valuation.get("retail_value")),
+            ("Dealer Value", valuation.get("dealer_value")),
+            ("Trade Value", valuation.get("trade_value")),
+            ("Base Price", valuation.get("base_price")),
+        ]
+
+        for label, value in values:
+
+            ws[f"A{row}"] = label
+            ws[f"B{row}"] = value
+
+            ws[f"A{row}"].font = label_font
+            ws[f"A{row}"].fill = light_fill
+
+            ws[f"B{row}"].number_format = '"KES" #,##0'
+
+            ws[f"A{row}"].border = border
+            ws[f"B{row}"].border = border
+
+            row += 1
+
+        row += 1
+
+        # ----------------------------------------------------
+        # Factors
+        # ----------------------------------------------------
+
+        ws[f"A{row}"] = "Adjustment Factors"
+        ws[f"A{row}"].fill = gold_fill
+        ws[f"A{row}"].font = heading_font
+
+        row += 1
+
+        factors = [
+            ("Mileage", valuation.get("mileage_factor")),
+            ("Condition", valuation.get("condition_factor")),
+            ("Accident", valuation.get("accident_factor")),
+            ("Location", valuation.get("location_factor")),
+            ("Demand", valuation.get("demand_factor")),
+            ("Trend", valuation.get("trend_factor")),
+            ("Features", valuation.get("feature_factor")),
+        ]
+
+        for label, value in factors:
+
+            ws[f"A{row}"] = label
+            ws[f"B{row}"] = value
+
+            ws[f"A{row}"].font = label_font
+            ws[f"A{row}"].fill = light_fill
+
+            ws[f"A{row}"].border = border
+            ws[f"B{row}"].border = border
+
+            row += 1
+
+        row += 1
+
+        # ----------------------------------------------------
+        # Market Information
+        # ----------------------------------------------------
+
+        ws[f"A{row}"] = "Market Information"
+        ws[f"A{row}"].fill = gold_fill
+        ws[f"A{row}"].font = heading_font
+
+        row += 1
+
+        market = [
+            ("Base Price Source", valuation.get("base_price_source")),
+            ("Listing Count", valuation.get("listing_count")),
+            ("Confidence", valuation.get("confidence_score")),
+        ]
+
+        for label, value in market:
+
+            ws[f"A{row}"] = label
+            ws[f"B{row}"] = value
+
+            ws[f"A{row}"].font = label_font
+            ws[f"A{row}"].fill = light_fill
+
+            ws[f"A{row}"].border = border
+            ws[f"B{row}"].border = border
+
+            row += 1
+
+        row += 1
+
+        # ----------------------------------------------------
+        # Summary
+        # ----------------------------------------------------
+
+        ws[f"A{row}"] = "Valuation Summary"
+        ws[f"A{row}"].fill = gold_fill
+        ws[f"A{row}"].font = heading_font
+
+        row += 1
+
+        ws.merge_cells(
+            start_row=row,
+            start_column=1,
+            end_row=row + 3,
+            end_column=6,
+        )
+
+        ws.cell(row=row, column=1).value = explanation.get(
+            "summary",
+            "Vehicle valued using AUTO-D valuation engine."
+        )
+
+        ws.cell(row=row, column=1).alignment = Alignment(
+            wrap_text=True,
+            vertical="top",
+        )
+
+        row += 5
+
+        # ----------------------------------------------------
+        # Disclaimer
+        # ----------------------------------------------------
+
+        ws[f"A{row}"] = "Disclaimer"
+        ws[f"A{row}"].fill = gold_fill
+        ws[f"A{row}"].font = heading_font
+
+        row += 1
+
+        ws.merge_cells(
+            start_row=row,
+            start_column=1,
+            end_row=row + 4,
+            end_column=6,
+        )
+
+        ws.cell(row=row, column=1).value = (
+            "This valuation represents an indicative market value "
+            "generated by the AUTO-D Kenya valuation engine using "
+            "market data, depreciation models, mileage, condition "
+            "and regional demand. Actual transaction values may vary."
+        )
+
+        ws.cell(row=row, column=1).alignment = Alignment(
+            wrap_text=True
+        )
+
+        # ----------------------------------------------------
+        # Formatting
+        # ----------------------------------------------------
+
+        ws.freeze_panes = "A6"
+
+        for col in range(1, 7):
+
+            width = 20
+
+            if col == 2:
+                width = 35
+
+            ws.column_dimensions[
+                get_column_letter(col)
+            ].width = width
+
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
+
         return buffer.getvalue()
