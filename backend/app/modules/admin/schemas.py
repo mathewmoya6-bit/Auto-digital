@@ -107,9 +107,18 @@ class AdminUserDetail(AdminUser):
     """Detailed admin user with payments."""
     model_config = ConfigDict(from_attributes=True)
     
-    app_metadata: dict[str, Any] = Field(default_factory=dict, description="App metadata")
-    user_metadata: dict[str, Any] = Field(default_factory=dict, description="User metadata")
-    payments: list["AdminPayment"] = Field(default_factory=list, description="User payments")
+    class AppMetadata(BaseModel):
+    role: str | None = None
+
+class UserMetadata(BaseModel):
+    full_name: str | None = None
+    phone: str | None = None
+
+class AdminUserDetail(BaseModel):
+    ...
+    app_metadata: AppMetadata = Field(default_factory=AppMetadata)
+    user_metadata: UserMetadata = Field(default_factory=UserMetadata)
+    payments: list[AdminPayment] = Field(default_factory=list))
 
 
 class AdminUsersResponse(BaseModel):
