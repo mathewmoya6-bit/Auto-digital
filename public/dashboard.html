@@ -504,6 +504,11 @@
             50% { background-color: rgba(234, 179, 8, 0.2); }
         }
 
+        .no-price {
+            color: var(--red);
+            font-size: 11px;
+        }
+
         @media (max-width: 768px) {
             .container { padding: 16px; }
             .card { padding: 18px 20px; }
@@ -559,7 +564,7 @@
             </div>
             <span style="font-size:12px;color:var(--text-muted);">
                 <i class="fas fa-sync-alt" id="priceStatus" style="color:var(--green);"></i>
-                Prices update automatically
+                Prices from Admin Dashboard
             </span>
         </div>
 
@@ -634,7 +639,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// AUTO-D KENYA DASHBOARD - REAL-TIME PRICE SYNC v6.0
+// AUTO-D KENYA DASHBOARD - NO HARDCODED PRICES v7.0
+// All prices come from Admin Dashboard via API
 // ═══════════════════════════════════════════════════════════════
 
 (function() {
@@ -646,7 +652,6 @@
         SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
         SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
         DASHBOARD_URL: '/dashboard.html',
-        PRICE_REFRESH_INTERVAL: 10000, // 10 seconds
         PRICE_POLLING_INTERVAL: 30000 // 30 seconds
     };
 
@@ -698,9 +703,9 @@
     let activeTab = 'valuation';
     let currentServices = [];
     let servicePrices = {};
-    let priceRefreshTimer = null;
     let pricePollingTimer = null;
     let lastPriceUpdate = null;
+    let pricesLoaded = false;
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const servicesEl = document.getElementById('services');
@@ -1007,15 +1012,11 @@
     window.switchServiceTab = function(serviceCode) {
         activeTab = serviceCode;
         
-        // Update tab UI
         document.querySelectorAll('.service-tab').forEach(tab => {
             tab.classList.toggle('active', tab.dataset.service === serviceCode);
         });
         
-        // Update badge status
         updateTabBadges();
-        
-        // Render services for this tab
         renderServicesForTab(serviceCode);
     };
 
@@ -1037,9 +1038,9 @@
         if (!service) return;
 
         const hasAccess = serviceAccess[serviceCode] === true;
-        const price = servicePrices[serviceCode] || 500;
-        const priceSource = servicePrices[serviceCode] ? 'admin' : 'default';
-        const isLive = lastPriceUpdate !== null;
+        const price = servicePrices[serviceCode] || null;
+        const hasPrice = price !== null && price !== undefined;
+        const priceDisplay = hasPrice ? `KES ${price.toLocaleString()}` : '<span class="no-price">Price not set</span>';
 
         servicesEl.innerHTML = `
             <div class="service-item" id="service-item-${serviceCode}">
@@ -1050,20 +1051,24 @@
                         ${hasAccess ? '✅ Unlocked' : '🔒 Locked'}
                     </div>
                     <span class="price-source" id="price-source-${serviceCode}">
-                        Price: <strong id="price-display-${serviceCode}">KES ${price.toLocaleString()}</strong>
-                        <span class="admin-badge">${priceSource === 'admin' ? '📋 Admin Set' : 'Default'}</span>
-                        ${isLive ? '<span class="live-badge">🔄 Live</span>' : ''}
+                        Price: <strong id="price-display-${serviceCode}">${priceDisplay}</strong>
+                        ${hasPrice ? '<span class="admin-badge">📋 Admin Set</span>' : '<span class="admin-badge" style="background:rgba(239,68,68,0.15);color:var(--red);">⚠️ Not Set</span>'}
+                        <span class="live-badge">🔄 Live</span>
                     </span>
                 </div>
                 <div class="service-actions">
-                    <div class="service-price" id="price-${serviceCode}">KES ${price.toLocaleString()}</div>
+                    <div class="service-price" id="price-${serviceCode}">${priceDisplay}</div>
                     ${hasAccess 
                         ? `<button class="btn btn-success btn-sm" onclick="window.openService('${serviceCode}')">
                             <i class="fas fa-external-link-alt"></i> Open Report
                            </button>`
-                        : `<button class="btn btn-primary btn-sm" onclick="window.selectService('${serviceCode}', '${service.name}', ${price})">
-                            <i class="fas fa-shopping-cart"></i> Pay to Unlock
-                           </button>`
+                        : hasPrice
+                            ? `<button class="btn btn-primary btn-sm" onclick="window.selectService('${serviceCode}', '${service.name}', ${price})">
+                                <i class="fas fa-shopping-cart"></i> Pay ${price.toLocaleString()} KES
+                               </button>`
+                            : `<button class="btn btn-sm" disabled style="background:rgba(239,68,68,0.15);color:var(--red);cursor:not-allowed;">
+                                <i class="fas fa-exclamation-circle"></i> Price Not Set
+                               </button>`
                     }
                 </div>
             </div>
@@ -1076,8 +1081,17 @@
         const priceElement = document.getElementById(`price-${serviceCode}`);
         const serviceItem = document.getElementById(`service-item-${serviceCode}`);
         
+        const priceText = newPrice ? `KES ${newPrice.toLocaleString()}` : '<span class="no-price">Price not set</span>';
+        
         if (priceDisplay) {
-            priceDisplay.textContent = `KES ${newPrice.toLocaleString()}`;
+            priceDisplay.innerHTML = newPrice ? `KES ${newPrice.toLocaleString()}` : '<span class="no-price">Price not set</span>';
+            // Update badge
+            const badge = priceDisplay.parentElement.querySelector('.admin-badge');
+            if (badge) {
+                badge.textContent = newPrice ? '📋 Admin Set' : '⚠️ Not Set';
+                badge.style.background = newPrice ? 'rgba(59,130,246,0.15)' : 'rgba(239,68,68,0.15)';
+                badge.style.color = newPrice ? 'var(--blue)' : 'var(--red)';
+            }
             // Flash animation
             priceDisplay.parentElement.classList.add('price-updated');
             setTimeout(() => {
@@ -1086,16 +1100,31 @@
         }
         
         if (priceElement) {
-            priceElement.textContent = `KES ${newPrice.toLocaleString()}`;
+            priceElement.innerHTML = priceText;
         }
         
         if (serviceItem) {
-            // Update the service status if needed
+            // Update the action button
+            const actionsDiv = serviceItem.querySelector('.service-actions');
             const hasAccess = serviceAccess[serviceCode] === true;
-            const statusEl = serviceItem.querySelector('.service-status');
-            if (statusEl) {
-                statusEl.textContent = hasAccess ? '✅ Unlocked' : '🔒 Locked';
-                statusEl.className = `service-status ${hasAccess ? 'unlocked' : 'locked'}`;
+            
+            if (actionsDiv) {
+                const btn = actionsDiv.querySelector('.btn');
+                if (btn) {
+                    if (hasAccess) {
+                        btn.outerHTML = `<button class="btn btn-success btn-sm" onclick="window.openService('${serviceCode}')">
+                            <i class="fas fa-external-link-alt"></i> Open Report
+                        </button>`;
+                    } else if (newPrice) {
+                        btn.outerHTML = `<button class="btn btn-primary btn-sm" onclick="window.selectService('${serviceCode}', '${SERVICE_DETAILS[serviceCode]?.name || serviceCode}', ${newPrice})">
+                            <i class="fas fa-shopping-cart"></i> Pay ${newPrice.toLocaleString()} KES
+                        </button>`;
+                    } else {
+                        btn.outerHTML = `<button class="btn btn-sm" disabled style="background:rgba(239,68,68,0.15);color:var(--red);cursor:not-allowed;">
+                            <i class="fas fa-exclamation-circle"></i> Price Not Set
+                        </button>`;
+                    }
+                }
             }
         }
     }
@@ -1112,14 +1141,14 @@
             const servicesData = await api('/mpesa/services');
             currentServices = servicesData.services || [];
             
-            // Extract prices into a lookup map
+            // ✅ NO HARDCODED PRICES - Extract only from API
             let pricesChanged = false;
             currentServices.forEach(service => {
                 const code = service.code;
-                const newPrice = service.price || 500;
-                const oldPrice = servicePrices[code] || 500;
+                const newPrice = service.price; // Use exactly what API returns
                 
-                if (oldPrice !== newPrice) {
+                // Only update if different
+                if (servicePrices[code] !== newPrice) {
                     pricesChanged = true;
                     // Update the display if the tab is active
                     if (activeTab === code) {
@@ -1130,6 +1159,8 @@
                 servicePrices[code] = newPrice;
             });
             
+            // ✅ NO DEFAULT PRICES - If a service has no price, it remains null
+            pricesLoaded = true;
             lastPriceUpdate = new Date();
             
             if (!silent) {
@@ -1140,7 +1171,7 @@
                 }
             }
             
-            console.log('📋 Service prices loaded from admin:', servicePrices);
+            console.log('📋 Service prices loaded from admin (NO HARDCODED):', servicePrices);
             
             return servicePrices;
         } catch (error) {
@@ -1148,29 +1179,21 @@
             if (!silent) {
                 priceStatus.className = 'fas fa-sync-alt';
                 priceStatus.style.color = 'var(--red)';
+                showToast('⚠️ Failed to load prices from admin', 'error');
             }
-            // Fallback defaults if API fails
-            if (!servicePrices.valuation) {
-                servicePrices = {
-                    'valuation': 500,
-                    'mileage': 500,
-                    'ownership': 500
-                };
-            }
+            // ✅ NO FALLBACK DEFAULTS - Only use what API returns
             return servicePrices;
         }
     }
 
-    // ─── REAL-TIME PRICE POLLING ─────────────────────────────
+    // ─── PRICE POLLING ─────────────────────────────────────────
     function startPricePolling() {
-        // Clear existing timers
         stopPricePolling();
         
-        // Poll every 30 seconds for price changes
         pricePollingTimer = setInterval(async () => {
             if (isAuthenticated) {
                 console.log('🔄 Polling for price updates...');
-                await loadServicePrices(true); // Silent update
+                await loadServicePrices(true);
             }
         }, CONFIG.PRICE_POLLING_INTERVAL);
         
@@ -1181,10 +1204,6 @@
         if (pricePollingTimer) {
             clearInterval(pricePollingTimer);
             pricePollingTimer = null;
-        }
-        if (priceRefreshTimer) {
-            clearInterval(priceRefreshTimer);
-            priceRefreshTimer = null;
         }
     }
 
@@ -1230,23 +1249,22 @@
             return;
         }
 
-        // Check access before opening
         const hasAccess = await checkServiceAccess(serviceCode);
         
         if (!hasAccess) {
             showToast('🔒 Please pay to unlock this service', 'warning');
-            const price = servicePrices[serviceCode] || 500;
+            const price = servicePrices[serviceCode];
             const service = currentServices.find(s => s.code === serviceCode);
-            if (service) {
+            if (service && price) {
                 window.selectService(serviceCode, service.name, price);
+            } else {
+                showToast('⚠️ Service price not set by admin', 'error');
             }
             return;
         }
 
-        // Clear cached access
         localStorage.removeItem('service_access');
 
-        // Redirect to service page
         const route = SERVICE_ROUTES[serviceCode];
         if (route) {
             const details = SERVICE_DETAILS[serviceCode];
@@ -1261,9 +1279,14 @@
 
     // ─── SELECT SERVICE (FOR PAYMENT) ────────────────────────
     window.selectService = function(code, name, price) {
+        if (!price) {
+            showToast('⚠️ Service price not set by admin', 'error');
+            return;
+        }
+        
         selectedService = code;
         selectedServiceName = name;
-        selectedServicePrice = price || servicePrices[code] || 500;
+        selectedServicePrice = price;
         paymentCompleted = false;
 
         payBtn.disabled = false;
@@ -1451,7 +1474,6 @@
                     localStorage.removeItem('pending_service');
                     localStorage.removeItem('pending_service_name');
 
-                    // Confirm payment with backend
                     try {
                         await api(`/mpesa/confirm/${checkoutRequestId}`, {
                             method: 'POST'
@@ -1460,15 +1482,11 @@
                         console.warn('Confirm API warning:', confirmErr);
                     }
 
-                    // Reload services to update access
                     await loadUserServices();
-                    
-                    // Clear cached access
                     localStorage.removeItem('service_access');
 
                     showToast(`✅ ${serviceName} unlocked! You can now access it.`, 'success');
                     
-                    // Auto-open the service
                     setTimeout(() => {
                         window.openService(serviceCode);
                     }, 1500);
@@ -1500,6 +1518,53 @@
         }
     }
 
+    // ─── SUPABASE REALTIME PRICE UPDATES ──────────────────────
+    function setupRealtimePriceUpdates() {
+        if (!supabaseClient) return;
+
+        try {
+            const channel = supabaseClient
+                .channel('services-changes')
+                .on(
+                    'postgres_changes',
+                    {
+                        event: 'UPDATE',
+                        schema: 'public',
+                        table: 'services'
+                    },
+                    (payload) => {
+                        console.log('🔄 Real-time price update received:', payload);
+                        
+                        const updatedService = payload.new;
+                        if (updatedService && updatedService.code) {
+                            const code = updatedService.code;
+                            const newPrice = updatedService.price; // ✅ Use exact price from DB
+                            
+                            // Update in-memory prices
+                            servicePrices[code] = newPrice;
+                            lastPriceUpdate = new Date();
+                            
+                            if (activeTab === code) {
+                                updatePriceDisplay(code, newPrice);
+                            }
+                            
+                            if (newPrice !== null && newPrice !== undefined) {
+                                showToast(`🔄 ${updatedService.name} price updated to KES ${newPrice.toLocaleString()}`, 'info');
+                            } else {
+                                showToast(`🔄 ${updatedService.name} price removed`, 'warning');
+                            }
+                        }
+                    }
+                )
+                .subscribe();
+
+            console.log('✅ Supabase Realtime price updates enabled');
+            window.__realtimeChannel = channel;
+        } catch (error) {
+            console.warn('⚠️ Could not setup real-time updates:', error);
+        }
+    }
+
     // ─── LOAD DASHBOARD ──────────────────────────────────────────
     async function loadDashboard() {
         await loadUserServices();
@@ -1526,9 +1591,9 @@
 
     // ─── INIT ──────────────────────────────────────────────────
     async function init() {
-        console.log('🚗 Auto-D Kenya Dashboard v6.0 - Real-Time Price Sync');
+        console.log('🚗 Auto-D Kenya Dashboard v7.0 - NO HARDCODED PRICES');
         console.log('📡 API Base:', CONFIG.API_BASE);
-        console.log(`🔄 Price refresh interval: ${CONFIG.PRICE_POLLING_INTERVAL/1000}s`);
+        console.log('🔄 All prices come from Admin Dashboard');
 
         initSupabase();
         await getCurrentUser();
@@ -1558,8 +1623,8 @@
         }
 
         await loadDashboard();
+        setupRealtimePriceUpdates();
 
-        // Check for pending payment on page load
         const pendingCheckout = localStorage.getItem('pending_checkout');
         const pendingService = localStorage.getItem('pending_service');
         if (pendingCheckout && pendingService) {
@@ -1568,56 +1633,6 @@
             selectedServiceName = localStorage.getItem('pending_service_name') || pendingService;
             setStatus(`⏳ Resuming pending payment...\nCheckout ID: ${checkoutRequestId}`, 'pending');
             startStatusPolling();
-        }
-
-        // Setup real-time price updates via Supabase Realtime (if available)
-        setupRealtimePriceUpdates();
-    }
-
-    // ─── SUPABASE REALTIME PRICE UPDATES ──────────────────────
-    function setupRealtimePriceUpdates() {
-        if (!supabaseClient) return;
-
-        try {
-            // Subscribe to changes on the services table
-            const channel = supabaseClient
-                .channel('services-changes')
-                .on(
-                    'postgres_changes',
-                    {
-                        event: 'UPDATE',
-                        schema: 'public',
-                        table: 'services'
-                    },
-                    (payload) => {
-                        console.log('🔄 Real-time price update received:', payload);
-                        
-                        const updatedService = payload.new;
-                        if (updatedService && updatedService.code) {
-                            const code = updatedService.code;
-                            const newPrice = updatedService.price || 500;
-                            
-                            // Update in-memory prices
-                            servicePrices[code] = newPrice;
-                            lastPriceUpdate = new Date();
-                            
-                            // Update UI if this tab is active
-                            if (activeTab === code) {
-                                updatePriceDisplay(code, newPrice);
-                            }
-                            
-                            showToast(`🔄 ${updatedService.name} price updated to KES ${newPrice.toLocaleString()}`, 'info');
-                        }
-                    }
-                )
-                .subscribe();
-
-            console.log('✅ Supabase Realtime price updates enabled');
-            
-            // Store channel for cleanup
-            window.__realtimeChannel = channel;
-        } catch (error) {
-            console.warn('⚠️ Could not setup real-time updates, falling back to polling:', error);
         }
     }
 
