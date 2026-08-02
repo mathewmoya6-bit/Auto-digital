@@ -4,9 +4,9 @@
 # TYPE: MODULE - M-Pesa Pydantic schemas
 
 import re
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 # ─── REQUEST SCHEMAS ──────────────────────────────────────────────
@@ -14,9 +14,16 @@ from pydantic import BaseModel, Field, field_validator, validator
 class MpesaPaymentRequest(BaseModel):
     """
     M-Pesa payment initiation request.
+    Accepts either:
+        service_id=1 (numeric ID)
+    or
+        service_id="valuation" (string code)
     """
     phone: str = Field(..., description="Phone number (07X or 011X format)")
-    service_id: str = Field(..., description="Service code (e.g., 'valuation', 'mileage', 'ownership')")
+    service_id: Union[int, str] = Field(
+        ...,
+        description="Service ID (int) or service code (str)"
+    )
     description: Optional[str] = Field(None, description="Transaction description (optional)")
     user_id: Optional[str] = Field(None, description="User ID (optional)")
     request_id: Optional[str] = Field(None, description="Request ID (optional)")
@@ -35,19 +42,34 @@ class MpesaPaymentRequest(BaseModel):
         if phone.startswith('0'):
             phone = phone[1:]
         
-        # Validate Safaricom number format
-        if not re.match(r'^(7\d{8}|11\d{7})$', phone):
+        # Validate Safaricom number format (07X or 011X)
+        if not re.match(r'^(7\d{8}|1\d{8})$', phone):
             raise ValueError('Invalid phone number. Must be a Safaricom number (07X or 011X)')
         
         return phone
     
     @field_validator('service_id')
     @classmethod
-    def validate_service_id(cls, v: str) -> str:
-        """Validate service ID."""
-        allowed_services = ['valuation', 'mileage', 'ownership', 'tco', 'valuation_report']
-        if v not in allowed_services:
-            raise ValueError(f"Service ID must be one of: {', '.join(allowed_services)}")
+    def validate_service_id(cls, v: Union[int, str]) -> Union[int, str]:
+        """Validate service ID - accepts numeric ID or string code."""
+        # Accept numeric IDs directly
+        if isinstance(v, int):
+            if v <= 0:
+                raise ValueError("service_id must be greater than zero")
+            return v
+        
+        # Numeric string -> convert to int
+        if isinstance(v, str) and v.isdigit():
+            return int(v)
+        
+        # Otherwise validate as service code (string)
+        if isinstance(v, str):
+            v = v.strip().lower()
+            allowed_services = ['valuation', 'mileage', 'ownership', 'tco', 'valuation_report']
+            if v in allowed_services:
+                return v
+        
+        raise ValueError(f"service_id must be a valid ID or one of: valuation, mileage, ownership, tco, valuation_report")
         return v
 
 
@@ -254,50 +276,3 @@ def create_webhook_response(
         mpesa_receipt=mpesa_receipt,
         transaction_id=transaction_id
     )
-
-
-# ─── EXAMPLE RESPONSES ────────────────────────────────────────────
-
-"""
-EXAMPLE: MpesaPaymentResponse
-{
-    "checkout_request_id": "CHK-valu-123456",
-    "message": "STK push sent successfully",
-    "status": "pending"
-}
-
-EXAMPLE: ServiceAccessResponse
-{
-    "has_access": true,
-    "status": "active",
-    "expires_at": "2027-08-02T12:00:00.000Z",
-    "message": "Access granted"
-}
-
-EXAMPLE: UserServicesResponse
-{
-    "services": {
-        "valuation": true,
-        "mileage": false,
-        "ownership": true,
-        "tco": false
-    }
-}
-
-EXAMPLE: AvailableServicesResponse
-{
-    "services": [
-        {
-            "id": 1,
-            "code": "valuation",
-            "name": "Vehicle Valuation",
-            "price": 500.00,
-            "currency": "KES",
-            "description": "Get instant vehicle valuation",
-            "icon": "📊",
-            "active": true,
-            "display_order": 1
-        }
-    ]
-}
-"""
