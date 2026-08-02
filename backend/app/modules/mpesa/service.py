@@ -4,7 +4,7 @@ Auto-D Kenya - M-Pesa Service
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 
 from app.core.database import get_supabase
 from app.core.exceptions import NotFoundException, AppException
@@ -20,26 +20,34 @@ class MpesaService:
     def __init__(self):
         self.repository = MpesaRepository()
         self.stk_push = StkPushService()
-        self.supabase = get_supabase()
+        # Don't store supabase client - get it fresh each time
+
+    @property
+    def supabase(self):
+        """Get fresh Supabase client instance."""
+        client = get_supabase()
+        if client is None:
+            raise AppException("Supabase client is not initialized")
+        return client
 
     # ─── INITIATE PAYMENT ──────────────────────────────────────────
 
     async def initiate_payment(
         self,
         phone: str,
-        service_id: str,
-        description: str,
+        service_id: Union[int, str],
+        description: Optional[str] = None,
         user_id: Optional[str] = None,
         request_id: Optional[str] = None,
-        amount: Optional[float] = None
+        amount: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Initiate M-Pesa payment.
         
         Args:
             phone: Phone number (with country code)
-            service_id: Service code (e.g., "valuation", "mileage", "ownership")
-            description: Transaction description
+            service_id: Service ID (int) or service code (str)
+            description: Transaction description (optional)
             user_id: User ID
             request_id: Request ID
             amount: Amount to charge (overrides service price if provided)
@@ -47,49 +55,71 @@ class MpesaService:
         Returns:
             Dict with checkout_request_id, message, and status
         """
-        # ─── STEP 1: Look up service in the services table ──────────────
-        service = (
-            self.supabase
+        # Get fresh Supabase client
+        supabase = self.supabase
+
+        logger.info(
+            f"Initiating payment: service={service_id} "
+            f"({type(service_id).__name__}), phone={phone}"
+        )
+
+        # ─── STEP 1: Build query to find service ──────────────────────
+        query = (
+            supabase
             .table("services")
             .select("*")
-            .eq("code", service_id)
             .eq("active", True)
-            .maybe_single()
-            .execute()
         )
-        
-        if not service.data:
+
+        # Handle both numeric ID and string code
+        if isinstance(service_id, int):
+            query = query.eq("id", service_id)
+        elif isinstance(service_id, str) and service_id.isdigit():
+            query = query.eq("id", int(service_id))
+        else:
+            query = query.eq("code", str(service_id).lower())
+
+        response = query.maybe_single().execute()
+
+        if response is None:
+            raise AppException("Supabase returned no response")
+
+        if response.data is None:
             raise NotFoundException(f"Service '{service_id}' not found")
-        
-        service_data = service.data
-        
-        # ─── STEP 2: Extract all data from the service record ──────────
-        service_db_id = service_data["id"]
-        service_name = service_data["name"]
-        price = float(service_data["price"])
-        currency = service_data.get("currency", "KES")
-        
+
+        service = response.data
+
+        # ─── STEP 2: Extract service data ────────────────────────────
+        service_db_id = service["id"]
+        service_code = service["code"]
+        service_name = service["name"]
+        price = float(service["price"])
+        currency = service.get("currency", "KES")
+
         # Allow amount override if provided
         if amount is not None:
             price = float(amount)
-            logger.info(f"Amount override: using {price} instead of database price {service_data['price']}")
-        
+            logger.info(f"Amount override: using {price} instead of database price {service['price']}")
+
         logger.info(f"Service found: {service_name} (ID: {service_db_id}) - Price: {currency} {price}")
-        
-        # Generate checkout ID
-        checkout_id = f"CHK-{service_id[:4]}-{str(int(datetime.utcnow().timestamp()))[-6:]}"
-        
-        # ─── STEP 3: Initiate STK Push ──────────────────────────────────
+
+        # ─── STEP 3: Generate checkout ID ─────────────────────────────
+        checkout_id = (
+            f"CHK-{service_code[:4]}-"
+            f"{int(datetime.utcnow().timestamp())}"
+        )
+
+        # ─── STEP 4: Initiate STK Push ──────────────────────────────────
         result = await self.stk_push.initiate_push(
             phone=phone,
             amount=price,
             description=service_name,
             checkout_request_id=checkout_id,
             user_id=user_id,
-            service_id=service_id
+            service_id=service_db_id,
         )
-        
-        # ─── STEP 4: Save the payment record ────────────────────────────
+
+        # ─── STEP 5: Save the payment record ────────────────────────────
         await self.repository.create_payment({
             "user_id": user_id,
             "request_id": request_id,
@@ -102,13 +132,19 @@ class MpesaService:
             "merchant_request_id": result.get("merchant_request_id"),
             "status": "pending",
         })
-        
-        logger.info(f"Payment initiated: {result['checkout_request_id']} for service {service_id} ({service_name}) - Amount: {currency} {price}")
-        
+
+        logger.info(
+            f"Payment created: service={service_name} "
+            f"amount={price} checkout={result['checkout_request_id']}"
+        )
+
         return {
             "checkout_request_id": result["checkout_request_id"],
-            "message": result.get("customer_message", "STK push sent successfully"),
-            "status": "pending"
+            "message": result.get(
+                "customer_message",
+                "STK push sent successfully"
+            ),
+            "status": "pending",
         }
 
     # ─── PAYMENT STATUS ─────────────────────────────────────────────
@@ -183,9 +219,11 @@ class MpesaService:
             Dict with has_access boolean and details
         """
         try:
+            supabase = self.supabase
+            
             # First get the service ID from code
             service = (
-                self.supabase
+                supabase
                 .table("services")
                 .select("id")
                 .eq("code", service_code)
@@ -205,7 +243,7 @@ class MpesaService:
             
             # Check user_services table
             response = (
-                self.supabase
+                supabase
                 .table("user_services")
                 .select("*")
                 .eq("user_id", user_id)
@@ -271,9 +309,11 @@ class MpesaService:
             payment_id: Payment ID (optional)
         """
         try:
+            supabase = self.supabase
+            
             # Check if user already has this service
             existing = (
-                self.supabase
+                supabase
                 .table("user_services")
                 .select("*")
                 .eq("user_id", user_id)
@@ -294,7 +334,7 @@ class MpesaService:
                 if payment_id:
                     update_data["payment_id"] = payment_id
                 
-                self.supabase.table("user_services").update(update_data).eq("id", existing.data["id"]).execute()
+                supabase.table("user_services").update(update_data).eq("id", existing.data["id"]).execute()
                 logger.info(f"User service updated: user={user_id}, service={service_id}")
             else:
                 # Create new record
@@ -309,7 +349,7 @@ class MpesaService:
                 if payment_id:
                     insert_data["payment_id"] = payment_id
                 
-                self.supabase.table("user_services").insert(insert_data).execute()
+                supabase.table("user_services").insert(insert_data).execute()
                 logger.info(f"User service created: user={user_id}, service={service_id}")
             
         except Exception as e:
@@ -329,8 +369,10 @@ class MpesaService:
             Dict with service_code as key and boolean access status
         """
         try:
+            supabase = self.supabase
+            
             response = (
-                self.supabase
+                supabase
                 .table("user_services")
                 .select("services(code, name, price, description, icon)")
                 .eq("user_id", user_id)
@@ -388,8 +430,10 @@ class MpesaService:
             List of service codes (strings from the services table code column)
         """
         try:
+            supabase = self.supabase
+            
             response = (
-                self.supabase
+                supabase
                 .table("user_services")
                 .select("services(code)")
                 .eq("user_id", user_id)
@@ -419,8 +463,10 @@ class MpesaService:
             List of services from the database
         """
         try:
+            supabase = self.supabase
+            
             response = (
-                self.supabase
+                supabase
                 .table("services")
                 .select("*")
                 .eq("active", True)
@@ -446,8 +492,10 @@ class MpesaService:
             Service data or None if not found
         """
         try:
+            supabase = self.supabase
+            
             response = (
-                self.supabase
+                supabase
                 .table("services")
                 .select("*")
                 .eq("code", service_code)
