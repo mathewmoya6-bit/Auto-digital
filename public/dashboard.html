@@ -417,7 +417,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
-// ─── FIXED: Using user_id from auth, not from users table ──
+// ─── FIXED: Using service_id (numeric ID) instead of service_key ──
 
 (function() {
     'use strict';
@@ -429,7 +429,8 @@
     let supabaseClient = null;
     let currentUser = null;
     let isAuthenticated = false;
-    let selectedService = null;
+    let selectedServiceCode = null;
+    let selectedServiceId = null;
     let servicePrices = {};
     let serviceAccess = {};
     let allServices = [];
@@ -557,12 +558,14 @@
         const res = await client.from('services').select('*').eq('active', true).order('display_order');
         if (res.data && res.data.length) {
             allServices = res.data;
+            console.log('✅ Services loaded:', allServices.map(s => `${s.code} (ID: ${s.id})`).join(', '));
         } else {
             allServices = [
                 { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150 },
                 { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200 },
                 { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180 }
             ];
+            console.log('⚠️ Using fallback services');
         }
         allServices.forEach(s => { servicePrices[s.code] = s.price; });
         return allServices;
@@ -586,6 +589,7 @@
                 });
             }
             serviceAccess = access;
+            console.log('✅ User services:', Object.keys(access));
             return access;
         } catch (e) {
             console.warn('⚠️ Could not fetch user services:', e);
@@ -603,8 +607,11 @@
         let html = '';
         services.forEach((service, index) => {
             const unlocked = serviceAccess[service.code] || false;
-            const isActive = selectedService === service.code || (index === 0 && !selectedService);
-            if (isActive && !selectedService) selectedService = service.code;
+            const isActive = selectedServiceCode === service.code || (index === 0 && !selectedServiceCode);
+            if (isActive && !selectedServiceCode) {
+                selectedServiceCode = service.code;
+                selectedServiceId = service.id;
+            }
 
             html += `
                 <button class="service-tab ${isActive ? 'active' : ''}" 
@@ -620,7 +627,7 @@
         });
 
         serviceTabsEl.innerHTML = html;
-        const defaultService = selectedService || (services[0]?.code);
+        const defaultService = selectedServiceCode || (services[0]?.code);
         if (defaultService) renderServiceDetail(defaultService);
     }
 
@@ -660,7 +667,8 @@
             </div>
         `;
 
-        selectedService = service.code;
+        selectedServiceCode = service.code;
+        selectedServiceId = service.id;
         updatePayBtn();
     }
 
@@ -670,17 +678,17 @@
             payBtn.innerHTML = '<i class="fas fa-lock"></i> Login to pay';
             return;
         }
-        if (selectedService) {
-            const price = servicePrices[selectedService] || 0;
-            const service = allServices.find(s => s.code === selectedService);
-            const unlocked = serviceAccess[selectedService] || false;
+        if (selectedServiceCode) {
+            const price = servicePrices[selectedServiceCode] || 0;
+            const service = allServices.find(s => s.code === selectedServiceCode);
+            const unlocked = serviceAccess[selectedServiceCode] || false;
             if (unlocked) {
                 payBtn.disabled = true;
                 payBtn.innerHTML = '<i class="fas fa-check"></i> Already unlocked';
                 return;
             }
             payBtn.disabled = false;
-            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${formatPrice(price)} for ${service?.name || selectedService}`;
+            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${formatPrice(price)} for ${service?.name || selectedServiceCode}`;
         } else {
             payBtn.disabled = true;
             payBtn.innerHTML = '<i class="fas fa-lock"></i> Select a service first';
@@ -689,7 +697,9 @@
 
     // ─── ACTIONS ──────────────────────────────────────────────
     window.selectService = function(code) {
-        selectedService = code;
+        selectedServiceCode = code;
+        const service = allServices.find(s => s.code === code);
+        selectedServiceId = service?.id || null;
         document.querySelectorAll('.service-tab').forEach(el => {
             el.classList.toggle('active', el.dataset.service === code);
         });
@@ -698,10 +708,11 @@
 
     window.selectForPayment = function(code) {
         if (!isAuthenticated) return showToast('Please log in', 'error');
-        selectedService = code;
+        selectedServiceCode = code;
+        const service = allServices.find(s => s.code === code);
+        selectedServiceId = service?.id || null;
         renderServiceDetail(code);
         updatePayBtn();
-        const service = allServices.find(s => s.code === code);
         setStatus(`Selected ${service?.name} — ${formatPrice(service?.price)}`, 'info');
         showToast(`✅ ${service?.name} selected`, 'success');
     };
@@ -730,11 +741,11 @@
             showToast('Please log in', 'error');
             return;
         }
-        if (!selectedService) {
+        if (!selectedServiceCode) {
             showToast('Select a service first', 'error');
             return;
         }
-        if (serviceAccess[selectedService]) {
+        if (serviceAccess[selectedServiceCode]) {
             showToast('Service already unlocked', 'info');
             return;
         }
@@ -746,14 +757,15 @@
             return;
         }
 
-        const service = allServices.find(s => s.code === selectedService);
+        const service = allServices.find(s => s.code === selectedServiceCode);
         if (!service) {
             showToast('Service not found', 'error');
             return;
         }
 
+        // IMPORTANT: Use service_id (numeric ID) not service_key
+        const serviceId = service.id;
         const price = service.price;
-        const serviceKey = selectedService;
 
         setStatus(`⏳ Initiating payment for ${service.name} (${formatPrice(price)})...`, 'pending');
         payBtn.disabled = true;
@@ -764,15 +776,13 @@
             const client = initSupabase();
             const { data: { session } } = await client.auth.getSession();
             const token = session?.access_token || localStorage.getItem('access_token');
-            
-            // IMPORTANT: Use the user's ID from the auth session
             const userId = session?.user?.id || currentUser?.id;
             
             const requestBody = {
                 phone: phone,
                 amount: Number(price),
-                service_key: serviceKey,
-                user_id: userId  // This is the auth user ID, not from users table
+                service_id: serviceId,  // Changed from service_key to service_id
+                user_id: userId
             };
             
             console.log('📤 Payment request:', requestBody);
@@ -819,12 +829,12 @@
                     
                     if (sd.status === 'completed') {
                         clearInterval(interval);
-                        serviceAccess[serviceKey] = true;
-                        await updateUserService(serviceKey, true);
+                        serviceAccess[selectedServiceCode] = true;
+                        await updateUserService(selectedServiceCode, true);
                         setStatus('✅ Payment completed! Service unlocked.', 'success');
                         showToast('🎉 Payment successful!', 'success');
                         renderTabs(allServices);
-                        renderServiceDetail(serviceKey);
+                        renderServiceDetail(selectedServiceCode);
                         loadHistory();
                         payBtn.disabled = false;
                         payBtn.innerHTML = '<i class="fas fa-check"></i> Unlocked';
