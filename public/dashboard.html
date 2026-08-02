@@ -372,12 +372,10 @@
             </div>
         </div>
 
-        <!-- Dynamic service tabs -->
         <div class="service-tabs" id="serviceTabs">
             <span class="loading" style="padding:8px 16px;"><span class="spinner"></span> Loading services...</span>
         </div>
 
-        <!-- Service detail panel -->
         <div id="serviceDetail">
             <span class="loading"><span class="spinner"></span> Select a service</span>
         </div>
@@ -419,26 +417,24 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
-// ─── FULLY DYNAMIC DASHBOARD — FETCHES FROM SUPABASE ──────
+// ─── FIXED: Using user_id from auth, not from users table ──
 
 (function() {
     'use strict';
 
-    // ─── CONFIG ──────────────────────────────────────────────
     const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
     const API_BASE = 'https://auto-digital.onrender.com/api/v1';
 
-    // ─── STATE ──────────────────────────────────────────────
     let supabaseClient = null;
     let currentUser = null;
     let isAuthenticated = false;
     let selectedService = null;
     let servicePrices = {};
-    let serviceAccess = {};  // service_code => true/false
+    let serviceAccess = {};
     let allServices = [];
 
-    // ─── DOM REFS ────────────────────────────────────────────
+    // DOM REFS
     const serviceTabsEl = document.getElementById('serviceTabs');
     const serviceDetailEl = document.getElementById('serviceDetail');
     const paymentsEl = document.getElementById('payments');
@@ -450,7 +446,6 @@
     const connectionStatus = document.getElementById('connectionStatus');
     const adminLink = document.getElementById('adminLinkContainer');
 
-    // ─── HELPERS ─────────────────────────────────────────────
     function showToast(msg, type = 'info') {
         const c = document.getElementById('toastContainer');
         if (!c) return;
@@ -475,43 +470,17 @@
         }
     }
 
-    // ─── AUTH HEADERS ─────────────────────────────────────────
-    function authHeaders() {
-        const token = localStorage.getItem('access_token');
-        return {
-            'Content-Type': 'application/json',
-            'Authorization': token ? `Bearer ${token}` : ''
-        };
-    }
-
-    // ─── SUPABASE ────────────────────────────────────────────
     function initSupabase() {
         if (!supabaseClient && typeof supabase !== 'undefined') {
             const { createClient } = supabase;
             supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
                 auth: { autoRefreshToken: true, persistSession: true }
             });
+            console.log('✅ Supabase initialized');
         }
         return supabaseClient;
     }
 
-    async function querySupabase(table, select = '*', filters = {}, order = null) {
-        try {
-            const client = initSupabase();
-            if (!client) throw new Error('Supabase not initialized');
-            let q = client.from(table).select(select);
-            Object.keys(filters).forEach(k => {
-                if (Array.isArray(filters[k])) q = q.in(k, filters[k]);
-                else q = q.eq(k, filters[k]);
-            });
-            if (order) q = q.order(order.column, { ascending: order.ascending || false });
-            const { data, error } = await q;
-            if (error) throw error;
-            return { success: true, data };
-        } catch (e) { return { success: false, error: e.message }; }
-    }
-
-    // ─── AUTH ────────────────────────────────────────────────
     async function getCurrentUser() {
         try {
             const client = initSupabase();
@@ -522,17 +491,23 @@
                 isAuthenticated = true;
                 localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
                 localStorage.setItem('access_token', session.access_token);
+                console.log('✅ User authenticated:', currentUser.email);
                 return currentUser;
             }
             const stored = localStorage.getItem('auto_d_user');
             if (stored) {
                 currentUser = JSON.parse(stored);
                 isAuthenticated = true;
+                console.log('✅ User restored from storage:', currentUser.email);
                 return currentUser;
             }
             isAuthenticated = false;
             return null;
-        } catch { isAuthenticated = false; return null; }
+        } catch (e) {
+            console.error('Auth error:', e);
+            isAuthenticated = false;
+            return null;
+        }
     }
 
     function renderAuth(user) {
@@ -568,12 +543,7 @@
             currentUser = null;
             renderAuth(null);
             showToast('Logged out', 'info');
-            serviceTabsEl.innerHTML = '<span class="loading">Please log in</span>';
-            serviceDetailEl.innerHTML = '<span class="loading">Please log in</span>';
-            paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
-            payBtn.disabled = true;
-            payBtn.innerHTML = '<i class="fas fa-lock"></i> Login to pay';
-            adminLink.style.display = 'none';
+            window.location.href = '/';
         } catch (e) { showToast('Logout error', 'error'); }
     }
 
@@ -581,43 +551,30 @@
         window.location.href = '/';
     }
 
-    // ─── FETCH DATA FROM SUPABASE ────────────────────────────
+    // ─── FETCH DATA ──────────────────────────────────────────
     async function fetchServices() {
-        const res = await querySupabase('services', '*', { active: true }, { column: 'display_order', ascending: true });
-        if (res.success && res.data.length) {
+        const client = initSupabase();
+        const res = await client.from('services').select('*').eq('active', true).order('display_order');
+        if (res.data && res.data.length) {
             allServices = res.data;
         } else {
-            // Fallback defaults
             allServices = [
-                { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150, display_order: 1 },
-                { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200, display_order: 2 },
-                { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180, display_order: 3 }
+                { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150 },
+                { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200 },
+                { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180 }
             ];
         }
-        // Build price map
         allServices.forEach(s => { servicePrices[s.code] = s.price; });
         return allServices;
     }
 
-    // ─── FETCH USER SERVICES (user_services table) ──────────
     async function fetchUserServices(userId) {
         if (!userId) return {};
         try {
             const client = initSupabase();
-            if (!client) return {};
-            // Query user_services with join to services
             const { data, error } = await client
                 .from('user_services')
-                .select(`
-                    *,
-                    services!inner (
-                        id,
-                        code,
-                        name,
-                        price,
-                        description
-                    )
-                `)
+                .select(`*, services!inner (id, code, name, price, description)`)
                 .eq('user_id', userId)
                 .eq('status', 'active');
 
@@ -625,9 +582,7 @@
             const access = {};
             if (data) {
                 data.forEach(row => {
-                    if (row.services && row.services.code) {
-                        access[row.services.code] = true;
-                    }
+                    if (row.services?.code) access[row.services.code] = true;
                 });
             }
             serviceAccess = access;
@@ -638,7 +593,7 @@
         }
     }
 
-    // ─── RENDER DYNAMIC TABS ────────────────────────────────
+    // ─── RENDER ──────────────────────────────────────────────
     function renderTabs(services) {
         if (!services || !services.length) {
             serviceTabsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No services available</div></div>`;
@@ -665,8 +620,6 @@
         });
 
         serviceTabsEl.innerHTML = html;
-
-        // Show detail for selected or first service
         const defaultService = selectedService || (services[0]?.code);
         if (defaultService) renderServiceDetail(defaultService);
     }
@@ -711,7 +664,6 @@
         updatePayBtn();
     }
 
-    // ─── UPDATE PAY BUTTON ──────────────────────────────────
     function updatePayBtn() {
         if (!isAuthenticated) {
             payBtn.disabled = true;
@@ -774,39 +726,81 @@
 
     // ─── M-PESA PAYMENT ──────────────────────────────────────
     async function initiatePayment() {
-        if (!isAuthenticated) return showToast('Please log in', 'error');
-        if (!selectedService) return showToast('Select a service first', 'error');
+        if (!isAuthenticated) {
+            showToast('Please log in', 'error');
+            return;
+        }
+        if (!selectedService) {
+            showToast('Select a service first', 'error');
+            return;
+        }
         if (serviceAccess[selectedService]) {
-            return showToast('Service already unlocked', 'info');
+            showToast('Service already unlocked', 'info');
+            return;
         }
 
         const phone = phoneInput.value.trim();
         if (!phone.match(/^2547\d{8}$/)) {
             setStatus('❌ Invalid phone. Use 2547XXXXXXXX', 'error');
-            return showToast('Invalid phone format', 'error');
+            showToast('Invalid phone format', 'error');
+            return;
         }
 
-        const price = servicePrices[selectedService] || 0;
         const service = allServices.find(s => s.code === selectedService);
-        setStatus(`⏳ Initiating payment for ${service?.name} (${formatPrice(price)})...`, 'pending');
+        if (!service) {
+            showToast('Service not found', 'error');
+            return;
+        }
+
+        const price = service.price;
+        const serviceKey = selectedService;
+
+        setStatus(`⏳ Initiating payment for ${service.name} (${formatPrice(price)})...`, 'pending');
         payBtn.disabled = true;
         payBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
         try {
-            // Use authHeaders() to include the JWT token
+            // Get fresh token
+            const client = initSupabase();
+            const { data: { session } } = await client.auth.getSession();
+            const token = session?.access_token || localStorage.getItem('access_token');
+            
+            // IMPORTANT: Use the user's ID from the auth session
+            const userId = session?.user?.id || currentUser?.id;
+            
+            const requestBody = {
+                phone: phone,
+                amount: Number(price),
+                service_key: serviceKey,
+                user_id: userId  // This is the auth user ID, not from users table
+            };
+            
+            console.log('📤 Payment request:', requestBody);
+            console.log('🔑 Token present:', token ? 'Yes' : 'No');
+
             const res = await fetch(`${API_BASE}/mpesa/stkpush`, {
                 method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    phone: phone,
-                    amount: price,
-                    service_key: selectedService,
-                    user_id: currentUser?.id || 'unknown'
-                })
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': token ? `Bearer ${token}` : ''
+                },
+                body: JSON.stringify(requestBody)
             });
 
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || data.detail || 'Payment failed');
+            let data;
+            const textResponse = await res.text();
+            console.log('📥 Raw response:', textResponse);
+            
+            try {
+                data = JSON.parse(textResponse);
+            } catch (e) {
+                throw new Error(`Server response: ${textResponse.substring(0, 100)}`);
+            }
+
+            if (!res.ok) {
+                const errorMsg = data.detail || data.error || data.message || JSON.stringify(data);
+                throw new Error(errorMsg);
+            }
 
             setStatus('✅ M-PESA prompt sent to your phone', 'success');
             showToast('📱 Check your phone for M-PESA prompt', 'success');
@@ -816,18 +810,21 @@
             const interval = setInterval(async () => {
                 try {
                     const sr = await fetch(`${API_BASE}/mpesa/status/${data.checkout_request_id}`, {
-                        headers: authHeaders()
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': token ? `Bearer ${token}` : ''
+                        }
                     });
                     const sd = await sr.json();
+                    
                     if (sd.status === 'completed') {
                         clearInterval(interval);
-                        serviceAccess[selectedService] = true;
-                        // Also update in Supabase user_services
-                        await updateUserService(selectedService, true);
+                        serviceAccess[serviceKey] = true;
+                        await updateUserService(serviceKey, true);
                         setStatus('✅ Payment completed! Service unlocked.', 'success');
                         showToast('🎉 Payment successful!', 'success');
                         renderTabs(allServices);
-                        renderServiceDetail(selectedService);
+                        renderServiceDetail(serviceKey);
                         loadHistory();
                         payBtn.disabled = false;
                         payBtn.innerHTML = '<i class="fas fa-check"></i> Unlocked';
@@ -839,28 +836,28 @@
                         payBtn.innerHTML = '<i class="fas fa-redo"></i> Retry';
                     }
                     attempts++;
-                } catch (e) { /* ignore */ }
+                } catch (e) {
+                    console.warn('Status poll error:', e);
+                }
             }, 5000);
 
         } catch (e) {
-            setStatus(`❌ ${e.message}`, 'error');
-            showToast('❌ Payment error: ' + e.message, 'error');
+            const errorMsg = e.message || 'Unknown error occurred';
+            setStatus(`❌ ${errorMsg}`, 'error');
+            showToast(`❌ Payment error: ${errorMsg}`, 'error');
             payBtn.disabled = false;
             payBtn.innerHTML = '<i class="fas fa-redo"></i> Retry';
         }
     }
 
-    // ─── UPDATE USER SERVICE IN SUPABASE ─────────────────────
     async function updateUserService(serviceKey, unlocked) {
         try {
             const client = initSupabase();
             if (!client || !currentUser) return;
 
-            // Get service id
             const service = allServices.find(s => s.code === serviceKey);
             if (!service) return;
 
-            // Check if record exists
             const { data: existing } = await client
                 .from('user_services')
                 .select('id')
@@ -869,7 +866,6 @@
                 .maybeSingle();
 
             if (existing) {
-                // Update existing
                 await client
                     .from('user_services')
                     .update({
@@ -878,7 +874,6 @@
                     })
                     .eq('id', existing.id);
             } else if (unlocked) {
-                // Insert new
                 await client
                     .from('user_services')
                     .insert({
@@ -888,6 +883,7 @@
                         created_at: new Date().toISOString()
                     });
             }
+            console.log(`✅ User service ${serviceKey} updated:`, unlocked ? 'active' : 'inactive');
         } catch (e) {
             console.warn('⚠️ Could not update user service:', e);
         }
@@ -899,8 +895,9 @@
             paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
             return;
         }
-        const res = await querySupabase('payments', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
-        if (!res.success || !res.data.length) {
+        const client = initSupabase();
+        const res = await client.from('payments').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false });
+        if (!res.data || !res.data.length) {
             paymentsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">💳</div><div class="empty-title">No payments yet</div></div>`;
             return;
         }
@@ -927,13 +924,10 @@
             return;
         }
 
-        // Show admin link if admin
         const isAdmin = user.user_metadata?.role === 'admin' || user.user_metadata?.is_admin;
         adminLink.style.display = isAdmin ? 'block' : 'none';
 
-        // Load services from Supabase
         await fetchServices();
-        // Load user's purchased services from user_services table
         await fetchUserServices(user.id);
         renderTabs(allServices);
         loadHistory();
