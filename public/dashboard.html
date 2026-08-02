@@ -78,17 +78,6 @@
         .logo-text span { color: #eab308; }
         .logo-sub { font-size: 12px; color: #64748b; display: block; margin-top: -2px; }
         .auth-section { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .auth-section input {
-            padding: 8px 14px;
-            background: #0a0c15;
-            border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 8px;
-            color: #f8fafc;
-            font-size: 13px;
-            min-width: 150px;
-        }
-        .auth-section input:focus { outline: none; border-color: #eab308; }
-        .auth-section input::placeholder { color: #64748b; }
         .btn {
             padding: 8px 18px;
             border: none;
@@ -107,6 +96,8 @@
         .btn-outline:hover { border-color: #eab308; color: #eab308; }
         .btn-success { background: #22c55e; color: #0a0c15; }
         .btn-success:hover { opacity: 0.85; }
+        .btn-danger { background: #ef4444; color: #fff; }
+        .btn-danger:hover { background: #dc2626; }
         .btn-sm { padding: 6px 14px; font-size: 12px; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
         .user-info { display: flex; align-items: center; gap: 12px; }
@@ -325,8 +316,6 @@
             .service-item { flex-direction: column; align-items: stretch; }
             .service-price { text-align: left; min-width: unset; }
             .service-actions { justify-content: space-between; }
-            .auth-section { width: 100%; flex-direction: column; }
-            .auth-section input { width: 100%; min-width: unset; }
             .header { flex-direction: column; align-items: flex-start; }
         }
     </style>
@@ -344,7 +333,9 @@
                 <span class="logo-sub">Vehicle Intelligence Platform</span>
             </div>
         </a>
-        <div class="auth-section" id="authSection"></div>
+        <div class="auth-section" id="authSection">
+            <!-- populated by JS -->
+        </div>
     </header>
 
     <!-- ADMIN LINK -->
@@ -420,7 +411,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
-// ─── SIMPLE & WORKING AUTO-D KENYA DASHBOARD ──────────────
+// ─── SIMPLE WORKING DASHBOARD — NO LOGIN, JUST LOGOUT ──────
 
 (function() {
     'use strict';
@@ -449,6 +440,7 @@
     const authSection = document.getElementById('authSection');
     const statusDot = document.getElementById('statusDot');
     const connectionStatus = document.getElementById('connectionStatus');
+    const adminLink = document.getElementById('adminLinkContainer');
 
     // ─── HELPERS ─────────────────────────────────────────────
     function showToast(msg, type = 'info') {
@@ -534,42 +526,18 @@
                     <div class="user-avatar">${initial}</div>
                     <div><div class="user-name">${name}</div><div class="user-email">${user.email}</div></div>
                 </div>
-                <button class="btn btn-sm btn-outline" onclick="window.__AUTOD?.logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                <button class="btn btn-sm btn-danger" onclick="window.__AUTOD?.logout()">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
             `;
         } else {
             authSection.innerHTML = `
-                <input type="email" id="loginEmail" placeholder="Email" />
-                <input type="password" id="loginPassword" placeholder="Password" />
-                <button class="btn btn-primary btn-sm" onclick="window.__AUTOD?.login()"><i class="fas fa-sign-in-alt"></i> Login</button>
-                <button class="btn btn-outline btn-sm" onclick="window.__AUTOD?.signup()"><i class="fas fa-user-plus"></i> Sign Up</button>
+                <span style="color:#64748b;font-size:14px;">Not logged in</span>
+                <button class="btn btn-primary btn-sm" onclick="window.__AUTOD?.goToLanding()">
+                    <i class="fas fa-sign-in-alt"></i> Login
+                </button>
             `;
         }
-    }
-
-    async function login() {
-        const email = document.getElementById('loginEmail')?.value;
-        const password = document.getElementById('loginPassword')?.value;
-        if (!email || !password) return showToast('Enter email and password', 'error');
-        try {
-            const client = initSupabase();
-            const { error } = await client.auth.signInWithPassword({ email, password });
-            if (error) throw error;
-            showToast('✅ Logged in', 'success');
-            await init();
-        } catch (e) { showToast('❌ Login failed: ' + e.message, 'error'); }
-    }
-
-    async function signup() {
-        const email = document.getElementById('loginEmail')?.value;
-        const password = document.getElementById('loginPassword')?.value;
-        if (!email || !password) return showToast('Enter email and password', 'error');
-        if (password.length < 6) return showToast('Password must be 6+ chars', 'error');
-        try {
-            const client = initSupabase();
-            const { error } = await client.auth.signUp({ email, password });
-            if (error) throw error;
-            showToast('✅ Signed up! Check your email.', 'success');
-        } catch (e) { showToast('❌ Signup failed: ' + e.message, 'error'); }
     }
 
     async function logout() {
@@ -585,8 +553,12 @@
             paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
             payBtn.disabled = true;
             payBtn.innerHTML = '<i class="fas fa-lock"></i> Login to pay';
-            document.getElementById('adminLinkContainer').style.display = 'none';
+            adminLink.style.display = 'none';
         } catch (e) { showToast('Logout error', 'error'); }
+    }
+
+    function goToLanding() {
+        window.location.href = '/';
     }
 
     // ─── FETCH DATA ──────────────────────────────────────────
@@ -853,8 +825,9 @@
             paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
             return;
         }
-        document.getElementById('adminLinkContainer').style.display = 
-            (user.user_metadata?.role === 'admin' || user.user_metadata?.is_admin) ? 'block' : 'none';
+        // Show admin link if admin
+        const isAdmin = user.user_metadata?.role === 'admin' || user.user_metadata?.is_admin;
+        adminLink.style.display = isAdmin ? 'block' : 'none';
 
         await fetchServices();
         await fetchPrices();
@@ -866,7 +839,8 @@
 
     // ─── EXPOSE ──────────────────────────────────────────────
     window.__AUTOD = {
-        login, signup, logout,
+        logout,
+        goToLanding,
         select: window.select,
         run: window.run,
         refresh: window.refresh,
