@@ -1114,13 +1114,8 @@
             updateUI();
             showToast('✅ Welcome back!', 'success');
             closeAuth();
-            if (pendingServiceRoute) {
-                const route = pendingServiceRoute;
-                pendingServiceRoute = null;
-                setTimeout(() => window.location.href = route, 500);
-            } else {
-                setTimeout(() => window.location.href = '/dashboard.html', 1000);
-            }
+            // Always redirect to dashboard after login
+            setTimeout(() => window.location.href = '/dashboard.html', 500);
             return data;
         }
 
@@ -1140,13 +1135,8 @@
                 showToast('🎉 Account created!', 'success');
                 updateUI();
                 closeAuth();
-                if (pendingServiceRoute) {
-                    const route = pendingServiceRoute;
-                    pendingServiceRoute = null;
-                    setTimeout(() => window.location.href = route, 500);
-                } else {
-                    setTimeout(() => window.location.href = '/dashboard.html', 1000);
-                }
+                // Always redirect to dashboard after signup
+                setTimeout(() => window.location.href = '/dashboard.html', 500);
             } else {
                 showToast('📧 Please check your email for confirmation.', 'info');
             }
@@ -1265,8 +1255,11 @@
             authBtn.disabled = true;
             authBtn.textContent = '⏳ Loading...';
             try {
-                if (isSignupMode) await signUp(email, password, fullName);
-                else await signIn(email, password);
+                if (isSignupMode) {
+                    await signUp(email, password, fullName);
+                } else {
+                    await signIn(email, password);
+                }
             } catch (err) {
                 showToast(err.message || 'Authentication failed', 'error');
                 authBtn.disabled = false;
@@ -1278,9 +1271,12 @@
             if (!supabaseClient) initSupabase();
             if (!supabaseClient) return showToast('Auth unavailable', 'error');
             const redirectUrl = window.location.origin + '/dashboard.html';
-            if (pendingServiceRoute) localStorage.setItem('auto_d_pending_route', pendingServiceRoute);
-            supabaseClient.auth.signInWithOAuth({ provider, options: { redirectTo: redirectUrl } })
-                .catch(err => showToast('Social login failed', 'error'));
+            supabaseClient.auth.signInWithOAuth({ 
+                provider, 
+                options: { 
+                    redirectTo: redirectUrl 
+                } 
+            }).catch(err => showToast('Social login failed', 'error'));
         };
 
         function showToast(message, type = 'info') {
@@ -1353,13 +1349,6 @@
             initSupabase();
             await getCurrentUser();
             updateUI();
-
-            // Check for pending route from social login
-            const pendingRoute = localStorage.getItem('auto_d_pending_route');
-            if (pendingRoute && isAuthenticated) {
-                localStorage.removeItem('auto_d_pending_route');
-                setTimeout(() => window.location.href = pendingRoute, 500);
-            }
 
             window.__AUTOD = {
                 supabase: supabaseClient,
