@@ -664,7 +664,7 @@
 <script>
 // ──────────────────────────────────────────────────────────────
 // AUTO-D KENYA — PRODUCTION DASHBOARD
-// Full Supabase integration + real M-PESA via backend API
+// Direct Supabase integration for services, prices & access
 // ──────────────────────────────────────────────────────────────
 
 (function() {
@@ -673,12 +673,12 @@
     // ─── CONFIG ──────────────────────────────────────────────
     const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
-    const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+    const API_BASE = 'https://auto-digital.onrender.com/api/v1'; // for M-PESA backend
     const PRICE_POLLING_INTERVAL = 30000;
 
     // ─── STATE ──────────────────────────────────────────────
     let supabaseClient = null;
-    let selectedService = null;          // service key: 'valuation'|'mileage'|'ownership'
+    let selectedService = null;          // 'valuation'|'mileage'|'ownership'
     let selectedServiceName = null;
     let selectedServicePrice = null;
     let checkoutRequestId = null;
@@ -693,6 +693,7 @@
     let pricePollingTimer = null;
     let lastPriceUpdate = null;
     let isAdmin = false;
+    let serviceDefinitions = [];          // from Supabase 'services' table
 
     // ─── DOM REFS ────────────────────────────────────────────
     const servicesEl = document.getElementById('services');
@@ -905,16 +906,41 @@
         } catch (e) { showToast('Logout error: ' + e.message, 'error'); }
     }
 
+    // ─── FETCH SERVICES FROM SUPABASE ───────────────────────
+    async function fetchServiceDefinitions() {
+        try {
+            const result = await querySupabase('services', '*', {}, { column: 'name', ascending: true });
+            if (!result.success) throw new Error(result.error);
+            serviceDefinitions = result.data;
+            return serviceDefinitions;
+        } catch (e) {
+            console.warn('⚠️ Could not fetch service definitions, using defaults', e);
+            serviceDefinitions = [
+                { key: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value for any vehicle' },
+                { key: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings with official data' },
+                { key: 'ownership', name: 'Ownership History', description: 'Track previous owners and registration records' }
+            ];
+            return serviceDefinitions;
+        }
+    }
+
     // ─── FETCH PRICES FROM SUPABASE ────────────────────────
     async function fetchServicePrices() {
         try {
-            const result = await querySupabase('service_prices', '*', {}, { column: 'created_at', ascending: false }, 10);
+            const result = await querySupabase('service_prices', '*', {}, { column: 'created_at', ascending: false }, 50);
             if (!result.success) throw new Error(result.error);
             const prices = {};
+            // Get latest price per service_key
+            const latest = {};
             result.data.forEach(row => {
                 if (row.service_key && row.price != null) {
-                    prices[row.service_key] = row.price;
+                    if (!latest[row.service_key] || new Date(row.created_at) > new Date(latest[row.service_key].created_at)) {
+                        latest[row.service_key] = row;
+                    }
                 }
+            });
+            Object.keys(latest).forEach(key => {
+                prices[key] = Number(latest[key].price);
             });
             // fallback defaults if no prices found
             if (!prices.valuation) prices.valuation = 150;
@@ -952,27 +978,29 @@
 
     // ─── RENDER SERVICES ──────────────────────────────────────
     function renderServices() {
-        const serviceDefs = {
-            valuation: { name: 'Vehicle Valuation', desc: 'Get instant market value for any vehicle' },
-            mileage: { name: 'Mileage Verification', desc: 'Verify odometer readings with official data' },
-            ownership: { name: 'Ownership History', desc: 'Track previous owners and registration records' }
-        };
+        const defs = serviceDefinitions.length ? serviceDefinitions : [
+            { key: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value for any vehicle' },
+            { key: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings with official data' },
+            { key: 'ownership', name: 'Ownership History', description: 'Track previous owners and registration records' }
+        ];
 
-        const serviceKeys = ['valuation', 'mileage', 'ownership'];
         let html = '';
+        let found = false;
 
-        serviceKeys.forEach(key => {
-            const def = serviceDefs[key];
+        defs.forEach(def => {
+            const key = def.key;
+            if (!key) return;
             const unlocked = serviceAccess[key] || false;
             const price = servicePrices[key] || 0;
             const isActive = activeTab === key;
             if (!isActive) return;
+            found = true;
 
             html += `
                 <div class="service-item">
                     <div class="service-info">
-                        <div class="service-name">${def.name}</div>
-                        <div class="service-desc">${def.desc}</div>
+                        <div class="service-name">${def.name || key}</div>
+                        <div class="service-desc">${def.description || ''}</div>
                         <span class="service-status ${unlocked ? 'unlocked' : 'locked'}">
                             ${unlocked ? '✅ Unlocked' : '🔒 Locked'}
                         </span>
@@ -998,7 +1026,9 @@
             `;
         });
 
-        if (!html) html = `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No services available</div><div class="empty-desc">Please check back later.</div></div>`;
+        if (!found) {
+            html = `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No services available</div><div class="empty-desc">Please check back later.</div></div>`;
+        }
         servicesEl.innerHTML = html;
         updateTabBadges();
         updatePayBtn();
@@ -1006,7 +1036,12 @@
 
     // ─── UPDATE TAB BADGES ──────────────────────────────────
     function updateTabBadges() {
-        ['valuation', 'mileage', 'ownership'].forEach(key => {
+        const defs = serviceDefinitions.length ? serviceDefinitions : [
+            { key: 'valuation' }, { key: 'mileage' }, { key: 'ownership' }
+        ];
+        defs.forEach(def => {
+            const key = def.key;
+            if (!key) return;
             const badge = document.getElementById(`badge-${key}`);
             if (badge) {
                 const unlocked = serviceAccess[key] || false;
@@ -1048,9 +1083,14 @@
             showToast('Please log in first', 'error');
             return;
         }
-        const names = { valuation: 'Valuation', mileage: 'Mileage', ownership: 'Ownership' };
+        const defs = serviceDefinitions.length ? serviceDefinitions : [
+            { key: 'valuation', name: 'Valuation' },
+            { key: 'mileage', name: 'Mileage' },
+            { key: 'ownership', name: 'Ownership' }
+        ];
+        const found = defs.find(d => d.key === key);
         selectedService = key;
-        selectedServiceName = names[key] || key;
+        selectedServiceName = found?.name || key;
         selectedServicePrice = servicePrices[key] || 0;
         updatePayBtn();
         setStatus(`Selected ${selectedServiceName} — price KSh ${selectedServicePrice}`, 'info');
@@ -1128,7 +1168,7 @@
                         setStatus('✅ Payment completed! Service unlocked.', 'success');
                         showToast('🎉 Payment successful! Service unlocked.', 'success');
                         paymentCompleted = true;
-                        // Unlock service locally and refresh
+                        // Unlock service locally and update Supabase
                         serviceAccess[selectedService] = true;
                         await updateServiceAccessInSupabase(selectedService, true);
                         renderServices();
@@ -1215,7 +1255,8 @@
             return;
         }
 
-        // Fetch prices and access
+        // Fetch all data from Supabase
+        await fetchServiceDefinitions();
         await fetchServicePrices();
         serviceAccess = await fetchServiceAccess(user.id);
         renderServices();
