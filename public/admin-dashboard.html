@@ -1525,6 +1525,12 @@
                         .eq('code', code)
                         .select();
                     if (error) throw error;
+
+                    // Supabase RLS gotcha: if a policy blocks the UPDATE, no error is
+                    // thrown — it just returns 0 rows. Treat that as a failure.
+                    if (!data || data.length === 0) {
+                        throw new Error('Update was blocked (0 rows affected) — this is almost always a missing RLS UPDATE policy on the "services" table for your admin role, not a code bug.');
+                    }
                     return { success: true, data };
                 } catch (error) {
                     console.error('❌ Update service price error:', error);
@@ -1549,7 +1555,11 @@
                         }, { onConflict: 'code' })
                         .select();
                     if (error) throw error;
-                    return { success: true, data: data ? data[0] : null };
+
+                    if (!data || data.length === 0) {
+                        throw new Error('Save was blocked (0 rows affected) — this is almost always a missing RLS INSERT/UPDATE policy on the "services" table for your admin role, not a code bug.');
+                    }
+                    return { success: true, data: data[0] };
                 } catch (error) {
                     console.error('❌ Save service error:', error);
                     return { success: false, error: error.message };
@@ -1710,12 +1720,16 @@
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
                     
-                    const { error } = await client
+                    const { data: toggleData, error } = await client
                         .from('services')
                         .update({ active: !newActive })
-                        .eq('code', code);
+                        .eq('code', code)
+                        .select();
                     
                     if (error) throw error;
+                    if (!toggleData || toggleData.length === 0) {
+                        throw new Error('Toggle was blocked (0 rows affected) — likely a missing RLS UPDATE policy on the "services" table.');
+                    }
                     
                     await window.fetchServicePrices();
                     const name = code.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
