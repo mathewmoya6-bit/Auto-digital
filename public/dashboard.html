@@ -389,8 +389,8 @@
         <div class="payment-form">
             <div class="form-group">
                 <label><i class="fas fa-phone"></i> Phone Number</label>
-                <input id="phone" type="tel" placeholder="2547XXXXXXXX" />
-                <small>Format: 2547XXXXXXXX</small>
+                <input id="phone" type="tel" placeholder="07XXXXXXXX or 01XXXXXXXX" />
+                <small>Format: 07XXXXXXXX or 01XXXXXXXX (will be normalized to 2547XXXXXXXX or 2541XXXXXXXX)</small>
             </div>
             <button id="payBtn" class="btn btn-primary" disabled style="width:100%;justify-content:center;font-size:16px;padding:14px;">
                 <i class="fas fa-lock"></i> Select a service first
@@ -417,7 +417,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
-// ─── FIXED: Using service_id (numeric ID) instead of service_key ──
+// ─── FIXED: Phone number normalization for 07 and 01 prefixes ──
 
 (function() {
     'use strict';
@@ -446,6 +446,57 @@
     const statusDot = document.getElementById('statusDot');
     const connectionStatus = document.getElementById('connectionStatus');
     const adminLink = document.getElementById('adminLinkContainer');
+
+    // ─── PHONE NUMBER NORMALIZATION ────────────────────────────
+    function normalizePhoneNumber(phone) {
+        // Remove all non-numeric characters
+        let cleaned = phone.replace(/\D/g, '');
+        
+        // If empty, return as is
+        if (!cleaned) return phone;
+        
+        // If it starts with 0, remove the leading 0 and add 254
+        if (cleaned.startsWith('0')) {
+            cleaned = cleaned.substring(1);
+            // Check if it's a 7 or 1 prefix (Safaricom/Airtel)
+            if (cleaned.startsWith('7') || cleaned.startsWith('1')) {
+                return '254' + cleaned;
+            }
+        }
+        
+        // If it starts with 254, it's already in international format
+        if (cleaned.startsWith('254')) {
+            return cleaned;
+        }
+        
+        // If it's 9 digits and starts with 7 or 1, add 254
+        if (cleaned.length === 9 && (cleaned.startsWith('7') || cleaned.startsWith('1'))) {
+            return '254' + cleaned;
+        }
+        
+        // If it's 10 digits and starts with 07 or 01, remove 0 and add 254
+        if (cleaned.length === 10 && (cleaned.startsWith('07') || cleaned.startsWith('01'))) {
+            return '254' + cleaned.substring(1);
+        }
+        
+        // If it's 12 digits and starts with 254, return as is
+        if (cleaned.length === 12 && cleaned.startsWith('254')) {
+            return cleaned;
+        }
+        
+        // If it's a valid 07 or 01 number with 10 digits including the 0
+        if (cleaned.length === 10 && (cleaned.startsWith('07') || cleaned.startsWith('01'))) {
+            return '254' + cleaned.substring(1);
+        }
+        
+        // If it's a valid 7 or 1 number with 9 digits
+        if (cleaned.length === 9 && (cleaned.startsWith('7') || cleaned.startsWith('1'))) {
+            return '254' + cleaned;
+        }
+        
+        // Return the cleaned number if no normalization applied
+        return cleaned;
+    }
 
     function showToast(msg, type = 'info') {
         const c = document.getElementById('toastContainer');
@@ -750,10 +801,22 @@
             return;
         }
 
-        const phone = phoneInput.value.trim();
-        if (!phone.match(/^2547\d{8}$/)) {
-            setStatus('❌ Invalid phone. Use 2547XXXXXXXX', 'error');
-            showToast('Invalid phone format', 'error');
+        let phone = phoneInput.value.trim();
+        if (!phone) {
+            setStatus('❌ Please enter a phone number', 'error');
+            showToast('Please enter a phone number', 'error');
+            return;
+        }
+
+        // Normalize the phone number (handles 07 and 01 prefixes)
+        const normalizedPhone = normalizePhoneNumber(phone);
+        console.log('📱 Original phone:', phone);
+        console.log('📱 Normalized phone:', normalizedPhone);
+
+        // Validate the normalized phone number
+        if (!normalizedPhone.match(/^254[17]\d{8}$/)) {
+            setStatus('❌ Invalid phone number. Use 07XXXXXXXX or 01XXXXXXXX', 'error');
+            showToast('Invalid phone format. Use 07XXXXXXXX or 01XXXXXXXX', 'error');
             return;
         }
 
@@ -763,7 +826,6 @@
             return;
         }
 
-        // IMPORTANT: Use service_id (numeric ID) not service_key
         const serviceId = service.id;
         const price = service.price;
 
@@ -772,16 +834,15 @@
         payBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
         try {
-            // Get fresh token
             const client = initSupabase();
             const { data: { session } } = await client.auth.getSession();
             const token = session?.access_token || localStorage.getItem('access_token');
             const userId = session?.user?.id || currentUser?.id;
             
             const requestBody = {
-                phone: phone,
+                phone: normalizedPhone,  // Use the normalized phone number
                 amount: Number(price),
-                service_id: serviceId,  // Changed from service_key to service_id
+                service_id: serviceId,
                 user_id: userId
             };
             
@@ -815,7 +876,6 @@
             setStatus('✅ M-PESA prompt sent to your phone', 'success');
             showToast('📱 Check your phone for M-PESA prompt', 'success');
 
-            // Poll status
             let attempts = 0;
             const interval = setInterval(async () => {
                 try {
@@ -954,6 +1014,7 @@
         refresh: window.refresh,
         loadHistory,
         initiatePayment,
+        normalizePhoneNumber,  // Expose for testing
     };
 
     document.addEventListener('DOMContentLoaded', () => {
