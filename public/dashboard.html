@@ -417,7 +417,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
-// ─── FIXED: Properly fetch from service_prices table ──
+// ─── FIXED: Using service_type (string code) to match admin dashboard ──
 
 (function() {
     'use strict';
@@ -429,11 +429,10 @@
     let supabaseClient = null;
     let currentUser = null;
     let isAuthenticated = false;
-    let selectedServiceType = null;
+    let selectedServiceType = null;  // Changed from selectedServiceCode
     let servicePrices = {};
     let serviceAccess = {};
     let allServices = [];
-    let allServiceTypes = [];
 
     // DOM REFS
     const serviceTabsEl = document.getElementById('serviceTabs');
@@ -579,71 +578,37 @@
         window.location.href = '/';
     }
 
-    // ─── FETCH SERVICES FROM service_prices TABLE ──────────
+    // ─── FETCH DATA ──────────────────────────────────────────
     async function fetchServices() {
         const client = initSupabase();
-        
-        // Fetch all active services from service_prices
-        const { data: serviceData, error: serviceError } = await client
+        // Fetch from service_prices table (matches admin dashboard)
+        const res = await client
             .from('service_prices')
             .select('*')
             .eq('is_active', true)
             .order('display_order', { ascending: true });
 
-        if (serviceError) {
-            console.error('❌ Error fetching services:', serviceError);
-            // Try without is_active filter if column doesn't exist
-            const { data: fallbackData, error: fallbackError } = await client
-                .from('service_prices')
-                .select('*')
-                .order('display_order', { ascending: true });
-            
-            if (fallbackError || !fallbackData || fallbackData.length === 0) {
-                console.warn('⚠️ No services found in service_prices, using fallback');
-                allServices = [
-                    { id: 1, service_type: 'valuation', service_name: 'Vehicle Valuation', description: 'Get instant market value', price: 150, currency: 'KES', icon: '📊' },
-                    { id: 2, service_type: 'mileage', service_name: 'Mileage Verification', description: 'Verify odometer readings', price: 200, currency: 'KES', icon: '📈' },
-                    { id: 3, service_type: 'ownership', service_name: 'Ownership History', description: 'Track previous owners', price: 180, currency: 'KES', icon: '💰' }
-                ];
-            } else {
-                allServices = fallbackData.map(s => ({
-                    id: s.id,
-                    service_type: s.service_type,
-                    service_name: s.service_name || s.service_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-                    description: s.description || '',
-                    price: s.price || 0,
-                    currency: s.currency || 'KES',
-                    icon: s.icon || '📦'
-                }));
-            }
-        } else if (serviceData && serviceData.length > 0) {
-            allServices = serviceData.map(s => ({
+        if (res.data && res.data.length > 0) {
+            allServices = res.data.map(s => ({
                 id: s.id,
-                service_type: s.service_type,
-                service_name: s.service_name || s.service_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                code: s.service_type,
+                name: s.service_name || s.service_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
                 description: s.description || '',
                 price: s.price || 0,
                 currency: s.currency || 'KES',
                 icon: s.icon || '📦'
             }));
+            console.log('✅ Services loaded from service_prices:', allServices.map(s => `${s.code} (${s.name})`).join(', '));
         } else {
-            // Fallback if no data
+            // Fallback
             allServices = [
-                { id: 1, service_type: 'valuation', service_name: 'Vehicle Valuation', description: 'Get instant market value', price: 150, currency: 'KES', icon: '📊' },
-                { id: 2, service_type: 'mileage', service_name: 'Mileage Verification', description: 'Verify odometer readings', price: 200, currency: 'KES', icon: '📈' },
-                { id: 3, service_type: 'ownership', service_name: 'Ownership History', description: 'Track previous owners', price: 180, currency: 'KES', icon: '💰' }
+                { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150, currency: 'KES', icon: '📊' },
+                { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200, currency: 'KES', icon: '📈' },
+                { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180, currency: 'KES', icon: '💰' }
             ];
+            console.log('⚠️ Using fallback services');
         }
-
-        // Store service types for lookup
-        allServiceTypes = allServices.map(s => s.service_type);
-        
-        // Build price map
-        allServices.forEach(s => { 
-            servicePrices[s.service_type] = s.price; 
-        });
-        
-        console.log('✅ Services loaded:', allServices.map(s => `${s.service_type} (${s.service_name}) - ${s.currency} ${s.price}`).join(', '));
+        allServices.forEach(s => { servicePrices[s.code] = s.price; });
         return allServices;
     }
 
@@ -651,35 +616,21 @@
         if (!userId) return {};
         try {
             const client = initSupabase();
-            // Check user_services for access
+            // Check user_services for access (matches admin dashboard)
             const { data, error } = await client
                 .from('user_services')
                 .select(`
                     *,
-                    service_prices!inner (
-                        id,
-                        service_type,
-                        service_name,
-                        price,
-                        description
-                    )
+                    services!inner (id, code, name, price, description)
                 `)
                 .eq('user_id', userId)
                 .eq('status', 'active');
 
-            if (error) {
-                console.warn('⚠️ Error fetching user services:', error);
-                return {};
-            }
-            
+            if (error) throw error;
             const access = {};
             if (data) {
                 data.forEach(row => {
-                    // Handle both possible join structures
-                    const service = row.service_prices || row.services;
-                    if (service && service.service_type) {
-                        access[service.service_type] = true;
-                    }
+                    if (row.services?.code) access[row.services.code] = true;
                 });
             }
             serviceAccess = access;
@@ -700,18 +651,17 @@
 
         let html = '';
         services.forEach((service, index) => {
-            const serviceType = service.service_type;
-            const unlocked = serviceAccess[serviceType] || false;
-            const isActive = selectedServiceType === serviceType || (index === 0 && !selectedServiceType);
+            const unlocked = serviceAccess[service.code] || false;
+            const isActive = selectedServiceType === service.code || (index === 0 && !selectedServiceType);
             if (isActive && !selectedServiceType) {
-                selectedServiceType = serviceType;
+                selectedServiceType = service.code;
             }
 
             html += `
                 <button class="service-tab ${isActive ? 'active' : ''}" 
-                        data-service="${serviceType}"
-                        onclick="window.__AUTOD?.selectService('${serviceType}')">
-                    <span>${service.icon || '📦'} ${service.service_name}</span>
+                        data-service="${service.code}"
+                        onclick="window.__AUTOD?.selectService('${service.code}')">
+                    <span>${service.icon || '📦'} ${service.name}</span>
                     <span class="price-tag">${formatPrice(service.price)}</span>
                     <span class="tab-badge ${unlocked ? 'unlocked' : 'locked'}">
                         ${unlocked ? '✅' : '🔒'}
@@ -721,24 +671,24 @@
         });
 
         serviceTabsEl.innerHTML = html;
-        const defaultService = selectedServiceType || (services[0]?.service_type);
+        const defaultService = selectedServiceType || (services[0]?.code);
         if (defaultService) renderServiceDetail(defaultService);
     }
 
     function renderServiceDetail(serviceType) {
-        const service = allServices.find(s => s.service_type === serviceType);
+        const service = allServices.find(s => s.code === serviceType);
         if (!service) {
             serviceDetailEl.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">Service not found</div></div>`;
             return;
         }
 
-        const unlocked = serviceAccess[serviceType] || false;
-        const price = servicePrices[serviceType] || 0;
+        const unlocked = serviceAccess[service.code] || false;
+        const price = servicePrices[service.code] || 0;
 
         serviceDetailEl.innerHTML = `
             <div class="service-item">
                 <div class="service-info">
-                    <div class="service-name">${service.icon || '📦'} ${service.service_name}</div>
+                    <div class="service-name">${service.icon || '📦'} ${service.name}</div>
                     <div class="service-desc">${service.description || 'No description available'}</div>
                     <span class="service-status ${unlocked ? 'unlocked' : 'locked'}">
                         ${unlocked ? '✅ Unlocked' : '🔒 Locked'}
@@ -749,11 +699,11 @@
                 </div>
                 <div class="service-actions">
                     ${unlocked ? `
-                        <button class="btn btn-success btn-sm" onclick="window.__AUTOD?.runService('${serviceType}')">
+                        <button class="btn btn-success btn-sm" onclick="window.__AUTOD?.runService('${service.code}')">
                             <i class="fas fa-play"></i> Run
                         </button>
                     ` : `
-                        <button class="btn btn-primary btn-sm" onclick="window.__AUTOD?.selectForPayment('${serviceType}')">
+                        <button class="btn btn-primary btn-sm" onclick="window.__AUTOD?.selectForPayment('${service.code}')">
                             <i class="fas fa-shopping-cart"></i> Purchase ${formatPrice(price)}
                         </button>
                     `}
@@ -761,7 +711,7 @@
             </div>
         `;
 
-        selectedServiceType = serviceType;
+        selectedServiceType = service.code;
         updatePayBtn();
     }
 
@@ -773,7 +723,7 @@
         }
         if (selectedServiceType) {
             const price = servicePrices[selectedServiceType] || 0;
-            const service = allServices.find(s => s.service_type === selectedServiceType);
+            const service = allServices.find(s => s.code === selectedServiceType);
             const unlocked = serviceAccess[selectedServiceType] || false;
             if (unlocked) {
                 payBtn.disabled = true;
@@ -781,7 +731,7 @@
                 return;
             }
             payBtn.disabled = false;
-            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${formatPrice(price)} for ${service?.service_name || selectedServiceType}`;
+            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${formatPrice(price)} for ${service?.name || selectedServiceType}`;
         } else {
             payBtn.disabled = true;
             payBtn.innerHTML = '<i class="fas fa-lock"></i> Select a service first';
@@ -789,32 +739,32 @@
     }
 
     // ─── ACTIONS ──────────────────────────────────────────────
-    window.selectService = function(type) {
-        selectedServiceType = type;
+    window.selectService = function(code) {
+        selectedServiceType = code;
         document.querySelectorAll('.service-tab').forEach(el => {
-            el.classList.toggle('active', el.dataset.service === type);
+            el.classList.toggle('active', el.dataset.service === code);
         });
-        renderServiceDetail(type);
+        renderServiceDetail(code);
     };
 
-    window.selectForPayment = function(type) {
+    window.selectForPayment = function(code) {
         if (!isAuthenticated) return showToast('Please log in', 'error');
-        selectedServiceType = type;
-        renderServiceDetail(type);
+        selectedServiceType = code;
+        renderServiceDetail(code);
         updatePayBtn();
-        const service = allServices.find(s => s.service_type === type);
-        setStatus(`Selected ${service?.service_name} — ${formatPrice(service?.price)}`, 'info');
-        showToast(`✅ ${service?.service_name} selected`, 'success');
+        const service = allServices.find(s => s.code === code);
+        setStatus(`Selected ${service?.name} — ${formatPrice(service?.price)}`, 'info');
+        showToast(`✅ ${service?.name} selected`, 'success');
     };
 
-    window.runService = function(type) {
+    window.runService = function(code) {
         if (!isAuthenticated) return showToast('Please log in', 'error');
-        if (!serviceAccess[type]) return showToast('Service not unlocked', 'error');
-        setStatus(`⏳ Running ${type}...`, 'pending');
-        showToast(`🚀 Running ${type}...`, 'info');
+        if (!serviceAccess[code]) return showToast('Service not unlocked', 'error');
+        setStatus(`⏳ Running ${code}...`, 'pending');
+        showToast(`🚀 Running ${code}...`, 'info');
         setTimeout(() => {
-            setStatus(`✅ ${type} completed!`, 'success');
-            showToast(`✅ ${type} report ready`, 'success');
+            setStatus(`✅ ${code} completed!`, 'success');
+            showToast(`✅ ${code} report ready`, 'success');
         }, 2000);
     };
 
@@ -857,7 +807,7 @@
             return;
         }
 
-        const service = allServices.find(s => s.service_type === selectedServiceType);
+        const service = allServices.find(s => s.code === selectedServiceType);
         if (!service) {
             showToast('Service not found', 'error');
             return;
@@ -865,7 +815,7 @@
 
         const price = service.price;
 
-        setStatus(`⏳ Initiating payment for ${service.service_name} (${formatPrice(price)})...`, 'pending');
+        setStatus(`⏳ Initiating payment for ${service.name} (${formatPrice(price)})...`, 'pending');
         payBtn.disabled = true;
         payBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
@@ -875,11 +825,11 @@
             const token = session?.access_token || localStorage.getItem('access_token');
             const userId = session?.user?.id || currentUser?.id;
             
-            // Use service_type (string) to match admin dashboard
+            // Use service_type (string code) to match admin dashboard
             const requestBody = {
                 phone: normalizedPhone,
                 amount: Number(price),
-                service_type: selectedServiceType,
+                service_type: selectedServiceType,  // Changed from service_id to service_type
                 user_id: userId
             };
             
@@ -957,20 +907,20 @@
         }
     }
 
-    async function updateUserService(serviceType, unlocked) {
+    async function updateUserService(serviceKey, unlocked) {
         try {
             const client = initSupabase();
             if (!client || !currentUser) return;
 
-            // Get service id from service_prices by service_type
+            // Get service id from service_prices table by service_type
             const { data: serviceData } = await client
                 .from('service_prices')
                 .select('id')
-                .eq('service_type', serviceType)
+                .eq('service_type', serviceKey)
                 .maybeSingle();
 
             if (!serviceData) {
-                console.warn('⚠️ Service not found in service_prices:', serviceType);
+                console.warn('⚠️ Service not found in service_prices:', serviceKey);
                 return;
             }
 
@@ -1001,7 +951,7 @@
                         created_at: new Date().toISOString()
                     });
             }
-            console.log(`✅ User service ${serviceType} updated:`, unlocked ? 'active' : 'inactive');
+            console.log(`✅ User service ${serviceKey} updated:`, unlocked ? 'active' : 'inactive');
         } catch (e) {
             console.warn('⚠️ Could not update user service:', e);
         }
