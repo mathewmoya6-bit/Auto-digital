@@ -123,6 +123,7 @@
             margin-bottom: 16px;
             border: 1px solid rgba(255,255,255,0.06);
             overflow-x: auto;
+            min-height: 48px;
         }
         .service-tab {
             padding: 8px 16px;
@@ -135,6 +136,9 @@
             cursor: pointer;
             transition: all 0.2s;
             white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         .service-tab:hover { color: #cbd5e1; background: rgba(255,255,255,0.03); }
         .service-tab.active { background: #eab308; color: #0a0c15; }
@@ -149,6 +153,14 @@
         .service-tab.active .tab-badge { background: rgba(0,0,0,0.15); }
         .service-tab .tab-badge.unlocked { background: rgba(34,197,94,0.2); color: #22c55e; }
         .service-tab .tab-badge.locked { background: rgba(234,179,8,0.2); color: #eab308; }
+        .service-tab .price-tag {
+            font-size: 11px;
+            background: rgba(255,255,255,0.05);
+            padding: 1px 8px;
+            border-radius: 10px;
+            color: #94a3b8;
+        }
+        .service-tab.active .price-tag { color: #0a0c15; background: rgba(0,0,0,0.1); }
         .service-item {
             display: flex;
             justify-content: space-between;
@@ -360,19 +372,15 @@
             </div>
         </div>
 
+        <!-- Dynamic service tabs -->
         <div class="service-tabs" id="serviceTabs">
-            <button class="service-tab active" data-service="valuation" onclick="window.switchTab('valuation')">
-                💰 Valuation <span class="tab-badge locked" id="badge-valuation">🔒</span>
-            </button>
-            <button class="service-tab" data-service="mileage" onclick="window.switchTab('mileage')">
-                📈 Mileage <span class="tab-badge locked" id="badge-mileage">🔒</span>
-            </button>
-            <button class="service-tab" data-service="ownership" onclick="window.switchTab('ownership')">
-                📊 Ownership <span class="tab-badge locked" id="badge-ownership">🔒</span>
-            </button>
+            <span class="loading" style="padding:8px 16px;"><span class="spinner"></span> Loading services...</span>
         </div>
 
-        <div id="services"><span class="loading"><span class="spinner"></span> Loading...</span></div>
+        <!-- Service detail panel -->
+        <div id="serviceDetail">
+            <span class="loading"><span class="spinner"></span> Select a service</span>
+        </div>
     </div>
 
     <!-- PAYMENT -->
@@ -411,7 +419,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
-// ─── SIMPLE WORKING DASHBOARD — NO LOGIN, JUST LOGOUT ──────
+// ─── FULLY DYNAMIC DASHBOARD — FETCHES FROM SUPABASE ──────
 
 (function() {
     'use strict';
@@ -425,14 +433,15 @@
     let supabaseClient = null;
     let currentUser = null;
     let isAuthenticated = false;
-    let activeTab = 'valuation';
     let selectedService = null;
     let servicePrices = {};
     let serviceAccess = {};
     let serviceDefs = [];
+    let allServices = [];
 
     // ─── DOM REFS ────────────────────────────────────────────
-    const servicesEl = document.getElementById('services');
+    const serviceTabsEl = document.getElementById('serviceTabs');
+    const serviceDetailEl = document.getElementById('serviceDetail');
     const paymentsEl = document.getElementById('payments');
     const statusBox = document.getElementById('statusBox');
     const phoneInput = document.getElementById('phone');
@@ -465,6 +474,11 @@
             statusDot.className = `dot ${connected ? 'green' : 'red'}`;
             connectionStatus.textContent = connected ? 'Connected' : 'Disconnected';
         }
+    }
+
+    function getAuthHeaders() {
+        const token = localStorage.getItem('access_token');
+        return token ? { 'Authorization': `Bearer ${token}` } : {};
     }
 
     // ─── SUPABASE ────────────────────────────────────────────
@@ -504,6 +518,7 @@
                 currentUser = session.user;
                 isAuthenticated = true;
                 localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                localStorage.setItem('access_token', session.access_token);
                 return currentUser;
             }
             const stored = localStorage.getItem('auto_d_user');
@@ -545,11 +560,13 @@
             const client = initSupabase();
             if (client) await client.auth.signOut();
             localStorage.removeItem('auto_d_user');
+            localStorage.removeItem('access_token');
             isAuthenticated = false;
             currentUser = null;
             renderAuth(null);
             showToast('Logged out', 'info');
-            servicesEl.innerHTML = '<span class="loading">Please log in</span>';
+            serviceTabsEl.innerHTML = '<span class="loading">Please log in</span>';
+            serviceDetailEl.innerHTML = '<span class="loading">Please log in</span>';
             paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
             payBtn.disabled = true;
             payBtn.innerHTML = '<i class="fas fa-lock"></i> Login to pay';
@@ -561,38 +578,24 @@
         window.location.href = '/';
     }
 
-    // ─── FETCH DATA ──────────────────────────────────────────
+    // ─── FETCH DATA FROM SUPABASE ────────────────────────────
     async function fetchServices() {
-        const res = await query('services', '*');
+        const res = await query('services', '*', {}, { column: 'display_order', ascending: true });
         if (res.success && res.data.length) {
+            allServices = res.data;
             serviceDefs = res.data;
         } else {
-            serviceDefs = [
-                { key: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value' },
-                { key: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings' },
-                { key: 'ownership', name: 'Ownership History', description: 'Track previous owners' }
+            // Fallback defaults
+            allServices = [
+                { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150, display_order: 1 },
+                { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200, display_order: 2 },
+                { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180, display_order: 3 }
             ];
+            serviceDefs = allServices;
         }
-        return serviceDefs;
-    }
-
-    async function fetchPrices() {
-        const res = await query('service_prices', '*', {}, { column: 'created_at', ascending: false });
-        if (res.success) {
-            const latest = {};
-            res.data.forEach(row => {
-                if (row.service_key && row.price != null) {
-                    if (!latest[row.service_key] || new Date(row.created_at) > new Date(latest[row.service_key].created_at)) {
-                        latest[row.service_key] = row;
-                    }
-                }
-            });
-            Object.keys(latest).forEach(k => { servicePrices[k] = Number(latest[k].price); });
-        }
-        if (!servicePrices.valuation) servicePrices.valuation = 150;
-        if (!servicePrices.mileage) servicePrices.mileage = 200;
-        if (!servicePrices.ownership) servicePrices.ownership = 180;
-        return servicePrices;
+        // Build price map
+        allServices.forEach(s => { servicePrices[s.code] = s.price; });
+        return allServices;
     }
 
     async function fetchAccess(userId) {
@@ -606,59 +609,81 @@
         return serviceAccess;
     }
 
-    // ─── RENDER ──────────────────────────────────────────────
-    function renderServices() {
+    // ─── RENDER DYNAMIC TABS ────────────────────────────────
+    function renderTabs(services) {
+        if (!services || !services.length) {
+            serviceTabsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No services available</div></div>`;
+            return;
+        }
+
         let html = '';
-        let found = false;
-        serviceDefs.forEach(def => {
-            const key = def.key;
-            if (!key || activeTab !== key) return;
-            found = true;
-            const unlocked = serviceAccess[key] || false;
-            const price = servicePrices[key] || 0;
+        services.forEach((service, index) => {
+            const unlocked = serviceAccess[service.code] || false;
+            const isActive = selectedService === service.code || (index === 0 && !selectedService);
+            if (isActive && !selectedService) selectedService = service.code;
+
             html += `
-                <div class="service-item">
-                    <div class="service-info">
-                        <div class="service-name">${def.name || key}</div>
-                        <div class="service-desc">${def.description || ''}</div>
-                        <span class="service-status ${unlocked ? 'unlocked' : 'locked'}">${unlocked ? '✅ Unlocked' : '🔒 Locked'}</span>
-                    </div>
-                    <div class="service-price ${!unlocked ? 'unavailable' : ''}">
-                        ${unlocked ? formatPrice(price) : 'Unavailable'}
-                    </div>
-                    <div class="service-actions">
-                        ${unlocked ? `
-                            <button class="btn btn-success btn-sm" onclick="window.__AUTOD?.run('${key}')">
-                                <i class="fas fa-play"></i> Run
-                            </button>
-                        ` : `
-                            <button class="btn btn-primary btn-sm" onclick="window.__AUTOD?.select('${key}')">
-                                <i class="fas fa-shopping-cart"></i> Purchase KSh ${price}
-                            </button>
-                        `}
-                    </div>
-                </div>
+                <button class="service-tab ${isActive ? 'active' : ''}" 
+                        data-service="${service.code}"
+                        onclick="window.__AUTOD?.selectService('${service.code}')">
+                    <span>${service.name}</span>
+                    <span class="price-tag">${formatPrice(service.price)}</span>
+                    <span class="tab-badge ${unlocked ? 'unlocked' : 'locked'}">
+                        ${unlocked ? '✅' : '🔒'}
+                    </span>
+                </button>
             `;
         });
-        if (!found) html = `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No services</div></div>`;
-        servicesEl.innerHTML = html;
-        updateBadges();
+
+        serviceTabsEl.innerHTML = html;
+
+        // Show detail for selected or first service
+        const defaultService = selectedService || (services[0]?.code);
+        if (defaultService) renderServiceDetail(defaultService);
+    }
+
+    function renderServiceDetail(serviceCode) {
+        const service = allServices.find(s => s.code === serviceCode);
+        if (!service) {
+            serviceDetailEl.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">Service not found</div></div>`;
+            return;
+        }
+
+        const unlocked = serviceAccess[service.code] || false;
+        const price = servicePrices[service.code] || 0;
+
+        serviceDetailEl.innerHTML = `
+            <div class="service-item">
+                <div class="service-info">
+                    <div class="service-name">${service.name}</div>
+                    <div class="service-desc">${service.description || 'No description available'}</div>
+                    <span class="service-status ${unlocked ? 'unlocked' : 'locked'}">
+                        ${unlocked ? '✅ Unlocked' : '🔒 Locked'}
+                    </span>
+                </div>
+                <div class="service-price ${!unlocked ? 'unavailable' : ''}">
+                    ${unlocked ? formatPrice(price) : 'Unavailable'}
+                </div>
+                <div class="service-actions">
+                    ${unlocked ? `
+                        <button class="btn btn-success btn-sm" onclick="window.__AUTOD?.runService('${service.code}')">
+                            <i class="fas fa-play"></i> Run
+                        </button>
+                    ` : `
+                        <button class="btn btn-primary btn-sm" onclick="window.__AUTOD?.selectForPayment('${service.code}')">
+                            <i class="fas fa-shopping-cart"></i> Purchase ${formatPrice(price)}
+                        </button>
+                    `}
+                </div>
+            </div>
+        `;
+
+        // Update selected service
+        selectedService = service.code;
         updatePayBtn();
     }
 
-    function updateBadges() {
-        serviceDefs.forEach(def => {
-            const key = def.key;
-            if (!key) return;
-            const b = document.getElementById(`badge-${key}`);
-            if (b) {
-                const unlocked = serviceAccess[key] || false;
-                b.textContent = unlocked ? '✅' : '🔒';
-                b.className = `tab-badge ${unlocked ? 'unlocked' : 'locked'}`;
-            }
-        });
-    }
-
+    // ─── UPDATE PAY BUTTON ──────────────────────────────────
     function updatePayBtn() {
         if (!isAuthenticated) {
             payBtn.disabled = true;
@@ -667,9 +692,15 @@
         }
         if (selectedService) {
             const price = servicePrices[selectedService] || 0;
-            const def = serviceDefs.find(d => d.key === selectedService);
+            const service = allServices.find(s => s.code === selectedService);
+            const unlocked = serviceAccess[selectedService] || false;
+            if (unlocked) {
+                payBtn.disabled = true;
+                payBtn.innerHTML = '<i class="fas fa-check"></i> Already unlocked';
+                return;
+            }
             payBtn.disabled = false;
-            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay KSh ${price} for ${def?.name || selectedService}`;
+            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${formatPrice(price)} for ${service?.name || selectedService}`;
         } else {
             payBtn.disabled = true;
             payBtn.innerHTML = '<i class="fas fa-lock"></i> Select a service first';
@@ -677,38 +708,40 @@
     }
 
     // ─── ACTIONS ──────────────────────────────────────────────
-    window.switchTab = function(tab) {
-        activeTab = tab;
+    window.selectService = function(code) {
+        selectedService = code;
+        // Update tab active state
         document.querySelectorAll('.service-tab').forEach(el => {
-            el.classList.toggle('active', el.dataset.service === tab);
+            el.classList.toggle('active', el.dataset.service === code);
         });
-        renderServices();
+        renderServiceDetail(code);
     };
 
-    window.select = function(key) {
+    window.selectForPayment = function(code) {
         if (!isAuthenticated) return showToast('Please log in', 'error');
-        selectedService = key;
-        const def = serviceDefs.find(d => d.key === key);
-        setStatus(`Selected ${def?.name || key} — KSh ${servicePrices[key] || 0}`, 'info');
-        showToast(`✅ ${def?.name || key} selected`, 'success');
+        selectedService = code;
+        renderServiceDetail(code);
         updatePayBtn();
+        const service = allServices.find(s => s.code === code);
+        setStatus(`Selected ${service?.name} — ${formatPrice(service?.price)}`, 'info');
+        showToast(`✅ ${service?.name} selected`, 'success');
     };
 
-    window.run = function(key) {
+    window.runService = function(code) {
         if (!isAuthenticated) return showToast('Please log in', 'error');
-        if (!serviceAccess[key]) return showToast('Service not unlocked', 'error');
-        setStatus(`⏳ Running ${key}...`, 'pending');
-        showToast(`🚀 Running ${key}...`, 'info');
+        if (!serviceAccess[code]) return showToast('Service not unlocked', 'error');
+        setStatus(`⏳ Running ${code}...`, 'pending');
+        showToast(`🚀 Running ${code}...`, 'info');
         setTimeout(() => {
-            setStatus(`✅ ${key} completed!`, 'success');
-            showToast(`✅ ${key} report ready`, 'success');
+            setStatus(`✅ ${code} completed!`, 'success');
+            showToast(`✅ ${code} report ready`, 'success');
         }, 2000);
     };
 
     window.refresh = async function() {
-        await fetchPrices();
+        await fetchServices();
         if (currentUser) await fetchAccess(currentUser.id);
-        renderServices();
+        renderTabs(allServices);
         showToast('🔄 Refreshed', 'info');
     };
 
@@ -716,6 +749,9 @@
     async function initiatePayment() {
         if (!isAuthenticated) return showToast('Please log in', 'error');
         if (!selectedService) return showToast('Select a service first', 'error');
+        if (serviceAccess[selectedService]) {
+            return showToast('Service already unlocked', 'info');
+        }
 
         const phone = phoneInput.value.trim();
         if (!phone.match(/^2547\d{8}$/)) {
@@ -724,7 +760,8 @@
         }
 
         const price = servicePrices[selectedService] || 0;
-        setStatus(`⏳ Initiating payment for ${selectedService} (KSh ${price})...`, 'pending');
+        const service = allServices.find(s => s.code === selectedService);
+        setStatus(`⏳ Initiating payment for ${service?.name} (${formatPrice(price)})...`, 'pending');
         payBtn.disabled = true;
         payBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
@@ -757,7 +794,8 @@
                         await updateAccess(selectedService, true);
                         setStatus('✅ Payment completed! Service unlocked.', 'success');
                         showToast('🎉 Payment successful!', 'success');
-                        renderServices();
+                        renderTabs(allServices);
+                        renderServiceDetail(selectedService);
                         loadHistory();
                         payBtn.disabled = false;
                         payBtn.innerHTML = '<i class="fas fa-check"></i> Unlocked';
@@ -821,18 +859,19 @@
         const user = await getCurrentUser();
         renderAuth(user);
         if (!user) {
-            servicesEl.innerHTML = '<span class="loading">Please log in</span>';
+            serviceTabsEl.innerHTML = '<span class="loading">Please log in</span>';
+            serviceDetailEl.innerHTML = '<span class="loading">Please log in</span>';
             paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
             return;
         }
+
         // Show admin link if admin
         const isAdmin = user.user_metadata?.role === 'admin' || user.user_metadata?.is_admin;
         adminLink.style.display = isAdmin ? 'block' : 'none';
 
         await fetchServices();
-        await fetchPrices();
         await fetchAccess(user.id);
-        renderServices();
+        renderTabs(allServices);
         loadHistory();
         setStatus('✅ Ready', 'success');
     }
@@ -841,11 +880,11 @@
     window.__AUTOD = {
         logout,
         goToLanding,
-        select: window.select,
-        run: window.run,
+        selectService: window.selectService,
+        selectForPayment: window.selectForPayment,
+        runService: window.runService,
         refresh: window.refresh,
         loadHistory,
-        switchTab: window.switchTab,
         initiatePayment,
     };
 
