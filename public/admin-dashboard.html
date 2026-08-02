@@ -1099,21 +1099,8 @@
                     <input type="number" id="servicePrice" placeholder="e.g., 150" step="0.01" required />
                 </div>
                 <div class="form-group">
-                    <label>Currency</label>
-                    <select id="serviceCurrency">
-                        <option value="KES">KES - Kenyan Shilling</option>
-                        <option value="USD">USD - US Dollar</option>
-                        <option value="EUR">EUR - Euro</option>
-                    </select>
-                </div>
-                <div class="form-group">
                     <label>Description</label>
                     <textarea id="serviceDescription" placeholder="Brief description of the service..." rows="2"></textarea>
-                </div>
-                <div class="form-group">
-                    <label>Icon</label>
-                    <input type="text" id="serviceIcon" placeholder="e.g., 📈 or 💰" maxlength="2" />
-                    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Emoji for the service (optional)</div>
                 </div>
                 <div class="form-group">
                     <label>Display Order</label>
@@ -1142,6 +1129,9 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - ADMIN DASHBOARD (WITH LIVE SYNC)
+        // Service pricing now reads/writes the SAME `services` table
+        // that dashboard.html and the FastAPI /mpesa/stkpush endpoint use,
+        // so admin price/status edits actually reach the customer dashboard.
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1164,7 +1154,7 @@
             let clockInterval = null;
             let scraperRefreshInterval = null;
             let healthCheckInFlight = false;
-            let editingServiceId = null;
+            let editingServiceCode = null;
             let supabaseChannel = null;
             let isRealtimeConnected = false;
 
@@ -1244,7 +1234,9 @@
                 try {
                     // Close existing channel
                     if (supabaseChannel) {
-                        supabaseChannel.unsubscribe();
+                        supabaseChannel.fuelChannel?.unsubscribe();
+                        supabaseChannel.serviceChannel?.unsubscribe();
+                        supabaseChannel.logChannel?.unsubscribe();
                         supabaseChannel = null;
                     }
 
@@ -1289,18 +1281,18 @@
                             }
                         });
 
-                    // Subscribe to service_prices changes
+                    // Subscribe to services changes (the SAME table dashboard.html reads)
                     const serviceChannel = client
-                        .channel('service_prices_changes')
+                        .channel('services_changes')
                         .on(
                             'postgres_changes',
                             {
                                 event: 'INSERT',
                                 schema: 'public',
-                                table: 'service_prices'
+                                table: 'services'
                             },
                             (payload) => {
-                                console.log('💳 Service price update received:', payload);
+                                console.log('💳 Service update received:', payload);
                                 handleServicePriceUpdate(payload);
                             }
                         )
@@ -1309,10 +1301,10 @@
                             {
                                 event: 'UPDATE',
                                 schema: 'public',
-                                table: 'service_prices'
+                                table: 'services'
                             },
                             (payload) => {
-                                console.log('💳 Service price update received:', payload);
+                                console.log('💳 Service update received:', payload);
                                 handleServicePriceUpdate(payload);
                             }
                         )
@@ -1321,7 +1313,7 @@
                             {
                                 event: 'DELETE',
                                 schema: 'public',
-                                table: 'service_prices'
+                                table: 'services'
                             },
                             (payload) => {
                                 console.log('💳 Service deleted:', payload);
@@ -1329,7 +1321,7 @@
                             }
                         )
                         .subscribe((status) => {
-                            console.log('📡 Service prices channel status:', status);
+                            console.log('📡 Services channel status:', status);
                             if (status === 'SUBSCRIBED') {
                                 document.getElementById('serviceSyncIndicator').innerHTML = '<span class="pulse-dot"></span> Live';
                             }
@@ -1424,29 +1416,28 @@
                 }
             }
 
-            // ─── Handle Service Price Updates ────────────────────────────
+            // ─── Handle Service Updates (from `services` table, live) ────
             function handleServicePriceUpdate(payload) {
                 const newData = payload.new;
                 if (!newData) return;
 
-                const serviceType = newData.service_type;
-                const price = newData.price;
-                const currency = newData.currency || 'KES';
-                const name = newData.service_name || serviceType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                const code = newData.code;
+                const price = Number(newData.price) || 0;
+                const name = newData.name || code.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
                 // Update the UI for this service
-                updateServicePriceInUI(serviceType, price, currency, name);
-                showToast(`💳 ${name} price updated to ${currency} ${price.toFixed(2)} (live)`, 'success');
-                addAdminLog(`💳 ${name} price updated to ${currency} ${price.toFixed(2)} (via live sync)`, 'system');
+                updateServicePriceInUI(code, price, name);
+                showToast(`💳 ${name} price updated to KES ${price.toFixed(2)} (live)`, 'success');
+                addAdminLog(`💳 ${name} price updated to KES ${price.toFixed(2)} (via live sync)`, 'system');
             }
 
-            function updateServicePriceInUI(serviceType, price, currency, name) {
-                const priceEl = document.getElementById('price' + serviceType);
-                const inputEl = document.getElementById('edit' + serviceType);
-                const itemEl = document.querySelector(`[data-service="${serviceType}"]`);
+            function updateServicePriceInUI(code, price, name) {
+                const priceEl = document.getElementById('price' + code);
+                const inputEl = document.getElementById('edit' + code);
+                const itemEl = document.querySelector(`[data-service="${code}"]`);
 
                 if (priceEl) {
-                    priceEl.textContent = `${currency} ${price.toFixed(2)}`;
+                    priceEl.textContent = `KES ${price.toFixed(2)}`;
                 }
                 if (inputEl) {
                     inputEl.value = price;
@@ -1508,96 +1499,71 @@
                 }
             }
 
-            // ─── Service Price Functions ──────────────────────────────
-            async function getServicePrices() {
+            // ─── Service Functions (services table — shared with dashboard.html) ──
+            async function getServices() {
                 try {
-                    const result = await querySupabase('service_prices', '*', {}, { column: 'created_at', ascending: false });
+                    const result = await querySupabase('services', '*', {}, { column: 'display_order', ascending: true });
                     if (!result.success) throw new Error(result.error);
-                    
-                    const latest = {};
-                    result.data.forEach(item => {
-                        if (!latest[item.service_type] || new Date(item.created_at) > new Date(latest[item.service_type].created_at)) {
-                            latest[item.service_type] = item;
-                        }
-                    });
-                    
-                    return { success: true, data: latest };
+
+                    const byCode = {};
+                    (result.data || []).forEach(item => { byCode[item.code] = item; });
+                    return { success: true, data: byCode };
                 } catch (error) {
-                    console.error('❌ Get service prices error:', error);
+                    console.error('❌ Get services error:', error);
                     return { success: false, error: error.message };
                 }
             }
 
-            async function updateServicePrice(serviceType, price, currency = 'KES') {
+            async function updateServicePrice(code, price) {
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
-                    
-                    const existing = await querySupabase('service_prices', 'id', { service_type: serviceType });
-                    if (existing.success && existing.data && existing.data.length > 0) {
-                        const { data, error } = await client
-                            .from('service_prices')
-                            .update({
-                                price: price,
-                                currency: currency,
-                                updated_at: new Date().toISOString()
-                            })
-                            .eq('service_type', serviceType)
-                            .select();
-                        if (error) throw error;
-                        return { success: true, data };
-                    } else {
-                        return await createService({
-                            service_type: serviceType,
-                            service_name: serviceType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-                            price: price,
-                            currency: currency
-                        });
-                    }
+
+                    const { data, error } = await client
+                        .from('services')
+                        .update({ price: price })
+                        .eq('code', code)
+                        .select();
+                    if (error) throw error;
+                    return { success: true, data };
                 } catch (error) {
                     console.error('❌ Update service price error:', error);
                     return { success: false, error: error.message };
                 }
             }
 
-            async function createService(serviceData) {
+            async function createOrUpdateService(serviceData) {
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
-                    
-                    if (!serviceData.service_name) {
-                        serviceData.service_name = serviceData.service_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-                    }
-                    
+
                     const { data, error } = await client
-                        .from('service_prices')
-                        .insert({
-                            service_type: serviceData.service_type,
-                            service_name: serviceData.service_name,
-                            price: serviceData.price,
-                            currency: serviceData.currency || 'KES',
+                        .from('services')
+                        .upsert({
+                            code: serviceData.code,
+                            name: serviceData.name,
                             description: serviceData.description || '',
-                            icon: serviceData.icon || '',
-                            display_order: serviceData.display_order || 0,
-                            is_active: serviceData.is_active !== false
-                        })
+                            price: serviceData.price,
+                            active: serviceData.active !== false,
+                            display_order: serviceData.display_order || 0
+                        }, { onConflict: 'code' })
                         .select();
                     if (error) throw error;
-                    return { success: true, data: data[0] };
+                    return { success: true, data: data ? data[0] : null };
                 } catch (error) {
-                    console.error('❌ Create service error:', error);
+                    console.error('❌ Save service error:', error);
                     return { success: false, error: error.message };
                 }
             }
 
-            async function deleteServiceByType(serviceType) {
+            async function deleteServiceByCode(code) {
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
                     const { error } = await client
-                        .from('service_prices')
+                        .from('services')
                         .delete()
-                        .eq('service_type', serviceType);
+                        .eq('code', code);
                     if (error) throw error;
                     return { success: true };
                 } catch (error) {
@@ -1625,47 +1591,41 @@
             // ─── Service Management ─────────────────────────────────────
             window.fetchServicePrices = async function() {
                 try {
-                    const result = await getServicePrices();
+                    const result = await getServices();
                     if (result.success && result.data && Object.keys(result.data).length > 0) {
                         renderServicePrices(result.data);
                         document.getElementById('serviceStatus').textContent = '● Connected';
                         document.getElementById('serviceStatus').className = 'badge badge-success';
                     } else {
-                        renderFallbackServicePrices();
+                        serviceList.innerHTML = `
+                            <div class="service-item" style="justify-content:center;color:var(--text-muted);">
+                                No services found in the "services" table. Click "Add New Service" to create one.
+                            </div>
+                        `;
                         document.getElementById('serviceStatus').textContent = '● No Data';
                         document.getElementById('serviceStatus').className = 'badge badge-warning';
                     }
                 } catch (error) {
                     console.warn('⚠️ Service fetch error:', error.message);
-                    renderFallbackServicePrices();
+                    serviceList.innerHTML = `
+                        <div class="service-item" style="justify-content:center;color:var(--text-muted);">
+                            Could not load services. Check connection and try again.
+                        </div>
+                    `;
                     document.getElementById('serviceStatus').textContent = '● Offline';
                     document.getElementById('serviceStatus').className = 'badge badge-danger';
                 }
             };
 
-            function renderFallbackServicePrices() {
-                const fallback = {
-                    valuation: { price: 150, currency: 'KES', service_name: 'Vehicle Valuation' },
-                    ownership: { price: 200, currency: 'KES', service_name: 'Ownership Cost Report' },
-                    mileage: { price: 100, currency: 'KES', service_name: 'Mileage Report' },
-                    full_report: { price: 350, currency: 'KES', service_name: 'Full Vehicle Report' }
-                };
-                renderServicePrices(fallback);
-                document.getElementById('serviceStatus').textContent = '● Fallback';
-                document.getElementById('serviceStatus').className = 'badge badge-warning';
-            }
-
             function renderServicePrices(services) {
-                const entries = Object.entries(services).map(([key, val]) => {
-                    const data = typeof val === 'number' ? { price: val } : val;
+                const entries = Object.entries(services).map(([code, data]) => {
                     return {
-                        key: key,
-                        name: data.service_name || data.name || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                        code: code,
+                        id: data.id,
+                        name: data.name || code.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
                         price: data.price || 0,
-                        currency: data.currency || 'KES',
                         description: data.description || '',
-                        icon: data.icon || '',
-                        is_active: data.is_active !== false,
+                        active: data.active !== false,
                         display_order: data.display_order || 0
                     };
                 });
@@ -1682,19 +1642,19 @@
                 }
 
                 serviceList.innerHTML = entries.map(s => `
-                    <div class="service-item" data-service="${s.key}">
-                        <span class="service-name">${s.icon || '📦'} ${escapeHtml(s.name)}</span>
-                        <div class="service-price" id="price${s.key}">${s.currency} ${s.price}</div>
-                        <span class="service-status-badge ${s.is_active ? 'active' : 'inactive'}">
-                            ${s.is_active ? '✅ Active' : '❌ Inactive'}
+                    <div class="service-item" data-service="${s.code}">
+                        <span class="service-name">📦 ${escapeHtml(s.name)}</span>
+                        <div class="service-price" id="price${s.code}">KES ${s.price}</div>
+                        <span class="service-status-badge ${s.active ? 'active' : 'inactive'}">
+                            ${s.active ? '✅ Active' : '❌ Inactive'}
                         </span>
                         <div class="service-edit">
-                            <input type="number" id="edit${s.key}" step="0.01" placeholder="Price" value="${s.price}" />
-                            <button class="update-btn" onclick="window.updateService('${s.key}')">Update</button>
-                            <button class="service-toggle" onclick="window.toggleService('${s.key}')">
-                                ${s.is_active ? '🔒' : '🔓'}
+                            <input type="number" id="edit${s.code}" step="0.01" placeholder="Price" value="${s.price}" />
+                            <button class="update-btn" onclick="window.updateService('${s.code}')">Update</button>
+                            <button class="service-toggle" onclick="window.toggleService('${s.code}')">
+                                ${s.active ? '🔒' : '🔓'}
                             </button>
-                            <button class="service-toggle" onclick="window.editServiceModal('${s.key}')" style="color:var(--blue);border-color:var(--blue);">
+                            <button class="service-toggle" onclick="window.editServiceModal('${s.code}')" style="color:var(--blue);border-color:var(--blue);">
                                 ✏️
                             </button>
                         </div>
@@ -1707,8 +1667,8 @@
                 return String(str).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
             }
 
-            window.updateService = async function(type) {
-                const input = document.getElementById('edit' + type);
+            window.updateService = async function(code) {
+                const input = document.getElementById('edit' + code);
                 const price = parseFloat(input.value);
                 if (isNaN(price) || price < 0) {
                     showToast('❌ Invalid price value', 'error');
@@ -1721,13 +1681,13 @@
                 btn.disabled = true;
 
                 try {
-                    const result = await updateServicePrice(type, price);
+                    const result = await updateServicePrice(code, price);
                     if (!result.success) throw new Error(result.error);
 
                     await window.fetchServicePrices();
-                    const name = type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    const name = code.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     await addAdminLog(`💳 ${name} price updated to ${price}`, 'admin');
-                    showToast(`✅ ${name} price updated!`, 'success');
+                    showToast(`✅ ${name} price updated! Customers will see this on their next refresh.`, 'success');
                 } catch (error) {
                     console.error('Update service error:', error);
                     showToast(`❌ Failed to update service: ${error.message}`, 'error');
@@ -1737,33 +1697,30 @@
                 }
             };
 
-            window.toggleService = async function(type) {
+            window.toggleService = async function(code) {
                 try {
-                    const result = await getServicePrices();
+                    const result = await getServices();
                     if (!result.success) throw new Error(result.error);
                     
                     const services = result.data;
-                    const service = services[type];
+                    const service = services[code];
                     if (!service) throw new Error('Service not found');
                     
-                    const newStatus = service.is_active !== false;
+                    const newActive = service.active !== false;
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
                     
                     const { error } = await client
-                        .from('service_prices')
-                        .update({
-                            is_active: !newStatus,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('service_type', type);
+                        .from('services')
+                        .update({ active: !newActive })
+                        .eq('code', code);
                     
                     if (error) throw error;
                     
                     await window.fetchServicePrices();
-                    const name = type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-                    await addAdminLog(`🔒 ${name} ${newStatus ? 'deactivated' : 'activated'}`, 'admin');
-                    showToast(`✅ ${name} ${newStatus ? 'deactivated' : 'activated'}!`, 'success');
+                    const name = code.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    await addAdminLog(`🔒 ${name} ${newActive ? 'deactivated' : 'activated'}`, 'admin');
+                    showToast(`✅ ${name} ${newActive ? 'deactivated' : 'activated'}!`, 'success');
                 } catch (error) {
                     console.error('Toggle service error:', error);
                     showToast(`❌ Failed to toggle service: ${error.message}`, 'error');
@@ -1772,7 +1729,7 @@
 
             // ─── Modal Functions ────────────────────────────────────────
             window.openAddServiceModal = function() {
-                editingServiceId = null;
+                editingServiceCode = null;
                 document.getElementById('serviceModalTitle').textContent = 'Add New Service';
                 document.getElementById('serviceModalSub').textContent = 'Enter the service details to add it to the system.';
                 document.getElementById('serviceForm').reset();
@@ -1780,9 +1737,7 @@
                 document.getElementById('serviceCode').value = '';
                 document.getElementById('serviceName').value = '';
                 document.getElementById('servicePrice').value = '';
-                document.getElementById('serviceCurrency').value = 'KES';
                 document.getElementById('serviceDescription').value = '';
-                document.getElementById('serviceIcon').value = '';
                 document.getElementById('serviceDisplayOrder').value = '0';
                 document.getElementById('serviceActive').value = 'true';
                 document.getElementById('serviceDeleteBtn').style.display = 'none';
@@ -1790,27 +1745,25 @@
                 document.getElementById('serviceModal').classList.add('open');
             };
 
-            window.editServiceModal = async function(type) {
+            window.editServiceModal = async function(code) {
                 try {
-                    const result = await getServicePrices();
+                    const result = await getServices();
                     if (!result.success) throw new Error(result.error);
                     
                     const services = result.data;
-                    const service = services[type];
+                    const service = services[code];
                     if (!service) throw new Error('Service not found');
                     
-                    editingServiceId = type;
+                    editingServiceCode = code;
                     document.getElementById('serviceModalTitle').textContent = 'Edit Service';
                     document.getElementById('serviceModalSub').textContent = 'Update the service details.';
-                    document.getElementById('serviceCode').value = type;
+                    document.getElementById('serviceCode').value = code;
                     document.getElementById('serviceCode').disabled = true;
-                    document.getElementById('serviceName').value = service.service_name || service.name || type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    document.getElementById('serviceName').value = service.name || code.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     document.getElementById('servicePrice').value = service.price || 0;
-                    document.getElementById('serviceCurrency').value = service.currency || 'KES';
                     document.getElementById('serviceDescription').value = service.description || '';
-                    document.getElementById('serviceIcon').value = service.icon || '';
                     document.getElementById('serviceDisplayOrder').value = service.display_order || 0;
-                    document.getElementById('serviceActive').value = service.is_active !== false ? 'true' : 'false';
+                    document.getElementById('serviceActive').value = service.active !== false ? 'true' : 'false';
                     document.getElementById('serviceDeleteBtn').style.display = 'inline-block';
                     document.getElementById('serviceSaveBtn').textContent = '💾 Update Service';
                     document.getElementById('serviceModal').classList.add('open');
@@ -1822,19 +1775,19 @@
 
             window.closeServiceModal = function() {
                 document.getElementById('serviceModal').classList.remove('open');
-                editingServiceId = null;
+                editingServiceCode = null;
             };
 
             window.deleteService = async function() {
-                if (!editingServiceId) return;
-                if (!confirm(`Are you sure you want to delete service "${editingServiceId}"? This cannot be undone.`)) return;
+                if (!editingServiceCode) return;
+                if (!confirm(`Are you sure you want to delete service "${editingServiceCode}"? This cannot be undone.`)) return;
 
                 try {
-                    const result = await deleteServiceByType(editingServiceId);
+                    const result = await deleteServiceByCode(editingServiceCode);
                     if (!result.success) throw new Error(result.error);
                     
                     await window.fetchServicePrices();
-                    const name = editingServiceId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    const name = editingServiceCode.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     await addAdminLog(`🗑️ ${name} service deleted`, 'admin');
                     showToast(`✅ ${name} deleted!`, 'success');
                     closeServiceModal();
@@ -1850,11 +1803,9 @@
                 const code = document.getElementById('serviceCode').value.trim().toLowerCase();
                 const name = document.getElementById('serviceName').value.trim();
                 const price = parseFloat(document.getElementById('servicePrice').value);
-                const currency = document.getElementById('serviceCurrency').value;
                 const description = document.getElementById('serviceDescription').value.trim();
-                const icon = document.getElementById('serviceIcon').value.trim();
                 const display_order = parseInt(document.getElementById('serviceDisplayOrder').value) || 0;
-                const is_active = document.getElementById('serviceActive').value === 'true';
+                const active = document.getElementById('serviceActive').value === 'true';
 
                 if (!code || !name || isNaN(price) || price < 0) {
                     showToast('❌ Please fill in all required fields', 'error');
@@ -1866,38 +1817,16 @@
                 btn.disabled = true;
 
                 try {
-                    const client = getSupabaseClient();
-                    if (!client) throw new Error('Supabase not initialized');
-                    
-                    const payload = {
-                        service_type: code,
-                        service_name: name,
-                        price: price,
-                        currency: currency,
-                        description: description,
-                        icon: icon,
-                        display_order: display_order,
-                        is_active: is_active,
-                        updated_at: new Date().toISOString()
-                    };
-                    
-                    if (editingServiceId) {
-                        const { data, error } = await client
-                            .from('service_prices')
-                            .update(payload)
-                            .eq('service_type', code)
-                            .select();
-                        if (error) throw error;
-                        await addAdminLog(`💳 ${name} service updated (${price} ${currency})`, 'admin');
+                    const result = await createOrUpdateService({
+                        code, name, price, description, display_order, active
+                    });
+                    if (!result.success) throw new Error(result.error);
+
+                    if (editingServiceCode) {
+                        await addAdminLog(`💳 ${name} service updated (KES ${price})`, 'admin');
                         showToast(`✅ ${name} updated!`, 'success');
                     } else {
-                        payload.created_at = new Date().toISOString();
-                        const { data, error } = await client
-                            .from('service_prices')
-                            .insert(payload)
-                            .select();
-                        if (error) throw error;
-                        await addAdminLog(`➕ ${name} service created (${price} ${currency})`, 'admin');
+                        await addAdminLog(`➕ ${name} service created (KES ${price})`, 'admin');
                         showToast(`✅ ${name} created!`, 'success');
                     }
                     
@@ -1907,7 +1836,7 @@
                     console.error('Save service error:', error);
                     showToast(`❌ Failed to save service: ${error.message}`, 'error');
                 } finally {
-                    btn.textContent = editingServiceId ? '💾 Update Service' : '💾 Save Service';
+                    btn.textContent = editingServiceCode ? '💾 Update Service' : '💾 Save Service';
                     btn.disabled = false;
                 }
             });
