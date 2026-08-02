@@ -116,9 +116,9 @@
             background: rgba(34, 197, 94, 0.15);
             color: var(--green);
         }
-        .card-title .badge-error {
-            background: rgba(239, 68, 68, 0.15);
-            color: var(--red);
+        .card-title .badge-warning {
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--amber);
         }
 
         .header {
@@ -393,16 +393,6 @@
             font-size: 8px;
             margin-left: 4px;
         }
-        .price-source .live-badge {
-            display: inline-block;
-            background: rgba(34, 197, 94, 0.15);
-            color: var(--green);
-            padding: 1px 6px;
-            border-radius: 4px;
-            font-size: 8px;
-            margin-left: 4px;
-            animation: pulse 1.5s ease-in-out infinite;
-        }
         .price-source .unavailable-badge {
             display: inline-block;
             background: rgba(239, 68, 68, 0.15);
@@ -411,10 +401,6 @@
             border-radius: 4px;
             font-size: 8px;
             margin-left: 4px;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
         }
 
         .payment-form .form-group { margin-bottom: 16px; }
@@ -441,6 +427,12 @@
             border-color: var(--amber);
         }
         .payment-form input::placeholder { color: var(--text-muted); }
+        .payment-form small {
+            color: var(--text-muted);
+            font-size: 11px;
+            display: block;
+            margin-top: 4px;
+        }
 
         .status-box {
             background: var(--bg);
@@ -577,6 +569,7 @@
             display: inline-block;
         }
         .status-indicator .dot.green { background: var(--green); }
+        .status-indicator .dot.amber { background: var(--amber); }
         .status-indicator .dot.red { background: var(--red); }
 
         @media (max-width: 768px) {
@@ -636,7 +629,6 @@
     <div class="admin-link-container" id="adminLinkContainer" style="display:none;">
         <a href="/admin.html" class="admin-btn" target="_blank" id="adminLink">
             <i class="fas fa-cog"></i> Admin Dashboard
-            <span class="badge" style="background:rgba(255,255,255,0.15);font-size:8px;padding:1px 6px;border-radius:4px;">Manage Prices</span>
         </a>
     </div>
 
@@ -646,7 +638,7 @@
             <div class="card-title">
                 🚀 Your Services
                 <span class="badge">Access</span>
-                <span class="badge badge-success" id="priceStatusBadge">● Live</span>
+                <span class="badge badge-success">Live Prices</span>
             </div>
             <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                 <div class="status-indicator">
@@ -697,9 +689,7 @@
             <div class="form-group">
                 <label for="phone"><i class="fas fa-phone"></i> Phone Number</label>
                 <input id="phone" type="tel" placeholder="2547XXXXXXXX" autocomplete="tel" />
-                <small style="color:var(--text-muted);font-size:11px;display:block;margin-top:4px;">
-                    Format: 2547XXXXXXXX (no spaces or special characters)
-                </small>
+                <small>Format: 2547XXXXXXXX (no spaces or special characters)</small>
             </div>
 
             <button id="payBtn" class="btn btn-primary" disabled style="width:100%;justify-content:center;font-size:16px;padding:14px;">
@@ -736,45 +726,40 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// AUTO-D KENYA DASHBOARD - PRODUCTION v13.0
+// AUTO-D KENYA - USER DASHBOARD v1.0
+// Connects to FastAPI backend for all data
 // ═══════════════════════════════════════════════════════════════
 
 (function() {
     'use strict';
 
-    // ─── CONFIGURATION ──────────────────────────────────────────
-    const CONFIG = {
-        API_BASE: 'https://auto-digital.onrender.com/api/v1',
-        SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
-        SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-        PRICE_POLLING_INTERVAL: 30000,
-        SERVICE_ROUTES: {
-            'valuation': '/instant-value.html',
-            'mileage': '/mileage.html',
-            'ownership': '/ownership-cost.html'
+    // ─── CONFIG ──────────────────────────────────────────────────
+    const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+    const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+    const PRICE_POLLING_INTERVAL = 30000;
+
+    const SERVICE_ROUTES = {
+        'valuation': '/instant-value.html',
+        'mileage': '/mileage.html',
+        'ownership': '/ownership-cost.html'
+    };
+
+    const SERVICE_DETAILS = {
+        'valuation': {
+            name: 'Vehicle Valuation',
+            icon: '💰',
+            description: 'Get instant market value for your vehicle'
         },
-        SERVICE_DETAILS: {
-            'valuation': {
-                name: 'Vehicle Valuation',
-                icon: '💰',
-                description: 'Get instant market value for your vehicle',
-                route: '/instant-value.html',
-                color: '#eab308'
-            },
-            'mileage': {
-                name: 'Mileage & Running Cost',
-                icon: '📈',
-                description: 'Calculate running costs per kilometer',
-                route: '/mileage.html',
-                color: '#3b82f6'
-            },
-            'ownership': {
-                name: 'Cost of Ownership',
-                icon: '📊',
-                description: 'Total cost of ownership analysis',
-                route: '/ownership-cost.html',
-                color: '#a855f7'
-            }
+        'mileage': {
+            name: 'Mileage & Running Cost',
+            icon: '📈',
+            description: 'Calculate running costs per kilometer'
+        },
+        'ownership': {
+            name: 'Cost of Ownership',
+            icon: '📊',
+            description: 'Total cost of ownership analysis'
         }
     };
 
@@ -795,8 +780,6 @@
     let pricePollingTimer = null;
     let lastPriceUpdate = null;
     let isAdmin = false;
-    let isInitialized = false;
-    let isConnected = false;
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const servicesEl = document.getElementById('services');
@@ -809,51 +792,137 @@
     const adminLinkContainer = document.getElementById('adminLinkContainer');
     const statusDot = document.getElementById('statusDot');
     const connectionStatus = document.getElementById('connectionStatus');
-    const priceStatusBadge = document.getElementById('priceStatusBadge');
 
-    // ─── UPDATE CONNECTION STATUS UI ───────────────────────────
+    // ─── UPDATE CONNECTION STATUS ─────────────────────────────
     function updateConnectionStatus(connected) {
-        isConnected = connected;
-        const dot = statusDot;
-        const text = connectionStatus;
-        const badge = priceStatusBadge;
-        
-        if (!dot || !text || !badge) return;
-        
-        if (connected) {
-            dot.className = 'dot green';
-            text.textContent = 'Connected';
-            badge.textContent = '● Live';
-            badge.className = 'badge badge-success';
-        } else {
-            dot.className = 'dot red';
-            text.textContent = 'Disconnected';
-            badge.textContent = '● Offline';
-            badge.className = 'badge badge-error';
+        if (statusDot && connectionStatus) {
+            if (connected) {
+                statusDot.className = 'dot green';
+                connectionStatus.textContent = 'Connected';
+            } else {
+                statusDot.className = 'dot red';
+                connectionStatus.textContent = 'Disconnected';
+            }
         }
     }
 
-    // ─── SUPABASE INIT ──────────────────────────────────────────
+    // ─── INIT SUPABASE ──────────────────────────────────────────
     function initSupabase() {
         try {
             if (typeof supabase === 'undefined') {
                 console.warn('⚠️ Supabase SDK not loaded');
                 return null;
             }
-            const { createClient } = supabase;
-            supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
-                auth: {
-                    autoRefreshToken: true,
-                    persistSession: true,
-                    detectSessionInUrl: true
-                }
-            });
-            console.log('✅ Supabase client initialized');
+            if (!supabaseClient) {
+                const { createClient } = supabase;
+                supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                    auth: {
+                        autoRefreshToken: true,
+                        persistSession: true,
+                        detectSessionInUrl: true
+                    }
+                });
+                console.log('✅ Supabase client initialized');
+            }
             return supabaseClient;
         } catch (error) {
             console.error('❌ Supabase init error:', error);
             return null;
         }
+    }
+
+    // ─── API HELPER ────────────────────────────────────────────
+    async function api(path, options = {}) {
+        const token = accessToken || localStorage.getItem('access_token');
+
+        const headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            ...(options.headers || {})
+        };
+
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const url = API_BASE + path;
+
+        try {
+            const response = await fetch(url, {
+                ...options,
+                headers,
+                credentials: 'include'
+            });
+
+            if (response.status === 401 && token) {
+                try {
+                    if (supabaseClient) {
+                        const { data: { session }, error } = await supabaseClient.auth.refreshSession();
+                        if (!error && session?.access_token) {
+                            accessToken = session.access_token;
+                            localStorage.setItem('access_token', accessToken);
+                            headers['Authorization'] = `Bearer ${accessToken}`;
+                            const retryResponse = await fetch(url, {
+                                ...options,
+                                headers,
+                                credentials: 'include'
+                            });
+                            if (retryResponse.ok) {
+                                return retryResponse.json();
+                            }
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            if (!response.ok) {
+                let errorMessage;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
+                } catch {
+                    errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                }
+                throw new Error(errorMessage);
+            }
+
+            const text = await response.text();
+            if (!text) return { status: 'ok' };
+            try {
+                return JSON.parse(text);
+            } catch {
+                return { status: 'ok', raw: text };
+            }
+        } catch (error) {
+            console.error('API Error:', error);
+            throw error;
+        }
+    }
+
+    // ─── TOAST ──────────────────────────────────────────────────
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        if (!container) return;
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.innerHTML = message;
+        container.appendChild(toast);
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(100px)';
+            setTimeout(() => toast.remove(), 400);
+        }, 4000);
+    }
+
+    // ─── SET STATUS ────────────────────────────────────────────
+    function setStatus(message, type = 'info') {
+        const typeMap = {
+            success: 'status-success',
+            pending: 'status-pending',
+            error: 'status-error',
+            info: 'status-info'
+        };
+        statusBox.innerHTML = `<span class="${typeMap[type] || 'status-info'}">${message}</span>`;
     }
 
     // ─── AUTH ──────────────────────────────────────────────────
@@ -1046,113 +1115,6 @@
         }
     };
 
-    // ─── API HELPER ──────────────────────────────────────────
-    async function api(path, options = {}) {
-        const token = accessToken || localStorage.getItem('access_token');
-
-        const headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            ...(options.headers || {})
-        };
-
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
-
-        const url = CONFIG.API_BASE + path;
-
-        console.log(`📡 API Request: ${options.method || 'GET'} ${url}`);
-
-        try {
-            const response = await fetch(url, {
-                ...options,
-                headers,
-                credentials: 'include'
-            });
-
-            if (response.status === 401 && token) {
-                try {
-                    if (supabaseClient) {
-                        const { data: { session }, error } = await supabaseClient.auth.refreshSession();
-                        if (!error && session?.access_token) {
-                            accessToken = session.access_token;
-                            localStorage.setItem('access_token', accessToken);
-                            headers['Authorization'] = `Bearer ${accessToken}`;
-                            const retryResponse = await fetch(url, {
-                                ...options,
-                                headers,
-                                credentials: 'include'
-                            });
-                            if (retryResponse.ok) {
-                                return retryResponse.json();
-                            }
-                        }
-                    }
-                } catch (e) {}
-            }
-
-            if (!response.ok) {
-                let errorMessage;
-                try {
-                    const errorData = await response.json();
-                    errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
-                } catch {
-                    errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-                }
-                throw new Error(errorMessage);
-            }
-
-            const text = await response.text();
-            if (!text) return { status: 'ok' };
-            try {
-                return JSON.parse(text);
-            } catch {
-                return { status: 'ok', raw: text };
-            }
-        } catch (error) {
-            console.error('API Error:', error);
-            throw error;
-        }
-    }
-
-    // ─── TOAST ──────────────────────────────────────────────────
-    function showToast(message, type = 'info') {
-        const container = document.getElementById('toastContainer');
-        if (!container) return;
-        const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
-        toast.innerHTML = message;
-        container.appendChild(toast);
-        setTimeout(() => {
-            toast.style.opacity = '0';
-            toast.style.transform = 'translateX(100px)';
-            setTimeout(() => toast.remove(), 400);
-        }, 4000);
-    }
-
-    // ─── SET STATUS ────────────────────────────────────────────
-    function setStatus(message, type = 'info') {
-        const typeMap = {
-            success: 'status-success',
-            pending: 'status-pending',
-            error: 'status-error',
-            info: 'status-info'
-        };
-        statusBox.innerHTML = `<span class="${typeMap[type] || 'status-info'}">${message}</span>`;
-    }
-
-    // ─── CHECK SERVICE ACCESS ──────────────────────────────────
-    async function checkServiceAccess(serviceCode) {
-        try {
-            const result = await api(`/mpesa/check-access/${serviceCode}`);
-            return result.has_access === true;
-        } catch (error) {
-            console.warn('Access check failed:', error.message);
-            return false;
-        }
-    }
-
     // ─── GET USER SERVICES ──────────────────────────────────────
     async function getUserServices() {
         try {
@@ -1162,6 +1124,40 @@
         } catch (error) {
             console.warn('Failed to get user services:', error);
             return {};
+        }
+    }
+
+    // ─── LOAD SERVICE PRICES ──────────────────────────────────
+    async function loadServicePrices(silent = false) {
+        try {
+            const data = await api('/mpesa/services');
+            const services = data.services || [];
+            
+            services.forEach(service => {
+                const code = service.code;
+                const price = typeof service.price === 'number' && service.price > 0
+                    ? service.price
+                    : null;
+                if (price !== null) {
+                    servicePrices[code] = price;
+                }
+            });
+            
+            lastPriceUpdate = new Date();
+            if (priceUpdateTime) {
+                priceUpdateTime.textContent = new Date().toLocaleTimeString();
+            }
+            updateConnectionStatus(true);
+            
+            console.log('📋 Service prices loaded:', servicePrices);
+            return servicePrices;
+        } catch (error) {
+            console.warn('Failed to load service prices:', error);
+            updateConnectionStatus(false);
+            if (!silent) {
+                showToast('⚠️ Could not load prices from server', 'warning');
+            }
+            return servicePrices;
         }
     }
 
@@ -1189,7 +1185,7 @@
         });
     }
 
-    // ─── VALIDATE PHONE NUMBER ────────────────────────────────────
+    // ─── VALIDATE PHONE ────────────────────────────────────────
     function validatePhone(phone) {
         const cleanPhone = phone.replace(/\s/g, '');
         return /^2547\d{8}$/.test(cleanPhone);
@@ -1197,7 +1193,7 @@
 
     // ─── RENDER SERVICES FOR TAB ──────────────────────────────
     function renderServicesForTab(serviceCode) {
-        const service = CONFIG.SERVICE_DETAILS[serviceCode];
+        const service = SERVICE_DETAILS[serviceCode];
         if (!service) return;
 
         const hasAccess = serviceAccess[serviceCode] === true;
@@ -1248,77 +1244,6 @@
         `;
     }
 
-    // ─── UPDATE PRICE DISPLAY ─────────────────────────────────
-    function updatePriceDisplay(serviceCode, newPrice) {
-        if (activeTab !== serviceCode) return;
-        renderServicesForTab(serviceCode);
-        const serviceItem = document.getElementById(`service-item-${serviceCode}`);
-        if (serviceItem) {
-            serviceItem.classList.add('price-updated');
-            setTimeout(() => serviceItem.classList.remove('price-updated'), 600);
-        }
-    }
-
-    function updatePriceTimestamp() {
-        if (priceUpdateTime) {
-            priceUpdateTime.textContent = new Date().toLocaleTimeString();
-        }
-    }
-
-    // ─── LOAD SERVICE PRICES FROM ADMIN ──────────────────────
-    async function loadServicePrices(silent = false) {
-        try {
-            const servicesData = await api('/mpesa/services');
-            const services = servicesData.services || [];
-            
-            let hasValidPrices = false;
-            
-            services.forEach(service => {
-                const code = service.code;
-                const incomingPrice = typeof service.price === 'number' && service.price > 0
-                    ? service.price
-                    : null;
-
-                if (incomingPrice !== null) {
-                    hasValidPrices = true;
-                    if (servicePrices[code] !== incomingPrice) {
-                        servicePrices[code] = incomingPrice;
-                        if (activeTab === code) {
-                            updatePriceDisplay(code, incomingPrice);
-                        }
-                    } else {
-                        servicePrices[code] = incomingPrice;
-                    }
-                }
-            });
-            
-            if (hasValidPrices) {
-                updateConnectionStatus(true);
-                if (!silent) {
-                    showToast('✅ Connected to live prices', 'success');
-                }
-            } else {
-                updateConnectionStatus(false);
-                if (!silent) {
-                    showToast('⚠️ No prices available from admin', 'warning');
-                }
-            }
-            
-            lastPriceUpdate = new Date();
-            updatePriceTimestamp();
-            
-            console.log('📋 Service prices loaded:', servicePrices);
-            return servicePrices;
-        } catch (error) {
-            console.warn('Failed to load service prices:', error);
-            updateConnectionStatus(false);
-            if (!silent) {
-                showToast('⚠️ Could not connect to price server', 'error');
-            }
-            return servicePrices;
-        }
-    }
-
     // ─── REFRESH PRICES ──────────────────────────────────────
     window.refreshPrices = async function() {
         showToast('🔄 Refreshing prices...', 'info');
@@ -1336,7 +1261,7 @@
                 console.log('🔄 Polling for price updates...');
                 await loadServicePrices(true);
             }
-        }, CONFIG.PRICE_POLLING_INTERVAL);
+        }, PRICE_POLLING_INTERVAL);
         
         console.log('✅ Price polling started');
     }
@@ -1385,16 +1310,16 @@
         
         if (!hasAccess) {
             showToast('🔒 Please pay to unlock this service', 'warning');
-            const service = CONFIG.SERVICE_DETAILS[serviceCode];
+            const service = SERVICE_DETAILS[serviceCode];
             if (service) {
                 window.selectService(serviceCode, service.name);
             }
             return;
         }
 
-        const route = CONFIG.SERVICE_ROUTES[serviceCode];
+        const route = SERVICE_ROUTES[serviceCode];
         if (route) {
-            const details = CONFIG.SERVICE_DETAILS[serviceCode];
+            const details = SERVICE_DETAILS[serviceCode];
             showToast(`🚀 Opening ${details?.name || serviceCode}...`, 'success');
             setTimeout(() => {
                 window.location.href = route;
@@ -1403,6 +1328,17 @@
             showToast(`Service ${serviceCode} not available`, 'error');
         }
     };
+
+    // ─── CHECK SERVICE ACCESS ──────────────────────────────────
+    async function checkServiceAccess(serviceCode) {
+        try {
+            const result = await api(`/mpesa/check-access/${serviceCode}`);
+            return result.has_access === true;
+        } catch (error) {
+            console.warn('Access check failed:', error.message);
+            return false;
+        }
+    }
 
     // ─── SELECT SERVICE ──────────────────────────────────────
     window.selectService = function(code, name) {
@@ -1641,50 +1577,6 @@
         }
     }
 
-    // ─── SUPABASE REALTIME PRICE UPDATES ──────────────────────
-    function setupRealtimePriceUpdates() {
-        if (!supabaseClient) return;
-
-        try {
-            const channel = supabaseClient
-                .channel('services-changes')
-                .on(
-                    'postgres_changes',
-                    {
-                        event: 'UPDATE',
-                        schema: 'public',
-                        table: 'services'
-                    },
-                    (payload) => {
-                        console.log('🔄 Real-time price update received:', payload);
-                        
-                        const updatedService = payload.new;
-                        if (updatedService && updatedService.code && typeof updatedService.price === 'number' && updatedService.price > 0) {
-                            const code = updatedService.code;
-                            const newPrice = updatedService.price;
-                            
-                            servicePrices[code] = newPrice;
-                            lastPriceUpdate = new Date();
-                            updatePriceTimestamp();
-                            updateConnectionStatus(true);
-                            
-                            if (activeTab === code) {
-                                updatePriceDisplay(code, newPrice);
-                            }
-                            
-                            showToast(`🔄 ${updatedService.name || code} price updated to KES ${newPrice.toLocaleString()}`, 'info');
-                        }
-                    }
-                )
-                .subscribe();
-
-            console.log('✅ Supabase Realtime price updates enabled');
-            window.__realtimeChannel = channel;
-        } catch (error) {
-            console.warn('⚠️ Could not setup real-time updates:', error);
-        }
-    }
-
     // ─── LOAD DASHBOARD ──────────────────────────────────────────
     async function loadDashboard() {
         await loadUserServices();
@@ -1711,11 +1603,8 @@
 
     // ─── INIT ──────────────────────────────────────────────────
     async function init() {
-        if (isInitialized) return;
-        isInitialized = true;
-
-        console.log('🚗 Auto-D Kenya Dashboard v13.0 - Production Ready');
-        console.log('📡 API Base:', CONFIG.API_BASE);
+        console.log('🚗 Auto-D Kenya User Dashboard v1.0');
+        console.log('📡 API Base:', API_BASE);
 
         initSupabase();
         await getCurrentUser();
@@ -1747,7 +1636,6 @@
         }
 
         await loadDashboard();
-        setupRealtimePriceUpdates();
 
         const pendingCheckout = localStorage.getItem('pending_checkout');
         const pendingService = localStorage.getItem('pending_service');
@@ -1772,8 +1660,7 @@
             isAdmin,
             selectedService,
             servicePrices: { ...servicePrices },
-            serviceAccess: { ...serviceAccess },
-            isConnected
+            serviceAccess: { ...serviceAccess }
         })
     };
 
