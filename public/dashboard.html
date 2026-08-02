@@ -99,6 +99,7 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            flex-wrap: wrap;
         }
         .card-title .highlight { color: var(--amber); }
         .card-title .badge {
@@ -110,6 +111,14 @@
             color: var(--amber);
             font-family: var(--font-mono);
             letter-spacing: 0.04em;
+        }
+        .card-title .badge-success {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+        }
+        .card-title .badge-warning {
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--amber);
         }
 
         .header {
@@ -327,7 +336,7 @@
         }
         .service-item:last-child { margin-bottom: 0; }
         .service-item:hover { border-color: rgba(234, 179, 8, 0.2); }
-        .service-item .service-info { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+        .service-item .service-info { display: flex; flex-direction: column; gap: 4px; flex: 1; }
         .service-item .service-name { font-weight: 600; font-size: 15px; color: var(--text-primary); }
         .service-item .service-desc { font-size: 13px; color: var(--text-muted); }
         .service-item .service-status {
@@ -335,6 +344,8 @@
             font-weight: 600;
             padding: 2px 10px;
             border-radius: 20px;
+            display: inline-block;
+            width: fit-content;
         }
         .service-item .service-status.unlocked {
             background: rgba(34, 197, 94, 0.15);
@@ -349,6 +360,8 @@
             font-size: 18px;
             font-weight: 700;
             color: var(--amber);
+            min-width: 120px;
+            text-align: right;
         }
         .service-item .service-price.unavailable {
             color: var(--text-muted);
@@ -356,7 +369,13 @@
             font-family: var(--font-body);
             font-weight: 600;
         }
-        .service-item .service-actions { display: flex; align-items: center; gap: 12px; }
+        .service-item .service-actions { 
+            display: flex; 
+            align-items: center; 
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
 
         .price-source {
             font-size: 9px;
@@ -383,6 +402,15 @@
             font-size: 8px;
             margin-left: 4px;
             animation: pulse 1.5s ease-in-out infinite;
+        }
+        .price-source .demo-badge {
+            display: inline-block;
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--amber);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 8px;
+            margin-left: 4px;
         }
         .price-source .unavailable-badge {
             display: inline-block;
@@ -546,6 +574,25 @@
             display: none;
         }
 
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.05);
+        }
+        .status-indicator .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-indicator .dot.green { background: var(--green); }
+        .status-indicator .dot.amber { background: var(--amber); }
+        .status-indicator .dot.red { background: var(--red); }
+
         @media (max-width: 768px) {
             .container { padding: 16px; }
             .card { padding: 18px 20px; }
@@ -553,7 +600,14 @@
             .auth-section { width: 100%; flex-direction: column; }
             .auth-section input { width: 100%; min-width: unset; }
             .service-item { flex-direction: column; align-items: stretch; gap: 8px; }
-            .service-item .service-actions { justify-content: space-between; }
+            .service-item .service-actions { 
+                justify-content: space-between;
+                flex-wrap: wrap;
+            }
+            .service-item .service-price {
+                text-align: left;
+                min-width: unset;
+            }
             .user-info { width: 100%; justify-content: space-between; }
             .card-title { font-size: 17px; }
             th, td { padding: 8px 10px; font-size: 13px; }
@@ -606,10 +660,13 @@
             <div class="card-title">
                 🚀 Your Services
                 <span class="badge">Access</span>
-                <span class="badge" style="background:rgba(34,197,94,0.15);color:var(--green);">Live Prices</span>
-                <span class="badge" style="background:rgba(168,85,247,0.15);color:var(--purple);font-size:8px;" id="priceConnectionStatus">🔄 Connected</span>
+                <span class="badge badge-success" id="priceStatusBadge">● Live</span>
             </div>
             <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div class="status-indicator">
+                    <span class="dot green" id="statusDot"></span>
+                    <span id="connectionStatus">Connected</span>
+                </div>
                 <span style="font-size:11px;color:var(--text-muted);" id="priceLastUpdated">
                     Last updated: <span id="priceUpdateTime">—</span>
                 </span>
@@ -618,9 +675,6 @@
                 </button>
             </div>
         </div>
-
-        <!-- Hidden element for price status tracking -->
-        <span id="priceStatus"></span>
 
         <!-- ─── Service Tabs ──────────────────────────────────────── -->
         <div class="service-tabs" id="serviceTabs">
@@ -696,8 +750,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// AUTO-D KENYA DASHBOARD - SECURE v10.0
-// Backend is the source of truth for access control
+// AUTO-D KENYA DASHBOARD - PRODUCTION v12.0
 // ═══════════════════════════════════════════════════════════════
 
 (function() {
@@ -708,9 +761,12 @@
         API_BASE: 'https://auto-digital.onrender.com/api/v1',
         SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
         SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-        ADMIN_DASHBOARD_URL: '/admin.html',
-        DASHBOARD_URL: '/dashboard.html',
         PRICE_POLLING_INTERVAL: 30000,
+        DEMO_PRICES: {
+            'valuation': 500,
+            'mileage': 350,
+            'ownership': 750
+        },
         SERVICE_ROUTES: {
             'valuation': '/instant-value.html',
             'mileage': '/mileage.html',
@@ -752,15 +808,14 @@
     let isAuthenticated = false;
     let accessToken = null;
     let paymentCompleted = false;
-    let isPolling = false;
     let serviceAccess = {};
     let activeTab = 'valuation';
-    let currentServices = [];
     let servicePrices = {};
     let pricePollingTimer = null;
     let lastPriceUpdate = null;
-    let lastPriceLoadFailed = false;
     let isAdmin = false;
+    let usingDemoPrices = true;
+    let isInitialized = false;
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const servicesEl = document.getElementById('services');
@@ -769,24 +824,39 @@
     const phoneInput = document.getElementById('phone');
     const payBtn = document.getElementById('payBtn');
     const authSection = document.getElementById('authSection');
-    const priceStatus = document.getElementById('priceStatus');
     const priceUpdateTime = document.getElementById('priceUpdateTime');
-    const priceConnectionStatus = document.getElementById('priceConnectionStatus');
     const adminLinkContainer = document.getElementById('adminLinkContainer');
-    const adminLink = document.getElementById('adminLink');
+    const statusDot = document.getElementById('statusDot');
+    const connectionStatus = document.getElementById('connectionStatus');
+    const priceStatusBadge = document.getElementById('priceStatusBadge');
 
-    // ─── SAFE PRICE STATUS UPDATES ─────────────────────────────
-    function updatePriceStatus(className, color) {
-        if (priceStatus) {
-            priceStatus.className = className;
-            priceStatus.style.color = color || 'var(--text-muted)';
-        }
-    }
-
-    function updatePriceConnection(text, color) {
-        if (priceConnectionStatus) {
-            priceConnectionStatus.textContent = text;
-            priceConnectionStatus.style.color = color || 'var(--text-muted)';
+    // ─── UPDATE CONNECTION STATUS UI ───────────────────────────
+    function updateConnectionStatus(status, message) {
+        const dot = statusDot;
+        const text = connectionStatus;
+        const badge = priceStatusBadge;
+        
+        if (!dot || !text || !badge) return;
+        
+        switch(status) {
+            case 'connected':
+                dot.className = 'dot green';
+                text.textContent = 'Connected';
+                badge.textContent = '● Live';
+                badge.className = 'badge badge-success';
+                break;
+            case 'demo':
+                dot.className = 'dot amber';
+                text.textContent = 'Demo Mode';
+                badge.textContent = '● Demo';
+                badge.className = 'badge badge-warning';
+                break;
+            case 'disconnected':
+                dot.className = 'dot red';
+                text.textContent = 'Disconnected';
+                badge.textContent = '● Offline';
+                badge.className = 'badge';
+                break;
         }
     }
 
@@ -811,6 +881,23 @@
             console.error('❌ Supabase init error:', error);
             return null;
         }
+    }
+
+    // ─── LOAD DEMO PRICES ──────────────────────────────────────
+    function loadDemoPrices() {
+        console.log('📊 Loading demo prices...');
+        usingDemoPrices = true;
+        
+        Object.keys(CONFIG.DEMO_PRICES).forEach(code => {
+            servicePrices[code] = CONFIG.DEMO_PRICES[code];
+        });
+        
+        lastPriceUpdate = new Date();
+        updatePriceTimestamp();
+        updateConnectionStatus('demo');
+        
+        renderServicesForTab(activeTab);
+        showToast('📊 Using demo prices', 'info');
     }
 
     // ─── AUTH ──────────────────────────────────────────────────
@@ -1099,7 +1186,7 @@
         statusBox.innerHTML = `<span class="${typeMap[type] || 'status-info'}">${message}</span>`;
     }
 
-    // ─── CHECK SERVICE ACCESS (BACKEND VERIFICATION) ──────────
+    // ─── CHECK SERVICE ACCESS ──────────────────────────────────
     async function checkServiceAccess(serviceCode) {
         try {
             const result = await api(`/mpesa/check-access/${serviceCode}`);
@@ -1110,7 +1197,7 @@
         }
     }
 
-    // ─── GET USER SERVICES FROM BACKEND ──────────────────────
+    // ─── GET USER SERVICES ──────────────────────────────────────
     async function getUserServices() {
         try {
             const data = await api('/mpesa/user/services');
@@ -1148,9 +1235,7 @@
 
     // ─── VALIDATE PHONE NUMBER ────────────────────────────────────
     function validatePhone(phone) {
-        // Remove any whitespace
         const cleanPhone = phone.replace(/\s/g, '');
-        // Check if it's a valid Kenyan phone number (2547XXXXXXXX)
         return /^2547\d{8}$/.test(cleanPhone);
     }
 
@@ -1165,16 +1250,20 @@
 
         const priceBlock = priceKnown
             ? `<div class="service-price" id="price-${serviceCode}">KES ${price.toLocaleString()}</div>`
-            : `<div class="service-price unavailable" id="price-${serviceCode}">Price unavailable</div>`;
+            : `<div class="service-price unavailable" id="price-${serviceCode}">
+                   <span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+                       <span>Price unavailable</span>
+                   </span>
+               </div>`;
 
         const priceSourceBlock = priceKnown
             ? `<span class="price-source">
                    Price: <strong>KES ${price.toLocaleString()}</strong>
-                   <span class="admin-badge">📋 Admin Set</span>
+                   ${usingDemoPrices ? '<span class="demo-badge">📊 Demo</span>' : '<span class="admin-badge">📋 Admin</span>'}
                </span>`
             : `<span class="price-source">
-                   <span>Price not set by admin yet</span>
-                   <span class="unavailable-badge">${lastPriceLoadFailed ? '⚠️ Load failed' : '⏳ Pending'}</span>
+                   <span>Price not available</span>
+                   <span class="unavailable-badge">⏳ Pending</span>
                </span>`;
 
         const actionBlock = hasAccess
@@ -1185,8 +1274,8 @@
                 ? `<button class="btn btn-primary btn-sm" onclick="window.selectService('${serviceCode}', '${service.name}')">
                        <i class="fas fa-shopping-cart"></i> Pay to Unlock
                    </button>`
-                : `<button class="btn btn-primary btn-sm" disabled title="Price hasn't loaded from admin yet">
-                       <i class="fas fa-ban"></i> Price unavailable
+                : `<button class="btn btn-primary btn-sm" disabled>
+                       <i class="fas fa-ban"></i> Unavailable
                    </button>`;
 
         servicesEl.innerHTML = `
@@ -1227,57 +1316,59 @@
     // ─── LOAD SERVICE PRICES FROM ADMIN ──────────────────────
     async function loadServicePrices(silent = false) {
         try {
-            if (!silent) {
-                updatePriceStatus('fas fa-sync-alt fa-spin', 'var(--amber)');
-                updatePriceConnection('🔄 Syncing...', 'var(--amber)');
-            }
-            
             const servicesData = await api('/mpesa/services');
             currentServices = servicesData.services || [];
             
-            let pricesChanged = false;
+            let hasValidPrices = false;
+            
             currentServices.forEach(service => {
                 const code = service.code;
                 const incomingPrice = typeof service.price === 'number' && service.price > 0
                     ? service.price
                     : null;
 
-                if (incomingPrice === null) return;
-
-                if (servicePrices[code] !== incomingPrice) {
-                    pricesChanged = true;
-                    servicePrices[code] = incomingPrice;
-                    if (activeTab === code) {
-                        updatePriceDisplay(code, incomingPrice);
+                if (incomingPrice !== null) {
+                    hasValidPrices = true;
+                    if (servicePrices[code] !== incomingPrice) {
+                        servicePrices[code] = incomingPrice;
+                        if (activeTab === code) {
+                            updatePriceDisplay(code, incomingPrice);
+                        }
+                    } else {
+                        servicePrices[code] = incomingPrice;
                     }
-                } else {
-                    servicePrices[code] = incomingPrice;
                 }
             });
             
-            lastPriceUpdate = new Date();
-            lastPriceLoadFailed = false;
-            updatePriceTimestamp();
-            
-            if (!silent) {
-                updatePriceStatus('fas fa-sync-alt', 'var(--green)');
-                updatePriceConnection('✅ Connected', 'var(--green)');
-                if (pricesChanged) {
-                    showToast('🔄 Service prices updated from admin', 'info');
+            if (hasValidPrices) {
+                usingDemoPrices = false;
+                updateConnectionStatus('connected');
+                if (!silent) {
+                    showToast('✅ Connected to live prices', 'success');
+                }
+            } else if (!usingDemoPrices) {
+                loadDemoPrices();
+                if (!silent) {
+                    showToast('📊 Using demo prices (no live prices available)', 'info');
                 }
             }
             
-            console.log('📋 Service prices loaded from admin:', servicePrices);
+            lastPriceUpdate = new Date();
+            updatePriceTimestamp();
             
+            console.log('📋 Service prices loaded:', servicePrices);
             return servicePrices;
         } catch (error) {
             console.warn('Failed to load service prices:', error);
-            lastPriceLoadFailed = true;
-            if (!silent) {
-                updatePriceStatus('fas fa-sync-alt', 'var(--red)');
-                updatePriceConnection('⚠️ Disconnected', 'var(--red)');
-                showToast('⚠️ Could not load live prices from admin — try refreshing', 'warning');
+            
+            if (!usingDemoPrices) {
+                loadDemoPrices();
+                if (!silent) {
+                    showToast('📊 Using demo prices (server unavailable)', 'warning');
+                }
             }
+            
+            updateConnectionStatus('disconnected');
             return servicePrices;
         }
     }
@@ -1286,7 +1377,8 @@
     window.refreshPrices = async function() {
         showToast('🔄 Refreshing prices...', 'info');
         await loadServicePrices(false);
-        showToast('✅ Prices refreshed from admin', 'success');
+        renderServicesForTab(activeTab);
+        showToast('✅ Prices refreshed', 'success');
     };
 
     // ─── PRICE POLLING ─────────────────────────────────────────
@@ -1294,7 +1386,7 @@
         stopPricePolling();
         
         pricePollingTimer = setInterval(async () => {
-            if (isAuthenticated) {
+            if (isAuthenticated && !usingDemoPrices) {
                 console.log('🔄 Polling for price updates...');
                 await loadServicePrices(true);
             }
@@ -1370,7 +1462,7 @@
     window.selectService = function(code, name) {
         const price = servicePrices[code];
         if (typeof price !== 'number' || price <= 0) {
-            showToast('⚠️ Price for this service hasn\'t loaded from admin yet. Try refreshing.', 'warning');
+            showToast('⚠️ Price unavailable. Please refresh.', 'warning');
             return;
         }
 
@@ -1459,7 +1551,7 @@
         }
 
         if (typeof selectedServicePrice !== 'number' || selectedServicePrice <= 0) {
-            showToast('⚠️ Price is unavailable for this service — try refreshing before paying', 'error');
+            showToast('⚠️ Price unavailable. Please refresh.', 'error');
             return;
         }
 
@@ -1526,7 +1618,6 @@
         if (statusTimer) {
             clearInterval(statusTimer);
         }
-        isPolling = true;
         statusTimer = setInterval(checkPaymentStatus, 5000);
         setTimeout(checkPaymentStatus, 1000);
     }
@@ -1536,7 +1627,6 @@
         if (paymentCompleted) {
             clearInterval(statusTimer);
             statusTimer = null;
-            isPolling = false;
             return;
         }
 
@@ -1555,7 +1645,6 @@
 
                 clearInterval(statusTimer);
                 statusTimer = null;
-                isPolling = false;
                 localStorage.removeItem('pending_checkout');
 
                 if (!paymentCompleted) {
@@ -1586,7 +1675,6 @@
 
                 clearInterval(statusTimer);
                 statusTimer = null;
-                isPolling = false;
                 localStorage.removeItem('pending_checkout');
                 localStorage.removeItem('pending_service');
                 localStorage.removeItem('pending_service_name');
@@ -1629,6 +1717,7 @@
                             const code = updatedService.code;
                             const newPrice = updatedService.price;
                             
+                            usingDemoPrices = false;
                             servicePrices[code] = newPrice;
                             lastPriceUpdate = new Date();
                             updatePriceTimestamp();
@@ -1676,7 +1765,10 @@
 
     // ─── INIT ──────────────────────────────────────────────────
     async function init() {
-        console.log('🚗 Auto-D Kenya Dashboard v10.0 - Secure Backend Verification');
+        if (isInitialized) return;
+        isInitialized = true;
+
+        console.log('🚗 Auto-D Kenya Dashboard v12.0 - Production Ready');
         console.log('📡 API Base:', CONFIG.API_BASE);
 
         initSupabase();
@@ -1708,6 +1800,9 @@
             });
         }
 
+        // Load demo prices initially
+        loadDemoPrices();
+        
         await loadDashboard();
         setupRealtimePriceUpdates();
 
@@ -1722,23 +1817,31 @@
         }
     }
 
-    // ─── EXPOSE FOR CONSOLE DEBUG (Limited) ──────────────────────
+    // ─── EXPOSE GLOBAL FUNCTIONS ────────────────────────────────
     window.__AUTOD = {
         refreshPrices: window.refreshPrices,
         loadPayments: loadPayments,
         switchServiceTab: window.switchServiceTab,
         selectService: window.selectService,
         openService: window.openService,
-        // Read-only state exposure
         getState: () => ({
             isAuthenticated,
             isAdmin,
             selectedService,
             servicePrices: { ...servicePrices },
-            serviceAccess: { ...serviceAccess }
+            serviceAccess: { ...serviceAccess },
+            usingDemoPrices
         })
     };
 
+    // ─── EXPOSE FOR GLOBAL ACCESS ───────────────────────────────
+    window.switchServiceTab = window.switchServiceTab;
+    window.selectService = window.selectService;
+    window.openService = window.openService;
+    window.loadDemoPrices = loadDemoPrices;
+    window.refreshPrices = window.refreshPrices;
+
+    // ─── START ──────────────────────────────────────────────────
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
