@@ -1,548 +1,963 @@
-# app/modules/mpesa/service.py
-# Auto-D Kenya - M-Pesa Service
-# ================================================================
-# TYPE: MODULE - M-Pesa business logic
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes" />
+    <title>Auto-D Kenya | Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0a0c15;
+            color: #f8fafc;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1100px; margin: 0 auto; }
+        .card {
+            background: #111827;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .card-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .card-title .badge {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 12px;
+            border-radius: 20px;
+            background: rgba(234, 179, 8, 0.15);
+            color: #eab308;
+        }
+        .badge-success { background: rgba(34, 197, 94, 0.15) !important; color: #22c55e !important; }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            margin-bottom: 28px;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+        }
+        .logo-icon { font-size: 32px; }
+        .logo-text {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 22px;
+            font-weight: 700;
+            color: #f8fafc;
+        }
+        .logo-text span { color: #eab308; }
+        .logo-sub { font-size: 12px; color: #64748b; display: block; margin-top: -2px; }
+        .auth-section { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .btn {
+            padding: 8px 18px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-primary { background: #eab308; color: #0a0c15; }
+        .btn-primary:hover { background: #ca8a04; transform: translateY(-1px); }
+        .btn-outline { background: transparent; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.06); }
+        .btn-outline:hover { border-color: #eab308; color: #eab308; }
+        .btn-success { background: #22c55e; color: #0a0c15; }
+        .btn-success:hover { opacity: 0.85; }
+        .btn-danger { background: #ef4444; color: #fff; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-sm { padding: 6px 14px; font-size: 12px; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+        .user-info { display: flex; align-items: center; gap: 12px; }
+        .user-avatar {
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #eab308, #ca8a04);
+            color: #0a0c15;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+        }
+        .user-name { font-weight: 600; font-size: 14px; }
+        .user-email { font-size: 12px; color: #64748b; }
+        .service-tabs {
+            display: flex;
+            gap: 4px;
+            background: #0a0c15;
+            border-radius: 8px;
+            padding: 4px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255,255,255,0.06);
+            overflow-x: auto;
+            min-height: 48px;
+        }
+        .service-tab {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            color: #64748b;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .service-tab:hover { color: #cbd5e1; background: rgba(255,255,255,0.03); }
+        .service-tab.active { background: #eab308; color: #0a0c15; }
+        .service-tab .tab-badge {
+            display: inline-block;
+            font-size: 9px;
+            padding: 1px 8px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.1);
+            margin-left: 4px;
+        }
+        .service-tab.active .tab-badge { background: rgba(0,0,0,0.15); }
+        .service-tab .tab-badge.unlocked { background: rgba(34,197,94,0.2); color: #22c55e; }
+        .service-tab .tab-badge.locked { background: rgba(234,179,8,0.2); color: #eab308; }
+        .service-tab .price-tag {
+            font-size: 11px;
+            background: rgba(255,255,255,0.05);
+            padding: 1px 8px;
+            border-radius: 10px;
+            color: #94a3b8;
+        }
+        .service-tab.active .price-tag { color: #0a0c15; background: rgba(0,0,0,0.1); }
+        .service-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 16px;
+            background: #0a0c15;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.06);
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .service-item:last-child { margin-bottom: 0; }
+        .service-info { flex: 1; min-width: 180px; }
+        .service-name { font-weight: 600; font-size: 15px; color: #f8fafc; }
+        .service-desc { font-size: 13px; color: #64748b; }
+        .service-status {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 2px 10px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+        .service-status.unlocked { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .service-status.locked { background: rgba(234,179,8,0.15); color: #eab308; }
+        .service-price {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: #eab308;
+            min-width: 120px;
+            text-align: right;
+        }
+        .service-price.unavailable { color: #64748b; font-size: 13px; font-weight: 600; }
+        .service-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .payment-form .form-group { margin-bottom: 16px; }
+        .payment-form label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #cbd5e1;
+            margin-bottom: 4px;
+        }
+        .payment-form input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #0a0c15;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 8px;
+            color: #f8fafc;
+            font-size: 14px;
+        }
+        .payment-form input:focus { outline: none; border-color: #eab308; }
+        .payment-form small { color: #64748b; font-size: 11px; display: block; margin-top: 4px; }
+        .status-box {
+            background: #0a0c15;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 8px;
+            padding: 16px 20px;
+            min-height: 70px;
+            font-size: 14px;
+            line-height: 1.7;
+            color: #cbd5e1;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .status-box .status-success { color: #22c55e; }
+        .status-box .status-pending { color: #eab308; }
+        .status-box .status-error { color: #ef4444; }
+        .status-box .status-info { color: #3b82f6; }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        th { font-weight: 600; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+        td { color: #cbd5e1; }
+        .status-badge {
+            display: inline-block;
+            padding: 2px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-badge.pending { background: rgba(234,179,8,0.15); color: #eab308; }
+        .status-badge.paid { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .status-badge.failed { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .loading {
+            color: #64748b;
+            font-style: italic;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(234,179,8,0.2);
+            border-top-color: #eab308;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 400px;
+        }
+        .toast {
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 14px;
+            animation: slideIn 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        .toast-success { background: #22c55e; color: #0a0c15; }
+        .toast-error { background: #ef4444; color: #fff; }
+        .toast-info { background: #3b82f6; color: #fff; }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(100px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .empty-state { text-align: center; padding: 30px 16px; color: #64748b; }
+        .empty-state .empty-icon { font-size: 40px; margin-bottom: 8px; }
+        .empty-state .empty-title { font-size: 16px; font-weight: 600; color: #cbd5e1; }
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.05);
+        }
+        .status-indicator .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .dot.green { background: #22c55e; }
+        .dot.red { background: #ef4444; }
+        .admin-btn {
+            background: linear-gradient(135deg, #a855f7, #7c3aed);
+            color: #0a0c15;
+            border: none;
+            border-radius: 8px;
+            padding: 6px 16px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+        .admin-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(168,85,247,0.3); }
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            .card { padding: 16px; }
+            .service-item { flex-direction: column; align-items: stretch; }
+            .service-price { text-align: left; min-width: unset; }
+            .service-actions { justify-content: space-between; }
+            .header { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
 
-import logging
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+<div class="container">
 
-from app.core.database import get_supabase
-from app.core.exceptions import NotFoundException, AppException
-from app.modules.mpesa.repository import MpesaRepository
-from app.modules.mpesa.stk_push import StkPushService
+    <!-- HEADER -->
+    <header class="header">
+        <a href="/" class="logo">
+            <span class="logo-icon">🚗</span>
+            <div>
+                <span class="logo-text">Auto-D <span>Kenya</span></span>
+                <span class="logo-sub">Vehicle Intelligence Platform</span>
+            </div>
+        </a>
+        <div class="auth-section" id="authSection">
+            <!-- populated by JS -->
+        </div>
+    </header>
 
-logger = logging.getLogger(__name__)
+    <!-- ADMIN LINK -->
+    <div id="adminLinkContainer" style="display:none; margin-bottom: 16px;">
+        <a href="/admin.html" class="admin-btn" target="_blank"><i class="fas fa-cog"></i> Admin Dashboard</a>
+    </div>
 
+    <!-- SERVICES -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                🚀 Services <span class="badge">Access</span><span class="badge badge-success">Live</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <div class="status-indicator">
+                    <span class="dot green" id="statusDot"></span>
+                    <span id="connectionStatus">Connected</span>
+                </div>
+                <button class="btn btn-sm btn-outline" onclick="window.__AUTOD?.refresh()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </div>
 
-class MpesaService:
-    """M-Pesa service for payment processing."""
-    
-    def __init__(self):
-        self.repository = MpesaRepository()
-        self.stk_push = StkPushService()
-        self.supabase = get_supabase()
+        <!-- Dynamic service tabs -->
+        <div class="service-tabs" id="serviceTabs">
+            <span class="loading" style="padding:8px 16px;"><span class="spinner"></span> Loading services...</span>
+        </div>
 
-    # ─── INITIATE PAYMENT ──────────────────────────────────────────
+        <!-- Service detail panel -->
+        <div id="serviceDetail">
+            <span class="loading"><span class="spinner"></span> Select a service</span>
+        </div>
+    </div>
 
-    async def initiate_payment(
-        self,
-        phone: str,
-        service_id: str,
-        description: str,
-        user_id: Optional[str] = None,
-        request_id: Optional[str] = None,
-        amount: Optional[float] = None
-    ) -> Dict[str, Any]:
-        """
-        Initiate M-Pesa payment.
-        
-        Args:
-            phone: Phone number (without country code)
-            service_id: Service code (e.g., "valuation", "mileage", "ownership")
-            description: Transaction description (ignored - uses service name from DB)
-            user_id: User ID (optional)
-            request_id: Request ID (optional)
-            amount: Amount to charge (optional, overrides service price if provided)
-            
-        Returns:
-            Dict with checkout_request_id, message, and status
-        """
-        # ─── STEP 1: Look up service in the services table ──────────────
-        service = (
-            self.supabase
-            .table("services")
-            .select("*")
-            .eq("code", service_id)
-            .eq("active", True)
-            .single()
-            .execute()
-        )
-        
-        if not service.data:
-            raise NotFoundException(f"Service '{service_id}' not found")
-        
-        service_data = service.data
-        
-        # ─── STEP 2: Extract all data from the service record ──────────
-        service_db_id = service_data["id"]
-        service_name = service_data["name"]
-        price = float(service_data["price"])
-        currency = service_data.get("currency", "KES")
-        
-        # Allow amount override if provided
-        if amount is not None:
-            price = float(amount)
-            logger.info(f"Amount override: using {price} instead of database price {service_data['price']}")
-        
-        logger.info(f"Service found: {service_name} (ID: {service_db_id}) - Price: {currency} {price}")
-        
-        # Generate checkout ID
-        checkout_id = f"CHK-{service_id[:4]}-{str(int(datetime.utcnow().timestamp()))[-6:]}"
-        
-        # ─── STEP 3: Initiate STK Push ──────────────────────────────────
-        result = await self.stk_push.initiate_push(
-            phone=phone,
-            amount=price,
-            description=service_name,
-            checkout_request_id=checkout_id,
-            user_id=user_id,
-            service_id=service_id
-        )
-        
-        # ─── STEP 4: Save the payment record ────────────────────────────
-        await self.repository.create_payment({
-            "user_id": user_id,
-            "request_id": request_id,
-            "service_id": service_db_id,
-            "service_name": service_name,
-            "amount": price,
-            "currency": currency,
-            "phone": phone,
-            "checkout_request_id": result["checkout_request_id"],
-            "merchant_request_id": result.get("merchant_request_id"),
-            "status": "pending",
-        })
-        
-        logger.info(f"Payment initiated: {result['checkout_request_id']} for service {service_id} ({service_name}) - Amount: {currency} {price}")
-        
+    <!-- PAYMENT -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">📱 M-Pesa Payment <span class="badge">Secure</span></div>
+        </div>
+        <div class="payment-form">
+            <div class="form-group">
+                <label><i class="fas fa-phone"></i> Phone Number</label>
+                <input id="phone" type="tel" placeholder="2547XXXXXXXX" />
+                <small>Format: 2547XXXXXXXX</small>
+            </div>
+            <button id="payBtn" class="btn btn-primary" disabled style="width:100%;justify-content:center;font-size:16px;padding:14px;">
+                <i class="fas fa-lock"></i> Select a service first
+            </button>
+            <div style="margin-top:16px;">
+                <div class="status-box" id="statusBox">Waiting for payment...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HISTORY -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">📜 Payment History <span class="badge">Recent</span></div>
+            <button class="btn btn-sm btn-outline" onclick="window.__AUTOD?.loadHistory()">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+        <div id="payments"><span class="loading"><span class="spinner"></span> Loading...</span></div>
+    </div>
+
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ─── FULLY DYNAMIC DASHBOARD — FETCHES FROM SUPABASE ──────
+
+(function() {
+    'use strict';
+
+    // ─── CONFIG ──────────────────────────────────────────────
+    const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+    const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+
+    // ─── STATE ──────────────────────────────────────────────
+    let supabaseClient = null;
+    let currentUser = null;
+    let isAuthenticated = false;
+    let selectedService = null;
+    let servicePrices = {};
+    let serviceAccess = {};  // service_code => true/false
+    let allServices = [];
+
+    // ─── DOM REFS ────────────────────────────────────────────
+    const serviceTabsEl = document.getElementById('serviceTabs');
+    const serviceDetailEl = document.getElementById('serviceDetail');
+    const paymentsEl = document.getElementById('payments');
+    const statusBox = document.getElementById('statusBox');
+    const phoneInput = document.getElementById('phone');
+    const payBtn = document.getElementById('payBtn');
+    const authSection = document.getElementById('authSection');
+    const statusDot = document.getElementById('statusDot');
+    const connectionStatus = document.getElementById('connectionStatus');
+    const adminLink = document.getElementById('adminLinkContainer');
+
+    // ─── HELPERS ─────────────────────────────────────────────
+    function showToast(msg, type = 'info') {
+        const c = document.getElementById('toastContainer');
+        if (!c) return;
+        const t = document.createElement('div');
+        t.className = `toast toast-${type}`;
+        t.textContent = msg;
+        c.appendChild(t);
+        setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3500);
+    }
+
+    function setStatus(msg, type = 'info') {
+        const map = { success: 'status-success', pending: 'status-pending', error: 'status-error', info: 'status-info' };
+        statusBox.innerHTML = `<span class="${map[type] || 'status-info'}">${msg}</span>`;
+    }
+
+    function formatPrice(p) { return p != null ? `KSh ${Number(p).toLocaleString()}` : '—'; }
+
+    function updateConnection(connected) {
+        if (statusDot && connectionStatus) {
+            statusDot.className = `dot ${connected ? 'green' : 'red'}`;
+            connectionStatus.textContent = connected ? 'Connected' : 'Disconnected';
+        }
+    }
+
+    // ─── AUTH HEADERS ─────────────────────────────────────────
+    function authHeaders() {
+        const token = localStorage.getItem('access_token');
         return {
-            "checkout_request_id": result["checkout_request_id"],
-            "message": result.get("customer_message", "STK push sent successfully"),
-            "status": "pending"
+            'Content-Type': 'application/json',
+            'Authorization': token ? `Bearer ${token}` : ''
+        };
+    }
+
+    // ─── SUPABASE ────────────────────────────────────────────
+    function initSupabase() {
+        if (!supabaseClient && typeof supabase !== 'undefined') {
+            const { createClient } = supabase;
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                auth: { autoRefreshToken: true, persistSession: true }
+            });
+        }
+        return supabaseClient;
+    }
+
+    async function querySupabase(table, select = '*', filters = {}, order = null) {
+        try {
+            const client = initSupabase();
+            if (!client) throw new Error('Supabase not initialized');
+            let q = client.from(table).select(select);
+            Object.keys(filters).forEach(k => {
+                if (Array.isArray(filters[k])) q = q.in(k, filters[k]);
+                else q = q.eq(k, filters[k]);
+            });
+            if (order) q = q.order(order.column, { ascending: order.ascending || false });
+            const { data, error } = await q;
+            if (error) throw error;
+            return { success: true, data };
+        } catch (e) { return { success: false, error: e.message }; }
+    }
+
+    // ─── AUTH ────────────────────────────────────────────────
+    async function getCurrentUser() {
+        try {
+            const client = initSupabase();
+            if (!client) return null;
+            const { data: { session } } = await client.auth.getSession();
+            if (session?.user) {
+                currentUser = session.user;
+                isAuthenticated = true;
+                localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
+                localStorage.setItem('access_token', session.access_token);
+                return currentUser;
+            }
+            const stored = localStorage.getItem('auto_d_user');
+            if (stored) {
+                currentUser = JSON.parse(stored);
+                isAuthenticated = true;
+                return currentUser;
+            }
+            isAuthenticated = false;
+            return null;
+        } catch { isAuthenticated = false; return null; }
+    }
+
+    function renderAuth(user) {
+        if (user) {
+            const name = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
+            const initial = name.charAt(0).toUpperCase();
+            authSection.innerHTML = `
+                <div class="user-info">
+                    <div class="user-avatar">${initial}</div>
+                    <div><div class="user-name">${name}</div><div class="user-email">${user.email}</div></div>
+                </div>
+                <button class="btn btn-sm btn-danger" onclick="window.__AUTOD?.logout()">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
+            `;
+        } else {
+            authSection.innerHTML = `
+                <span style="color:#64748b;font-size:14px;">Not logged in</span>
+                <button class="btn btn-primary btn-sm" onclick="window.__AUTOD?.goToLanding()">
+                    <i class="fas fa-sign-in-alt"></i> Login
+                </button>
+            `;
+        }
+    }
+
+    async function logout() {
+        try {
+            const client = initSupabase();
+            if (client) await client.auth.signOut();
+            localStorage.removeItem('auto_d_user');
+            localStorage.removeItem('access_token');
+            isAuthenticated = false;
+            currentUser = null;
+            renderAuth(null);
+            showToast('Logged out', 'info');
+            serviceTabsEl.innerHTML = '<span class="loading">Please log in</span>';
+            serviceDetailEl.innerHTML = '<span class="loading">Please log in</span>';
+            paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
+            payBtn.disabled = true;
+            payBtn.innerHTML = '<i class="fas fa-lock"></i> Login to pay';
+            adminLink.style.display = 'none';
+        } catch (e) { showToast('Logout error', 'error'); }
+    }
+
+    function goToLanding() {
+        window.location.href = '/';
+    }
+
+    // ─── FETCH DATA FROM SUPABASE ────────────────────────────
+    async function fetchServices() {
+        const res = await querySupabase('services', '*', { active: true }, { column: 'display_order', ascending: true });
+        if (res.success && res.data.length) {
+            allServices = res.data;
+        } else {
+            // Fallback defaults
+            allServices = [
+                { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150, display_order: 1 },
+                { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200, display_order: 2 },
+                { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180, display_order: 3 }
+            ];
+        }
+        // Build price map
+        allServices.forEach(s => { servicePrices[s.code] = s.price; });
+        return allServices;
+    }
+
+    // ─── FETCH USER SERVICES (user_services table) ──────────
+    async function fetchUserServices(userId) {
+        if (!userId) return {};
+        try {
+            const client = initSupabase();
+            if (!client) return {};
+            // Query user_services with join to services
+            const { data, error } = await client
+                .from('user_services')
+                .select(`
+                    *,
+                    services!inner (
+                        id,
+                        code,
+                        name,
+                        price,
+                        description
+                    )
+                `)
+                .eq('user_id', userId)
+                .eq('status', 'active');
+
+            if (error) throw error;
+            const access = {};
+            if (data) {
+                data.forEach(row => {
+                    if (row.services && row.services.code) {
+                        access[row.services.code] = true;
+                    }
+                });
+            }
+            serviceAccess = access;
+            return access;
+        } catch (e) {
+            console.warn('⚠️ Could not fetch user services:', e);
+            return {};
+        }
+    }
+
+    // ─── RENDER DYNAMIC TABS ────────────────────────────────
+    function renderTabs(services) {
+        if (!services || !services.length) {
+            serviceTabsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No services available</div></div>`;
+            return;
         }
 
-    # ─── PAYMENT STATUS ─────────────────────────────────────────────
+        let html = '';
+        services.forEach((service, index) => {
+            const unlocked = serviceAccess[service.code] || false;
+            const isActive = selectedService === service.code || (index === 0 && !selectedService);
+            if (isActive && !selectedService) selectedService = service.code;
 
-    async def get_payment_status(self, checkout_request_id: str, user_id: str) -> Dict[str, Any]:
-        """
-        Get payment status.
-        
-        Args:
-            checkout_request_id: Checkout request ID
-            user_id: User ID
-            
-        Returns:
-            Dict with payment details
-        """
-        payment = await self.repository.get_payment_by_checkout_id(checkout_request_id)
-        if not payment or payment.get("user_id") != user_id:
-            raise NotFoundException("Payment not found")
-        
-        return {
-            "status": payment.get("status"),
-            "amount": payment.get("amount"),
-            "phone": payment.get("phone"),
-            "created_at": payment.get("created_at")
+            html += `
+                <button class="service-tab ${isActive ? 'active' : ''}" 
+                        data-service="${service.code}"
+                        onclick="window.__AUTOD?.selectService('${service.code}')">
+                    <span>${service.name}</span>
+                    <span class="price-tag">${formatPrice(service.price)}</span>
+                    <span class="tab-badge ${unlocked ? 'unlocked' : 'locked'}">
+                        ${unlocked ? '✅' : '🔒'}
+                    </span>
+                </button>
+            `;
+        });
+
+        serviceTabsEl.innerHTML = html;
+
+        // Show detail for selected or first service
+        const defaultService = selectedService || (services[0]?.code);
+        if (defaultService) renderServiceDetail(defaultService);
+    }
+
+    function renderServiceDetail(serviceCode) {
+        const service = allServices.find(s => s.code === serviceCode);
+        if (!service) {
+            serviceDetailEl.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">Service not found</div></div>`;
+            return;
         }
 
-    # ─── CONFIRM PAYMENT ────────────────────────────────────────────
+        const unlocked = serviceAccess[service.code] || false;
+        const price = servicePrices[service.code] || 0;
 
-    async def confirm_payment(self, checkout_request_id: str, user_id: str) -> Dict[str, Any]:
-        """
-        Confirm payment and unlock service.
-        
-        Args:
-            checkout_request_id: Checkout request ID
-            user_id: User ID
-            
-        Returns:
-            Dict with confirmation status
-        """
-        payment = await self.repository.get_payment_by_checkout_id(checkout_request_id)
-        if not payment or payment.get("user_id") != user_id:
-            raise NotFoundException("Payment not found")
-        
-        if payment.get("status") == "completed":
-            return {"status": "completed", "message": "Payment already confirmed"}
-        
-        if payment.get("status") != "paid":
-            raise AppException("Payment not yet confirmed by M-Pesa", status_code=409)
-        
-        # Update payment status
-        await self.repository.update_payment_status(checkout_request_id, "completed")
-        
-        # Unlock service
-        if payment.get("user_id") and payment.get("service_id"):
-            await self.unlock_service(payment["user_id"], payment["service_id"])
-        
-        logger.info(f"Payment confirmed: {checkout_request_id} for user {user_id}")
-        
-        return {"status": "completed", "message": "Payment confirmed"}
+        serviceDetailEl.innerHTML = `
+            <div class="service-item">
+                <div class="service-info">
+                    <div class="service-name">${service.name}</div>
+                    <div class="service-desc">${service.description || 'No description available'}</div>
+                    <span class="service-status ${unlocked ? 'unlocked' : 'locked'}">
+                        ${unlocked ? '✅ Unlocked' : '🔒 Locked'}
+                    </span>
+                </div>
+                <div class="service-price ${!unlocked ? 'unavailable' : ''}">
+                    ${unlocked ? formatPrice(price) : 'Unavailable'}
+                </div>
+                <div class="service-actions">
+                    ${unlocked ? `
+                        <button class="btn btn-success btn-sm" onclick="window.__AUTOD?.runService('${service.code}')">
+                            <i class="fas fa-play"></i> Run
+                        </button>
+                    ` : `
+                        <button class="btn btn-primary btn-sm" onclick="window.__AUTOD?.selectForPayment('${service.code}')">
+                            <i class="fas fa-shopping-cart"></i> Purchase ${formatPrice(price)}
+                        </button>
+                    `}
+                </div>
+            </div>
+        `;
 
-    # ─── SERVICE ACCESS ─────────────────────────────────────────────
+        selectedService = service.code;
+        updatePayBtn();
+    }
 
-    async def check_service_access(self, user_id: str, service_code: str) -> Dict[str, Any]:
-        """
-        Check if a user has access to a service.
-        
-        Args:
-            user_id: User ID
-            service_code: Service code (e.g., "valuation", "mileage")
-            
-        Returns:
-            Dict with has_access boolean and details
-        """
-        try:
-            # First get the service ID from code
-            service = (
-                self.supabase
-                .table("services")
-                .select("id")
-                .eq("code", service_code)
-                .eq("active", True)
-                .single()
-                .execute()
-            )
-            
-            if not service.data:
-                return {
-                    "has_access": False,
-                    "status": "service_not_found",
-                    "message": f"Service '{service_code}' not found"
-                }
-            
-            service_id = service.data["id"]
-            
-            # Check user_services table
-            response = (
-                self.supabase
-                .table("user_services")
-                .select("*")
-                .eq("user_id", user_id)
-                .eq("service_id", service_id)
-                .execute()
-            )
-            
-            if not response.data or len(response.data) == 0:
-                return {
-                    "has_access": False,
-                    "status": "no_record",
-                    "message": "No access record found"
-                }
-            
-            record = response.data[0]
-            status = record.get("status")
-            expires_at = record.get("expires_at")
-            
-            # Check if expired
-            if expires_at:
-                try:
-                    expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                    if datetime.utcnow() > expires:
-                        return {
-                            "has_access": False,
-                            "status": "expired",
-                            "message": "Access has expired"
-                        }
-                except:
-                    pass
-            
-            # Check if active
-            if status in ["active", "completed", "paid", "success"]:
-                return {
-                    "has_access": True,
-                    "status": status,
-                    "expires_at": expires_at,
-                    "message": "Access granted"
-                }
-            else:
-                return {
-                    "has_access": False,
-                    "status": status,
-                    "message": f"Access status: {status}"
-                }
-                
-        except Exception as e:
-            logger.error(f"Error checking service access: {e}")
-            return {
-                "has_access": False,
-                "status": "error",
-                "message": str(e)
+    // ─── UPDATE PAY BUTTON ──────────────────────────────────
+    function updatePayBtn() {
+        if (!isAuthenticated) {
+            payBtn.disabled = true;
+            payBtn.innerHTML = '<i class="fas fa-lock"></i> Login to pay';
+            return;
+        }
+        if (selectedService) {
+            const price = servicePrices[selectedService] || 0;
+            const service = allServices.find(s => s.code === selectedService);
+            const unlocked = serviceAccess[selectedService] || false;
+            if (unlocked) {
+                payBtn.disabled = true;
+                payBtn.innerHTML = '<i class="fas fa-check"></i> Already unlocked';
+                return;
             }
+            payBtn.disabled = false;
+            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${formatPrice(price)} for ${service?.name || selectedService}`;
+        } else {
+            payBtn.disabled = true;
+            payBtn.innerHTML = '<i class="fas fa-lock"></i> Select a service first';
+        }
+    }
 
-    async def unlock_service(self, user_id: str, service_id: str, payment_id: Optional[int] = None) -> None:
-        """
-        Unlock a service for a user.
-        
-        Args:
-            user_id: User ID
-            service_id: Service ID (numeric - the id from the services table)
-            payment_id: Payment ID (optional)
-        """
-        try:
-            # Check if user already has this service
-            existing = (
-                self.supabase
-                .table("user_services")
-                .select("*")
-                .eq("user_id", user_id)
-                .eq("service_id", service_id)
-                .execute()
-            )
-            
-            expires_at = (datetime.utcnow() + timedelta(days=365)).isoformat()
-            
-            if existing.data:
-                # Update existing record
-                update_data = {
-                    "status": "active",
-                    "expires_at": expires_at,
-                    "updated_at": datetime.utcnow().isoformat()
-                }
-                if payment_id:
-                    update_data["payment_id"] = payment_id
-                
-                self.supabase.table("user_services").update(update_data).eq("id", existing.data[0]["id"]).execute()
-                logger.info(f"User service updated: user={user_id}, service={service_id}")
-            else:
-                # Create new record
-                insert_data = {
-                    "user_id": user_id,
-                    "service_id": service_id,
-                    "status": "active",
-                    "expires_at": expires_at,
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat()
-                }
-                if payment_id:
-                    insert_data["payment_id"] = payment_id
-                
-                self.supabase.table("user_services").insert(insert_data).execute()
-                logger.info(f"User service created: user={user_id}, service={service_id}")
-            
-        except Exception as e:
-            logger.error(f"Error unlocking service: {str(e)}")
-            raise
+    // ─── ACTIONS ──────────────────────────────────────────────
+    window.selectService = function(code) {
+        selectedService = code;
+        document.querySelectorAll('.service-tab').forEach(el => {
+            el.classList.toggle('active', el.dataset.service === code);
+        });
+        renderServiceDetail(code);
+    };
 
-    # ─── USER SERVICES ──────────────────────────────────────────────
+    window.selectForPayment = function(code) {
+        if (!isAuthenticated) return showToast('Please log in', 'error');
+        selectedService = code;
+        renderServiceDetail(code);
+        updatePayBtn();
+        const service = allServices.find(s => s.code === code);
+        setStatus(`Selected ${service?.name} — ${formatPrice(service?.price)}`, 'info');
+        showToast(`✅ ${service?.name} selected`, 'success');
+    };
 
-    async def get_user_services(self, user_id: str) -> Dict[str, bool]:
-        """
-        Get all services a user has access to.
-        
-        Args:
-            user_id: User ID
-            
-        Returns:
-            Dict with service_code as key and boolean access status
-        """
-        try:
-            response = (
-                self.supabase
-                .table("user_services")
-                .select("services(code, name, price, description, icon)")
-                .eq("user_id", user_id)
-                .eq("status", "active")
-                .execute()
-            )
-            
-            services = {}
-            now = datetime.utcnow()
-            
-            if response.data:
-                for record in response.data:
-                    service = record.get("services", {})
-                    code = service.get("code")
-                    if code:
-                        # Check expiry
-                        expires_at = record.get("expires_at")
-                        is_expired = False
-                        if expires_at:
-                            try:
-                                expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                                if now > expires:
-                                    is_expired = True
-                            except:
-                                pass
-                        
-                        services[code] = not is_expired
-            
-            return services
-            
-        except Exception as e:
-            logger.error(f"Error getting user services: {e}")
-            return {}
+    window.runService = function(code) {
+        if (!isAuthenticated) return showToast('Please log in', 'error');
+        if (!serviceAccess[code]) return showToast('Service not unlocked', 'error');
+        setStatus(`⏳ Running ${code}...`, 'pending');
+        showToast(`🚀 Running ${code}...`, 'info');
+        setTimeout(() => {
+            setStatus(`✅ ${code} completed!`, 'success');
+            showToast(`✅ ${code} report ready`, 'success');
+        }, 2000);
+    };
 
-    async def get_user_payments(self, user_id: str) -> List[Dict[str, Any]]:
-        """
-        Get all payments for a user.
-        
-        Args:
-            user_id: User ID
-            
-        Returns:
-            List of payments
-        """
-        return await self.repository.get_user_payments(user_id)
+    window.refresh = async function() {
+        await fetchServices();
+        if (currentUser) await fetchUserServices(currentUser.id);
+        renderTabs(allServices);
+        showToast('🔄 Refreshed', 'info');
+    };
 
-    async def get_user_paid_services(self, user_id: str) -> List[str]:
-        """
-        Get all paid service codes for a user.
-        
-        Args:
-            user_id: User ID
-            
-        Returns:
-            List of service codes (strings from the services table code column)
-        """
-        try:
-            response = (
-                self.supabase
-                .table("user_services")
-                .select("services(code)")
-                .eq("user_id", user_id)
-                .eq("status", "active")
-                .execute()
-            )
-            
-            services = []
-            for item in response.data:
-                if item.get("services") and item["services"].get("code"):
-                    services.append(item["services"]["code"])
-            
-            logger.info(f"User {user_id} has {len(services)} paid services")
-            return services
-            
-        except Exception as e:
-            logger.error(f"Error getting user paid services: {str(e)}")
-            return []
+    // ─── M-PESA PAYMENT ──────────────────────────────────────
+    async function initiatePayment() {
+        if (!isAuthenticated) return showToast('Please log in', 'error');
+        if (!selectedService) return showToast('Select a service first', 'error');
+        if (serviceAccess[selectedService]) {
+            return showToast('Service already unlocked', 'info');
+        }
 
-    # ─── AVAILABLE SERVICES ─────────────────────────────────────────
+        const phone = phoneInput.value.trim();
+        if (!phone.match(/^2547\d{8}$/)) {
+            setStatus('❌ Invalid phone. Use 2547XXXXXXXX', 'error');
+            return showToast('Invalid phone format', 'error');
+        }
 
-    async def get_available_services(self) -> List[Dict[str, Any]]:
-        """
-        Get all available services.
-        
-        Returns:
-            List of services from the database
-        """
-        try:
-            response = (
-                self.supabase
-                .table("services")
-                .select("*")
-                .eq("active", True)
-                .order("display_order", ascending=True)
-                .execute()
-            )
-            
-            logger.info(f"Found {len(response.data)} available services")
-            return response.data
-            
-        except Exception as e:
-            logger.error(f"Error getting available services: {str(e)}")
-            return []
+        const price = servicePrices[selectedService] || 0;
+        const service = allServices.find(s => s.code === selectedService);
+        setStatus(`⏳ Initiating payment for ${service?.name} (${formatPrice(price)})...`, 'pending');
+        payBtn.disabled = true;
+        payBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
-    async def get_service_by_code(self, service_code: str) -> Optional[Dict[str, Any]]:
-        """
-        Get a service by its code.
-        
-        Args:
-            service_code: Service code (e.g., "valuation", "mileage")
-            
-        Returns:
-            Service data or None if not found
-        """
-        try:
-            response = (
-                self.supabase
-                .table("services")
-                .select("*")
-                .eq("code", service_code)
-                .eq("active", True)
-                .single()
-                .execute()
-            )
-            
-            return response.data if response.data else None
-            
-        except Exception as e:
-            logger.error(f"Error getting service by code {service_code}: {str(e)}")
-            return None
+        try {
+            // Use authHeaders() to include the JWT token
+            const res = await fetch(`${API_BASE}/mpesa/stkpush`, {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify({
+                    phone: phone,
+                    amount: price,
+                    service_key: selectedService,
+                    user_id: currentUser?.id || 'unknown'
+                })
+            });
 
-    # ─── CALLBACK HANDLING ──────────────────────────────────────────
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || data.detail || 'Payment failed');
 
-    async def handle_callback(
-        self,
-        checkout_request_id: str,
-        result_code: str,
-        result_desc: str,
-        receipt: Optional[str] = None,
-        amount: Optional[float] = None,
-        phone: Optional[str] = None,
-        transaction_date: Optional[str] = None,
-        callback_payload: Optional[Dict] = None
-    ) -> Dict[str, Any]:
-        """
-        Handle M-Pesa callback.
-        
-        This is the ONLY place where services should be unlocked.
-        
-        Args:
-            checkout_request_id: Checkout request ID
-            result_code: Result code (0 = success)
-            result_desc: Result description
-            receipt: M-Pesa receipt number
-            amount: Amount paid
-            phone: Phone number that paid
-            transaction_date: Transaction date
-            callback_payload: Full callback payload
-            
-        Returns:
-            Dict with update status
-        """
-        try:
-            # Get payment
-            payment = await self.repository.get_payment_by_checkout_id(checkout_request_id)
-            if not payment:
-                logger.warning(f"Payment not found for callback: {checkout_request_id}")
-                return {"status": "not_found", "message": "Payment not found"}
-            
-            # Update payment from callback
-            updated = await self.repository.update_payment_from_callback(
-                checkout_request_id=checkout_request_id,
-                result_code=result_code,
-                result_desc=result_desc,
-                receipt=receipt,
-                amount=amount,
-                phone=phone,
-                transaction_date=transaction_date,
-                callback_payload=callback_payload
-            )
-            
-            # ─── UNLOCK SERVICE ONLY ON SUCCESS (ResultCode == 0) ─────
-            if result_code == "0" and payment.get("user_id") and payment.get("service_id"):
-                await self.unlock_service(
-                    user_id=payment["user_id"],
-                    service_id=payment["service_id"],
-                    payment_id=payment.get("id")
-                )
-                logger.info(f"✅ Service unlocked via callback for {checkout_request_id}")
-            else:
-                logger.warning(f"Callback failed: {result_code} - {result_desc}")
-            
-            return {
-                "status": "updated",
-                "message": "Callback processed successfully",
-                "payment": updated
+            setStatus('✅ M-PESA prompt sent to your phone', 'success');
+            showToast('📱 Check your phone for M-PESA prompt', 'success');
+
+            // Poll status
+            let attempts = 0;
+            const interval = setInterval(async () => {
+                try {
+                    const sr = await fetch(`${API_BASE}/mpesa/status/${data.checkout_request_id}`, {
+                        headers: authHeaders()
+                    });
+                    const sd = await sr.json();
+                    if (sd.status === 'completed') {
+                        clearInterval(interval);
+                        serviceAccess[selectedService] = true;
+                        // Also update in Supabase user_services
+                        await updateUserService(selectedService, true);
+                        setStatus('✅ Payment completed! Service unlocked.', 'success');
+                        showToast('🎉 Payment successful!', 'success');
+                        renderTabs(allServices);
+                        renderServiceDetail(selectedService);
+                        loadHistory();
+                        payBtn.disabled = false;
+                        payBtn.innerHTML = '<i class="fas fa-check"></i> Unlocked';
+                    } else if (sd.status === 'failed' || attempts > 20) {
+                        clearInterval(interval);
+                        setStatus('❌ Payment failed. Try again.', 'error');
+                        showToast('❌ Payment failed', 'error');
+                        payBtn.disabled = false;
+                        payBtn.innerHTML = '<i class="fas fa-redo"></i> Retry';
+                    }
+                    attempts++;
+                } catch (e) { /* ignore */ }
+            }, 5000);
+
+        } catch (e) {
+            setStatus(`❌ ${e.message}`, 'error');
+            showToast('❌ Payment error: ' + e.message, 'error');
+            payBtn.disabled = false;
+            payBtn.innerHTML = '<i class="fas fa-redo"></i> Retry';
+        }
+    }
+
+    // ─── UPDATE USER SERVICE IN SUPABASE ─────────────────────
+    async function updateUserService(serviceKey, unlocked) {
+        try {
+            const client = initSupabase();
+            if (!client || !currentUser) return;
+
+            // Get service id
+            const service = allServices.find(s => s.code === serviceKey);
+            if (!service) return;
+
+            // Check if record exists
+            const { data: existing } = await client
+                .from('user_services')
+                .select('id')
+                .eq('user_id', currentUser.id)
+                .eq('service_id', service.id)
+                .maybeSingle();
+
+            if (existing) {
+                // Update existing
+                await client
+                    .from('user_services')
+                    .update({
+                        status: unlocked ? 'active' : 'inactive',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', existing.id);
+            } else if (unlocked) {
+                // Insert new
+                await client
+                    .from('user_services')
+                    .insert({
+                        user_id: currentUser.id,
+                        service_id: service.id,
+                        status: 'active',
+                        created_at: new Date().toISOString()
+                    });
             }
-            
-        except Exception as e:
-            logger.error(f"Error handling callback: {str(e)}")
-            raise
+        } catch (e) {
+            console.warn('⚠️ Could not update user service:', e);
+        }
+    }
 
-    # ─── CHECK PAYMENT ACCESS ───────────────────────────────────────
+    // ─── PAYMENT HISTORY ──────────────────────────────────────
+    async function loadHistory() {
+        if (!isAuthenticated || !currentUser) {
+            paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
+            return;
+        }
+        const res = await querySupabase('payments', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
+        if (!res.success || !res.data.length) {
+            paymentsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">💳</div><div class="empty-title">No payments yet</div></div>`;
+            return;
+        }
+        let html = `<div class="table-wrap"><table><thead><tr><th>Service</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead><tbody>`;
+        res.data.forEach(p => {
+            const cls = p.status === 'completed' || p.status === 'paid' ? 'paid' : p.status === 'failed' ? 'failed' : 'pending';
+            html += `<tr><td>${p.service_key || '—'}</td><td>KSh ${Number(p.amount).toLocaleString()}</td>
+                <td><span class="status-badge ${cls}">${p.status || 'pending'}</span></td>
+                <td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}</td></tr>`;
+        });
+        html += `</tbody></table></div>`;
+        paymentsEl.innerHTML = html;
+    }
 
-    async def check_payment_access(self, user_id: str, service_code: str) -> Dict[str, Any]:
-        """
-        Check payment access for a service.
-        
-        Args:
-            user_id: User ID
-            service_code: Service code
-            
-        Returns:
-            Dict with has_access boolean
-        """
-        return await self.check_service_access(user_id, service_code)
+    // ─── INIT ──────────────────────────────────────────────────
+    async function init() {
+        updateConnection(true);
+        const user = await getCurrentUser();
+        renderAuth(user);
+        if (!user) {
+            serviceTabsEl.innerHTML = '<span class="loading">Please log in</span>';
+            serviceDetailEl.innerHTML = '<span class="loading">Please log in</span>';
+            paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
+            return;
+        }
+
+        // Show admin link if admin
+        const isAdmin = user.user_metadata?.role === 'admin' || user.user_metadata?.is_admin;
+        adminLink.style.display = isAdmin ? 'block' : 'none';
+
+        // Load services from Supabase
+        await fetchServices();
+        // Load user's purchased services from user_services table
+        await fetchUserServices(user.id);
+        renderTabs(allServices);
+        loadHistory();
+        setStatus('✅ Ready', 'success');
+    }
+
+    // ─── EXPOSE ──────────────────────────────────────────────
+    window.__AUTOD = {
+        logout,
+        goToLanding,
+        selectService: window.selectService,
+        selectForPayment: window.selectForPayment,
+        runService: window.runService,
+        refresh: window.refresh,
+        loadHistory,
+        initiatePayment,
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        payBtn.addEventListener('click', initiatePayment);
+        init();
+    });
+
+})();
+</script>
+</body>
+</html>
