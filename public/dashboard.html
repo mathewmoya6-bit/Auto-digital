@@ -726,8 +726,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// AUTO-D KENYA - USER DASHBOARD v1.0
-// Connects to FastAPI backend for all data
+// AUTO-D KENYA - USER DASHBOARD v2.0
+// Fetches data from the same backend as admin dashboard
 // ═══════════════════════════════════════════════════════════════
 
 (function() {
@@ -846,6 +846,8 @@
         }
 
         const url = API_BASE + path;
+
+        console.log(`📡 API Request: ${options.method || 'GET'} ${url}`);
 
         try {
             const response = await fetch(url, {
@@ -1120,6 +1122,7 @@
         try {
             const data = await api('/mpesa/user/services');
             serviceAccess = data.services || {};
+            console.log('✅ User services loaded:', serviceAccess);
             return serviceAccess;
         } catch (error) {
             console.warn('Failed to get user services:', error);
@@ -1130,8 +1133,19 @@
     // ─── LOAD SERVICE PRICES ──────────────────────────────────
     async function loadServicePrices(silent = false) {
         try {
+            console.log('🔄 Loading service prices from admin...');
             const data = await api('/mpesa/services');
+            console.log('📦 Service data from admin:', data);
+            
             const services = data.services || [];
+            
+            if (services.length === 0) {
+                console.warn('⚠️ No services returned from API');
+                if (!silent) {
+                    showToast('⚠️ No services found. Please check admin configuration.', 'warning');
+                }
+                return servicePrices;
+            }
             
             services.forEach(service => {
                 const code = service.code;
@@ -1140,6 +1154,9 @@
                     : null;
                 if (price !== null) {
                     servicePrices[code] = price;
+                    console.log(`✅ Service ${code} price: KES ${price}`);
+                } else {
+                    console.warn(`⚠️ Service ${code} has no valid price`);
                 }
             });
             
@@ -1149,13 +1166,13 @@
             }
             updateConnectionStatus(true);
             
-            console.log('📋 Service prices loaded:', servicePrices);
+            console.log('📋 Final service prices:', servicePrices);
             return servicePrices;
         } catch (error) {
-            console.warn('Failed to load service prices:', error);
+            console.error('❌ Failed to load service prices:', error);
             updateConnectionStatus(false);
             if (!silent) {
-                showToast('⚠️ Could not load prices from server', 'warning');
+                showToast(`⚠️ Could not load prices: ${error.message}`, 'warning');
             }
             return servicePrices;
         }
@@ -1202,7 +1219,14 @@
 
         const priceBlock = priceKnown
             ? `<div class="service-price" id="price-${serviceCode}">KES ${price.toLocaleString()}</div>`
-            : `<div class="service-price unavailable" id="price-${serviceCode}">Price unavailable</div>`;
+            : `<div class="service-price unavailable" id="price-${serviceCode}">
+                   <span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+                       <span>Price unavailable</span>
+                       <button class="btn btn-xs btn-outline" onclick="window.__AUTOD?.refreshPrices()" style="font-size:9px;padding:2px 8px;">
+                           <i class="fas fa-sync-alt"></i> Refresh
+                       </button>
+                   </span>
+               </div>`;
 
         const priceSourceBlock = priceKnown
             ? `<span class="price-source">
@@ -1246,7 +1270,7 @@
 
     // ─── REFRESH PRICES ──────────────────────────────────────
     window.refreshPrices = async function() {
-        showToast('🔄 Refreshing prices...', 'info');
+        showToast('🔄 Refreshing prices from admin...', 'info');
         await loadServicePrices(false);
         renderServicesForTab(activeTab);
         showToast('✅ Prices refreshed', 'success');
@@ -1292,6 +1316,9 @@
                     <div class="empty-icon">⚠️</div>
                     <div class="empty-title">Failed to load services</div>
                     <div class="empty-desc">${error.message}</div>
+                    <button class="btn btn-primary btn-sm" onclick="window.__AUTOD?.refreshPrices()" style="margin-top:12px;">
+                        <i class="fas fa-sync-alt"></i> Retry
+                    </button>
                 </div>
             `;
             showToast('Failed to load services', 'error');
@@ -1344,7 +1371,7 @@
     window.selectService = function(code, name) {
         const price = servicePrices[code];
         if (typeof price !== 'number' || price <= 0) {
-            showToast('⚠️ Price unavailable. Please refresh.', 'warning');
+            showToast('⚠️ Price unavailable. Click Refresh to update.', 'warning');
             return;
         }
 
@@ -1603,7 +1630,7 @@
 
     // ─── INIT ──────────────────────────────────────────────────
     async function init() {
-        console.log('🚗 Auto-D Kenya User Dashboard v1.0');
+        console.log('🚗 Auto-D Kenya User Dashboard v2.0');
         console.log('📡 API Base:', API_BASE);
 
         initSupabase();
