@@ -417,7 +417,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
-// ─── FIXED: Phone number normalization for 07 and 01 prefixes ──
+// ─── FIXED: Using service_type (string code) to match admin dashboard ──
 
 (function() {
     'use strict';
@@ -429,8 +429,7 @@
     let supabaseClient = null;
     let currentUser = null;
     let isAuthenticated = false;
-    let selectedServiceCode = null;
-    let selectedServiceId = null;
+    let selectedServiceType = null;  // Changed from selectedServiceCode
     let servicePrices = {};
     let serviceAccess = {};
     let allServices = [];
@@ -449,52 +448,28 @@
 
     // ─── PHONE NUMBER NORMALIZATION ────────────────────────────
     function normalizePhoneNumber(phone) {
-        // Remove all non-numeric characters
         let cleaned = phone.replace(/\D/g, '');
-        
-        // If empty, return as is
         if (!cleaned) return phone;
-        
-        // If it starts with 0, remove the leading 0 and add 254
         if (cleaned.startsWith('0')) {
             cleaned = cleaned.substring(1);
-            // Check if it's a 7 or 1 prefix (Safaricom/Airtel)
             if (cleaned.startsWith('7') || cleaned.startsWith('1')) {
                 return '254' + cleaned;
             }
         }
-        
-        // If it starts with 254, it's already in international format
-        if (cleaned.startsWith('254')) {
-            return cleaned;
-        }
-        
-        // If it's 9 digits and starts with 7 or 1, add 254
+        if (cleaned.startsWith('254')) return cleaned;
         if (cleaned.length === 9 && (cleaned.startsWith('7') || cleaned.startsWith('1'))) {
             return '254' + cleaned;
         }
-        
-        // If it's 10 digits and starts with 07 or 01, remove 0 and add 254
         if (cleaned.length === 10 && (cleaned.startsWith('07') || cleaned.startsWith('01'))) {
             return '254' + cleaned.substring(1);
         }
-        
-        // If it's 12 digits and starts with 254, return as is
-        if (cleaned.length === 12 && cleaned.startsWith('254')) {
-            return cleaned;
-        }
-        
-        // If it's a valid 07 or 01 number with 10 digits including the 0
+        if (cleaned.length === 12 && cleaned.startsWith('254')) return cleaned;
         if (cleaned.length === 10 && (cleaned.startsWith('07') || cleaned.startsWith('01'))) {
             return '254' + cleaned.substring(1);
         }
-        
-        // If it's a valid 7 or 1 number with 9 digits
         if (cleaned.length === 9 && (cleaned.startsWith('7') || cleaned.startsWith('1'))) {
             return '254' + cleaned;
         }
-        
-        // Return the cleaned number if no normalization applied
         return cleaned;
     }
 
@@ -606,15 +581,30 @@
     // ─── FETCH DATA ──────────────────────────────────────────
     async function fetchServices() {
         const client = initSupabase();
-        const res = await client.from('services').select('*').eq('active', true).order('display_order');
-        if (res.data && res.data.length) {
-            allServices = res.data;
-            console.log('✅ Services loaded:', allServices.map(s => `${s.code} (ID: ${s.id})`).join(', '));
+        // Fetch from service_prices table (matches admin dashboard)
+        const res = await client
+            .from('service_prices')
+            .select('*')
+            .eq('is_active', true)
+            .order('display_order', { ascending: true });
+
+        if (res.data && res.data.length > 0) {
+            allServices = res.data.map(s => ({
+                id: s.id,
+                code: s.service_type,
+                name: s.service_name || s.service_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                description: s.description || '',
+                price: s.price || 0,
+                currency: s.currency || 'KES',
+                icon: s.icon || '📦'
+            }));
+            console.log('✅ Services loaded from service_prices:', allServices.map(s => `${s.code} (${s.name})`).join(', '));
         } else {
+            // Fallback
             allServices = [
-                { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150 },
-                { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200 },
-                { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180 }
+                { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150, currency: 'KES', icon: '📊' },
+                { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200, currency: 'KES', icon: '📈' },
+                { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180, currency: 'KES', icon: '💰' }
             ];
             console.log('⚠️ Using fallback services');
         }
@@ -626,9 +616,13 @@
         if (!userId) return {};
         try {
             const client = initSupabase();
+            // Check user_services for access (matches admin dashboard)
             const { data, error } = await client
                 .from('user_services')
-                .select(`*, services!inner (id, code, name, price, description)`)
+                .select(`
+                    *,
+                    services!inner (id, code, name, price, description)
+                `)
                 .eq('user_id', userId)
                 .eq('status', 'active');
 
@@ -658,17 +652,16 @@
         let html = '';
         services.forEach((service, index) => {
             const unlocked = serviceAccess[service.code] || false;
-            const isActive = selectedServiceCode === service.code || (index === 0 && !selectedServiceCode);
-            if (isActive && !selectedServiceCode) {
-                selectedServiceCode = service.code;
-                selectedServiceId = service.id;
+            const isActive = selectedServiceType === service.code || (index === 0 && !selectedServiceType);
+            if (isActive && !selectedServiceType) {
+                selectedServiceType = service.code;
             }
 
             html += `
                 <button class="service-tab ${isActive ? 'active' : ''}" 
                         data-service="${service.code}"
                         onclick="window.__AUTOD?.selectService('${service.code}')">
-                    <span>${service.name}</span>
+                    <span>${service.icon || '📦'} ${service.name}</span>
                     <span class="price-tag">${formatPrice(service.price)}</span>
                     <span class="tab-badge ${unlocked ? 'unlocked' : 'locked'}">
                         ${unlocked ? '✅' : '🔒'}
@@ -678,12 +671,12 @@
         });
 
         serviceTabsEl.innerHTML = html;
-        const defaultService = selectedServiceCode || (services[0]?.code);
+        const defaultService = selectedServiceType || (services[0]?.code);
         if (defaultService) renderServiceDetail(defaultService);
     }
 
-    function renderServiceDetail(serviceCode) {
-        const service = allServices.find(s => s.code === serviceCode);
+    function renderServiceDetail(serviceType) {
+        const service = allServices.find(s => s.code === serviceType);
         if (!service) {
             serviceDetailEl.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">Service not found</div></div>`;
             return;
@@ -695,7 +688,7 @@
         serviceDetailEl.innerHTML = `
             <div class="service-item">
                 <div class="service-info">
-                    <div class="service-name">${service.name}</div>
+                    <div class="service-name">${service.icon || '📦'} ${service.name}</div>
                     <div class="service-desc">${service.description || 'No description available'}</div>
                     <span class="service-status ${unlocked ? 'unlocked' : 'locked'}">
                         ${unlocked ? '✅ Unlocked' : '🔒 Locked'}
@@ -718,8 +711,7 @@
             </div>
         `;
 
-        selectedServiceCode = service.code;
-        selectedServiceId = service.id;
+        selectedServiceType = service.code;
         updatePayBtn();
     }
 
@@ -729,17 +721,17 @@
             payBtn.innerHTML = '<i class="fas fa-lock"></i> Login to pay';
             return;
         }
-        if (selectedServiceCode) {
-            const price = servicePrices[selectedServiceCode] || 0;
-            const service = allServices.find(s => s.code === selectedServiceCode);
-            const unlocked = serviceAccess[selectedServiceCode] || false;
+        if (selectedServiceType) {
+            const price = servicePrices[selectedServiceType] || 0;
+            const service = allServices.find(s => s.code === selectedServiceType);
+            const unlocked = serviceAccess[selectedServiceType] || false;
             if (unlocked) {
                 payBtn.disabled = true;
                 payBtn.innerHTML = '<i class="fas fa-check"></i> Already unlocked';
                 return;
             }
             payBtn.disabled = false;
-            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${formatPrice(price)} for ${service?.name || selectedServiceCode}`;
+            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${formatPrice(price)} for ${service?.name || selectedServiceType}`;
         } else {
             payBtn.disabled = true;
             payBtn.innerHTML = '<i class="fas fa-lock"></i> Select a service first';
@@ -748,9 +740,7 @@
 
     // ─── ACTIONS ──────────────────────────────────────────────
     window.selectService = function(code) {
-        selectedServiceCode = code;
-        const service = allServices.find(s => s.code === code);
-        selectedServiceId = service?.id || null;
+        selectedServiceType = code;
         document.querySelectorAll('.service-tab').forEach(el => {
             el.classList.toggle('active', el.dataset.service === code);
         });
@@ -759,11 +749,10 @@
 
     window.selectForPayment = function(code) {
         if (!isAuthenticated) return showToast('Please log in', 'error');
-        selectedServiceCode = code;
-        const service = allServices.find(s => s.code === code);
-        selectedServiceId = service?.id || null;
+        selectedServiceType = code;
         renderServiceDetail(code);
         updatePayBtn();
+        const service = allServices.find(s => s.code === code);
         setStatus(`Selected ${service?.name} — ${formatPrice(service?.price)}`, 'info');
         showToast(`✅ ${service?.name} selected`, 'success');
     };
@@ -792,11 +781,11 @@
             showToast('Please log in', 'error');
             return;
         }
-        if (!selectedServiceCode) {
+        if (!selectedServiceType) {
             showToast('Select a service first', 'error');
             return;
         }
-        if (serviceAccess[selectedServiceCode]) {
+        if (serviceAccess[selectedServiceType]) {
             showToast('Service already unlocked', 'info');
             return;
         }
@@ -808,25 +797,22 @@
             return;
         }
 
-        // Normalize the phone number (handles 07 and 01 prefixes)
         const normalizedPhone = normalizePhoneNumber(phone);
         console.log('📱 Original phone:', phone);
         console.log('📱 Normalized phone:', normalizedPhone);
 
-        // Validate the normalized phone number
         if (!normalizedPhone.match(/^254[17]\d{8}$/)) {
             setStatus('❌ Invalid phone number. Use 07XXXXXXXX or 01XXXXXXXX', 'error');
             showToast('Invalid phone format. Use 07XXXXXXXX or 01XXXXXXXX', 'error');
             return;
         }
 
-        const service = allServices.find(s => s.code === selectedServiceCode);
+        const service = allServices.find(s => s.code === selectedServiceType);
         if (!service) {
             showToast('Service not found', 'error');
             return;
         }
 
-        const serviceId = service.id;
         const price = service.price;
 
         setStatus(`⏳ Initiating payment for ${service.name} (${formatPrice(price)})...`, 'pending');
@@ -839,10 +825,11 @@
             const token = session?.access_token || localStorage.getItem('access_token');
             const userId = session?.user?.id || currentUser?.id;
             
+            // Use service_type (string code) to match admin dashboard
             const requestBody = {
-                phone: normalizedPhone,  // Use the normalized phone number
+                phone: normalizedPhone,
                 amount: Number(price),
-                service_id: serviceId,
+                service_type: selectedServiceType,  // Changed from service_id to service_type
                 user_id: userId
             };
             
@@ -889,12 +876,12 @@
                     
                     if (sd.status === 'completed') {
                         clearInterval(interval);
-                        serviceAccess[selectedServiceCode] = true;
-                        await updateUserService(selectedServiceCode, true);
+                        serviceAccess[selectedServiceType] = true;
+                        await updateUserService(selectedServiceType, true);
                         setStatus('✅ Payment completed! Service unlocked.', 'success');
                         showToast('🎉 Payment successful!', 'success');
                         renderTabs(allServices);
-                        renderServiceDetail(selectedServiceCode);
+                        renderServiceDetail(selectedServiceType);
                         loadHistory();
                         payBtn.disabled = false;
                         payBtn.innerHTML = '<i class="fas fa-check"></i> Unlocked';
@@ -925,14 +912,25 @@
             const client = initSupabase();
             if (!client || !currentUser) return;
 
-            const service = allServices.find(s => s.code === serviceKey);
-            if (!service) return;
+            // Get service id from service_prices table by service_type
+            const { data: serviceData } = await client
+                .from('service_prices')
+                .select('id')
+                .eq('service_type', serviceKey)
+                .maybeSingle();
+
+            if (!serviceData) {
+                console.warn('⚠️ Service not found in service_prices:', serviceKey);
+                return;
+            }
+
+            const serviceId = serviceData.id;
 
             const { data: existing } = await client
                 .from('user_services')
                 .select('id')
                 .eq('user_id', currentUser.id)
-                .eq('service_id', service.id)
+                .eq('service_id', serviceId)
                 .maybeSingle();
 
             if (existing) {
@@ -948,7 +946,7 @@
                     .from('user_services')
                     .insert({
                         user_id: currentUser.id,
-                        service_id: service.id,
+                        service_id: serviceId,
                         status: 'active',
                         created_at: new Date().toISOString()
                     });
@@ -974,7 +972,7 @@
         let html = `<div class="table-wrap"><table><thead><tr><th>Service</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead><tbody>`;
         res.data.forEach(p => {
             const cls = p.status === 'completed' || p.status === 'paid' ? 'paid' : p.status === 'failed' ? 'failed' : 'pending';
-            html += `<tr><td>${p.service_key || '—'}</td><td>KSh ${Number(p.amount).toLocaleString()}</td>
+            html += `<tr><td>${p.service_type || p.service_key || '—'}</td><td>KSh ${Number(p.amount).toLocaleString()}</td>
                 <td><span class="status-badge ${cls}">${p.status || 'pending'}</span></td>
                 <td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}</td></tr>`;
         });
@@ -1014,7 +1012,7 @@
         refresh: window.refresh,
         loadHistory,
         initiatePayment,
-        normalizePhoneNumber,  // Expose for testing
+        normalizePhoneNumber,
     };
 
     document.addEventListener('DOMContentLoaded', () => {
