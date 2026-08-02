@@ -116,9 +116,9 @@
             background: rgba(34, 197, 94, 0.15);
             color: var(--green);
         }
-        .card-title .badge-warning {
-            background: rgba(234, 179, 8, 0.15);
-            color: var(--amber);
+        .card-title .badge-error {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--red);
         }
 
         .header {
@@ -403,15 +403,6 @@
             margin-left: 4px;
             animation: pulse 1.5s ease-in-out infinite;
         }
-        .price-source .demo-badge {
-            display: inline-block;
-            background: rgba(234, 179, 8, 0.15);
-            color: var(--amber);
-            padding: 1px 6px;
-            border-radius: 4px;
-            font-size: 8px;
-            margin-left: 4px;
-        }
         .price-source .unavailable-badge {
             display: inline-block;
             background: rgba(239, 68, 68, 0.15);
@@ -570,10 +561,6 @@
             margin-bottom: 8px;
         }
 
-        #priceStatus {
-            display: none;
-        }
-
         .status-indicator {
             display: flex;
             align-items: center;
@@ -590,7 +577,6 @@
             display: inline-block;
         }
         .status-indicator .dot.green { background: var(--green); }
-        .status-indicator .dot.amber { background: var(--amber); }
         .status-indicator .dot.red { background: var(--red); }
 
         @media (max-width: 768px) {
@@ -750,7 +736,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// AUTO-D KENYA DASHBOARD - PRODUCTION v12.0
+// AUTO-D KENYA DASHBOARD - PRODUCTION v13.0
 // ═══════════════════════════════════════════════════════════════
 
 (function() {
@@ -762,11 +748,6 @@
         SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
         SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
         PRICE_POLLING_INTERVAL: 30000,
-        DEMO_PRICES: {
-            'valuation': 500,
-            'mileage': 350,
-            'ownership': 750
-        },
         SERVICE_ROUTES: {
             'valuation': '/instant-value.html',
             'mileage': '/mileage.html',
@@ -814,8 +795,8 @@
     let pricePollingTimer = null;
     let lastPriceUpdate = null;
     let isAdmin = false;
-    let usingDemoPrices = true;
     let isInitialized = false;
+    let isConnected = false;
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const servicesEl = document.getElementById('services');
@@ -831,32 +812,24 @@
     const priceStatusBadge = document.getElementById('priceStatusBadge');
 
     // ─── UPDATE CONNECTION STATUS UI ───────────────────────────
-    function updateConnectionStatus(status, message) {
+    function updateConnectionStatus(connected) {
+        isConnected = connected;
         const dot = statusDot;
         const text = connectionStatus;
         const badge = priceStatusBadge;
         
         if (!dot || !text || !badge) return;
         
-        switch(status) {
-            case 'connected':
-                dot.className = 'dot green';
-                text.textContent = 'Connected';
-                badge.textContent = '● Live';
-                badge.className = 'badge badge-success';
-                break;
-            case 'demo':
-                dot.className = 'dot amber';
-                text.textContent = 'Demo Mode';
-                badge.textContent = '● Demo';
-                badge.className = 'badge badge-warning';
-                break;
-            case 'disconnected':
-                dot.className = 'dot red';
-                text.textContent = 'Disconnected';
-                badge.textContent = '● Offline';
-                badge.className = 'badge';
-                break;
+        if (connected) {
+            dot.className = 'dot green';
+            text.textContent = 'Connected';
+            badge.textContent = '● Live';
+            badge.className = 'badge badge-success';
+        } else {
+            dot.className = 'dot red';
+            text.textContent = 'Disconnected';
+            badge.textContent = '● Offline';
+            badge.className = 'badge badge-error';
         }
     }
 
@@ -881,23 +854,6 @@
             console.error('❌ Supabase init error:', error);
             return null;
         }
-    }
-
-    // ─── LOAD DEMO PRICES ──────────────────────────────────────
-    function loadDemoPrices() {
-        console.log('📊 Loading demo prices...');
-        usingDemoPrices = true;
-        
-        Object.keys(CONFIG.DEMO_PRICES).forEach(code => {
-            servicePrices[code] = CONFIG.DEMO_PRICES[code];
-        });
-        
-        lastPriceUpdate = new Date();
-        updatePriceTimestamp();
-        updateConnectionStatus('demo');
-        
-        renderServicesForTab(activeTab);
-        showToast('📊 Using demo prices', 'info');
     }
 
     // ─── AUTH ──────────────────────────────────────────────────
@@ -1250,16 +1206,12 @@
 
         const priceBlock = priceKnown
             ? `<div class="service-price" id="price-${serviceCode}">KES ${price.toLocaleString()}</div>`
-            : `<div class="service-price unavailable" id="price-${serviceCode}">
-                   <span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
-                       <span>Price unavailable</span>
-                   </span>
-               </div>`;
+            : `<div class="service-price unavailable" id="price-${serviceCode}">Price unavailable</div>`;
 
         const priceSourceBlock = priceKnown
             ? `<span class="price-source">
                    Price: <strong>KES ${price.toLocaleString()}</strong>
-                   ${usingDemoPrices ? '<span class="demo-badge">📊 Demo</span>' : '<span class="admin-badge">📋 Admin</span>'}
+                   <span class="admin-badge">📋 Admin Set</span>
                </span>`
             : `<span class="price-source">
                    <span>Price not available</span>
@@ -1317,11 +1269,11 @@
     async function loadServicePrices(silent = false) {
         try {
             const servicesData = await api('/mpesa/services');
-            currentServices = servicesData.services || [];
+            const services = servicesData.services || [];
             
             let hasValidPrices = false;
             
-            currentServices.forEach(service => {
+            services.forEach(service => {
                 const code = service.code;
                 const incomingPrice = typeof service.price === 'number' && service.price > 0
                     ? service.price
@@ -1341,15 +1293,14 @@
             });
             
             if (hasValidPrices) {
-                usingDemoPrices = false;
-                updateConnectionStatus('connected');
+                updateConnectionStatus(true);
                 if (!silent) {
                     showToast('✅ Connected to live prices', 'success');
                 }
-            } else if (!usingDemoPrices) {
-                loadDemoPrices();
+            } else {
+                updateConnectionStatus(false);
                 if (!silent) {
-                    showToast('📊 Using demo prices (no live prices available)', 'info');
+                    showToast('⚠️ No prices available from admin', 'warning');
                 }
             }
             
@@ -1360,15 +1311,10 @@
             return servicePrices;
         } catch (error) {
             console.warn('Failed to load service prices:', error);
-            
-            if (!usingDemoPrices) {
-                loadDemoPrices();
-                if (!silent) {
-                    showToast('📊 Using demo prices (server unavailable)', 'warning');
-                }
+            updateConnectionStatus(false);
+            if (!silent) {
+                showToast('⚠️ Could not connect to price server', 'error');
             }
-            
-            updateConnectionStatus('disconnected');
             return servicePrices;
         }
     }
@@ -1386,7 +1332,7 @@
         stopPricePolling();
         
         pricePollingTimer = setInterval(async () => {
-            if (isAuthenticated && !usingDemoPrices) {
+            if (isAuthenticated) {
                 console.log('🔄 Polling for price updates...');
                 await loadServicePrices(true);
             }
@@ -1439,7 +1385,7 @@
         
         if (!hasAccess) {
             showToast('🔒 Please pay to unlock this service', 'warning');
-            const service = currentServices.find(s => s.code === serviceCode);
+            const service = CONFIG.SERVICE_DETAILS[serviceCode];
             if (service) {
                 window.selectService(serviceCode, service.name);
             }
@@ -1717,10 +1663,10 @@
                             const code = updatedService.code;
                             const newPrice = updatedService.price;
                             
-                            usingDemoPrices = false;
                             servicePrices[code] = newPrice;
                             lastPriceUpdate = new Date();
                             updatePriceTimestamp();
+                            updateConnectionStatus(true);
                             
                             if (activeTab === code) {
                                 updatePriceDisplay(code, newPrice);
@@ -1768,7 +1714,7 @@
         if (isInitialized) return;
         isInitialized = true;
 
-        console.log('🚗 Auto-D Kenya Dashboard v12.0 - Production Ready');
+        console.log('🚗 Auto-D Kenya Dashboard v13.0 - Production Ready');
         console.log('📡 API Base:', CONFIG.API_BASE);
 
         initSupabase();
@@ -1800,9 +1746,6 @@
             });
         }
 
-        // Load demo prices initially
-        loadDemoPrices();
-        
         await loadDashboard();
         setupRealtimePriceUpdates();
 
@@ -1830,7 +1773,7 @@
             selectedService,
             servicePrices: { ...servicePrices },
             serviceAccess: { ...serviceAccess },
-            usingDemoPrices
+            isConnected
         })
     };
 
@@ -1838,7 +1781,6 @@
     window.switchServiceTab = window.switchServiceTab;
     window.selectService = window.selectService;
     window.openService = window.openService;
-    window.loadDemoPrices = loadDemoPrices;
     window.refreshPrices = window.refreshPrices;
 
     // ─── START ──────────────────────────────────────────────────
