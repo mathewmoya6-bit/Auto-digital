@@ -435,8 +435,7 @@
     let isAuthenticated = false;
     let selectedService = null;
     let servicePrices = {};
-    let serviceAccess = {};
-    let serviceDefs = [];
+    let serviceAccess = {};  // service_code => true/false
     let allServices = [];
 
     // ─── DOM REFS ────────────────────────────────────────────
@@ -476,9 +475,13 @@
         }
     }
 
-    function getAuthHeaders() {
+    // ─── AUTH HEADERS ─────────────────────────────────────────
+    function authHeaders() {
         const token = localStorage.getItem('access_token');
-        return token ? { 'Authorization': `Bearer ${token}` } : {};
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': token ? `Bearer ${token}` : ''
+        };
     }
 
     // ─── SUPABASE ────────────────────────────────────────────
@@ -492,7 +495,7 @@
         return supabaseClient;
     }
 
-    async function query(table, select = '*', filters = {}, order = null) {
+    async function querySupabase(table, select = '*', filters = {}, order = null) {
         try {
             const client = initSupabase();
             if (!client) throw new Error('Supabase not initialized');
@@ -580,10 +583,9 @@
 
     // ─── FETCH DATA FROM SUPABASE ────────────────────────────
     async function fetchServices() {
-        const res = await query('services', '*', {}, { column: 'display_order', ascending: true });
+        const res = await querySupabase('services', '*', { active: true }, { column: 'display_order', ascending: true });
         if (res.success && res.data.length) {
             allServices = res.data;
-            serviceDefs = res.data;
         } else {
             // Fallback defaults
             allServices = [
@@ -591,22 +593,49 @@
                 { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200, display_order: 2 },
                 { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180, display_order: 3 }
             ];
-            serviceDefs = allServices;
         }
         // Build price map
         allServices.forEach(s => { servicePrices[s.code] = s.price; });
         return allServices;
     }
 
-    async function fetchAccess(userId) {
+    // ─── FETCH USER SERVICES (user_services table) ──────────
+    async function fetchUserServices(userId) {
         if (!userId) return {};
-        const res = await query('user_service_access', '*', { user_id: userId });
-        if (res.success) {
+        try {
+            const client = initSupabase();
+            if (!client) return {};
+            // Query user_services with join to services
+            const { data, error } = await client
+                .from('user_services')
+                .select(`
+                    *,
+                    services!inner (
+                        id,
+                        code,
+                        name,
+                        price,
+                        description
+                    )
+                `)
+                .eq('user_id', userId)
+                .eq('status', 'active');
+
+            if (error) throw error;
             const access = {};
-            res.data.forEach(row => { if (row.service_key && row.unlocked) access[row.service_key] = true; });
+            if (data) {
+                data.forEach(row => {
+                    if (row.services && row.services.code) {
+                        access[row.services.code] = true;
+                    }
+                });
+            }
             serviceAccess = access;
+            return access;
+        } catch (e) {
+            console.warn('⚠️ Could not fetch user services:', e);
+            return {};
         }
-        return serviceAccess;
     }
 
     // ─── RENDER DYNAMIC TABS ────────────────────────────────
@@ -678,7 +707,6 @@
             </div>
         `;
 
-        // Update selected service
         selectedService = service.code;
         updatePayBtn();
     }
@@ -710,7 +738,6 @@
     // ─── ACTIONS ──────────────────────────────────────────────
     window.selectService = function(code) {
         selectedService = code;
-        // Update tab active state
         document.querySelectorAll('.service-tab').forEach(el => {
             el.classList.toggle('active', el.dataset.service === code);
         });
@@ -740,7 +767,7 @@
 
     window.refresh = async function() {
         await fetchServices();
-        if (currentUser) await fetchAccess(currentUser.id);
+        if (currentUser) await fetchUserServices(currentUser.id);
         renderTabs(allServices);
         showToast('🔄 Refreshed', 'info');
     };
@@ -766,18 +793,20 @@
         payBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
         try {
+            // Use authHeaders() to include the JWT token
             const res = await fetch(`${API_BASE}/mpesa/stkpush`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
-                    phone,
+                    phone: phone,
                     amount: price,
                     service_key: selectedService,
                     user_id: currentUser?.id || 'unknown'
                 })
             });
+
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Payment failed');
+            if (!res.ok) throw new Error(data.error || data.detail || 'Payment failed');
 
             setStatus('✅ M-PESA prompt sent to your phone', 'success');
             showToast('📱 Check your phone for M-PESA prompt', 'success');
@@ -786,12 +815,15 @@
             let attempts = 0;
             const interval = setInterval(async () => {
                 try {
-                    const sr = await fetch(`${API_BASE}/mpesa/status/${data.checkout_request_id}`);
+                    const sr = await fetch(`${API_BASE}/mpesa/status/${data.checkout_request_id}`, {
+                        headers: authHeaders()
+                    });
                     const sd = await sr.json();
                     if (sd.status === 'completed') {
                         clearInterval(interval);
                         serviceAccess[selectedService] = true;
-                        await updateAccess(selectedService, true);
+                        // Also update in Supabase user_services
+                        await updateUserService(selectedService, true);
                         setStatus('✅ Payment completed! Service unlocked.', 'success');
                         showToast('🎉 Payment successful!', 'success');
                         renderTabs(allServices);
@@ -818,17 +850,47 @@
         }
     }
 
-    async function updateAccess(key, unlocked) {
+    // ─── UPDATE USER SERVICE IN SUPABASE ─────────────────────
+    async function updateUserService(serviceKey, unlocked) {
         try {
             const client = initSupabase();
             if (!client || !currentUser) return;
-            await client.from('user_service_access').upsert({
-                user_id: currentUser.id,
-                service_key: key,
-                unlocked: unlocked,
-                updated_at: new Date().toISOString()
-            }, { onConflict: 'user_id,service_key' });
-        } catch (e) { /* ignore */ }
+
+            // Get service id
+            const service = allServices.find(s => s.code === serviceKey);
+            if (!service) return;
+
+            // Check if record exists
+            const { data: existing } = await client
+                .from('user_services')
+                .select('id')
+                .eq('user_id', currentUser.id)
+                .eq('service_id', service.id)
+                .maybeSingle();
+
+            if (existing) {
+                // Update existing
+                await client
+                    .from('user_services')
+                    .update({
+                        status: unlocked ? 'active' : 'inactive',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', existing.id);
+            } else if (unlocked) {
+                // Insert new
+                await client
+                    .from('user_services')
+                    .insert({
+                        user_id: currentUser.id,
+                        service_id: service.id,
+                        status: 'active',
+                        created_at: new Date().toISOString()
+                    });
+            }
+        } catch (e) {
+            console.warn('⚠️ Could not update user service:', e);
+        }
     }
 
     // ─── PAYMENT HISTORY ──────────────────────────────────────
@@ -837,7 +899,7 @@
             paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
             return;
         }
-        const res = await query('payments', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
+        const res = await querySupabase('payments', '*', { user_id: currentUser.id }, { column: 'created_at', ascending: false });
         if (!res.success || !res.data.length) {
             paymentsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">💳</div><div class="empty-title">No payments yet</div></div>`;
             return;
@@ -869,8 +931,10 @@
         const isAdmin = user.user_metadata?.role === 'admin' || user.user_metadata?.is_admin;
         adminLink.style.display = isAdmin ? 'block' : 'none';
 
+        // Load services from Supabase
         await fetchServices();
-        await fetchAccess(user.id);
+        // Load user's purchased services from user_services table
+        await fetchUserServices(user.id);
         renderTabs(allServices);
         loadHistory();
         setStatus('✅ Ready', 'success');
