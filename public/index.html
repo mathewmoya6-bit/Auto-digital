@@ -940,7 +940,7 @@
         <div class="info-icon" id="infoIcon">📊</div>
         <h3 id="infoTitle">Service Name</h3>
         <p id="infoDescription">Service description goes here.</p>
-        <div class="info-price" id="infoPrice">Loading price…</div>
+        <div class="info-price" id="infoPrice" style="display:none;"></div>
         <div class="info-actions">
             <button class="btn btn-primary" id="infoContinueBtn">Continue</button>
             <button class="btn btn-outline" onclick="closeServiceInfo()">Cancel</button>
@@ -1120,7 +1120,17 @@
             if (typeof price === 'number' && price > 0) {
                 return `KES ${price.toLocaleString()}`;
             }
-            return servicePricesLoaded ? 'Price unavailable' : 'Loading price…';
+            return null;
+        }
+
+        function updateInfoPriceDisplay(serviceKey) {
+            const priceText = formatServicePrice(serviceKey);
+            if (priceText) {
+                infoPrice.textContent = priceText;
+                infoPrice.style.display = '';
+            } else {
+                infoPrice.style.display = 'none';
+            }
         }
 
         async function getCurrentUser() {
@@ -1206,7 +1216,7 @@
             infoIcon.textContent = info.icon;
             infoTitle.textContent = info.title;
             infoDescription.textContent = info.description;
-            infoPrice.textContent = formatServicePrice(serviceKey);
+            updateInfoPriceDisplay(serviceKey);
 
             // If prices haven't loaded yet (e.g. slow network), fill them
             // in once the fetch resolves, as long as this popup is still
@@ -1214,7 +1224,7 @@
             if (!servicePricesLoaded) {
                 fetchServicePrices().then(() => {
                     if (pendingServiceKey === serviceKey && serviceInfoPopup.classList.contains('open')) {
-                        infoPrice.textContent = formatServicePrice(serviceKey);
+                        updateInfoPriceDisplay(serviceKey);
                     }
                 });
             }
