@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 VALID_SOURCES = {
     "jiji",
     "cheki",
-    "autocheki",
+    "autochek",
 }
 
 SOURCE_NAMES = {
     "jiji": "Jiji",
-    "cheki": "cheki",
-    "autocheki": "autocheki",
+    "cheki": "Cheki",
+    "autochek": "Autochek",
 }
 
 
@@ -84,7 +84,7 @@ class ScraperService:
                     raise ValueError(
                         f"Source '{source_name}' not found. The 'market_sources' table is empty. "
                         f"Please seed it with: INSERT INTO market_sources (name) VALUES "
-                        f"('jiji'), ('autocheki'), ('cheki');"
+                        f"('jiji'), ('cheki'), ('autochek');"
                     )
 
             source_id = response.data[0]["id"]
@@ -251,9 +251,6 @@ class ScraperService:
                     "listings_saved": 0,
                     "listings_updated": 0,
                     "error_count": 0,
-                    "source": source,
-                    "pages": pages,
-                    "limit_per_page": limit_per_page
                 })
                 .execute()
             )
@@ -263,7 +260,7 @@ class ScraperService:
 
             job = response.data[0]
 
-            # Store job metadata with source info
+            # Store job metadata with source info in memory
             self.jobs[job["id"]] = {
                 "id": job["id"],
                 "source": source,
@@ -360,7 +357,6 @@ class ScraperService:
                 "status": "failed",
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "error_count": 1,
-                "error_message": error_msg,
                 "duration_seconds": int((datetime.now(timezone.utc) - start).total_seconds()),
             }).eq("id", job_id).execute()
 
