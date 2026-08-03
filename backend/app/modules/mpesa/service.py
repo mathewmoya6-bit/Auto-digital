@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 class MpesaService:
     """M-Pesa service for payment processing."""
 
+    # Payment status constants
+    STATUS_COMPLETED = "completed"
+    STATUS_PAID = "paid"  # Legacy - kept for backward compatibility
+    STATUS_PENDING = "pending"
+    STATUS_FAILED = "failed"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_EXPIRED = "expired"
+
     def __init__(self):
         self.repository = MpesaRepository()
         self.stk_push = StkPushService()
@@ -67,7 +75,7 @@ class MpesaService:
 
     def _evaluate_service_access(self, record: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Fix #1: Shared helper for evaluating service access from a user_services record.
+        Shared helper for evaluating service access from a user_services record.
         This avoids code duplication between check_service_access and check_service_access_by_id.
         """
         if not record:
@@ -291,15 +299,15 @@ class MpesaService:
         
         status = payment.get("status")
         
-        # Only "paid" can be confirmed
-        if status != "paid":
+        # Only "completed" can be confirmed (was "paid" in legacy)
+        if status != self.STATUS_COMPLETED:
             raise AppException(f"Payment not yet confirmed by M-Pesa. Current status: {status}", status_code=409)
         
-        # Payment is paid, unlock service if needed
+        # Payment is completed, unlock service if needed
         if payment.get("user_id") and payment.get("service_id"):
             existing = await self._get_user_service(payment["user_id"], payment["service_id"])
             if existing and existing.get("status") == "active":
-                return {"status": "paid", "message": "Service already active"}
+                return {"status": self.STATUS_COMPLETED, "message": "Service already active"}
             
             await self._unlock_service_atomic(
                 user_id=payment["user_id"],
@@ -307,7 +315,7 @@ class MpesaService:
                 payment_id=payment.get("id"),
             )
             logger.info(f"Service unlocked via manual confirmation: {checkout_request_id}")
-            return {"status": "paid", "message": "Payment confirmed and service unlocked"}
+            return {"status": self.STATUS_COMPLETED, "message": "Payment confirmed and service unlocked"}
         
         return {"status": "error", "message": "Missing user_id or service_id"}
 
@@ -389,7 +397,7 @@ class MpesaService:
 
     async def check_service_access_by_id(self, user_id: str, service_id: int) -> Dict[str, Any]:
         """
-        Fix #1: Check if a user has access to a service by ID.
+        Check if a user has access to a service by ID.
         Uses shared _evaluate_service_access() helper.
         
         Args:
@@ -431,7 +439,7 @@ class MpesaService:
         supabase,
         user_id: str,
         service_id: int,
-        payment_id: Optional[int] = None,
+        payment_id: Optional[str] = None,  # Changed from int to str (UUID)
         expires_at: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -472,7 +480,7 @@ class MpesaService:
         self,
         user_id: str,
         service_id: int,
-        payment_id: Optional[int] = None,
+        payment_id: Optional[str] = None,  # Changed from int to str (UUID)
         callback_amount: Optional[float] = None,
         expected_amount: Optional[float] = None,
         expires_at: Optional[str] = None,
@@ -483,7 +491,7 @@ class MpesaService:
         Args:
             user_id: User ID
             service_id: Service ID
-            payment_id: Payment ID (optional)
+            payment_id: Payment ID (UUID as string)
             callback_amount: Amount from callback (for validation)
             expected_amount: Expected amount from payment record
             expires_at: Expiry date (optional, defaults to 365 days)
@@ -537,7 +545,7 @@ class MpesaService:
         self, 
         user_id: str, 
         service_id: int, 
-        payment_id: Optional[int] = None,
+        payment_id: Optional[str] = None,  # Changed from int to str (UUID)
         callback_amount: Optional[float] = None,
         expected_amount: Optional[float] = None,
         expires_at: Optional[str] = None,
@@ -548,7 +556,7 @@ class MpesaService:
         Args:
             user_id: User ID
             service_id: Service ID
-            payment_id: Payment ID (optional)
+            payment_id: Payment ID (UUID as string, optional)
             callback_amount: Amount from callback (for validation)
             expected_amount: Expected amount from payment record
             expires_at: Expiry date (optional)
@@ -702,7 +710,7 @@ class MpesaService:
 
     async def get_available_services(self) -> List[Dict[str, Any]]:
         """
-        Fix #4: Get all available services.
+        Get all available services.
         Uses correct Supabase order() syntax without 'ascending' parameter.
         """
         try:
@@ -710,7 +718,6 @@ class MpesaService:
             active_column = await self._get_service_active_column()
             
             try:
-                # Fix #4: Correct order() syntax - no 'ascending' parameter
                 response = (
                     supabase
                     .table("services")
@@ -837,8 +844,8 @@ class MpesaService:
                     logger.error(f"Failed to fetch updated payment: {checkout_request_id}")
                     return {"status": "error", "message": "Failed to fetch updated payment"}
             
-            # Only unlock after payment is paid
-            if str(result_code) == "0" and updated_payment.get("status") == "paid":
+            # Only unlock after payment is completed
+            if str(result_code) == "0" and updated_payment.get("status") == self.STATUS_COMPLETED:
                 if updated_payment.get("user_id") and updated_payment.get("service_id"):
                     # Check if already unlocked
                     existing = await self._get_user_service(
@@ -861,7 +868,7 @@ class MpesaService:
                     logger.warning(f"Payment missing user_id or service_id: {checkout_request_id}")
             elif str(result_code) == "0":
                 logger.warning(
-                    f"Payment status not 'paid' after update: {updated_payment.get('status')} | "
+                    f"Payment status not 'completed' after update: {updated_payment.get('status')} | "
                     f"checkout_request_id={checkout_request_id}"
                 )
             else:
