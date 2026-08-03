@@ -12,7 +12,7 @@ from app.core.database import get_supabase
 from app.modules.scraper.jiji import JijiScraper
 from app.modules.scraper.cheki import ChekiScraper
 from app.modules.scraper.autochek import AutochekScraper
-# from app.modules.scraper.beepbeep import BeepBeepScraper  # Commented out until configured
+from app.modules.scraper.beepbeep import BeepBeepScraper  # Uncommented
 
 
 logger = logging.getLogger(__name__)
@@ -28,12 +28,12 @@ class ScraperWorker:
     def __init__(self):
         self.supabase = get_supabase()
 
-        # Only include sources that exist in market_sources
+        # All sources configured
         self.scrapers = {
             "jiji": JijiScraper(),
             "cheki": ChekiScraper(),
             "autochek": AutochekScraper(),
-            # "beepbeep": BeepBeepScraper(),  # Uncomment when market_sources has 'beepbeep'
+            "beepbeep": BeepBeepScraper(),
         }
 
     def get_sources(self) -> List[str]:
@@ -54,7 +54,7 @@ class ScraperWorker:
             bool: True if saved successfully, False otherwise
         """
         try:
-            # Get source ID - Fix #1: Remove .single()
+            # Get source ID
             source_row = (
                 self.supabase
                 .table("market_sources")
@@ -70,10 +70,13 @@ class ScraperWorker:
             source_id = source_row.data[0]["id"]
 
             # Build data object - only include columns that exist
+            # Added 'make' and 'model' fields
             data = {
                 "source_id": source_id,
                 "listing_id": listing.get("listing_id"),
                 "url": listing.get("url"),
+                "make": listing.get("make"),
+                "model": listing.get("model"),
                 "year": listing.get("year"),
                 "price": listing.get("price"),
                 "currency": "KES",
@@ -87,20 +90,20 @@ class ScraperWorker:
                 "seller_type": listing.get("seller_type"),
                 "condition": listing.get("condition"),
                 "active": True,
-                "first_seen": datetime.now(timezone.utc).isoformat(),  # Fix #5: timezone-aware
-                "last_seen": datetime.now(timezone.utc).isoformat(),   # Fix #5: timezone-aware
+                "first_seen": datetime.now(timezone.utc).isoformat(),
+                "last_seen": datetime.now(timezone.utc).isoformat(),
             }
 
             # Remove None values to avoid column mismatch errors
             data = {k: v for k, v in data.items() if v is not None}
 
-            # Fix #7: Use upsert to handle duplicates
+            # Use upsert to handle duplicates
             result = (
                 self.supabase
                 .table("market_listings")
                 .upsert(
                     data,
-                    on_conflict="listing_id"  # or "source_id,listing_id"
+                    on_conflict="listing_id"
                 )
                 .execute()
             )
@@ -109,7 +112,6 @@ class ScraperWorker:
             return True
 
         except Exception as e:
-            # Fix #2: Log full exception with stack trace
             logger.exception(f"Save listing failed for source {source}: {str(e)}")
             return False
 
@@ -135,11 +137,9 @@ class ScraperWorker:
 
         scraper = self.scrapers[source]
         
-        # Fix #3: Log before starting
         logger.info(f"🔄 Running scraper: {source} | pages={pages}, limit={limit_per_page}")
 
         try:
-            # Fix #4: Catch scraper exceptions
             result = await scraper.run(pages, limit_per_page)
             
             listings = result.get("listings", [])
@@ -163,7 +163,6 @@ class ScraperWorker:
             }
 
         except Exception as e:
-            # Fix #4: Handle scraper crash
             logger.exception(f"❌ {source} scraper crashed: {str(e)}")
             return {
                 "status": "failed",
