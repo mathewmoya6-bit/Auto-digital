@@ -89,6 +89,7 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
+            text-decoration: none;
         }
         .btn-primary { background: #eab308; color: #0a0c15; }
         .btn-primary:hover { background: #ca8a04; transform: translateY(-1px); }
@@ -322,6 +323,50 @@
             text-decoration: none;
         }
         .admin-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(168,85,247,0.3); }
+        
+        /* Success overlay for redirect */
+        .redirect-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 20px;
+            backdrop-filter: blur(10px);
+        }
+        .redirect-overlay.show {
+            display: flex;
+            animation: fadeIn 0.5s ease;
+        }
+        .redirect-overlay .icon {
+            font-size: 64px;
+        }
+        .redirect-overlay .title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #22c55e;
+        }
+        .redirect-overlay .subtitle {
+            font-size: 18px;
+            color: #cbd5e1;
+        }
+        .redirect-overlay .countdown {
+            font-size: 48px;
+            font-weight: 700;
+            color: #eab308;
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        
         @media (max-width: 768px) {
             body { padding: 12px; }
             .card { padding: 16px; }
@@ -333,6 +378,14 @@
     </style>
 </head>
 <body>
+
+<!-- REDIRECT OVERLAY -->
+<div class="redirect-overlay" id="redirectOverlay">
+    <div class="icon">🚀</div>
+    <div class="title">Service Unlocked!</div>
+    <div class="subtitle">Redirecting you to the service page...</div>
+    <div class="countdown" id="countdown">3</div>
+</div>
 
 <div class="container">
 
@@ -436,56 +489,69 @@
     const statusDot = document.getElementById('statusDot');
     const connectionStatus = document.getElementById('connectionStatus');
     const adminLink = document.getElementById('adminLinkContainer');
+    const redirectOverlay = document.getElementById('redirectOverlay');
+    const countdownEl = document.getElementById('countdown');
+
+    // Service page URLs mapping
+    const SERVICE_PAGES = {
+        'valuation': '/valuation.html',
+        'mileage': '/mileage.html',
+        'ownership': '/ownership.html',
+        'vehicle-history': '/vehicle-history.html',
+        'insurance': '/insurance.html',
+        'scrap': '/scrap.html'
+    };
 
     // ─── PHONE NUMBER NORMALIZATION ────────────────────────────
     function normalizePhoneNumber(phone) {
-        // Remove all non-numeric characters
         let cleaned = phone.replace(/\D/g, '');
-        
-        // If empty, return as is
         if (!cleaned) return phone;
-        
-        // If it starts with 0, remove the leading 0 and add 254
         if (cleaned.startsWith('0')) {
             cleaned = cleaned.substring(1);
-            // Check if it's a 7 or 1 prefix (Safaricom/Airtel)
             if (cleaned.startsWith('7') || cleaned.startsWith('1')) {
                 return '254' + cleaned;
             }
         }
-        
-        // If it starts with 254, it's already in international format
         if (cleaned.startsWith('254')) {
             return cleaned;
         }
-        
-        // If it's 9 digits and starts with 7 or 1, add 254
         if (cleaned.length === 9 && (cleaned.startsWith('7') || cleaned.startsWith('1'))) {
             return '254' + cleaned;
         }
-        
-        // If it's 10 digits and starts with 07 or 01, remove 0 and add 254
         if (cleaned.length === 10 && (cleaned.startsWith('07') || cleaned.startsWith('01'))) {
             return '254' + cleaned.substring(1);
         }
-        
-        // If it's 12 digits and starts with 254, return as is
         if (cleaned.length === 12 && cleaned.startsWith('254')) {
             return cleaned;
         }
-        
-        // If it's a valid 07 or 01 number with 10 digits including the 0
         if (cleaned.length === 10 && (cleaned.startsWith('07') || cleaned.startsWith('01'))) {
             return '254' + cleaned.substring(1);
         }
-        
-        // If it's a valid 7 or 1 number with 9 digits
         if (cleaned.length === 9 && (cleaned.startsWith('7') || cleaned.startsWith('1'))) {
             return '254' + cleaned;
         }
-        
-        // Return the cleaned number if no normalization applied
         return cleaned;
+    }
+
+    // ─── REDIRECT TO SERVICE PAGE ──────────────────────────────
+    function redirectToServicePage(serviceCode) {
+        const page = SERVICE_PAGES[serviceCode] || '/dashboard.html';
+        console.log(`🚀 Redirecting to ${page} for service ${serviceCode}`);
+        
+        // Show overlay with countdown
+        redirectOverlay.classList.add('show');
+        let countdown = 3;
+        countdownEl.textContent = countdown;
+        
+        const interval = setInterval(() => {
+            countdown--;
+            if (countdown > 0) {
+                countdownEl.textContent = countdown;
+            } else {
+                clearInterval(interval);
+                window.location.href = page;
+            }
+        }, 1000);
     }
 
     function showToast(msg, type = 'info') {
@@ -506,10 +572,7 @@
     function formatPrice(p) { return p != null ? `KSh ${Number(p).toLocaleString()}` : '—'; }
 
     function updateConnection(connected) {
-        if (statusDot && connectionStatus) {
-            statusDot.className = `dot ${connected ? 'green' : 'red'}`;
-            connectionStatus.textContent = connected ? 'Connected' : 'Disconnected';
-        }
+        // Not used directly but kept for compatibility
     }
 
     function initSupabase() {
@@ -798,12 +861,10 @@
             return;
         }
 
-        // Normalize the phone number (handles 07 and 01 prefixes)
         const normalizedPhone = normalizePhoneNumber(phone);
         console.log('📱 Original phone:', phone);
         console.log('📱 Normalized phone:', normalizedPhone);
 
-        // Validate the normalized phone number
         if (!normalizedPhone.match(/^254[17]\d{8}$/)) {
             setStatus('❌ Invalid phone number. Use 07XXXXXXXX or 01XXXXXXXX', 'error');
             showToast('Invalid phone format. Use 07XXXXXXXX or 01XXXXXXXX', 'error');
@@ -830,7 +891,7 @@
             const userId = session?.user?.id || currentUser?.id;
             
             const requestBody = {
-                phone: normalizedPhone,  // Use the normalized phone number
+                phone: normalizedPhone,
                 amount: Number(price),
                 service_id: serviceId,
                 user_id: userId
@@ -877,7 +938,7 @@
                     });
                     const sd = await sr.json();
                     
-                    if (sd.status === 'completed') {
+                    if (sd.status === 'completed' || sd.status === 'paid') {
                         clearInterval(interval);
                         serviceAccess[selectedServiceCode] = true;
                         await updateUserService(selectedServiceCode, true);
@@ -888,6 +949,12 @@
                         loadHistory();
                         payBtn.disabled = false;
                         payBtn.innerHTML = '<i class="fas fa-check"></i> Unlocked';
+                        
+                        // ✅ REDIRECT TO SERVICE PAGE AFTER UNLOCK
+                        setTimeout(() => {
+                            redirectToServicePage(selectedServiceCode);
+                        }, 1500);
+                        
                     } else if (sd.status === 'failed' || attempts > 20) {
                         clearInterval(interval);
                         setStatus('❌ Payment failed. Try again.', 'error');
@@ -964,7 +1031,7 @@
         let html = `<div class="table-wrap"><table><thead><tr><th>Service</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead><tbody>`;
         res.data.forEach(p => {
             const cls = p.status === 'completed' || p.status === 'paid' ? 'paid' : p.status === 'failed' ? 'failed' : 'pending';
-            html += `<tr><td>${p.service_key || '—'}</td><td>KSh ${Number(p.amount).toLocaleString()}</td>
+            html += `<tr><td>${p.service_key || p.service_id || '—'}</td><td>KSh ${Number(p.amount).toLocaleString()}</td>
                 <td><span class="status-badge ${cls}">${p.status || 'pending'}</span></td>
                 <td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}</td></tr>`;
         });
@@ -974,7 +1041,6 @@
 
     // ─── INIT ──────────────────────────────────────────────────
     async function init() {
-        updateConnection(true);
         const user = await getCurrentUser();
         renderAuth(user);
         if (!user) {
@@ -1004,7 +1070,8 @@
         refresh: window.refresh,
         loadHistory,
         initiatePayment,
-        normalizePhoneNumber,  // Expose for testing
+        normalizePhoneNumber,
+        redirectToServicePage,
     };
 
     document.addEventListener('DOMContentLoaded', () => {
