@@ -192,6 +192,32 @@ async def execute_supabase_async(query_func, *args, **kwargs):
     return await loop.run_in_executor(None, lambda: query_func(*args, **kwargs))
 
 
+def format_mpesa_date(value: Optional[str]) -> Optional[str]:
+    """
+    Convert M-Pesa date format (YYYYMMDDHHMMSS) to ISO format (YYYY-MM-DDTHH:MM:SS).
+    
+    Args:
+        value: Date string from M-Pesa in format YYYYMMDDHHMMSS
+        
+    Returns:
+        ISO formatted date string or None if invalid
+    """
+    if not value:
+        return None
+    
+    try:
+        date_str = str(value).strip()
+        if len(date_str) == 14:
+            dt = datetime.strptime(date_str, "%Y%m%d%H%M%S")
+            return dt.isoformat()
+        else:
+            logger.warning(f"Unexpected M-Pesa date format: {date_str}")
+            return None
+    except (ValueError, TypeError) as e:
+        logger.warning(f"Failed to parse M-Pesa date: {value} | error={e}")
+        return None
+
+
 # ─── STK PUSH SERVICE ─────────────────────────────────────
 
 class StkPushService:
@@ -617,8 +643,15 @@ class StkPushService:
                     update_data["paid_amount"] = callback_amount
                 if phone:
                     update_data["paid_phone"] = phone
+                
+                # Fix: Convert M-Pesa date format before saving
                 if transaction_date:
-                    update_data["transaction_date"] = transaction_date
+                    formatted_date = format_mpesa_date(transaction_date)
+                    if formatted_date:
+                        update_data["transaction_date"] = formatted_date
+                    else:
+                        logger.warning(f"Could not format transaction_date: {transaction_date}")
+
                 if callback_payload:
                     update_data["callback_payload"] = callback_payload
 
@@ -792,7 +825,6 @@ class StkPushService:
             }
 
             if response_data:
-                # Store response code and description if columns exist
                 if "ResponseCode" in response_data:
                     payment_data["response_code"] = response_data.get("ResponseCode")
                 if "ResponseDescription" in response_data:
