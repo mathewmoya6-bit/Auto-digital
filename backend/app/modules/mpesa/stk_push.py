@@ -976,5 +976,4 @@ class StkPushService:
         normalized_phone = normalize_phone(phone)
 
         if amount <= 0:
-            raise ValidationException("Amount must be greater than zero")
-        if amount < MINIMUM_AM
+            raise ValidationException
