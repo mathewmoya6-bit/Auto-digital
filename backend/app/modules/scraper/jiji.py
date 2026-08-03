@@ -40,6 +40,20 @@ class JijiScraper(BaseScraper):
         ]
 
     # ============================================================
+    # RUN METHOD (Called by worker)
+    # ============================================================
+
+    async def run(
+        self,
+        pages: int = 3,
+        limit_per_page: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        Run the scraper - entry point for worker.
+        """
+        return await self.scrape(pages, limit_per_page)
+
+    # ============================================================
     # MAIN SCRAPER
     # ============================================================
 
@@ -60,7 +74,6 @@ class JijiScraper(BaseScraper):
                 "source": self.source_name,
                 "listings": [],
                 "listings_found": 0,
-                "listings_saved": 0,
                 "error": "No working URL found",
                 "completed_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -74,7 +87,6 @@ class JijiScraper(BaseScraper):
             )
 
             try:
-                # Jiji uses different pagination formats
                 soup = await self._fetch_page_with_pagination(working_url, page)
 
                 if soup is None:
@@ -84,7 +96,6 @@ class JijiScraper(BaseScraper):
                     )
                     continue
 
-                # FIXED: Use the proper method instead of _extract_urls
                 urls = self._extract_listing_urls(soup)
 
                 logger.info(
@@ -119,7 +130,6 @@ class JijiScraper(BaseScraper):
             "source": self.source_name,
             "listings": listings,
             "listings_found": len(listings),
-            "listings_saved": 0,
             "completed_at": datetime.now(
                 timezone.utc
             ).isoformat(),
@@ -130,9 +140,7 @@ class JijiScraper(BaseScraper):
     # ============================================================
 
     async def _find_working_url(self) -> Optional[str]:
-        """
-        Find a working URL for Jiji listings.
-        """
+        """Find a working URL for Jiji listings."""
         urls_to_try = [self.search_url] + self.fallback_urls
         
         for url in urls_to_try:
@@ -140,9 +148,8 @@ class JijiScraper(BaseScraper):
                 logger.info(f"Testing URL: {url}")
                 soup = await self._fetch_page(url)
                 if soup is not None:
-                    # Check if we got actual content
                     body_text = soup.get_text(strip=True)
-                    if len(body_text) > 100:  # Has real content
+                    if len(body_text) > 100:
                         if self._has_listings(soup):
                             logger.info(f"Found working URL: {url}")
                             return url
@@ -153,15 +160,8 @@ class JijiScraper(BaseScraper):
         return None
 
     def _has_listings(self, soup: BeautifulSoup) -> bool:
-        """
-        Check if the page contains car listings.
-        """
-        # Look for common listing indicators
-        indicators = [
-            "car", "vehicle", "listing", "inventory",
-            "for sale", "used cars", "new cars", "automotive"
-        ]
-        
+        """Check if the page contains car listings."""
+        indicators = ["car", "vehicle", "listing", "inventory", "for sale", "used cars"]
         text = soup.get_text(strip=True).lower()
         return any(indicator in text for indicator in indicators)
 
@@ -174,10 +174,7 @@ class JijiScraper(BaseScraper):
         base_url: str,
         page: int
     ) -> Optional[BeautifulSoup]:
-        """
-        Try different pagination formats for Jiji.
-        """
-        # Jiji specific pagination formats
+        """Try different pagination formats."""
         pagination_formats = [
             f"{base_url}?page={page}",
             f"{base_url}?p={page}",
@@ -185,15 +182,12 @@ class JijiScraper(BaseScraper):
             f"{base_url}/page/{page}",
             f"{base_url}/{page}",
             f"{base_url}?start={page * 20}",
-            f"{base_url}?offset={page * 20}",
         ]
 
         for url in pagination_formats:
             try:
-                logger.debug(f"Trying pagination URL: {url}")
                 soup = await self._fetch_page(url)
                 if soup is not None:
-                    # Check if we got actual content with listings
                     if self._has_listings(soup):
                         return soup
             except Exception:
@@ -209,29 +203,22 @@ class JijiScraper(BaseScraper):
         self,
         soup: BeautifulSoup,
     ) -> List[str]:
-        """
-        Extract listing URLs from the Jiji page.
-        FIXED: Replaces the missing _extract_urls method.
-        """
+        """Extract listing URLs from the Jiji page."""
         urls: Set[str] = set()
 
-        # Jiji specific selectors
         selectors = [
             'a[href*="/cars/"]',
             'a[href*="/vehicle/"]',
             'a[href*="/ad/"]',
             'a[href*="/listing/"]',
-            'a[href*="/automotive/"]',
             '.b-list-advert a',
             '.advert-list a',
             '.listing a',
             '.card a',
             '.item a',
             '.ad a',
-            '.b-advert a',
             'a.advert-title',
             'a.advert-link',
-            '.b-advert-title a',
         ]
 
         for selector in selectors:
@@ -246,7 +233,6 @@ class JijiScraper(BaseScraper):
             except Exception:
                 continue
 
-        # Fallback: look for any link with car-related keywords
         if not urls:
             for link in soup.find_all("a", href=True):
                 href = link["href"]
@@ -258,31 +244,23 @@ class JijiScraper(BaseScraper):
         return list(urls)
 
     def _is_valid_listing_url(self, url: str) -> bool:
-        """
-        Check if URL is a valid listing URL.
-        """
-        # Exclude non-listing URLs
+        """Check if URL is a valid listing URL."""
         exclude_patterns = [
             "/login", "/signup", "/register",
             "/about", "/contact", "/help",
             "/faq", "/privacy", "/terms",
             "facebook.com", "twitter.com",
             "instagram.com", "youtube.com",
-            "whatsapp.com", "/blog", "/news",
-            "/category", "/tag", "/author",
-            "/profile", "/account", "/dashboard",
-            "/sell", "/post", "/create",
+            "/blog", "/news", "/profile", "/account",
         ]
         
         if any(pattern in url.lower() for pattern in exclude_patterns):
             return False
             
-        # Include listing URLs
         include_patterns = [
             "/cars/", "/vehicle/", "/ad/",
             "/listing/", "/automotive/", "/car/",
             "/vehicles/", "/used/", "/new/",
-            "/sale/", "/buy/",
         ]
         
         return any(pattern in url.lower() for pattern in include_patterns)
@@ -302,38 +280,29 @@ class JijiScraper(BaseScraper):
             if soup is None:
                 return None
 
-            # Extract title
             title = self._extract_title(soup)
 
             if not title:
                 logger.warning(f"No title found for listing: {url}")
                 return None
 
-            # Get page text for parsing
             page_text = soup.get_text(" ", strip=True)
 
-            # Extract listing ID
             listing_id = self._extract_listing_id(url, soup)
 
             if not listing_id:
                 return None
 
-            # Extract make and model
             make, model = self._extract_make_model(title)
 
-            # Extract price
             price = self._extract_price(soup, page_text)
 
-            # Extract vehicle details
             details = self._extract_vehicle_details(soup, page_text)
 
-            # Extract location
             location = self._extract_location(soup, page_text)
 
-            # Extract seller info
             seller_name, seller_type = self._extract_seller_info(soup, page_text)
 
-            # Extract condition
             condition = self._extract_condition(soup, page_text)
 
             return {
@@ -367,29 +336,17 @@ class JijiScraper(BaseScraper):
     # EXTRACT TITLE
     # ============================================================
 
-    def _extract_title(
-        self,
-        soup: BeautifulSoup,
-    ) -> str:
-        """
-        Extract vehicle title from the page.
-        """
-        # Try h1 first
+    def _extract_title(self, soup: BeautifulSoup) -> str:
+        """Extract vehicle title from the page."""
         h1 = soup.find("h1")
         if h1:
             title = self._clean_text(h1.get_text())
             if title and len(title) > 2:
                 return title
 
-        # Try Jiji-specific title selectors
         title_selectors = [
-            ".advert-title",
-            ".listing-title",
-            ".item-title",
-            ".product-title",
-            ".title",
-            '[itemprop="name"]',
-            '.b-advert-title',
+            ".advert-title", ".listing-title", ".item-title",
+            ".product-title", ".title", '[itemprop="name"]',
         ]
 
         for selector in title_selectors:
@@ -402,7 +359,6 @@ class JijiScraper(BaseScraper):
             except Exception:
                 continue
 
-        # Try meta tags
         meta_title = soup.find("meta", {"property": "og:title"})
         if meta_title:
             content = meta_title.get("content")
@@ -411,12 +367,10 @@ class JijiScraper(BaseScraper):
                 if title:
                     return title
 
-        # Try title tag
         title_tag = soup.find("title")
         if title_tag:
             title = self._clean_text(title_tag.get_text())
-            # Remove site name and separators
-            for separator in ["|", "-", "–", "—", "::"]:
+            for separator in ["|", "-", "–", "—"]:
                 if separator in title:
                     title = title.split(separator)[0].strip()
                     break
@@ -430,94 +384,41 @@ class JijiScraper(BaseScraper):
     # ============================================================
 
     def _extract_listing_id(self, url: str, soup: BeautifulSoup) -> str:
-        """
-        Extract listing ID from URL or page.
-        """
-        # Try to get from URL
+        """Extract listing ID from URL or page."""
         parsed = urlparse(url)
         path = parsed.path.rstrip("/")
         listing_id = path.split("/")[-1]
         
-        # Check if it's a valid ID (not a common word)
-        common_words = ["car", "used", "new", "vehicle", "listing", 
-                       "cars", "vehicles", "ad", "automotive", "view"]
+        common_words = ["car", "used", "new", "vehicle", "listing", "cars", "vehicles", "ad"]
         if listing_id and len(listing_id) > 2 and listing_id.lower() not in common_words:
-            # Check if it's numeric or alphanumeric
             if re.match(r'^[a-zA-Z0-9\-_]+$', listing_id):
                 return listing_id
 
-        # Try Jiji-specific ID patterns
-        # Jiji often has IDs like "12345678" or "abc-123"
-        id_patterns = [
-            r'/cars/(\d+)',
-            r'/ad/(\d+)',
-            r'/listing/(\d+)',
-            r'/(\d+)/',
-        ]
-        
+        id_patterns = [r'/cars/(\d+)', r'/ad/(\d+)', r'/listing/(\d+)', r'/(\d+)/']
         for pattern in id_patterns:
             match = re.search(pattern, url)
             if match:
                 return match.group(1)
 
-        # Try to get from meta
         meta_id = soup.find("meta", {"name": "listing-id"})
         if meta_id:
             content = meta_id.get("content")
             if content:
                 return content
 
-        meta_id = soup.find("meta", {"property": "listing:id"})
-        if meta_id:
-            content = meta_id.get("content")
-            if content:
-                return content
-
-        # Try to get from hidden input
-        hidden_id = soup.find("input", {"type": "hidden", "name": "listing_id"})
-        if hidden_id:
-            value = hidden_id.get("value")
-            if value:
-                return value
-
-        # Try to get from data attribute
-        data_id = soup.find(attrs={"data-listing-id": True})
-        if data_id:
-            return data_id.get("data-listing-id")
-
-        # Generate from URL hash
         return str(abs(hash(url)))[:10]
 
     # ============================================================
     # EXTRACT PRICE
     # ============================================================
 
-    def _extract_price(
-        self,
-        soup: BeautifulSoup,
-        page_text: str
-    ) -> Optional[float]:
-        """
-        Extract price from the page.
-        """
-        # Try specific price selectors (Jiji specific)
+    def _extract_price(self, soup: BeautifulSoup, page_text: str) -> Optional[float]:
+        """Extract price from the page."""
         price_selectors = [
-            ".price",
-            ".advert-price",
-            ".listing-price",
-            ".item-price",
-            ".product-price",
-            "[itemprop='price']",
-            ".amount",
-            ".sale-price",
-            ".price-amount",
-            "span.price",
-            "div.price",
-            ".cost",
-            ".price-display",
-            ".currency-value",
-            ".b-advert-price",
-            ".ad-price",
+            ".price", ".advert-price", ".listing-price",
+            ".item-price", ".product-price", "[itemprop='price']",
+            ".amount", ".sale-price", ".price-amount",
+            "span.price", "div.price",
         ]
 
         for selector in price_selectors:
@@ -531,18 +432,11 @@ class JijiScraper(BaseScraper):
             except Exception:
                 continue
 
-        # Try Jiji-specific price patterns
         price_patterns = [
             r'KSh\s*([\d,]+\.?\d*)',
             r'KES\s*([\d,]+\.?\d*)',
-            r'Kenya Shillings\s*([\d,]+\.?\d*)',
-            r'Price:\s*KSh\s*([\d,]+\.?\d*)',
-            r'Price:\s*KES\s*([\d,]+\.?\d*)',
-            r'Price:\s*([\d,]+\.?\d*)\s*KES',
             r'([\d,]+\.?\d*)\s*KSh',
             r'([\d,]+\.?\d*)\s*KES',
-            r'KSh\.?\s*([\d,]+\.?\d*)',
-            r'KES\.?\s*([\d,]+\.?\d*)',
         ]
 
         for pattern in price_patterns:
@@ -560,48 +454,32 @@ class JijiScraper(BaseScraper):
     # EXTRACT MAKE AND MODEL
     # ============================================================
 
-    def _extract_make_model(
-        self,
-        title: str,
-    ) -> tuple:
-        """
-        Extract make and model from the title.
-        """
+    def _extract_make_model(self, title: str) -> tuple:
+        """Extract make and model from the title."""
         if not title:
             return "", ""
 
-        # Common makes in Kenya (organized by length for better matching)
         makes = [
-            "Land Rover", "Range Rover", "Mercedes-Benz", "Mercedes",
             "Toyota", "Nissan", "Honda", "Subaru", "Mazda",
-            "BMW", "Audi", "Volkswagen", "Ford", "Mitsubishi",
-            "Isuzu", "Suzuki", "Hyundai", "Kia", "Lexus", "Volvo",
-            "Peugeot", "Citroen", "Renault", "Fiat", "Jeep",
-            "Chevrolet", "Dodge", "Chrysler", "Porsche", "Jaguar",
-            "Bentley", "Ferrari", "Lamborghini", "Maserati",
-            "Aston Martin", "Rolls Royce", "Mini", "Smart", "Tesla",
-            "Daihatsu", "Mahindra", "Tata", "Proton"
+            "Mercedes", "BMW", "Audi", "Volkswagen", "Ford",
+            "Mitsubishi", "Isuzu", "Suzuki", "Hyundai", "Kia",
+            "Land Rover", "Lexus", "Volvo", "Peugeot", "Citroen",
+            "Renault", "Fiat", "Jeep", "Chevrolet", "Dodge",
+            "Chrysler", "Porsche", "Jaguar", "Bentley", "Ferrari",
         ]
 
         title_lower = title.lower()
         
-        # Try to find make in title
         for make in makes:
             if make.lower() in title_lower:
-                # Extract model (text after make)
                 parts = title.split()
                 for i, part in enumerate(parts):
-                    if part.lower() == make.lower() or part.lower() in make.lower():
-                        # Get next part as model
+                    if part.lower() == make.lower():
                         if i + 1 < len(parts):
                             model = parts[i + 1]
-                            # Clean model (remove special characters)
                             model = ''.join(c for c in model if c.isalnum() or c.isspace())
                             if model and len(model) > 1:
-                                # Check if model is not a common word
-                                common_words = ["for", "with", "in", "at", "from", "on", "the"]
-                                if model.lower() not in common_words:
-                                    return make, model
+                                return make, model
                         return make, ""
 
         return "", ""
@@ -610,14 +488,8 @@ class JijiScraper(BaseScraper):
     # EXTRACT VEHICLE DETAILS
     # ============================================================
 
-    def _extract_vehicle_details(
-        self,
-        soup: BeautifulSoup,
-        page_text: str
-    ) -> Dict[str, Any]:
-        """
-        Extract all vehicle details from the page.
-        """
+    def _extract_vehicle_details(self, soup: BeautifulSoup, page_text: str) -> Dict[str, Any]:
+        """Extract all vehicle details from the page."""
         details = {
             "year": None,
             "mileage": None,
@@ -627,24 +499,12 @@ class JijiScraper(BaseScraper):
             "body_type": None,
         }
 
-        # Try Jiji-specific detail sections
         detail_selectors = [
-            ".details",
-            ".specs",
-            ".specifications",
-            ".features",
-            ".info",
-            ".attributes",
-            ".vehicle-details",
-            ".car-details",
-            ".listing-details",
-            ".advert-details",
-            ".b-details",
-            ".params",
-            ".properties",
+            ".details", ".specs", ".specifications",
+            ".features", ".info", ".attributes",
+            ".vehicle-details", ".car-details",
         ]
 
-        # First try to find structured details
         for selector in detail_selectors:
             try:
                 detail_section = soup.select_one(selector)
@@ -654,19 +514,15 @@ class JijiScraper(BaseScraper):
             except Exception:
                 continue
 
-        # If not found in specific sections, parse from entire page
         if all(v is None for v in details.values()):
             self._extract_details_from_text(page_text, details)
 
         return details
 
     def _extract_details_from_text(self, text: str, details: Dict) -> None:
-        """
-        Extract details from text and update the details dict.
-        """
+        """Extract details from text and update the details dict."""
         text_lower = text.lower()
 
-        # Extract year
         if details["year"] is None:
             year_match = re.search(r'(\d{4})', text)
             if year_match:
@@ -674,104 +530,45 @@ class JijiScraper(BaseScraper):
                 if 1980 <= year <= datetime.now().year + 1:
                     details["year"] = year
 
-        # Extract mileage
         if details["mileage"] is None:
-            # Try various mileage patterns
-            mileage_patterns = [
-                r'(\d{1,3}(?:,\d{3})*)\s*km',
-                r'(\d+)\s*kilometers',
-                r'(\d+)\s*kms',
-                r'km\s*(\d+)',
-            ]
-            for pattern in mileage_patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    try:
-                        mileage_str = match.group(1).replace(',', '')
-                        details["mileage"] = int(mileage_str)
-                        break
-                    except ValueError:
-                        continue
+            mileage_match = re.search(r'(\d{1,3}(?:,\d{3})*)\s*km', text, re.IGNORECASE)
+            if mileage_match:
+                try:
+                    details["mileage"] = int(mileage_match.group(1).replace(",", ""))
+                except ValueError:
+                    pass
 
-        # Extract engine size
         if details["engine_size"] is None:
-            engine_patterns = [
-                r'(\d+\.?\d*)\s*l',
-                r'(\d+\.?\d*)\s*cc',
-                r'(\d+\.?\d*)\s*cylinder',
-                r'engine\s*(\d+\.?\d*)',
-            ]
-            for pattern in engine_patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    try:
-                        details["engine_size"] = float(match.group(1))
-                        break
-                    except ValueError:
-                        continue
+            engine_match = re.search(r'(\d+\.?\d*)\s*l', text, re.IGNORECASE)
+            if engine_match:
+                try:
+                    details["engine_size"] = float(engine_match.group(1))
+                except ValueError:
+                    pass
 
-        # Extract fuel type
         if details["fuel_type"] is None:
-            fuel_patterns = {
-                "petrol": ["petrol", "gasoline", "gas"],
-                "diesel": ["diesel"],
-                "electric": ["electric", "ev"],
-                "hybrid": ["hybrid"],
-                "cng": ["cng", "lpg"],
-            }
-            for fuel, patterns in fuel_patterns.items():
-                if any(p in text_lower for p in patterns):
-                    details["fuel_type"] = fuel.capitalize()
-                    break
+            if "petrol" in text_lower:
+                details["fuel_type"] = "Petrol"
+            elif "diesel" in text_lower:
+                details["fuel_type"] = "Diesel"
+            elif "electric" in text_lower:
+                details["fuel_type"] = "Electric"
 
-        # Extract transmission
         if details["transmission"] is None:
-            if "automatic" in text_lower or "auto" in text_lower:
+            if "automatic" in text_lower:
                 details["transmission"] = "Automatic"
             elif "manual" in text_lower:
                 details["transmission"] = "Manual"
-            elif "cvt" in text_lower:
-                details["transmission"] = "CVT"
-            elif "semi-automatic" in text_lower or "semi automatic" in text_lower:
-                details["transmission"] = "Semi-Automatic"
-
-        # Extract body type
-        if details["body_type"] is None:
-            body_types = ["sedan", "suv", "hatchback", "coupe", 
-                         "convertible", "truck", "van", "wagon", 
-                         "pickup", "mpv", "sports", "luxury"]
-            for body in body_types:
-                if body in text_lower:
-                    details["body_type"] = body.capitalize()
-                    break
 
     # ============================================================
     # EXTRACT LOCATION
     # ============================================================
 
-    def _extract_location(
-        self,
-        soup: BeautifulSoup,
-        page_text: str
-    ) -> str:
-        """
-        Extract location from the page.
-        """
-        # Try specific location selectors (Jiji specific)
+    def _extract_location(self, soup: BeautifulSoup, page_text: str) -> str:
+        """Extract location from the page."""
         location_selectors = [
-            ".location",
-            ".vehicle-location",
-            "[itemprop='location']",
-            ".address",
-            ".seller-location",
-            ".city",
-            ".area",
-            ".region",
-            ".place",
-            ".location-info",
-            ".town",
-            ".advert-location",
-            ".b-location",
+            ".location", ".vehicle-location", "[itemprop='location']",
+            ".address", ".seller-location", ".city", ".area",
         ]
 
         for selector in location_selectors:
@@ -780,24 +577,14 @@ class JijiScraper(BaseScraper):
                 if location_element:
                     location = self._clean_text(location_element.get_text())
                     if location and len(location) > 2:
-                        # Check if it looks like a location
-                        kenyan_cities = ["nairobi", "mombasa", "kisumu", "nakuru", 
-                                       "eldoret", "thika", "malindi", "kitale", 
-                                       "garissa", "meru", "nyeri", "nanyuki"]
-                        if any(city in location.lower() for city in kenyan_cities):
-                            return location
+                        return location
             except Exception:
                 continue
 
-        # Try to find location in page text
         location_patterns = [
             r'Location:\s*([^,\.]+)',
             r'Located in:\s*([^,\.]+)',
             r'City:\s*([^,\.]+)',
-            r'Area:\s*([^,\.]+)',
-            r'Town:\s*([^,\.]+)',
-            r'Region:\s*([^,\.]+)',
-            r'From\s*([^,\.]+)',
         ]
 
         for pattern in location_patterns:
@@ -807,38 +594,20 @@ class JijiScraper(BaseScraper):
                 if location and len(location) > 2:
                     return location
 
-        # Default to Kenya
         return "Kenya"
 
     # ============================================================
     # EXTRACT SELLER INFO
     # ============================================================
 
-    def _extract_seller_info(
-        self,
-        soup: BeautifulSoup,
-        page_text: str
-    ) -> tuple:
-        """
-        Extract seller name and type.
-        """
+    def _extract_seller_info(self, soup: BeautifulSoup, page_text: str) -> tuple:
+        """Extract seller name and type."""
         seller_name = "Jiji"
         seller_type = "Dealer"
 
-        # Try to find seller name (Jiji specific)
         seller_selectors = [
-            ".seller-name",
-            ".dealer-name",
-            ".seller",
-            ".dealer",
-            ".vendor",
-            "[itemprop='seller']",
-            ".seller-info",
-            ".advertiser",
-            ".owner",
-            ".b-seller",
-            ".b-user",
-            ".user-name",
+            ".seller-name", ".dealer-name", ".seller",
+            ".dealer", ".vendor", "[itemprop='seller']",
         ]
 
         for selector in seller_selectors:
@@ -852,14 +621,8 @@ class JijiScraper(BaseScraper):
             except Exception:
                 continue
 
-        # Determine seller type
-        page_text_lower = page_text.lower()
-        if "dealer" in page_text_lower or "dealership" in page_text_lower or "company" in page_text_lower:
-            seller_type = "Dealer"
-        elif "private seller" in page_text_lower or "individual" in page_text_lower or "owner" in page_text_lower:
+        if "private seller" in page_text.lower():
             seller_type = "Private"
-        elif "ltd" in page_text_lower or "limited" in page_text_lower:
-            seller_type = "Dealer"
 
         return seller_name, seller_type
 
@@ -867,107 +630,15 @@ class JijiScraper(BaseScraper):
     # EXTRACT CONDITION
     # ============================================================
 
-    def _extract_condition(
-        self,
-        soup: BeautifulSoup,
-        page_text: str
-    ) -> str:
-        """
-        Extract vehicle condition.
-        """
+    def _extract_condition(self, soup: BeautifulSoup, page_text: str) -> str:
+        """Extract vehicle condition."""
         page_text_lower = page_text.lower()
 
-        # Check condition indicators
-        if "brand new" in page_text_lower or "new car" in page_text_lower or "never used" in page_text_lower:
+        if "brand new" in page_text_lower or "new car" in page_text_lower:
             return "New"
-        elif "certified pre-owned" in page_text_lower or "certified used" in page_text_lower or "cpo" in page_text_lower:
+        elif "certified pre-owned" in page_text_lower:
             return "Certified Pre-Owned"
-        elif "used car" in page_text_lower or "pre-owned" in page_text_lower or "second hand" in page_text_lower:
+        elif "used car" in page_text_lower or "pre-owned" in page_text_lower:
             return "Used"
 
-        # Check meta data
-        meta_condition = soup.find("meta", {"name": "condition"})
-        if meta_condition:
-            content = meta_condition.get("content", "").lower()
-            if "new" in content:
-                return "New"
-            if "used" in content or "pre-owned" in content:
-                return "Used"
-
-        # Check for condition labels
-        condition_selectors = [
-            ".condition",
-            ".vehicle-condition",
-            "[itemprop='vehicleCondition']",
-            ".status",
-            ".condition-label",
-        ]
-
-        for selector in condition_selectors:
-            try:
-                condition_element = soup.select_one(selector)
-                if condition_element:
-                    condition = self._clean_text(condition_element.get_text()).lower()
-                    if "new" in condition:
-                        return "New"
-                    if "used" in condition or "pre-owned" in condition:
-                        return "Used"
-                    if "cpo" in condition or "certified" in condition:
-                        return "Certified Pre-Owned"
-            except Exception:
-                continue
-
-        # Default to Used
         return "Used"
-
-    # ============================================================
-    # OVERRIDE: PARSE YEAR
-    # ============================================================
-
-    def _parse_year(
-        self,
-        text: str,
-    ) -> Optional[int]:
-        """
-        Parse year from Jiji listing text.
-        """
-        return super()._parse_year(text)
-
-    # ============================================================
-    # OVERRIDE: PARSE MILEAGE
-    # ============================================================
-
-    def _parse_mileage(
-        self,
-        text: str,
-    ) -> Optional[int]:
-        """
-        Parse mileage from Jiji listing text.
-        """
-        return super()._parse_mileage(text)
-
-    # ============================================================
-    # OVERRIDE: PARSE ENGINE SIZE
-    # ============================================================
-
-    def _parse_engine_size(
-        self,
-        text: str,
-    ) -> Optional[float]:
-        """
-        Parse engine size from Jiji listing text.
-        """
-        return super()._parse_engine_size(text)
-
-    # ============================================================
-    # OVERRIDE: PARSE PRICE
-    # ============================================================
-
-    def _parse_price(
-        self,
-        text: str,
-    ) -> Optional[float]:
-        """
-        Parse price from Jiji listing text.
-        """
-        return super()._parse_price(text)
