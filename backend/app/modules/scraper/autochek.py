@@ -25,7 +25,7 @@ class AutochekScraper(BaseScraper):
     def __init__(self):
         super().__init__(
             source_name="autochek",
-            base_url="https://autochek.africa"
+            base_url="https://autochek.africa/ke"
         )
 
         # FIXED: Correct URL structure for Autochek
