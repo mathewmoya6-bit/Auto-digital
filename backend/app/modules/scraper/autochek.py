@@ -28,12 +28,19 @@ class AutochekScraper(BaseScraper):
             base_url="https://autochek.africa"
         )
 
-        # FIX: Updated URL - Autochek uses '/ke/cars-for-sale' or similar
-        self.search_url = "https://autochek.africa/ke/cars-for-sale"
-        # Alternative URLs to try if the above doesn't work:
-        # self.search_url = "https://autochek.africa/ke/used-cars"
-        # self.search_url = "https://autochek.africa/ke/new-cars"
-        # self.search_url = "https://autochek.africa/ke/inventory"
+        # FIXED: Correct URL structure for Autochek
+        # The correct URL for car listings in Kenya is:
+        # https://autochek.africa/ke/used-cars
+        # or https://autochek.africa/ke/new-cars
+        self.search_url = "https://autochek.africa/ke/used-cars"
+        
+        # Also try these if the above doesn't work
+        self.fallback_urls = [
+            "https://autochek.africa/ke/cars-for-sale",
+            "https://autochek.africa/ke/new-cars",
+            "https://autochek.africa/ke/inventory",
+            "https://autochek.africa/ke/vehicles"
+        ]
 
     # ============================================================
     # MAIN SCRAPER
@@ -46,25 +53,41 @@ class AutochekScraper(BaseScraper):
     ) -> Dict[str, Any]:
 
         listings = []
+        
+        # Try to find working URL first
+        working_url = await self._find_working_url()
+        if not working_url:
+            logger.error("No working URL found for Autochek")
+            return {
+                "status": "error",
+                "source": self.source_name,
+                "listings": [],
+                "listings_found": 0,
+                "listings_saved": 0,
+                "error": "No working URL found",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }
 
         for page in range(1, pages + 1):
 
             logger.info(
-                "Autochek: scraping page %d",
+                "Autochek: scraping page %d using URL: %s",
                 page,
+                working_url
             )
 
             try:
+                # FIXED: Use working URL with page parameter
+                soup = await self._fetch_page(
+                    working_url,
+                    params={"page": page}
+                )
 
-                # FIX: Try different URL patterns if the main one fails
-                soup = await self._fetch_page_with_fallback(page)
-                
                 if soup is None:
                     logger.warning(
-                        "Failed to load Autochek page %d after trying all URL patterns",
+                        "Failed to load Autochek page %d",
                         page,
                     )
-                    # Try the next page anyway
                     continue
 
                 urls = self._extract_listing_urls(soup)
@@ -112,49 +135,30 @@ class AutochekScraper(BaseScraper):
         }
 
     # ============================================================
-    # FETCH PAGE WITH FALLBACK URLS
+    # FIND WORKING URL
     # ============================================================
 
-    async def _fetch_page_with_fallback(
-        self,
-        page: int,
-    ) -> Optional[BeautifulSoup]:
+    async def _find_working_url(self) -> Optional[str]:
         """
-        Try multiple URL patterns if the main one fails.
+        Find a working URL for Autochek listings.
         """
-        # List of possible URL patterns
-        url_patterns = [
-            "https://autochek.africa/ke/cars-for-sale",
-            "https://autochek.africa/ke/used-cars",
-            "https://autochek.africa/ke/new-cars",
-            "https://autochek.africa/ke/inventory",
-            "https://autochek.africa/ke/vehicles",
-            "https://autochek.africa/ke/cars",  # Original (might still work with different params)
-        ]
-
-        for base_url in url_patterns:
+        urls_to_try = [self.search_url] + self.fallback_urls
+        
+        for url in urls_to_try:
             try:
-                # FIX: Some sites use page in path, others use query params
-                # Try both formats
-                for url_format in [
-                    f"{base_url}?page={page}",
-                    f"{base_url}/{page}",
-                    f"{base_url}?p={page}",
-                    f"{base_url}?page_number={page}",
-                ]:
-                    try:
-                        logger.debug(f"Trying URL: {url_format}")
-                        soup = await self._fetch_page(url_format)
-                        if soup is not None:
-                            # Check if we got actual content (not empty)
-                            if soup.find("body") and len(soup.get_text(strip=True)) > 100:
-                                logger.info(f"Successfully fetched: {url_format}")
-                                return soup
-                    except Exception:
-                        continue
-            except Exception:
+                logger.info(f"Testing URL: {url}")
+                # Try to fetch without page parameter first
+                soup = await self._fetch_page(url)
+                if soup is not None:
+                    # Check if we got actual content
+                    body_text = soup.get_text(strip=True)
+                    if len(body_text) > 100:  # Has real content
+                        logger.info(f"Found working URL: {url}")
+                        return url
+            except Exception as e:
+                logger.warning(f"URL {url} failed: {str(e)}")
                 continue
-
+        
         return None
 
     # ============================================================
@@ -170,37 +174,40 @@ class AutochekScraper(BaseScraper):
         """
         urls: Set[str] = set()
 
-        # FIX: Look for listing links with multiple possible selectors
-        # Common selectors for car listings
+        # FIXED: Better selectors for Autochek
+        # Autochek typically uses these patterns
         selectors = [
-            "a[href*='/car/']",
-            "a[href*='/vehicle/']",
-            "a[href*='/listing/']",
-            "a[href*='/cars/']",
-            "a[href*='/ke/car/']",
-            "a[href*='/ke/vehicle/']",
-            ".listing-card a",  # Class-based selectors
-            ".vehicle-card a",
-            ".car-card a",
+            'a[href*="/car/"]',
+            'a[href*="/used/"]',
+            'a[href*="/new/"]',
+            'a[href*="/vehicle/"]',
+            '.listing-card a',
+            '.vehicle-card a',
+            '.car-card a',
+            '.inventory-item a',
         ]
 
         for selector in selectors:
-            elements = soup.select(selector)
-            for element in elements:
-                href = element.get("href")
-                if href:
-                    url = urljoin(self.base_url, href)
-                    # FIX: Only add valid listing URLs
-                    if self._is_valid_listing_url(url):
-                        urls.add(url)
+            try:
+                elements = soup.select(selector)
+                for element in elements:
+                    href = element.get("href")
+                    if href:
+                        url = urljoin(self.base_url, href)
+                        # Filter to only listing URLs
+                        if self._is_valid_listing_url(url):
+                            urls.add(url)
+            except Exception:
+                continue
 
-        # Fallback: if no URLs found with selectors, look for any link containing car identifiers
+        # Fallback: look for any link with car-related keywords
         if not urls:
             for link in soup.find_all("a", href=True):
                 href = link["href"]
-                url = urljoin(self.base_url, href)
-                if self._is_valid_listing_url(url):
-                    urls.add(url)
+                if href:
+                    url = urljoin(self.base_url, href)
+                    if self._is_valid_listing_url(url):
+                        urls.add(url)
 
         return list(urls)
 
@@ -208,21 +215,14 @@ class AutochekScraper(BaseScraper):
         """
         Check if URL is a valid listing URL.
         """
-        # FIX: Exclude non-listing URLs
+        # Exclude non-listing URLs
         exclude_patterns = [
-            "/login",
-            "/signup",
-            "/register",
-            "/about",
-            "/contact",
-            "/help",
-            "/faq",
-            "/privacy",
-            "/terms",
-            "facebook.com",
-            "twitter.com",
-            "instagram.com",
-            "youtube.com",
+            "/login", "/signup", "/register", 
+            "/about", "/contact", "/help", 
+            "/faq", "/privacy", "/terms",
+            "facebook.com", "twitter.com", 
+            "instagram.com", "youtube.com",
+            "whatsapp.com", "/blog", "/news"
         ]
         
         if any(pattern in url.lower() for pattern in exclude_patterns):
@@ -230,10 +230,8 @@ class AutochekScraper(BaseScraper):
             
         # Include listing URLs
         include_patterns = [
-            "/car/",
-            "/vehicle/",
-            "/listing/",
-            "/cars/",
+            "/car/", "/used/", "/new/", 
+            "/vehicle/", "/listing/"
         ]
         
         return any(pattern in url.lower() for pattern in include_patterns)
@@ -249,7 +247,6 @@ class AutochekScraper(BaseScraper):
         """
         Extract all vehicle details from page.
         """
-        # FIX: Search for specific elements on the page
         details = {
             "year": None,
             "mileage": None,
@@ -259,30 +256,46 @@ class AutochekScraper(BaseScraper):
             "body_type": None,
         }
 
-        # Look for detail sections
-        detail_selectors = [
-            ".vehicle-details",
-            ".car-details",
-            ".specs",
-            ".features",
-        ]
+        # Get page text
+        page_text = soup.get_text(" ", strip=True)
 
-        for selector in detail_selectors:
-            detail_section = soup.select_one(selector)
-            if detail_section:
-                text = detail_section.get_text(" ", strip=True)
-                # Parse details from text
-                details["year"] = self._parse_year(text)
-                details["mileage"] = self._parse_mileage(text)
-                details["engine_size"] = self._parse_engine_size(text)
-                break
+        # Extract from page text using regex
+        details["year"] = self._parse_year(page_text)
+        details["mileage"] = self._parse_mileage(page_text)
+        details["engine_size"] = self._parse_engine_size(page_text)
 
-        # If no detail section found, parse from entire page
-        if details["year"] is None:
-            page_text = soup.get_text(" ", strip=True)
-            details["year"] = self._parse_year(page_text)
-            details["mileage"] = self._parse_mileage(page_text)
-            details["engine_size"] = self._parse_engine_size(page_text)
+        # Look for specific detail sections
+        detail_sections = soup.find_all(["div", "ul", "table"], 
+            class_=lambda x: x and any(word in x.lower() for word in 
+                ["details", "specs", "features", "info"])
+        )
+
+        for section in detail_sections:
+            section_text = section.get_text(" ", strip=True)
+            
+            # Extract fuel type
+            if "petrol" in section_text.lower():
+                details["fuel_type"] = "Petrol"
+            elif "diesel" in section_text.lower():
+                details["fuel_type"] = "Diesel"
+            elif "electric" in section_text.lower():
+                details["fuel_type"] = "Electric"
+            elif "hybrid" in section_text.lower():
+                details["fuel_type"] = "Hybrid"
+            
+            # Extract transmission
+            if "automatic" in section_text.lower():
+                details["transmission"] = "Automatic"
+            elif "manual" in section_text.lower():
+                details["transmission"] = "Manual"
+            
+            # Extract body type
+            body_types = ["sedan", "suv", "hatchback", "coupe", 
+                         "convertible", "truck", "van", "wagon"]
+            for body in body_types:
+                if body in section_text.lower():
+                    details["body_type"] = body.capitalize()
+                    break
 
         return details
 
@@ -297,29 +310,28 @@ class AutochekScraper(BaseScraper):
         """
         Extract vehicle title from the page.
         """
-        # FIX: Try multiple title selectors
-        title_selectors = [
-            "h1",
-            ".vehicle-title",
-            ".car-title",
-            ".listing-title",
-            "h1[itemprop='name']",
-            ".product-title",
-        ]
+        # Try h1 first
+        title_tag = soup.find("h1")
+        if title_tag:
+            title = self._clean_text(title_tag.get_text())
+            if title:
+                return title
 
-        for selector in title_selectors:
-            title_tag = soup.select_one(selector)
-            if title_tag:
-                title = self._clean_text(title_tag.get_text())
-                if title:
-                    return title
-
-        # Fallback: try meta tags
+        # Try meta tags
         meta_title = soup.find("meta", {"property": "og:title"})
         if meta_title:
-            title = meta_title.get("content")
-            if title:
-                return self._clean_text(title)
+            content = meta_title.get("content")
+            if content:
+                return self._clean_text(content)
+
+        # Try title tag
+        title_tag = soup.find("title")
+        if title_tag:
+            title = self._clean_text(title_tag.get_text())
+            # Remove site name if present
+            if "|" in title:
+                title = title.split("|")[0].strip()
+            return title
 
         return ""
 
@@ -337,32 +349,33 @@ class AutochekScraper(BaseScraper):
         if not title:
             return "", ""
 
-        # Common makes in Kenya
+        # Common makes in Kenya (organized by length for better matching)
         makes = [
+            "Land Rover", "Range Rover", "Mercedes-Benz", "Mercedes", 
             "Toyota", "Nissan", "Honda", "Subaru", "Mazda",
-            "Mercedes", "BMW", "Audi", "Volkswagen", "Ford",
-            "Mitsubishi", "Isuzu", "Suzuki", "Hyundai", "Kia",
-            "Land Rover", "Jaguar", "Porsche", "Lexus", "Volvo",
+            "BMW", "Audi", "Volkswagen", "Ford", "Mitsubishi", 
+            "Isuzu", "Suzuki", "Hyundai", "Kia", "Lexus", "Volvo",
             "Peugeot", "Citroen", "Renault", "Fiat", "Jeep",
-            "Range Rover", "Chevrolet", "Dodge", "Chrysler",
+            "Chevrolet", "Dodge", "Chrysler", "Porsche", "Jaguar",
             "Bentley", "Ferrari", "Lamborghini", "Maserati",
-            "Aston Martin", "Rolls Royce", "Mini", "Smart"
+            "Aston Martin", "Rolls Royce", "Mini", "Smart", "Tesla"
         ]
 
         title_lower = title.lower()
-        title_words = title.split()
-
+        
+        # Try to find make in title
         for make in makes:
             if make.lower() in title_lower:
-                for i, word in enumerate(title_words):
-                    if word.lower() == make.lower():
-                        # FIX: Return model if next word exists, otherwise return empty
-                        if i + 1 < len(title_words):
-                            # Skip common words that might follow the make
-                            model = title_words[i + 1]
-                            # Remove common suffixes
-                            common_suffixes = ["for", "with", "in", "at", "from", "on"]
-                            if model.lower() not in common_suffixes:
+                # Extract model (text after make)
+                parts = title.split()
+                for i, part in enumerate(parts):
+                    if part.lower() == make.lower():
+                        # Get next part as model
+                        if i + 1 < len(parts):
+                            model = parts[i + 1]
+                            # Clean model (remove special characters)
+                            model = ''.join(c for c in model if c.isalnum() or c.isspace())
+                            if model and len(model) > 1:
                                 return make, model
                         return make, ""
 
@@ -397,34 +410,21 @@ class AutochekScraper(BaseScraper):
             # Extract make and model from title
             make, model = self._extract_make_model(title)
 
-            # Extract listing ID safely
-            path = urlparse(url).path.rstrip("/")
-            listing_id = path.split("/")[-1]
+            # Extract listing ID
+            listing_id = self._extract_listing_id(url, soup)
+
+            # Extract price
+            price = self._parse_price(soup.get_text(" ", strip=True))
             
-            # FIX: Better listing ID extraction
-            if not listing_id or listing_id in ["car", "vehicle", "listing"]:
-                # Try to get ID from URL parameters
-                parsed_url = urlparse(url)
-                if parsed_url.query:
-                    import urllib.parse
-                    params = urllib.parse.parse_qs(parsed_url.query)
-                    if "id" in params:
-                        listing_id = params["id"][0]
-                    elif "listing_id" in params:
-                        listing_id = params["listing_id"][0]
-
-            # Validate listing ID
-            if not listing_id or len(listing_id) < 3:
-                # Fallback: use URL hash
-                listing_id = str(hash(url))[:8]
-
-            # Extract price with multiple methods
-            price = self._extract_price_from_page(soup)
+            # Try to get price from specific elements
             if price is None:
-                price = self._parse_price(soup.get_text(" ", strip=True))
+                price = self._extract_price_from_page(soup)
+
+            # Extract location
+            location = self._extract_location(soup)
 
             return {
-                "listing_id": str(listing_id),
+                "listing_id": listing_id,
                 "title": title,
                 "url": url,
                 "price": price,
@@ -437,10 +437,10 @@ class AutochekScraper(BaseScraper):
                 "fuel_type": details.get("fuel_type") or "",
                 "transmission": details.get("transmission") or "",
                 "body_type": details.get("body_type") or "",
-                "location": self._extract_location(soup),
+                "location": location,
                 "seller_name": "Autochek",
                 "seller_type": "Dealer",
-                "condition": self._extract_condition(soup, details),
+                "condition": self._extract_condition(soup),
             }
 
         except Exception:
@@ -449,6 +449,40 @@ class AutochekScraper(BaseScraper):
                 url,
             )
             return None
+
+    # ============================================================
+    # EXTRACT LISTING ID
+    # ============================================================
+
+    def _extract_listing_id(self, url: str, soup: BeautifulSoup) -> str:
+        """
+        Extract listing ID from URL or page.
+        """
+        # Try to get from URL
+        parsed = urlparse(url)
+        path = parsed.path.rstrip("/")
+        listing_id = path.split("/")[-1]
+        
+        # Check if it's a valid ID
+        if listing_id and len(listing_id) > 2 and listing_id not in ["car", "used", "new", "vehicle"]:
+            return listing_id
+
+        # Try to get from meta
+        meta_id = soup.find("meta", {"name": "listing-id"})
+        if meta_id:
+            content = meta_id.get("content")
+            if content:
+                return content
+
+        # Try to get from hidden input
+        hidden_id = soup.find("input", {"type": "hidden", "name": "listing_id"})
+        if hidden_id:
+            value = hidden_id.get("value")
+            if value:
+                return value
+
+        # Generate from URL hash
+        return str(abs(hash(url)))[:10]
 
     # ============================================================
     # EXTRACT PRICE FROM PAGE
@@ -467,15 +501,21 @@ class AutochekScraper(BaseScraper):
             ".product-price",
             ".amount",
             ".sale-price",
+            ".price-amount",
+            "span.price",
+            "div.price",
         ]
 
         for selector in price_selectors:
-            price_element = soup.select_one(selector)
-            if price_element:
-                price_text = price_element.get_text(strip=True)
-                price = self._parse_price(price_text)
-                if price:
-                    return price
+            try:
+                price_element = soup.select_one(selector)
+                if price_element:
+                    price_text = price_element.get_text(strip=True)
+                    price = self._parse_price(price_text)
+                    if price:
+                        return price
+            except Exception:
+                continue
 
         return None
 
@@ -493,47 +533,53 @@ class AutochekScraper(BaseScraper):
             "[itemprop='location']",
             ".address",
             ".seller-location",
+            ".city",
+            ".area",
+            ".region",
         ]
 
         for selector in location_selectors:
-            location_element = soup.select_one(selector)
-            if location_element:
-                location = self._clean_text(location_element.get_text())
-                if location and len(location) > 2:
-                    return location
+            try:
+                location_element = soup.select_one(selector)
+                if location_element:
+                    location = self._clean_text(location_element.get_text())
+                    if location and len(location) > 2:
+                        # Check if it looks like a location
+                        if any(city in location.lower() for city in 
+                            ["nairobi", "mombasa", "kisumu", "nakuru", "eldoret", "thika", "malindi"]):
+                            return location
+            except Exception:
+                continue
 
+        # Default to Kenya
         return "Kenya"
 
     # ============================================================
     # EXTRACT CONDITION
     # ============================================================
 
-    def _extract_condition(self, soup: BeautifulSoup, details: Dict) -> str:
+    def _extract_condition(self, soup: BeautifulSoup) -> str:
         """
         Extract vehicle condition.
         """
-        # Check for condition indicators
-        condition_selectors = [
-            ".condition",
-            ".vehicle-condition",
-            "[itemprop='vehicleCondition']",
-        ]
-
-        for selector in condition_selectors:
-            condition_element = soup.select_one(selector)
-            if condition_element:
-                condition = self._clean_text(condition_element.get_text()).lower()
-                if "new" in condition:
-                    return "New"
-                if "used" in condition or "pre-owned" in condition:
-                    return "Used"
-
-        # Check page text
+        # Check page text for condition indicators
         page_text = soup.get_text(" ", strip=True).lower()
-        if "brand new" in page_text or "new car" in page_text:
+        
+        if "brand new" in page_text or "new car" in page_text or "new model" in page_text:
             return "New"
-        if "used car" in page_text or "pre-owned" in page_text:
+        if "used car" in page_text or "pre-owned" in page_text or "second hand" in page_text:
             return "Used"
+        if "certified pre-owned" in page_text or "cpo" in page_text:
+            return "Certified Pre-Owned"
+
+        # Check meta data
+        meta_condition = soup.find("meta", {"name": "condition"})
+        if meta_condition:
+            content = meta_condition.get("content", "").lower()
+            if "new" in content:
+                return "New"
+            if "used" in content or "pre-owned" in content:
+                return "Used"
 
         return "Used"
 
