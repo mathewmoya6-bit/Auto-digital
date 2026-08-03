@@ -16,14 +16,14 @@ logger = logging.getLogger(__name__)
 
 VALID_SOURCES = {
     "jiji",
-    "autochek",
-    "carapi",
+    "cheki",
+    "autocheki",
 }
 
 SOURCE_NAMES = {
     "jiji": "Jiji",
-    "autochek": "Autochek",
-    "carapi": "CarAPI",
+    "cheki": "cheki",
+    "autocheki": "autocheki",
 }
 
 
@@ -84,7 +84,7 @@ class ScraperService:
                     raise ValueError(
                         f"Source '{source_name}' not found. The 'market_sources' table is empty. "
                         f"Please seed it with: INSERT INTO market_sources (name) VALUES "
-                        f"('jiji'), ('autochek'), ('carapi');"
+                        f"('jiji'), ('autocheki'), ('cheki');"
                     )
 
             source_id = response.data[0]["id"]
