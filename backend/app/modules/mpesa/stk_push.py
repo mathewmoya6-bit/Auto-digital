@@ -791,12 +791,12 @@ class StkPushService:
                 "updated_at": now,
             }
 
-            # FIX: Only add columns that exist in the database
-            # Store Safaricom response in a JSON field if available
             if response_data:
-                # Store response data as JSON in a separate column or log it
-                # Don't try to store individual fields unless they exist
-                payment_data["callback_payload"] = response_data
+                # Store response code and description if columns exist
+                if "ResponseCode" in response_data:
+                    payment_data["response_code"] = response_data.get("ResponseCode")
+                if "ResponseDescription" in response_data:
+                    payment_data["response_description"] = response_data.get("ResponseDescription")
 
             result = await execute_supabase_async(
                 lambda: self.supabase.table(TABLE_PAYMENTS).insert(payment_data).execute()
@@ -932,7 +932,6 @@ class StkPushService:
             if not merchant_request_id:
                 raise AppException("Missing MerchantRequestID from Safaricom", 502)
 
-            # FIX: Store only the fields that exist in the database
             payment = await self._create_payment_record(
                 checkout_request_id=checkout_id,
                 merchant_request_id=merchant_request_id,
@@ -941,7 +940,7 @@ class StkPushService:
                 user_id=user_id,
                 service_id=service_id,
                 description=description,
-                response_data=data  # Store full response as JSON
+                response_data=data
             )
 
             logger.info(f"STK Push successful | checkout_id={mask_sensitive(checkout_id)}")
@@ -968,4 +967,184 @@ class StkPushService:
             raise AppException("Network error - please try again", 503)
         except Exception as e:
             logger.exception(f"Unexpected error during STK Push: {e}")
-            raise AppException(f"STK Push failed: {str
+            raise AppException(f"STK Push failed: {str(e)}", 500)
+
+    # ─── CALLBACK PROCESSING ──────────────────────────────
+
+    async def process_callback(self, callback_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process M-Pesa callback with full payment update and unlock.
+        """
+        try:
+            body = callback_data.get("Body", {})
+            stk_callback = body.get("stkCallback", {})
+
+            if not stk_callback:
+                logger.error("Invalid callback structure")
+                return {"status": "error", "message": "Invalid callback structure"}
+
+            checkout_request_id = stk_callback.get("CheckoutRequestID")
+            merchant_request_id = stk_callback.get("MerchantRequestID")
+            result_code = stk_callback.get("ResultCode")
+            result_desc = stk_callback.get("ResultDesc", "")
+
+            if not checkout_request_id:
+                logger.error("Callback missing CheckoutRequestID")
+                return {"status": "error", "message": "Missing CheckoutRequestID"}
+
+            # Replay protection
+            if await self._is_replay(checkout_request_id):
+                logger.warning(f"Replay detected — duplicate callback | {checkout_request_id}")
+                return {
+                    "status": "replay_detected",
+                    "message": "Callback already processed",
+                    "checkout_request_id": checkout_request_id
+                }
+
+            # Get payment
+            payment = await self._get_payment_record(checkout_request_id)
+            if not payment:
+                logger.warning(f"Payment not found for callback: {checkout_request_id}")
+                return {"status": "ignored", "message": "Payment record not found"}
+
+            # Verify merchant request ID
+            if payment.get("merchant_request_id") != merchant_request_id:
+                logger.error(f"MerchantRequestID mismatch | expected={payment.get('merchant_request_id')} received={merchant_request_id}")
+                return {"status": "error", "message": "MerchantRequestID mismatch"}
+
+            # Check if already processed
+            current_status = PaymentStatus(payment.get("status", PaymentStatus.UNKNOWN.value))
+            if current_status.is_terminal:
+                logger.info(f"Callback already processed | {checkout_request_id} status={current_status.value}")
+                return {
+                    "status": "already_processed",
+                    "checkout_request_id": checkout_request_id,
+                    "message": "Payment already processed"
+                }
+
+            # Extract callback metadata
+            callback_amount = None
+            mpesa_receipt = None
+            transaction_date = None
+            phone = None
+
+            callback_metadata = stk_callback.get("CallbackMetadata")
+            if callback_metadata:
+                items = callback_metadata.get("Item", [])
+                for item in items:
+                    name = item.get("Name")
+                    value = item.get("Value")
+                    if name == "Amount":
+                        callback_amount = float(value) if value else None
+                    elif name == "MpesaReceiptNumber":
+                        mpesa_receipt = value
+                    elif name == "TransactionDate":
+                        transaction_date = value
+                    elif name == "PhoneNumber":
+                        phone = value
+
+            # Validate callback amount
+            if callback_amount is not None:
+                if callback_amount <= 0:
+                    logger.error(f"Invalid callback amount | {callback_amount}")
+                    return {
+                        "status": "failed",
+                        "checkout_request_id": checkout_request_id,
+                        "message": f"Invalid callback amount: {callback_amount}"
+                    }
+
+                expected_amount = float(payment.get("amount", 0))
+                if abs(callback_amount - expected_amount) > 0.01:
+                    logger.error(f"Amount mismatch | expected={expected_amount} received={callback_amount}")
+                    return {
+                        "status": "failed",
+                        "checkout_request_id": checkout_request_id,
+                        "message": f"Amount mismatch: expected {expected_amount}, got {callback_amount}"
+                    }
+
+            # Update payment status
+            updated_payment = await self._update_payment_status(
+                checkout_request_id=checkout_request_id,
+                result_code=str(result_code),
+                result_desc=result_desc,
+                data=stk_callback,
+                callback_amount=callback_amount,
+                mpesa_receipt=mpesa_receipt,
+                phone=phone,
+                transaction_date=transaction_date,
+                callback_payload=callback_data
+            )
+
+            # Unlock service on success
+            unlock_success = False
+            unlock_message = ""
+
+            if str(result_code) == "0" and updated_payment:
+                unlock_success, unlock_message = await self._atomic_unlock_transaction(
+                    checkout_request_id=checkout_request_id,
+                    mpesa_receipt=mpesa_receipt,
+                    callback_amount=callback_amount
+                )
+
+            if str(result_code) == "0" and unlock_success:
+                logger.info(f"✅ Payment completed and service unlocked | {checkout_request_id}")
+                return {
+                    "status": "success",
+                    "checkout_request_id": checkout_request_id,
+                    "mpesa_receipt": mpesa_receipt,
+                    "amount": callback_amount,
+                    "message": "Payment confirmed and service unlocked"
+                }
+            elif str(result_code) == "0" and not unlock_success:
+                logger.error(f"Payment completed but unlock failed | {checkout_request_id} | {unlock_message}")
+                return {
+                    "status": "partial",
+                    "checkout_request_id": checkout_request_id,
+                    "mpesa_receipt": mpesa_receipt,
+                    "message": f"Payment received but service unlock failed: {unlock_message}"
+                }
+            else:
+                logger.warning(f"Callback failed | result_code={result_code} | {checkout_request_id}")
+                return {
+                    "status": "failed",
+                    "checkout_request_id": checkout_request_id,
+                    "result_code": result_code,
+                    "result_desc": result_desc,
+                    "message": "Payment failed"
+                }
+
+        except Exception as e:
+            logger.exception(f"Error processing callback: {e}")
+            return {"status": "error", "message": str(e)}
+
+    # ─── HELPERS ─────────────────────────────────────────────
+
+    def _generate_password(self, timestamp: str) -> str:
+        """Generate password for STK push."""
+        password_str = f"{self.shortcode}{self.passkey}{timestamp}"
+        return base64.b64encode(password_str.encode()).decode()
+
+    # ─── STALE PAYMENT CLEANUP ──────────────────────────────
+
+    async def cleanup_stale_payments(self) -> int:
+        """Mark stale pending payments as expired."""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=STALE_PAYMENT_HOURS)
+            cutoff_str = cutoff.isoformat()
+
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENTS).update({
+                    "status": PaymentStatus.EXPIRED.value,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }).eq("status", PaymentStatus.PENDING.value).lt("created_at", cutoff_str).execute()
+            )
+
+            count = len(result.data) if result and result.data else 0
+            if count > 0:
+                logger.info(f"Cleaned up stale payments | count={count}")
+
+            return count
+
+        except Exception as e:
+            logger.error(f"Error cleaning up stale payments | error={e}")
+            return 0
