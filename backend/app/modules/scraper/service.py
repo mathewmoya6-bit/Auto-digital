@@ -18,14 +18,14 @@ VALID_SOURCES = {
     "jiji",
     "cheki",
     "autochek",
-    "beepbeep",  # Added beepbeep
+    "beepbeep",
 }
 
 SOURCE_NAMES = {
     "jiji": "Jiji",
     "cheki": "Cheki",
     "autochek": "Autochek",
-    "beepbeep": "BeepBeep",  # Added beepbeep
+    "beepbeep": "BeepBeep",
 }
 
 
@@ -65,6 +65,7 @@ class ScraperService:
                 .table("market_sources")
                 .select("id, name")
                 .eq("name", source_name)
+                .limit(1)
                 .execute()
             )
 
@@ -99,6 +100,8 @@ class ScraperService:
             logger.exception(f"Database error looking up source '{source_name}'")
             raise ValueError(f"Database error looking up source '{source_name}': {str(e)}")
 
+    # ─── FIXED: GET SOURCES ─────────────────────────────────
+
     async def get_sources(self) -> Dict[str, Any]:
         """Get all available scraper sources."""
         try:
@@ -112,23 +115,20 @@ class ScraperService:
 
             sources = response.data or []
             
+            # Return flat dictionary matching router expectations
             return {
-                "success": True,
-                "data": {
-                    "sources": sources,
-                    "total": len(sources)
-                }
+                "sources": sources,
+                "count": len(sources),
             }
 
         except Exception as e:
             logger.exception("Unable to get sources")
             return {
-                "success": False,
-                "message": f"Failed to get sources: {str(e)}",
-                "data": {"sources": [], "total": 0}
+                "sources": [],
+                "count": 0,
             }
 
-    # ─── DASHBOARD STATUS ──────────────────────────────────
+    # ─── FIXED: DASHBOARD STATUS ───────────────────────────
 
     async def get_status(self) -> Dict[str, Any]:
         """
@@ -177,45 +177,39 @@ class ScraperService:
 
             # Get sources
             sources_result = await self.get_sources()
-            sources = sources_result.get("data", {}).get("sources", [])
+            sources = sources_result.get("sources", [])
 
+            # Return flat dictionary matching router expectations
             return {
-                "success": True,
-                "data": {
-                    "status": last_job.get("status", "idle"),
-                    "running": last_job.get("status") == "running",
-                    "pending_jobs": status_counts["pending"],
-                    "running_jobs": status_counts["running"],
-                    "completed_jobs": status_counts["completed"],
-                    "failed_jobs": status_counts["failed"],
-                    "total_jobs": sum(status_counts.values()),
-                    "last_run": last_job.get("started_at"),
-                    "last_run_status": last_job.get("status"),
-                    "total_listings": total_listings,
-                    "sources": sources,
-                    "sources_count": len(sources)
-                }
+                "status": last_job.get("status", "idle"),
+                "running": status_counts["running"] > 0,
+                "pending_jobs": status_counts["pending"],
+                "running_jobs": status_counts["running"],
+                "completed_jobs": status_counts["completed"],
+                "failed_jobs": status_counts["failed"],
+                "total_jobs": sum(status_counts.values()),
+                "last_run": last_job.get("started_at"),
+                "last_run_status": last_job.get("status"),
+                "total_listings": total_listings,
+                "sources": sources,
+                "sources_count": len(sources)
             }
 
         except Exception as e:
             logger.exception("Unable to get scraper status")
             return {
-                "success": False,
-                "message": f"Failed to get status: {str(e)}",
-                "data": {
-                    "status": "idle",
-                    "running": False,
-                    "pending_jobs": 0,
-                    "running_jobs": 0,
-                    "completed_jobs": 0,
-                    "failed_jobs": 0,
-                    "total_jobs": 0,
-                    "last_run": None,
-                    "last_run_status": None,
-                    "total_listings": 0,
-                    "sources": [],
-                    "sources_count": 0
-                }
+                "status": "idle",
+                "running": False,
+                "pending_jobs": 0,
+                "running_jobs": 0,
+                "completed_jobs": 0,
+                "failed_jobs": 0,
+                "total_jobs": 0,
+                "last_run": None,
+                "last_run_status": None,
+                "total_listings": 0,
+                "sources": [],
+                "sources_count": 0
             }
 
     # ─── CREATE JOB ─────────────────────────────────────────
@@ -382,7 +376,7 @@ class ScraperService:
                 "error": error_msg
             }
 
-    # ─── JOB STATUS ─────────────────────────────────────────
+    # ─── FIXED: JOB STATUS ──────────────────────────────────
 
     async def get_job_status(self, job_id: int) -> Dict[str, Any]:
         """
@@ -391,11 +385,7 @@ class ScraperService:
         try:
             # Check in-memory cache first
             if job_id in self.jobs:
-                job_data = self.jobs[job_id]
-                return {
-                    "success": True,
-                    "data": job_data
-                }
+                return self.jobs[job_id]
 
             # Query database
             response = (
@@ -408,25 +398,18 @@ class ScraperService:
 
             if not response.data:
                 return {
-                    "success": False,
-                    "message": f"Job {job_id} not found",
-                    "data": None
+                    "error": f"Job {job_id} not found"
                 }
 
-            return {
-                "success": True,
-                "data": response.data[0]
-            }
+            return response.data[0]
 
         except Exception as e:
             logger.exception(f"Failed to get job {job_id} status")
             return {
-                "success": False,
-                "message": f"Failed to get job status: {str(e)}",
-                "data": None
+                "error": f"Failed to get job status: {str(e)}"
             }
 
-    # ─── JOB HISTORY ────────────────────────────────────────
+    # ─── FIXED: JOB HISTORY ────────────────────────────────
 
     async def get_job_history(
         self,
@@ -454,29 +437,26 @@ class ScraperService:
                 .execute()
             )
 
+            total = count_response.count or 0
+
+            # Return flat dictionary matching router expectations
             return {
-                "success": True,
-                "data": {
-                    "jobs": response.data or [],
-                    "total": count_response.count or 0,
-                    "limit": limit,
-                    "offset": offset,
-                    "has_more": (offset + limit) < (count_response.count or 0)
-                }
+                "jobs": response.data or [],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "has_more": (offset + limit) < total
             }
 
         except Exception as e:
             logger.exception("Failed to get job history")
             return {
-                "success": False,
-                "message": f"Failed to get job history: {str(e)}",
-                "data": {
-                    "jobs": [],
-                    "total": 0,
-                    "limit": limit,
-                    "offset": offset,
-                    "has_more": False
-                }
+                "jobs": [],
+                "total": 0,
+                "limit": limit,
+                "offset": offset,
+                "has_more": False,
+                "error": str(e)
             }
 
     # ─── HEALTH CHECK ──────────────────────────────────────
