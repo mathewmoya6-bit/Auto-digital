@@ -1249,7 +1249,7 @@
                 <div class="result-card">
                     <div class="card-title">📋 Vehicle Profile <span class="badge">Module 1</span></div>
                     <div class="vehicle-tag">
-                        <span id="vehicleLabel">Select a vehicle to begin</span>
+                        <span id="vehicleLabel">Select a vehicle, then click Calculate</span>
                         <span class="fuel-pill" id="fuelPill">—</span>
                         <span class="transmission-pill" id="transmissionPill">—</span>
                         <span class="engine-cc-display" id="engineCCDisplay">—</span>
@@ -1314,7 +1314,7 @@
                 <div class="result-card">
                     <div class="card-title">💡 Smart Recommendations <span class="badge">AI</span></div>
                     <div class="rec-list" id="recList">
-                        <div class="rec-item info"><span class="icon">💡</span><span class="rec-text">Select a vehicle to receive personalized recommendations</span><span class="rec-tag">Ready</span></div>
+                        <div class="rec-item info"><span class="icon">💡</span><span class="rec-text">Select a vehicle and click Calculate to receive personalized recommendations</span><span class="rec-tag">Ready</span></div>
                     </div>
                 </div>
 
@@ -1340,7 +1340,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.1
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.2
             </div>
         </footer>
     </div>
@@ -1348,7 +1348,10 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.1 - FIXED: Supabase auth initialization
+        // Version 8.2 - Auto-populate removed: results now only render
+        // when the user explicitly clicks "Calculate". Selecting a
+        // vehicle or changing a parameter no longer triggers a
+        // calculation on its own.
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1370,7 +1373,6 @@
             let isFinanced = false;
             let currentVariantData = null;
             let routes = [];
-            let debounceTimer = null;
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
 
@@ -1818,7 +1820,7 @@
                     select.appendChild(opt);
                 });
                 select.disabled = false;
-                setStatus('success', `✅ Loaded ${categories.length} categories`);
+                setStatus('success', `✅ Loaded ${categories.length} categories — select one to begin`);
             }
 
             async function populateMakes(categoryId) {
@@ -2075,11 +2077,11 @@
                 return result;
             }
 
-            // ─── MAIN CALCULATION ──────────────────────────────────────
+            // ─── MAIN CALCULATION (only runs when Calculate is clicked) ──
             async function calculateAndRender(variant = null) {
                 if (!variant) variant = currentVariantData;
                 if (!variant) {
-                    showToast('Please select a vehicle', 'error');
+                    showToast('Please select a vehicle first', 'error');
                     return;
                 }
                 if (!validateInputs()) return;
@@ -2093,6 +2095,8 @@
                     return;
                 }
 
+                el.calculateBtn.disabled = true;
+                el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
                 showProgress(10, 'Loading vehicle data...');
 
                 const inputs = {
@@ -2357,37 +2361,37 @@
                 });
             }
 
-            // ─── LOAD VARIANT AND CALCULATE ────────────────────────────
-            async function loadVariantAndCalculate(variantId) {
+            // ─── LOAD VARIANT DETAILS (NO auto-calculate) ──────────────
+            // fix: this used to call calculateAndRender() as soon as a
+            // variant was selected. Now it only loads and displays the
+            // vehicle profile card and enables the Calculate button —
+            // the actual cost calculation waits for the user to click it.
+            async function loadVariantAndDisplay(variantId) {
                 if (!variantId) return;
                 el.calculateBtn.disabled = true;
-                el.calculateBtn.innerHTML = '<span class="spinner"></span> Loading...';
                 showProgress(5, 'Loading vehicle details...');
 
                 try {
                     const variantData = await loadVariantDetails(variantId);
                     if (!variantData) {
                         showToast('Failed to load vehicle details', 'error');
-                        el.calculateBtn.disabled = false;
-                        el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
                         hideProgress();
                         return;
                     }
                     currentVariantData = variantData;
                     displayVehicleInfo(variantData);
-                    await calculateAndRender(variantData);
+                    el.calculateBtn.disabled = false;
+                    hideProgress();
+                    showToast('Vehicle loaded — click Calculate to see costs', 'info');
                 } catch (error) {
                     console.error('Error loading variant:', error);
                     showToast('Error loading vehicle details: ' + error.message, 'error');
                     hideProgress();
                 }
-                el.calculateBtn.disabled = false;
-                el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
             }
 
             // ─── EVENT LISTENERS ─────────────────────────────────────────
             function initEventListeners() {
-                // ─── ✅ FIXED: Check if supabaseClient exists before using it ───
                 el.btnSignIn.addEventListener('click', () => {
                     el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
                     if (el.authForms.style.display === 'block') {
@@ -2473,7 +2477,6 @@
                     }
                 });
 
-                // ─── Only set up Supabase auth listener if client exists ───
                 if (supabaseClient) {
                     try {
                         supabaseClient.auth.onAuthStateChange((_event, session) => {
@@ -2548,16 +2551,24 @@
                     }
                 });
 
+                // fix: selecting a variant now only loads/displays the
+                // vehicle profile and enables the button — it no longer
+                // triggers calculateAndRender() automatically.
                 el.variantSelect.addEventListener('change', function() {
                     const variantId = this.value;
                     if (variantId) {
-                        loadVariantAndCalculate(variantId);
+                        loadVariantAndDisplay(variantId);
                     } else {
                         currentVariantData = null;
                         el.calculateBtn.disabled = true;
                     }
                 });
 
+                // fix: parameter changes (distance, annual km, fuel price,
+                // driving style, trip type, usage type, year) only clear
+                // their own validation-error state now. They used to
+                // debounce-trigger a recalculation; that's removed —
+                // the user must click Calculate to see updated results.
                 ['change', 'input'].forEach(evt => {
                     [el.distanceInput, el.annualKmInput, el.fuelPriceInput, el.drivingStyle,
                      el.tripType, el.usageType, el.yearSelect].forEach(elem => {
@@ -2565,14 +2576,12 @@
                             this.classList.remove('error');
                             const errorEl = document.getElementById(this.id + 'Error');
                             if (errorEl) errorEl.classList.remove('show');
-                            if (el.variantSelect.value && currentVariantData) {
-                                clearTimeout(debounceTimer);
-                                debounceTimer = setTimeout(() => calculateAndRender(currentVariantData), 500);
-                            }
                         });
                     });
                 });
 
+                // fix: clicking a quick-route chip only fills in the
+                // distance field now — it no longer auto-recalculates.
                 el.routeChips.addEventListener('click', function(e) {
                     const chip = e.target.closest('.chip');
                     if (!chip) return;
@@ -2581,10 +2590,6 @@
                         el.distanceInput.value = km;
                         el.distanceInput.classList.remove('error');
                         document.getElementById('distanceError')?.classList.remove('show');
-                        if (el.variantSelect.value && currentVariantData) {
-                            clearTimeout(debounceTimer);
-                            debounceTimer = setTimeout(() => calculateAndRender(currentVariantData), 400);
-                        }
                     }
                 });
 
@@ -2596,19 +2601,19 @@
                     }
                 });
 
+                // fix: cash/financed toggle just switches the fields shown
+                // now — it no longer auto-recalculates.
                 el.btnCash.addEventListener('click', function() {
                     this.classList.add('active');
                     el.btnFinanced.classList.remove('active');
                     el.financedFields.classList.remove('show');
                     isFinanced = false;
-                    if (currentVariantData) setTimeout(() => calculateAndRender(currentVariantData), 400);
                 });
                 el.btnFinanced.addEventListener('click', function() {
                     this.classList.add('active');
                     el.btnCash.classList.remove('active');
                     el.financedFields.classList.add('show');
                     isFinanced = true;
-                    if (currentVariantData) setTimeout(() => calculateAndRender(currentVariantData), 400);
                 });
 
                 function bindSlider(id, valId, formatter) {
@@ -2645,11 +2650,14 @@
             }
 
             // ─── INIT ──────────────────────────────────────────────────
+            // fix: no longer auto-selects the first category and cascades
+            // makes/models/generations/variants on load. The person now
+            // picks Category → Make → Model → Generation → Variant
+            // themselves, then clicks Calculate.
             async function init() {
                 el.loadingOverlay.classList.add('active');
 
                 try {
-                    // ✅ Initialize Supabase first
                     const supabaseOk = initSupabase();
                     if (!supabaseOk) {
                         setStatus('error', '❌ Failed to initialize Supabase');
@@ -2665,13 +2673,8 @@
                     await loadRoutes();
                     renderRouteChips();
                     
-                    showProgress(60, 'Loading vehicle data from view...');
+                    showProgress(60, 'Loading vehicle categories...');
                     await populateCategories();
-
-                    if (el.categorySelect.options.length > 1) {
-                        el.categorySelect.selectedIndex = 1;
-                        el.categorySelect.dispatchEvent(new Event('change'));
-                    }
 
                     el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
                         year: 'numeric', month: 'short', day: 'numeric'
