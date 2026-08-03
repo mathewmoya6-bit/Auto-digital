@@ -1,183 +1,126 @@
-# app/modules/scraper/jiji.py
-# ================================================================
-# Auto-D Kenya - Jiji Vehicle Scraper
-# ================================================================
+# app/modules/scraper/base_scraper.py
+# Add these methods if they don't exist
 
-import asyncio
-import logging
-import random
-from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
-from urllib.parse import urljoin, urlparse
+import re
+from typing import Optional
 
-from app.modules.scraper.base_scraper import BaseScraper
+class BaseScraper:
+    # ... existing code ...
 
-logger = logging.getLogger(__name__)
-
-
-class JijiScraper(BaseScraper):
-    """
-    Scraper for Jiji Kenya vehicle listings.
-    """
-
-    def __init__(self):
-        super().__init__(
-            source_name="jiji",
-            base_url="https://jiji.co.ke"
-        )
-
-        self.search_url = "https://jiji.co.ke/cars"
-
-    # ============================================================
-    # MAIN SCRAPER
-    # ============================================================
-
-    async def scrape(
-        self,
-        pages: int = 3,
-        limit_per_page: int = 20,
-    ) -> Dict[str, Any]:
-
-        listings = []
-
-        for page in range(1, pages + 1):
-
-            logger.info(f"Jiji: scraping page {page}")
-
-            try:
-
-                soup = await self._fetch_page(
-                    self.search_url,
-                    params={"page": page},
-                )
-
-                if soup is None:
-                    logger.warning(f"Unable to fetch page {page}")
-                    continue
-
-                urls = self._extract_listing_urls(soup)
-
-                logger.info(
-                    f"Found {len(urls)} listing URLs on page {page}"
-                )
-
-                for url in urls[:limit_per_page]:
-
-                    listing = await self._parse_listing(url)
-
-                    if listing:
-                        listings.append(listing)
-
-                    await asyncio.sleep(
-                        random.uniform(0.5, 1.2)
-                    )
-
-                await asyncio.sleep(
-                    random.uniform(1, 2)
-                )
-
-            except Exception:
-                logger.exception(
-                    f"Failed scraping Jiji page {page}"
-                )
-
-        return {
-            "status": "success",
-            "listings": listings,
-            "listings_found": len(listings),
-            "listings_saved": 0,
-            "completed_at": datetime.now(
-                timezone.utc
-            ).isoformat(),
-        }
-
-    # ============================================================
-    # EXTRACT LISTING URLS
-    # ============================================================
-
-    def _extract_listing_urls(self, soup) -> List[str]:
-
-        urls = []
-        seen = set()
-
-        for link in soup.find_all("a", href=True):
-
-            href = link["href"]
-
-            if (
-                "/cars/" not in href
-                and "/vehicle/" not in href
-                and "/ad/" not in href
-            ):
-                continue
-
-            url = urljoin(
-                self.base_url,
-                href,
-            )
-
-            if url in seen:
-                continue
-
-            seen.add(url)
-            urls.append(url)
-
-        return urls
-
-    # ============================================================
-    # PARSE VEHICLE
-    # ============================================================
-
-    async def _parse_listing(
-        self,
-        url: str,
-    ) -> Optional[Dict[str, Any]]:
-
-        try:
-
-            soup = await self._fetch_page(url)
-
-            if soup is None:
-                return None
-
-            title = ""
-
-            h1 = soup.find("h1")
-
-            if h1:
-                title = self._clean_text(
-                    h1.get_text()
-                )
-
-            page_text = soup.get_text(
-                " ",
-                strip=True,
-            )
-
-            listing = {
-                "listing_id": urlparse(url).path.rstrip("/").split("/")[-1],
-                "title": title,
-                "url": url,
-                "price": self._parse_price(page_text),
-                "currency": "KES",
-                "make": None,
-                "model": None,
-                "year": self._parse_year(page_text),
-                "mileage": self._parse_mileage(page_text),
-                "engine_size": self._parse_engine_size(page_text),
-                "fuel_type": None,
-                "transmission": None,
-                "body_type": None,
-                "location": "Kenya",
-                "seller_name": "Jiji",
-                "seller_type": "Dealer",
-                "condition": "Used",
-            }
-
-            return listing
-
-        except Exception:
-            logger.exception(
-                f"Failed parsing Jiji listing: {url}"
-            )
+    def _parse_year(self, text: str) -> Optional[int]:
+        """
+        Parse year from text.
+        Looks for 4-digit numbers between 1950 and 2030.
+        """
+        if not text:
             return None
+        
+        # Look for year patterns
+        patterns = [
+            r'\b(19[5-9]\d|20[0-3]\d)\b',  # 1950-2030
+            r'\b(19[5-9]\d|20[0-3]\d)\s*[kKmM]m\b',  # Year followed by km
+            r'\b(19[5-9]\d|20[0-3]\d)\s*[Kk][Mm]\b',  # Year followed by KM
+            r'[Yy]ear\s*[:.]?\s*(19[5-9]\d|20[0-3]\d)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                year_str = match.group(1) if match.groups() else match.group(0)
+                try:
+                    year = int(year_str)
+                    if 1950 <= year <= 2030:
+                        return year
+                except ValueError:
+                    pass
+        
+        return None
+
+    def _parse_mileage(self, text: str) -> Optional[int]:
+        """
+        Parse mileage from text.
+        Looks for numbers followed by km, KM, or kilometers.
+        """
+        if not text:
+            return None
+        
+        patterns = [
+            r'(\d{1,3}(?:,\d{3})*)\s*[Kk][Mm]\b',
+            r'(\d{1,3}(?:,\d{3})*)\s*[Kk]m\b',
+            r'(\d{1,3}(?:,\d{3})*)\s*[Kk]ilometers?\b',
+            r'[Mm]ileage\s*[:.]?\s*(\d{1,3}(?:,\d{3})*)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                mileage_str = match.group(1).replace(',', '')
+                try:
+                    return int(mileage_str)
+                except ValueError:
+                    pass
+        
+        return None
+
+    def _parse_engine_size(self, text: str) -> Optional[float]:
+        """
+        Parse engine size from text.
+        Looks for numbers like 1.4, 2.0, 3.0 followed by L or liter.
+        """
+        if not text:
+            return None
+        
+        patterns = [
+            r'(\d+\.?\d*)\s*[Ll](?:\s*[Ii]t?e?r?)?\b',
+            r'[Ee]ngine\s*[:.]?\s*(\d+\.?\d*)\s*[Ll]',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    return float(match.group(1))
+                except ValueError:
+                    pass
+        
+        return None
+
+    def _parse_price(self, text: str) -> Optional[float]:
+        """
+        Parse price from text.
+        Looks for KES, KSh, or numeric patterns.
+        """
+        if not text:
+            return None
+        
+        patterns = [
+            r'[Kk][Ee][Ss]\s*([\d,]+)',
+            r'[Kk][Ss][Hh]\s*([\d,]+)',
+            r'[Kk][Ee][Nn]\s*([\d,]+)',
+            r'[Kk][Ee]\s*([\d,]+)',
+            r'([\d,]+)\s*[Kk][Ss][Hh]',
+            r'([\d,]+)\s*[Kk][Ee][Ss]',
+            r'(?:Price|P\s*[:.]?\s*)([\d,]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                price_str = match.group(1).replace(',', '')
+                try:
+                    return float(price_str)
+                except ValueError:
+                    pass
+        
+        # Try to find any large number with commas
+        match = re.search(r'([\d,]{4,})', text)
+        if match:
+            price_str = match.group(1).replace(',', '')
+            try:
+                price = float(price_str)
+                if price > 1000:  # Likely a real price
+                    return price
+            except ValueError:
+                pass
+        
+        return None
