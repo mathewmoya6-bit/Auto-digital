@@ -1008,7 +1008,7 @@
         let isSignupMode = false;
         let pendingServiceRoute = null;
         let pendingServiceKey = null;
-        let serviceData = {}; // Store fetched service data
+        let serviceData = {};
 
         // DOM refs
         const authModal = document.getElementById('authModal');
@@ -1049,7 +1049,6 @@
                 const client = initSupabase();
                 if (!client) return null;
 
-                // Fetch active services from service_prices table
                 const { data, error } = await client
                     .from('service_prices')
                     .select('*')
@@ -1080,7 +1079,6 @@
                 return;
             }
 
-            // Map service types to icons and descriptions
             const serviceMap = {
                 'valuation': { icon: '📊', name: 'Instant Valuation', desc: 'Get AI-powered market value estimates for any car, motorcycle, or tricycle in Kenya.' },
                 'mileage': { icon: '⛽', name: 'Mileage Cost Calculator', desc: 'Calculate your total cost per kilometer including fuel, maintenance, insurance, and depreciation.' },
@@ -1091,17 +1089,12 @@
             services.forEach(service => {
                 const type = service.service_type;
                 const info = serviceMap[type] || { icon: '📦', name: service.service_name || type, desc: service.description || '' };
-                const price = service.price || 0;
-                const currency = service.currency || 'KES';
                 
                 html += `
                     <div class="feature-card">
                         <div class="icon" aria-hidden="true">${info.icon}</div>
                         <h3>${info.name}</h3>
                         <p>${info.desc}</p>
-                        <div style="margin:12px 0 8px;font-size:14px;color:var(--amber);font-weight:700;">
-                            ${currency} ${price.toFixed(2)}
-                        </div>
                         <a href="#" class="feature-link service-link" data-service="${type}">Try Now →</a>
                     </div>
                 `;
@@ -1109,7 +1102,6 @@
 
             featuresGrid.innerHTML = html;
 
-            // Re-bind service links
             document.querySelectorAll('.service-link').forEach(link => {
                 link.addEventListener('click', function(e) {
                     e.preventDefault();
@@ -1197,7 +1189,6 @@
         }
 
         function showServiceInfo(serviceKey) {
-            // Find service data from fetched services
             const service = serviceData.find(s => s.service_type === serviceKey);
             if (!service) {
                 showToast('Service information not available', 'error');
@@ -1377,13 +1368,11 @@
             await getCurrentUser();
             updateUI();
 
-            // Fetch services from Supabase
             const services = await fetchServicesFromSupabase();
             if (services) {
                 serviceData = services;
                 renderFeatures(services);
             } else {
-                // Fallback with default data if fetch fails
                 serviceData = [
                     { service_type: 'valuation', service_name: 'Instant Valuation', price: 150, currency: 'KES', description: 'Get AI-powered market value estimates.' },
                     { service_type: 'mileage', service_name: 'Mileage Cost Calculator', price: 200, currency: 'KES', description: 'Calculate total cost per kilometer.' },
