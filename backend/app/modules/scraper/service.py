@@ -18,12 +18,14 @@ VALID_SOURCES = {
     "jiji",
     "cheki",
     "autochek",
+    "beepbeep",  # Added beepbeep
 }
 
 SOURCE_NAMES = {
     "jiji": "Jiji",
     "cheki": "Cheki",
     "autochek": "Autochek",
+    "beepbeep": "BeepBeep",  # Added beepbeep
 }
 
 
@@ -84,7 +86,7 @@ class ScraperService:
                     raise ValueError(
                         f"Source '{source_name}' not found. The 'market_sources' table is empty. "
                         f"Please seed it with: INSERT INTO market_sources (name) VALUES "
-                        f"('jiji'), ('cheki'), ('autochek');"
+                        f"('jiji'), ('cheki'), ('autochek'), ('beepbeep');"
                     )
 
             source_id = response.data[0]["id"]
