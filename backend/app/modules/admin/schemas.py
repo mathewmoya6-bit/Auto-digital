@@ -3,7 +3,9 @@
 # ================================================================
 # TYPE: MODULE - Admin Pydantic schemas
 
-from typing import Any, Optional, Dict, List, Union
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
@@ -18,10 +20,8 @@ from pydantic import (
     field_validator,
     StringConstraints,
     PositiveFloat,
-    PositiveInt,
+    NonNegativeInt,
 )
-from pydantic.types import NonNegativeInt
-
 
 # ─── BASE SCHEMAS ────────────────────────────────────────────────
 
@@ -48,7 +48,12 @@ class SuccessResponse(Schema):
     message: str = Field("Success", description="Success message")
 
 
-class ApiResponse[T](Schema):
+# Use typing.Generic for Python 3.11 compatibility
+from typing import Generic, TypeVar
+
+T = TypeVar('T')
+
+class ApiResponse(Schema, Generic[T]):
     """Generic API response wrapper."""
     success: bool = Field(True, description="Success status")
     data: T = Field(..., description="Response data")
@@ -102,8 +107,6 @@ class ComponentStatus(str, Enum):
 
 Metadata = Dict[str, Any]
 CurrencyCode = Annotated[str, StringConstraints(min_length=3, max_length=3)]
-# For supported currencies
-# SupportedCurrency = Literal["KES", "USD", "EUR"]
 
 
 # ─── REQUEST SCHEMAS ──────────────────────────────────────────────
@@ -199,13 +202,6 @@ class AdminUser(Schema):
     services: List[AdminUserService] = Field(default_factory=list, description="User services")
 
 
-class AdminUserDetail(AdminUser):
-    """Detailed admin user with payments."""
-    app_metadata: Metadata = Field(default_factory=dict, description="App metadata")
-    user_metadata: Metadata = Field(default_factory=dict, description="User metadata")
-    payments: List["AdminPayment"] = Field(default_factory=list, description="User payments")
-
-
 class AdminPayment(Schema):
     """Admin payment item."""
     id: UUID = Field(..., description="Payment ID")
@@ -221,6 +217,13 @@ class AdminPayment(Schema):
     mpesa_receipt: Optional[str] = Field(None, description="M-Pesa receipt")
     created_at: datetime = Field(..., description="Creation timestamp")
     completed_at: Optional[datetime] = Field(None, description="Completion timestamp")
+
+
+class AdminUserDetail(AdminUser):
+    """Detailed admin user with payments."""
+    app_metadata: Metadata = Field(default_factory=dict, description="App metadata")
+    user_metadata: Metadata = Field(default_factory=dict, description="User metadata")
+    payments: List[AdminPayment] = Field(default_factory=list, description="User payments")
 
 
 class AdminUsersResponse(Schema, Pagination):
@@ -402,7 +405,7 @@ class AdminUserDetailResponse(Schema):
 
 # ─── PAGINATED WRAPPER ──────────────────────────────────────────
 
-class PaginatedResponse[T](Schema):
+class PaginatedResponse(Schema, Generic[T]):
     """Generic paginated response wrapper."""
     items: List[T] = Field(..., description="List of items")
     total: NonNegativeInt = Field(..., description="Total items")
@@ -415,3 +418,4 @@ class PaginatedResponse[T](Schema):
 
 # Resolve forward references
 AdminUserDetail.model_rebuild()
+AdminUserDetailResponse.model_rebuild()
