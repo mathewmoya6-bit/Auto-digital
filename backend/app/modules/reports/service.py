@@ -1,4 +1,6 @@
-# app/modules/reports/service.py
+"""
+Auto-D Kenya - Reports Service
+"""
 
 import logging
 from datetime import datetime, timezone
@@ -14,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class ReportService:
-    """Business logic for generating Auto-D reports."""
+    """Business logic for generating reports."""
 
     VALUATION_SERVICE_ID = 1
     RUNNING_COST_SERVICE_ID = 2
@@ -24,7 +26,11 @@ class ReportService:
         self.valuation_service = ValuationService()
         self.running_cost_service = RunningCostService()
 
-    async def _get_vehicle(self, vehicle_id: str, user_id: str) -> Dict[str, Any]:
+    async def _get_vehicle(
+        self,
+        vehicle_id: str,
+        user_id: str,
+    ) -> Dict[str, Any]:
 
         response = (
             self.supabase
@@ -32,71 +38,111 @@ class ReportService:
             .select("*")
             .eq("id", vehicle_id)
             .eq("user_id", user_id)
-            .limit(1)
+            .maybe_single()
             .execute()
         )
 
-        if not response.data:
+        if not response or not response.data:
             raise NotFoundException("Vehicle not found.")
 
-        return response.data[0]
+        return response.data
 
     async def _get_unused_payment(
         self,
         user_id: str,
         service_id: int,
     ) -> Dict[str, Any]:
+        """
+        Returns the latest paid payment that has not yet been linked
+        to a report.
+        """
 
-        response = (
+        payment = (
             self.supabase
             .table("payments")
             .select("*")
             .eq("user_id", user_id)
             .eq("service_id", service_id)
             .eq("status", "paid")
-            .eq("used", False)
             .order("created_at", desc=True)
-            .limit(1)
             .execute()
         )
 
-        if not response.data:
+        if not payment.data:
             raise NotFoundException(
-                "No unused payment found. Please purchase a new report."
+                "No completed payment found."
             )
 
-        return response.data[0]
+        for row in payment.data:
 
-    async def _consume_payment(self, payment_id: int):
+            existing = (
+                self.supabase
+                .table("reports")
+                .select("id")
+                .eq("payment_id", row["id"])
+                .maybe_single()
+                .execute()
+            )
 
-        (
-            self.supabase
-            .table("payments")
-            .update({
-                "used": True,
-                "used_at": datetime.now(timezone.utc).isoformat()
-            })
-            .eq("id", payment_id)
-            .execute()
+            if not existing.data:
+                return row
+
+        raise NotFoundException(
+            "All payments for this service have already been used."
         )
+
+    async def _save_report(
+        self,
+        *,
+        payment_id: str,
+        user_id: str,
+        vehicle: Dict[str, Any],
+        service_id: int,
+        report_type: str,
+        title: str,
+        report: Dict[str, Any],
+    ):
+
+        self.supabase.table("reports").insert(
+            {
+                "user_id": user_id,
+                "vehicle_id": vehicle["id"],
+                "vehicle_plate": vehicle.get("registration_number"),
+                "payment_id": payment_id,
+                "service_id": str(service_id),
+                "report_type": report_type,
+                "title": title,
+                "content": report,
+                "status": "completed",
+                "is_downloaded": False,
+                "download_count": 0,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).execute()
 
     async def generate_valuation_report(
         self,
         vehicle_id: str,
-        user_id: str
+        user_id: str,
     ) -> Dict[str, Any]:
 
         payment = await self._get_unused_payment(
-            user_id=user_id,
-            service_id=self.VALUATION_SERVICE_ID,
+            user_id,
+            self.VALUATION_SERVICE_ID,
         )
 
-        vehicle = await self._get_vehicle(vehicle_id, user_id)
+        vehicle = await self._get_vehicle(
+            vehicle_id,
+            user_id,
+        )
 
         variant_id = vehicle.get("variant_id")
 
         if not variant_id:
-            raise NotFoundException("Vehicle variant not found.")
+            raise NotFoundException(
+                "Vehicle variant not found."
+            )
 
         valuation = await self.valuation_service.calculate_valuation(
             variant_id=variant_id,
@@ -109,11 +155,9 @@ class ReportService:
 
         report = {
             "report_number": f"AUTO-VAL-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-            "status": "completed",
             "generated_at": datetime.now(timezone.utc).isoformat(),
-
+            "status": "completed",
             "vehicle": valuation.get("vehicle", {}),
-
             "summary": {
                 "estimated_value": valuation.get("estimated_vehicle_value"),
                 "market_value": valuation.get("market_value"),
@@ -123,41 +167,43 @@ class ReportService:
                 "confidence_score": valuation.get("confidence_score"),
                 "base_price_source": valuation.get("base_price_source"),
             },
-
             "price_explanation": valuation.get("price_explanation"),
         }
 
-        self.supabase.table("valuation_reports").insert({
-            "user_id": user_id,
-            "vehicle_id": vehicle_id,
-            "payment_id": payment["id"],
-            "report_number": report["report_number"],
-            "estimated_value": valuation.get("estimated_vehicle_value"),
-            "confidence_score": valuation.get("confidence_score"),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }).execute()
-
-        await self._consume_payment(payment["id"])
+        await self._save_report(
+            payment_id=payment["id"],
+            user_id=user_id,
+            vehicle=vehicle,
+            service_id=self.VALUATION_SERVICE_ID,
+            report_type="valuation",
+            title="Vehicle Valuation Report",
+            report=report,
+        )
 
         return report
 
     async def generate_running_cost_report(
         self,
         vehicle_id: str,
-        user_id: str
+        user_id: str,
     ) -> Dict[str, Any]:
 
         payment = await self._get_unused_payment(
-            user_id=user_id,
-            service_id=self.RUNNING_COST_SERVICE_ID,
+            user_id,
+            self.RUNNING_COST_SERVICE_ID,
         )
 
-        vehicle = await self._get_vehicle(vehicle_id, user_id)
+        vehicle = await self._get_vehicle(
+            vehicle_id,
+            user_id,
+        )
 
         variant_id = vehicle.get("variant_id")
 
         if not variant_id:
-            raise NotFoundException("Vehicle variant not found.")
+            raise NotFoundException(
+                "Vehicle variant not found."
+            )
 
         report = await self.running_cost_service.calculate_running_cost(
             variant_id=variant_id,
@@ -165,27 +211,37 @@ class ReportService:
             user_id=user_id,
         )
 
-        await self._consume_payment(payment["id"])
+        await self._save_report(
+            payment_id=payment["id"],
+            user_id=user_id,
+            vehicle=vehicle,
+            service_id=self.RUNNING_COST_SERVICE_ID,
+            report_type="running_cost",
+            title="Running Cost Report",
+            report=report,
+        )
 
         return report
 
     async def get_report_history(
         self,
-        user_id: str
+        user_id: str,
     ) -> List[Dict[str, Any]]:
 
         try:
 
             response = (
                 self.supabase
-                .table("valuation_reports")
+                .table("reports")
                 .select("""
                     id,
-                    report_number,
-                    vehicle_id,
                     payment_id,
-                    estimated_value,
-                    confidence_score,
+                    vehicle_id,
+                    report_type,
+                    title,
+                    status,
+                    download_count,
+                    is_downloaded,
                     created_at
                 """)
                 .eq("user_id", user_id)
@@ -196,5 +252,8 @@ class ReportService:
             return response.data or []
 
         except Exception as e:
-            logger.exception("Failed to load report history: %s", e)
+            logger.exception(
+                "Failed to load report history: %s",
+                e,
+            )
             return []
