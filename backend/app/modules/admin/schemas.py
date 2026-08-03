@@ -35,8 +35,8 @@ class Schema(BaseModel):
     )
 
 
-class Pagination(Schema):
-    """Pagination fields."""
+class PaginationMixin(BaseModel):
+    """Pagination mixin (does not inherit from Schema to avoid MRO issues)."""
     total: NonNegativeInt = Field(..., description="Total items")
     limit: NonNegativeInt = Field(..., description="Items per page")
     offset: NonNegativeInt = Field(..., description="Pagination offset")
@@ -279,14 +279,20 @@ class AdminUserDetail(AdminUser):
     payments: List[AdminPayment] = Field(default_factory=list, description="User payments")
 
 
-class AdminUsersResponse(Schema, Pagination):
+class AdminUsersResponse(Schema):
     """Admin users response."""
     users: List[AdminUser] = Field(..., description="List of users")
+    total: NonNegativeInt = Field(..., description="Total users")
+    limit: NonNegativeInt = Field(..., description="Items per page")
+    offset: NonNegativeInt = Field(..., description="Pagination offset")
 
 
-class AdminPaymentsResponse(Schema, Pagination):
+class AdminPaymentsResponse(Schema):
     """Admin payments response."""
     payments: List[AdminPayment] = Field(..., description="List of payments")
+    total: NonNegativeInt = Field(..., description="Total payments")
+    limit: NonNegativeInt = Field(..., description="Items per page")
+    offset: NonNegativeInt = Field(..., description="Pagination offset")
 
 
 class AdminVehicle(Schema):
@@ -302,9 +308,12 @@ class AdminVehicle(Schema):
     updated_at: Optional[datetime] = Field(None, description="Last updated timestamp")
 
 
-class AdminVehiclesResponse(Schema, Pagination):
+class AdminVehiclesResponse(Schema):
     """Admin vehicles response."""
     vehicles: List[AdminVehicle] = Field(..., description="List of vehicles")
+    total: NonNegativeInt = Field(..., description="Total vehicles")
+    limit: NonNegativeInt = Field(..., description="Items per page")
+    offset: NonNegativeInt = Field(..., description="Pagination offset")
 
 
 class AdminService(Schema):
