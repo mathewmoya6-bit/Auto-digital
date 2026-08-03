@@ -1,9 +1,7 @@
 # app/modules/reports/router.py
 # Auto-D Kenya - Reports API
-# ================================================================
-# TYPE: MODULE - FastAPI Routes
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.dependencies import get_current_user
 from app.modules.reports.service import ReportService
@@ -18,50 +16,53 @@ report_service = ReportService()
 
 @router.get(
     "/valuation/{vehicle_id}",
-    summary="Generate Quick Vehicle Valuation Report",
-    description="Returns a quick market valuation report for the selected vehicle."
+    summary="Generate Vehicle Valuation Report",
+    description="Generate a valuation report using a paid M-Pesa transaction."
 )
 async def generate_valuation_report(
     vehicle_id: str,
+    payment_id: str = Query(..., description="UUID of the successful payment"),
     current_user: dict = Depends(get_current_user),
 ):
     try:
         return await report_service.generate_valuation_report(
             vehicle_id=vehicle_id,
-            user_id=current_user["id"]
+            payment_id=payment_id,
+            user_id=current_user["id"],
         )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail=str(e),
         )
 
 
 @router.get(
     "/running-cost/{vehicle_id}",
     summary="Generate Running Cost Report",
-    description="Returns the annual running cost report for the selected vehicle."
+    description="Generate a running cost report using a paid M-Pesa transaction."
 )
 async def generate_running_cost_report(
     vehicle_id: str,
+    payment_id: str = Query(..., description="UUID of the successful payment"),
     current_user: dict = Depends(get_current_user),
 ):
     try:
         return await report_service.generate_running_cost_report(
             vehicle_id=vehicle_id,
-            user_id=current_user["id"]
+            payment_id=payment_id,
+            user_id=current_user["id"],
         )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail=str(e),
         )
 
 
 @router.get(
     "/history",
     summary="Report History",
-    description="Returns previously generated reports for the logged-in user."
 )
 async def get_report_history(
     current_user: dict = Depends(get_current_user),
@@ -72,7 +73,6 @@ async def get_report_history(
 @router.get(
     "/download/{report_id}",
     summary="Download Report",
-    description="Download a generated report (PDF)."
 )
 async def download_report(
     report_id: str,
@@ -87,7 +87,6 @@ async def download_report(
 @router.delete(
     "/{report_id}",
     summary="Delete Report",
-    description="Delete a previously generated report."
 )
 async def delete_report(
     report_id: str,
