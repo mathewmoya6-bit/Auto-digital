@@ -4,7 +4,7 @@
 # ================================================================
 
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from app.core.database import get_supabase
 
@@ -12,13 +12,28 @@ logger = logging.getLogger(__name__)
 
 
 class VehicleLookup:
+    """
+    Resolves vehicle make/model names to database IDs.
+    """
 
     def __init__(self):
         self.supabase = get_supabase()
 
-        # In-memory cache
-        self.make_cache = {}
-        self.model_cache = {}
+        self.make_cache: Dict[str, int] = {}
+        self.model_cache: Dict[tuple[int, str], int] = {}
+
+    # ============================================================
+    # HELPERS
+    # ============================================================
+
+    @staticmethod
+    def _normalize(value: Optional[str]) -> Optional[str]:
+        if not value:
+            return None
+
+        value = value.strip()
+
+        return value.title() if value else None
 
     # ============================================================
     # MAKE
@@ -30,10 +45,10 @@ class VehicleLookup:
         create: bool = False,
     ) -> Optional[int]:
 
+        make_name = self._normalize(make_name)
+
         if not make_name:
             return None
-
-        make_name = make_name.strip()
 
         if make_name in self.make_cache:
             return self.make_cache[make_name]
@@ -62,6 +77,7 @@ class VehicleLookup:
                     .insert({
                         "name": make_name
                     })
+                    .select("id")
                     .execute()
                 )
 
@@ -71,7 +87,10 @@ class VehicleLookup:
                     return make_id
 
         except Exception:
-            logger.exception("Make lookup failed")
+            logger.exception(
+                "Failed resolving make '%s'",
+                make_name,
+            )
 
         return None
 
@@ -86,10 +105,10 @@ class VehicleLookup:
         create: bool = False,
     ) -> Optional[int]:
 
+        model_name = self._normalize(model_name)
+
         if not make_id or not model_name:
             return None
-
-        model_name = model_name.strip()
 
         cache_key = (make_id, model_name)
 
@@ -120,8 +139,9 @@ class VehicleLookup:
                     .table("vehicle_models")
                     .insert({
                         "make_id": make_id,
-                        "name": model_name
+                        "name": model_name,
                     })
+                    .select("id")
                     .execute()
                 )
 
@@ -131,7 +151,10 @@ class VehicleLookup:
                     return model_id
 
         except Exception:
-            logger.exception("Model lookup failed")
+            logger.exception(
+                "Failed resolving model '%s'",
+                model_name,
+            )
 
         return None
 
@@ -141,12 +164,12 @@ class VehicleLookup:
 
     async def resolve(
         self,
-        listing: dict,
+        listing: Dict[str, Any],
         create_missing: bool = False,
-    ) -> dict:
+    ) -> Dict[str, Any]:
 
-        make = listing.get("make")
-        model = listing.get("model")
+        make = self._normalize(listing.get("make"))
+        model = self._normalize(listing.get("model"))
 
         make_id = await self.get_make_id(
             make,
