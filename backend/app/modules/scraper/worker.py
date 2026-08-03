@@ -1,7 +1,10 @@
 # app/modules/scraper/worker.py
+# ================================================================
+# Auto-D Kenya - Scraper Worker
+# ================================================================
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from app.core.database import get_supabase
@@ -17,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class ScraperWorker:
     """
-    Executes marketplace scrapers and persists listings.
+    Runs marketplace scrapers and persists listings.
     """
 
     def __init__(self):
@@ -47,13 +50,10 @@ class ScraperWorker:
         source: str,
         listing: Dict[str, Any],
     ) -> bool:
-        """
-        Save or update a vehicle listing.
-        """
 
         try:
 
-            response = (
+            source_result = (
                 self.supabase
                 .table("market_sources")
                 .select("id")
@@ -62,16 +62,16 @@ class ScraperWorker:
                 .execute()
             )
 
-            if not response.data:
-                logger.error("Unknown source: %s", source)
+            if not source_result.data:
+                logger.error("Unknown source '%s'", source)
                 return False
 
-            source_id = response.data[0]["id"]
+            source_id = source_result.data[0]["id"]
 
             listing_id = listing.get("listing_id")
 
             if not listing_id:
-                logger.warning("Listing missing listing_id")
+                logger.warning("[%s] Missing listing_id", source)
                 return False
 
             vehicle = await self.lookup.resolve(
@@ -79,22 +79,22 @@ class ScraperWorker:
                 create_missing=False,
             )
 
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
 
-            data = {
+            payload = {
                 "source_id": source_id,
                 "listing_id": listing_id,
                 "title": listing.get("title"),
                 "url": listing.get("url"),
                 "price": listing.get("price"),
                 "currency": listing.get("currency", "KES"),
+
+                "make": vehicle.get("make"),
+                "model": vehicle.get("model"),
+                "make_id": vehicle.get("make_id"),
+                "model_id": vehicle.get("model_id"),
+
                 "year": listing.get("year"),
-
-                "make": vehicle["make"],
-                "model": vehicle["model"],
-                "make_id": vehicle["make_id"],
-                "model_id": vehicle["model_id"],
-
                 "mileage": listing.get("mileage"),
                 "engine_size": listing.get("engine_size"),
                 "fuel_type": listing.get("fuel_type"),
@@ -109,20 +109,27 @@ class ScraperWorker:
                 "condition": listing.get("condition"),
 
                 "active": True,
-
                 "first_seen": now,
                 "last_seen": now,
             }
 
-            (
+            response = (
                 self.supabase
                 .table("market_listings")
                 .upsert(
-                    data,
+                    payload,
                     on_conflict="source_id,listing_id",
                 )
                 .execute()
             )
+
+            if not response.data:
+                logger.error(
+                    "[%s] Failed saving listing %s (no response)",
+                    source,
+                    listing_id,
+                )
+                return False
 
             logger.info(
                 "[%s] Saved listing %s",
@@ -132,15 +139,19 @@ class ScraperWorker:
 
             return True
 
-        except Exception:
+        except Exception as e:
+
             logger.exception(
-                "Failed saving listing %s",
+                "[%s] Failed saving listing %s: %s",
+                source,
                 listing.get("listing_id"),
+                str(e),
             )
+
             return False
 
     # ============================================================
-    # RUN SINGLE SOURCE
+    # RUN ONE SCRAPER
     # ============================================================
 
     async def run_source(
@@ -161,33 +172,49 @@ class ScraperWorker:
 
         logger.info("Running %s scraper", source)
 
-        result = await scraper.run(
+        result = await scraper.scrape(
             pages=pages,
             limit_per_page=limit_per_page,
         )
 
         listings = result.get("listings", [])
 
+        logger.info(
+            "[%s] Scraper returned %d listings",
+            source,
+            len(listings),
+        )
+
         saved = 0
 
         for listing in listings:
 
-            if await self.save_listing(
+            logger.info(
+                "[%s] Saving listing %s",
                 source,
-                listing,
-            ):
+                listing.get("listing_id"),
+            )
+
+            if await self.save_listing(source, listing):
                 saved += 1
 
+        logger.info(
+            "[%s] Completed. Found=%d Saved=%d",
+            source,
+            len(listings),
+            saved,
+        )
+
         return {
-            "source": source,
             "status": "success",
+            "source": source,
             "listings_found": len(listings),
             "listings_saved": saved,
-            "result": result,
+            "listings": listings,
         }
 
     # ============================================================
-    # RUN ALL
+    # RUN ALL SCRAPERS
     # ============================================================
 
     async def run_all(
@@ -196,7 +223,7 @@ class ScraperWorker:
         limit_per_page: int = 20,
     ) -> Dict[str, Any]:
 
-        output = {}
+        results = {}
 
         total_found = 0
         total_saved = 0
@@ -211,7 +238,7 @@ class ScraperWorker:
                     limit_per_page,
                 )
 
-                output[source] = result
+                results[source] = result
 
                 total_found += result.get(
                     "listings_found",
@@ -226,20 +253,19 @@ class ScraperWorker:
             except Exception:
 
                 logger.exception(
-                    "%s scraper failed",
+                    "%s scraper crashed",
                     source,
                 )
 
-                output[source] = {
+                results[source] = {
                     "status": "failed",
-                    "error": "Scraper crashed",
                 }
 
         return {
             "status": "success",
+            "sources": results,
             "total_found": total_found,
             "total_saved": total_saved,
-            "sources": output,
         }
 
     # ============================================================
