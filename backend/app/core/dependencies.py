@@ -250,6 +250,27 @@ async def require_admin(
 
 
 # ---------------------------------------------------------------------
+# get_current_admin (Alias for backward compatibility)
+# ---------------------------------------------------------------------
+
+async def get_current_admin(
+    current_user: dict = Depends(require_admin),
+) -> dict:
+    """
+    Alias for require_admin() for backward compatibility.
+    
+    This is used by the scraper router and other admin endpoints.
+    
+    Returns:
+        dict: User information if admin
+        
+    Raises:
+        HTTPException: If user is not an admin
+    """
+    return current_user
+
+
+# ---------------------------------------------------------------------
 # Require Service Access
 # ---------------------------------------------------------------------
 
@@ -381,6 +402,7 @@ __all__ = [
     "get_current_active_user",
     "get_current_admin_user",
     "require_admin",
+    "get_current_admin",  # Added for backward compatibility
     "require_service_access",
     "get_current_user_id",
     "get_supabase_client",
