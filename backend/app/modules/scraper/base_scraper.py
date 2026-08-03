@@ -19,23 +19,40 @@ logger = logging.getLogger(__name__)
 
 class BaseScraper(ABC):
     """
-    Base class for all scrapers.
+    Base scraper used by all vehicle scrapers.
     """
+
+    USER_AGENTS = [
+        (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
+            "Chrome/138.0 Safari/537.36"
+        ),
+        (
+            "Mozilla/5.0 (X11; Linux x86_64) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
+            "Chrome/138.0 Safari/537.36"
+        ),
+        (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/605.1.15 "
+            "(KHTML, like Gecko)"
+        ),
+    ]
 
     def __init__(
         self,
         source_name: str,
         base_url: str,
     ):
+
         self.source_name = source_name
         self.base_url = base_url
 
         self.headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/138.0 Safari/537.36"
-            ),
+            "User-Agent": random.choice(self.USER_AGENTS),
             "Accept": (
                 "text/html,"
                 "application/xhtml+xml,"
@@ -43,11 +60,20 @@ class BaseScraper(ABC):
                 "*/*;q=0.8"
             ),
             "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "Referer": base_url,
         }
 
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0),
+            follow_redirects=True,
+            headers=self.headers,
+        )
+
     # ============================================================
-    # PUBLIC ENTRY POINT
+    # ENTRY POINT
     # ============================================================
 
     async def run(
@@ -55,12 +81,10 @@ class BaseScraper(ABC):
         pages: int = 3,
         limit_per_page: int = 20,
     ) -> Dict[str, Any]:
-        """
-        Called by ScraperWorker.
-        """
 
         logger.info(
-            f"[{self.source_name}] starting scraper"
+            "[%s] Starting scraper",
+            self.source_name,
         )
 
         try:
@@ -71,7 +95,9 @@ class BaseScraper(ABC):
             )
 
             logger.info(
-                f"[{self.source_name}] scraper completed"
+                "[%s] Completed (%d listings)",
+                self.source_name,
+                len(result.get("listings", [])),
             )
 
             return result
@@ -79,7 +105,8 @@ class BaseScraper(ABC):
         except Exception:
 
             logger.exception(
-                f"[{self.source_name}] scraper crashed"
+                "[%s] Scraper crashed",
+                self.source_name,
             )
 
             return {
@@ -89,7 +116,7 @@ class BaseScraper(ABC):
             }
 
     # ============================================================
-    # IMPLEMENTED BY CHILD CLASSES
+    # CHILD IMPLEMENTATION
     # ============================================================
 
     @abstractmethod
@@ -101,7 +128,7 @@ class BaseScraper(ABC):
         pass
 
     # ============================================================
-    # FETCH HTML
+    # FETCH PAGE
     # ============================================================
 
     async def _fetch_page(
@@ -110,15 +137,19 @@ class BaseScraper(ABC):
         params: Optional[dict] = None,
     ) -> Optional[BeautifulSoup]:
 
-        try:
+        retries = 3
 
-            async with httpx.AsyncClient(
-                timeout=30,
-                follow_redirects=True,
-                headers=self.headers,
-            ) as client:
+        for attempt in range(retries):
 
-                response = await client.get(
+            try:
+
+                logger.info(
+                    "[%s] GET %s",
+                    self.source_name,
+                    url,
+                )
+
+                response = await self.client.get(
                     url,
                     params=params,
                 )
@@ -134,91 +165,30 @@ class BaseScraper(ABC):
                     "html.parser",
                 )
 
-        except Exception:
+            except Exception as e:
 
-            logger.exception(
-                f"Failed fetching {url}"
-            )
+                logger.warning(
+                    "[%s] Attempt %d/%d failed: %s",
+                    self.source_name,
+                    attempt + 1,
+                    retries,
+                    str(e),
+                )
 
-            return None
+                await asyncio.sleep(
+                    2 ** attempt
+                )
 
-    # ============================================================
-    # PRICE PARSER
-    # ============================================================
-
-    def _parse_price(
-        self,
-        text: str,
-    ) -> Optional[int]:
-
-        if not text:
-            return None
-
-        match = re.search(
-            r"([\d,]+)",
-            text.replace("KSh", "")
-                .replace("KES", "")
-                .replace("Ksh", ""),
+        logger.error(
+            "[%s] Failed fetching %s",
+            self.source_name,
+            url,
         )
 
-        if not match:
-            return None
-
-        try:
-            return int(
-                match.group(1).replace(",", "")
-            )
-        except Exception:
-            return None
+        return None
 
     # ============================================================
-    # INTEGER PARSER
-    # ============================================================
-
-    def _parse_int(
-        self,
-        value: Optional[str],
-    ) -> Optional[int]:
-
-        if not value:
-            return None
-
-        try:
-            return int(
-                re.sub(
-                    r"[^\d]",
-                    "",
-                    str(value),
-                )
-            )
-        except Exception:
-            return None
-
-    # ============================================================
-    # FLOAT PARSER
-    # ============================================================
-
-    def _parse_float(
-        self,
-        value: Optional[str],
-    ) -> Optional[float]:
-
-        if not value:
-            return None
-
-        try:
-            return float(
-                re.sub(
-                    r"[^\d.]",
-                    "",
-                    str(value),
-                )
-            )
-        except Exception:
-            return None
-
-    # ============================================================
-    # CLEAN STRING
+    # HELPERS
     # ============================================================
 
     def _clean_text(
@@ -232,3 +202,131 @@ class BaseScraper(ABC):
         return " ".join(
             value.split()
         ).strip()
+
+    def _parse_int(
+        self,
+        value: Optional[str],
+    ) -> Optional[int]:
+
+        if not value:
+            return None
+
+        try:
+
+            return int(
+                re.sub(
+                    r"[^\d]",
+                    "",
+                    str(value),
+                )
+            )
+
+        except Exception:
+            return None
+
+    def _parse_float(
+        self,
+        value: Optional[str],
+    ) -> Optional[float]:
+
+        if not value:
+            return None
+
+        try:
+
+            return float(
+                re.sub(
+                    r"[^\d.]",
+                    "",
+                    str(value),
+                )
+            )
+
+        except Exception:
+            return None
+
+    def _parse_price(
+        self,
+        text: str,
+    ) -> Optional[int]:
+
+        if not text:
+            return None
+
+        text = (
+            text.replace("KSh", "")
+            .replace("Ksh", "")
+            .replace("KES", "")
+            .replace(",", "")
+        )
+
+        match = re.search(
+            r"(\d{3,})",
+            text,
+        )
+
+        if not match:
+            return None
+
+        return self._parse_int(
+            match.group(1)
+        )
+
+    def _parse_year(
+        self,
+        text: str,
+    ) -> Optional[int]:
+
+        match = re.search(
+            r"\b(19|20)\d{2}\b",
+            text,
+        )
+
+        if match:
+            return int(match.group())
+
+        return None
+
+    def _parse_mileage(
+        self,
+        text: str,
+    ) -> Optional[int]:
+
+        match = re.search(
+            r"([\d,]+)\s*(km|kms)",
+            text,
+            re.I,
+        )
+
+        if not match:
+            return None
+
+        return self._parse_int(
+            match.group(1)
+        )
+
+    def _parse_engine_size(
+        self,
+        text: str,
+    ) -> Optional[float]:
+
+        match = re.search(
+            r"(\d\.\d|\d{3,4})\s*(cc|l)",
+            text,
+            re.I,
+        )
+
+        if not match:
+            return None
+
+        return self._parse_float(
+            match.group(1)
+        )
+
+    # ============================================================
+    # CLEANUP
+    # ============================================================
+
+    async def close(self):
+
+        await self.client.aclose()
