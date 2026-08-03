@@ -66,7 +66,7 @@ class ServiceStatus(str, Enum):
 
 # ─── CONFIGURATION ──────────────────────────────────────────
 
-HTTP_TIMEOUT = 60.0  # Increased timeout
+HTTP_TIMEOUT = 60.0
 MAX_RETRIES = 3
 RETRY_WAIT_MIN = 2
 RETRY_WAIT_MAX = 30
@@ -440,7 +440,126 @@ class StkPushService:
 
         return None
 
+    # ─── REPLAY PROTECTION ─────────────────────────────────
+
+    async def _is_replay(self, checkout_request_id: str) -> bool:
+        """Check if a callback has already been processed."""
+        now = datetime.now(timezone.utc)
+
+        async with self._cache_lock:
+            expired = [
+                k for k, v in self._callback_cache.items()
+                if now - v > timedelta(seconds=CALLBACK_SIGNATURE_TTL)
+            ]
+            for k in expired:
+                del self._callback_cache[k]
+
+            if checkout_request_id in self._callback_cache:
+                return True
+
+            self._callback_cache[checkout_request_id] = now
+
+        try:
+            await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_CALLBACK_REPLAYS).insert({
+                    "checkout_request_id": checkout_request_id,
+                    "processed_at": now.isoformat()
+                }).execute()
+            )
+            if secrets.randbelow(100) < 5:
+                self._spawn_background(self._cleanup_old_replays())
+            return False
+        except Exception as e:
+            if "duplicate key" in str(e).lower() or "23505" in str(e):
+                return True
+            logger.warning(
+                f"Replay-protection DB check failed | "
+                f"checkout_request_id={mask_sensitive(checkout_request_id)} error={e}"
+            )
+            return False
+
     # ─── DATABASE HELPERS ──────────────────────────────────
+
+    async def _log_payment_event(
+        self,
+        checkout_request_id: str,
+        event_type: str,
+        details: Dict[str, Any]
+    ) -> None:
+        """Log payment event with automatic retention."""
+        try:
+            log_data = {
+                "checkout_request_id": checkout_request_id,
+                "event_type": event_type,
+                "details": details,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENT_LOGS).insert(log_data).execute()
+            )
+
+            if secrets.randbelow(100) < 5:
+                await self._cleanup_old_logs()
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to log payment event | checkout_request_id={mask_sensitive(checkout_request_id)} "
+                f"event_type={event_type} error={e}"
+            )
+
+    async def _cleanup_old_logs(self) -> None:
+        """Delete payment logs older than LOG_RETENTION_DAYS."""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=LOG_RETENTION_DAYS)
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENT_LOGS).delete().lt("created_at", cutoff.isoformat()).execute()
+            )
+            if result and result.data:
+                logger.info(f"Cleaned up old payment logs | count={len(result.data)}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup old logs | error={e}")
+
+    async def _cleanup_old_replays(self) -> None:
+        """Delete old callback replay records."""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=REPLAY_RETENTION_DAYS)
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_CALLBACK_REPLAYS).delete().lt(
+                    "processed_at", cutoff.isoformat()
+                ).execute()
+            )
+            if result and result.data:
+                logger.info(f"Cleaned up old callback replay records | count={len(result.data)}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup old replay records | error={e}")
+
+    async def _create_notification(
+        self,
+        user_id: str,
+        title: str,
+        message: str,
+        notification_type: str = "info",
+        reference_id: Optional[str] = None,
+    ) -> None:
+        """Create a notification for a user."""
+        try:
+            notification_data = {
+                "user_id": user_id,
+                "title": title,
+                "message": message,
+                "type": notification_type,
+                "reference_id": reference_id,
+                "is_read": False,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_NOTIFICATIONS).upsert(
+                    notification_data, on_conflict="user_id,reference_id,type"
+                ).execute()
+            )
+            logger.info(f"Notification created | user_id={user_id} title={title}")
+        except Exception as e:
+            logger.warning(f"Failed to create notification | user_id={user_id} error={e}")
 
     async def _get_payment_record(self, checkout_request_id: str) -> Optional[Dict[str, Any]]:
         """Get payment record from database."""
@@ -452,8 +571,193 @@ class StkPushService:
             )
             return result.data if result and result.data else None
         except Exception as e:
-            logger.error(f"Error getting payment record | checkout_request_id={mask_sensitive(checkout_request_id)} error={e}")
+            logger.error(f"Error getting payment record | error={e}")
             return None
+
+    async def _update_payment_status(
+        self,
+        checkout_request_id: str,
+        result_code: str,
+        result_desc: str,
+        data: Dict[str, Any],
+        callback_amount: Optional[float] = None,
+        mpesa_receipt: Optional[str] = None,
+        phone: Optional[str] = None,
+        transaction_date: Optional[str] = None,
+        callback_payload: Optional[Dict] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fix #2, #5, #6, #7, #8: Update payment record with full callback data.
+        """
+        try:
+            current = await self._get_payment_record(checkout_request_id)
+            if not current:
+                logger.error(f"Payment not found for update: {checkout_request_id}")
+                return None
+
+            if current and PaymentStatus(current.get("status", PaymentStatus.UNKNOWN.value)).is_terminal:
+                logger.info(f"Skipping status update — payment already terminal | {checkout_request_id}")
+                return current
+
+            status = self._map_result_code_to_status(result_code)
+            now = datetime.now(timezone.utc).isoformat()
+
+            update_data = {
+                "status": status.value,
+                "result_code": str(result_code),
+                "result_desc": result_desc,
+                "updated_at": now
+            }
+
+            if str(result_code) == "0":
+                update_data["mpesa_receipt"] = mpesa_receipt or data.get("MpesaReceiptNumber")
+                update_data["transaction_id"] = checkout_request_id
+                update_data["completed_at"] = now
+                if callback_amount is not None:
+                    update_data["paid_amount"] = callback_amount  # Fix #7
+                if phone:
+                    update_data["paid_phone"] = phone  # Fix #8
+                if transaction_date:
+                    update_data["transaction_date"] = transaction_date  # Fix #9
+                if callback_payload:
+                    update_data["callback_payload"] = callback_payload  # Fix #6
+
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENTS).update(update_data).eq(
+                    "checkout_request_id", checkout_request_id
+                ).execute()
+            )
+
+            self._spawn_background(self._log_payment_event(
+                checkout_request_id, "status_update", {
+                    "status": status.value,
+                    "result_code": result_code,
+                    "callback_amount": callback_amount
+                }
+            ))
+
+            return result.data[0] if result and result.data else None
+
+        except Exception as e:
+            logger.error(f"Error updating payment status | error={e}")
+            return None
+
+    async def _upsert_user_service(
+        self,
+        user_id: str,
+        service_id: int,
+        payment_id: int,
+        expiry_days: Optional[int] = None,
+        mpesa_receipt: Optional[str] = None,
+        transaction_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Atomic upsert user service record."""
+        now = datetime.now(timezone.utc).isoformat()
+        expires_at = self._get_expiry_date(expiry_days)
+
+        row = {
+            "user_id": user_id,
+            "service_id": service_id,
+            "payment_id": payment_id,
+            "status": ServiceStatus.ACTIVE.value,
+            "expires_at": expires_at,
+            "mpesa_receipt": mpesa_receipt,
+            "transaction_id": transaction_id,
+            "updated_at": now,
+        }
+
+        try:
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_USER_SERVICES).upsert(
+                    row, on_conflict="user_id,service_id"
+                ).execute()
+            )
+            if result and result.data:
+                return result.data[0]
+            return row
+
+        except Exception as e:
+            logger.error(f"Error upserting user service | error={e}")
+            raise
+
+    async def _atomic_unlock_transaction(
+        self,
+        checkout_request_id: str,
+        mpesa_receipt: Optional[str] = None,
+        callback_amount: Optional[float] = None
+    ) -> Tuple[bool, str]:
+        """
+        Fix #3: Atomically mark the payment unlocked AND grant user_services access.
+        """
+        try:
+            payment = await self._get_payment_record(checkout_request_id)
+            if not payment:
+                return False, "Payment record not found"
+
+            if payment.get("unlock_status") == UnlockStatus.COMPLETED.value:
+                return True, "Service already unlocked"
+
+            user_id = payment.get("user_id")
+            service_id = payment.get("service_id")
+            payment_id = payment.get("id")
+            expected_amount = payment.get("amount")
+
+            if callback_amount is not None:
+                if callback_amount <= 0:
+                    return False, f"Invalid callback amount: {callback_amount}"
+                if expected_amount and abs(float(callback_amount) - float(expected_amount)) > 0.01:
+                    return False, f"Amount mismatch: expected {expected_amount}, got {callback_amount}"
+
+            if not user_id or not service_id:
+                return False, f"Missing user_id or service_id: {checkout_request_id}"
+
+            service = await self._get_cached_service(service_id)
+            expiry_days = service.get("expiry_days") if service else None
+
+            # Update unlock status
+            now = datetime.now(timezone.utc).isoformat()
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENTS).update({
+                    "unlock_status": UnlockStatus.COMPLETED.value,
+                    "unlocked_at": now,
+                }).eq("id", payment_id).eq("unlock_status", UnlockStatus.PENDING.value).execute()
+            )
+
+            if not result or not result.data:
+                return True, "Service already unlocked (concurrent)"
+
+            # Upsert user service
+            await self._upsert_user_service(
+                user_id=user_id,
+                service_id=service_id,
+                payment_id=payment_id,
+                expiry_days=expiry_days,
+                mpesa_receipt=mpesa_receipt,
+                transaction_id=checkout_request_id
+            )
+
+            service_name = service.get("name", "Service") if service else "Service"
+
+            self._spawn_background(self._create_notification(
+                user_id=user_id,
+                title=f"🎉 {service_name} Unlocked!",
+                message=f"Your {service_name} has been successfully unlocked.",
+                notification_type="service_unlocked",
+                reference_id=checkout_request_id,
+            ))
+
+            self._spawn_background(self._log_payment_event(
+                checkout_request_id,
+                "service_unlocked",
+                {"user_id": user_id, "service_id": service_id, "mpesa_receipt": mpesa_receipt}
+            ))
+
+            logger.info(f"Service unlocked | service_id={service_id} user_id={user_id}")
+            return True, "Service unlocked successfully"
+
+        except Exception as e:
+            logger.error(f"Error unlocking service | error={e}")
+            return False, str(e)
 
     async def _create_payment_record(
         self,
@@ -463,9 +767,10 @@ class StkPushService:
         phone: str,
         user_id: Optional[str],
         service_id: Optional[int],
-        description: str
+        description: str,
+        response_data: Optional[Dict] = None
     ) -> Dict[str, Any]:
-        """Create a payment record."""
+        """Create a payment record with full Safaricom response."""
         try:
             existing = await self._get_payment_record(checkout_request_id)
             if existing:
@@ -488,8 +793,14 @@ class StkPushService:
                 "status": PaymentStatus.PENDING.value,
                 "unlock_status": UnlockStatus.PENDING.value,
                 "created_at": now,
-                "updated_at": now
+                "updated_at": now,
             }
+
+            # Fix #5: Store Safaricom response
+            if response_data:
+                payment_data["response_code"] = response_data.get("ResponseCode")
+                payment_data["response_description"] = response_data.get("ResponseDescription")
+                payment_data["customer_message"] = response_data.get("CustomerMessage")
 
             result = await execute_supabase_async(
                 lambda: self.supabase.table(TABLE_PAYMENTS).insert(payment_data).execute()
@@ -543,26 +854,15 @@ class StkPushService:
     ) -> Dict[str, Any]:
         """
         Initiate STK Push payment.
-        
-        Returns:
-            Dict with checkout_request_id, merchant_request_id, and status
-            
-        Raises:
-            AppException: If STK Push fails
-            ValidationException: If input validation fails
-            NotFoundException: If service not found
         """
         try:
-            # Validate phone
             normalized_phone = normalize_phone(phone)
 
-            # Validate amount
             if amount <= 0:
                 raise ValidationException("Amount must be greater than zero")
             if amount < MINIMUM_AMOUNT:
                 raise ValidationException(f"Amount must be at least {MINIMUM_AMOUNT}")
 
-            # Get service if service_id provided
             service_name = None
             if service_id:
                 service = await self._get_cached_service(service_id)
@@ -570,17 +870,13 @@ class StkPushService:
                     raise NotFoundException(f"Service {service_id} not found")
                 service_name = service.get("name", "Service")
 
-            # Round amount
             rounded_amount = math.ceil(amount)
 
-            # Generate timestamp and password
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
             password = self._generate_password(timestamp)
 
-            # Generate account reference
             account_reference = generate_account_reference(service_name, user_id)
 
-            # Build payload
             payload = {
                 "BusinessShortCode": self.shortcode,
                 "Password": password,
@@ -597,47 +893,36 @@ class StkPushService:
 
             logger.info(f"Initiating STK Push | phone={mask_sensitive(normalized_phone)} amount={rounded_amount}")
 
-            # Get access token
             token = await self._get_access_token()
 
-            # Make the STK Push request
             response = await self._post_with_retry(
                 f"{self.base_url}/mpesa/stkpush/v1/processrequest",
                 {"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                 payload
             )
 
-            # Parse response
             data = response.json()
-            
-            # Validate response
+
             if "ResponseCode" not in data:
-                logger.error(f"STK Push response missing ResponseCode: {data}")
                 raise AppException("Invalid response from Safaricom - missing ResponseCode", 502)
 
             response_code = data.get("ResponseCode")
             response_description = data.get("ResponseDescription", "Unknown error")
 
-            # Check if Safaricom accepted the request
             if response_code != "0":
-                logger.error(f"STK Push rejected | ResponseCode={response_code} Description={response_description}")
                 raise AppException(f"STK push failed: {response_description}", 400)
 
-            # Extract IDs from response
             merchant_request_id = data.get("MerchantRequestID")
             checkout_id = data.get("CheckoutRequestID")
             customer_message = data.get("CustomerMessage", "STK Push sent successfully")
 
-            # Validate required IDs
             if not checkout_id:
-                logger.error(f"STK Push response missing CheckoutRequestID")
                 raise AppException("Missing CheckoutRequestID from Safaricom", 502)
-            
+
             if not merchant_request_id:
-                logger.error(f"STK Push response missing MerchantRequestID")
                 raise AppException("Missing MerchantRequestID from Safaricom", 502)
 
-            # Create payment record
+            # Fix #5: Pass response data to payment record
             payment = await self._create_payment_record(
                 checkout_request_id=checkout_id,
                 merchant_request_id=merchant_request_id,
@@ -645,13 +930,11 @@ class StkPushService:
                 phone=normalized_phone,
                 user_id=user_id,
                 service_id=service_id,
-                description=description
+                description=description,
+                response_data=data
             )
 
-            logger.info(
-                f"STK Push successful | checkout_request_id={mask_sensitive(checkout_id)} "
-                f"payment_id={payment.get('id') if payment else 'unknown'}"
-            )
+            logger.info(f"STK Push successful | checkout_id={mask_sensitive(checkout_id)}")
 
             return {
                 "checkout_request_id": checkout_id,
@@ -663,7 +946,6 @@ class StkPushService:
             }
 
         except (ValidationException, NotFoundException, AppException):
-            # Re-raise known exceptions
             raise
         except httpx.HTTPStatusError as e:
             logger.exception(f"HTTP error during STK Push: {e}")
@@ -675,39 +957,19 @@ class StkPushService:
             logger.exception(f"Transport error during STK Push: {e}")
             raise AppException("Network error - please try again", 503)
         except Exception as e:
-            # IMPORTANT: Log the full exception and re-raise
-            # DO NOT return None or swallow the error
             logger.exception(f"Unexpected error during STK Push: {e}")
             raise AppException(f"STK Push failed: {str(e)}", 500)
 
-    # ─── HELPERS ─────────────────────────────────────────────
+    # ─── CALLBACK PROCESSING ──────────────────────────────
 
-    def _generate_password(self, timestamp: str) -> str:
-        """Generate password for STK push."""
-        password_str = f"{self.shortcode}{self.passkey}{timestamp}"
-        return base64.b64encode(password_str.encode()).decode()
-
-    # ─── STALE PAYMENT CLEANUP ──────────────────────────────
-
-    async def cleanup_stale_payments(self) -> int:
-        """Mark stale pending payments as expired."""
+    async def process_callback(self, callback_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fix #1: Process M-Pesa callback with full payment update and unlock.
+        """
         try:
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=STALE_PAYMENT_HOURS)
-            cutoff_str = cutoff.isoformat()
+            body = callback_data.get("Body", {})
+            stk_callback = body.get("stkCallback", {})
 
-            result = await execute_supabase_async(
-                lambda: self.supabase.table(TABLE_PAYMENTS).update({
-                    "status": PaymentStatus.EXPIRED.value,
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                }).eq("status", PaymentStatus.PENDING.value).lt("created_at", cutoff_str).execute()
-            )
-
-            count = len(result.data) if result and result.data else 0
-            if count > 0:
-                logger.info(f"Cleaned up stale payments | count={count}")
-
-            return count
-
-        except Exception as e:
-            logger.error(f"Error cleaning up stale payments | error={e}")
-            return 0
+            if not stk_callback:
+                logger.error("Invalid callback structure")
+                return {"status": "
