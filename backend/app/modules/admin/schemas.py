@@ -1,11 +1,11 @@
-# app/modules/admin/schemas.py
+ # app/modules/admin/schemas.py
 # Auto-D Kenya - Admin Schemas
 # ================================================================
 # TYPE: MODULE - Admin Pydantic schemas
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union, Generic, TypeVar
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
@@ -35,8 +35,8 @@ class Schema(BaseModel):
     )
 
 
-class PaginationMixin(BaseModel):
-    """Pagination mixin (does not inherit from Schema to avoid MRO issues)."""
+class Pagination(Schema):
+    """Pagination fields."""
     total: NonNegativeInt = Field(..., description="Total items")
     limit: NonNegativeInt = Field(..., description="Items per page")
     offset: NonNegativeInt = Field(..., description="Pagination offset")
@@ -47,6 +47,9 @@ class SuccessResponse(Schema):
     success: bool = Field(True, description="Success status")
     message: str = Field("Success", description="Success message")
 
+
+# Use typing.Generic for Python 3.11 compatibility
+from typing import Generic, TypeVar
 
 T = TypeVar('T')
 
@@ -98,20 +101,6 @@ class ComponentStatus(str, Enum):
     HEALTHY = "healthy"
     UNHEALTHY = "unhealthy"
     DEGRADED = "degraded"
-
-
-class ServiceStatus(str, Enum):
-    """Service status enum."""
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-
-
-class ReportStatus(str, Enum):
-    """Report status enum."""
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
 
 
 # ─── TYPE ALIASES ────────────────────────────────────────────────
@@ -178,46 +167,6 @@ class UpdateUserServiceRequest(Schema):
     status: UserServiceStatus = Field(..., description="Service status")
 
 
-class UpdateUserRequest(Schema):
-    """Update user request."""
-    full_name: Optional[str] = Field(None, description="User full name")
-    phone: Optional[str] = Field(None, description="Phone number")
-    status: Optional[str] = Field(None, description="User status")
-
-
-class GetUsersQuery(Schema):
-    """Get users query parameters."""
-    limit: int = Field(50, ge=1, le=200, description="Number of users to return")
-    offset: int = Field(0, ge=0, description="Pagination offset")
-    search: Optional[str] = Field(None, description="Search term for email or name")
-    status: Optional[str] = Field(None, description="Filter by status")
-
-
-class GetPaymentsQuery(Schema):
-    """Get payments query parameters."""
-    limit: int = Field(50, ge=1, le=200, description="Number of payments to return")
-    offset: int = Field(0, ge=0, description="Pagination offset")
-    status: Optional[PaymentStatus] = Field(None, description="Filter by status")
-    start_date: Optional[datetime] = Field(None, description="Start date")
-    end_date: Optional[datetime] = Field(None, description="End date")
-
-
-class GetVehiclesQuery(Schema):
-    """Get vehicles query parameters."""
-    limit: int = Field(50, ge=1, le=200, description="Number of vehicles to return")
-    offset: int = Field(0, ge=0, description="Pagination offset")
-    verified: Optional[bool] = Field(None, description="Filter by verification status")
-    make: Optional[str] = Field(None, description="Filter by make")
-    model: Optional[str] = Field(None, description="Filter by model")
-
-
-class RevenueReportQuery(Schema):
-    """Revenue report query parameters."""
-    start_date: Optional[datetime] = Field(None, description="Start date")
-    end_date: Optional[datetime] = Field(None, description="End date")
-    service_id: Optional[UUID] = Field(None, description="Filter by service")
-
-
 # ─── RESPONSE SCHEMAS ─────────────────────────────────────────────
 
 class AdminStatsResponse(Schema):
@@ -239,7 +188,6 @@ class AdminUserService(Schema):
     service_name: str = Field(..., description="Service name")
     service_code: ServiceCode = Field(..., description="Service code")
     status: UserServiceStatus = Field(..., description="Service status")
-    expires_at: Optional[datetime] = Field(None, description="Expiration timestamp")
 
 
 class AdminUser(Schema):
@@ -251,7 +199,6 @@ class AdminUser(Schema):
     last_sign_in_at: Optional[datetime] = Field(None, description="Last sign-in timestamp")
     confirmed_at: Optional[datetime] = Field(None, description="Confirmation timestamp")
     phone: Optional[str] = Field(None, description="Phone number")
-    status: Optional[str] = Field("active", description="User status")
     services: List[AdminUserService] = Field(default_factory=list, description="User services")
 
 
@@ -279,20 +226,14 @@ class AdminUserDetail(AdminUser):
     payments: List[AdminPayment] = Field(default_factory=list, description="User payments")
 
 
-class AdminUsersResponse(Schema):
+class AdminUsersResponse(Schema, Pagination):
     """Admin users response."""
     users: List[AdminUser] = Field(..., description="List of users")
-    total: NonNegativeInt = Field(..., description="Total users")
-    limit: NonNegativeInt = Field(..., description="Items per page")
-    offset: NonNegativeInt = Field(..., description="Pagination offset")
 
 
-class AdminPaymentsResponse(Schema):
+class AdminPaymentsResponse(Schema, Pagination):
     """Admin payments response."""
     payments: List[AdminPayment] = Field(..., description="List of payments")
-    total: NonNegativeInt = Field(..., description="Total payments")
-    limit: NonNegativeInt = Field(..., description="Items per page")
-    offset: NonNegativeInt = Field(..., description="Pagination offset")
 
 
 class AdminVehicle(Schema):
@@ -305,15 +246,11 @@ class AdminVehicle(Schema):
     variant: Optional[str] = Field(None, description="Vehicle variant")
     verified: bool = Field(False, description="Verification status")
     created_at: datetime = Field(..., description="Creation timestamp")
-    updated_at: Optional[datetime] = Field(None, description="Last updated timestamp")
 
 
-class AdminVehiclesResponse(Schema):
+class AdminVehiclesResponse(Schema, Pagination):
     """Admin vehicles response."""
     vehicles: List[AdminVehicle] = Field(..., description="List of vehicles")
-    total: NonNegativeInt = Field(..., description="Total vehicles")
-    limit: NonNegativeInt = Field(..., description="Items per page")
-    offset: NonNegativeInt = Field(..., description="Pagination offset")
 
 
 class AdminService(Schema):
@@ -369,8 +306,6 @@ class ComponentStatuses(Schema):
     supabase: ComponentStatus = Field(..., description="Supabase status")
     database: ComponentStatus = Field(..., description="Database status")
     mpesa: ComponentStatus = Field(..., description="M-Pesa status")
-    redis: Optional[ComponentStatus] = Field(None, description="Redis status")
-    storage: Optional[ComponentStatus] = Field(None, description="Storage status")
 
 
 class AdminStatusResponse(Schema):
@@ -378,8 +313,6 @@ class AdminStatusResponse(Schema):
     status: ComponentStatus = Field(..., description="Overall system status")
     timestamp: datetime = Field(..., description="Status timestamp")
     components: ComponentStatuses = Field(..., description="Component statuses")
-    version: str = Field("1.0.0", description="API version")
-    environment: Optional[str] = Field(None, description="Environment")
 
 
 class RevenueReportResponse(Schema):
@@ -414,7 +347,6 @@ class UserServiceItem(Schema):
     user_id: UUID = Field(..., description="User ID")
     service_id: UUID = Field(..., description="Service ID")
     status: UserServiceStatus = Field(..., description="Service status")
-    expires_at: Optional[datetime] = Field(None, description="Expiration timestamp")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last updated timestamp")
     service: Optional[AdminService] = Field(None, description="Service details")
@@ -432,11 +364,6 @@ class UserServicesResponse(Schema):
 class ServiceResponse(SuccessResponse):
     """Generic service response."""
     service: AdminService = Field(..., description="Service data")
-
-
-class ServicePriceResponse(SuccessResponse):
-    """Service price update response."""
-    service: AdminService = Field(..., description="Updated service")
 
 
 # ─── DELETE RESPONSE SCHEMAS ────────────────────────────────────
@@ -457,13 +384,6 @@ class UpdateUserServiceResponse(SuccessResponse):
     service_id: UUID = Field(..., description="Service ID")
     status: UserServiceStatus = Field(..., description="Updated status")
     updated_at: datetime = Field(..., description="Update timestamp")
-
-
-# ─── USER MANAGEMENT RESPONSES ────────────────────────────────────
-
-class UpdateUserResponse(SuccessResponse):
-    """Update user response."""
-    user: AdminUser = Field(..., description="Updated user")
 
 
 # ─── HEALTH RESPONSE ─────────────────────────────────────────────
