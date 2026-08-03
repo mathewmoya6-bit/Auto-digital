@@ -1,3 +1,4 @@
+# app/core/security.py
 """
 Auto-D Kenya - Security Utilities
 =================================
@@ -9,6 +10,7 @@ Centralized security helpers for:
 - JWT decoding
 - OTP generation
 - Phone hashing
+- Sensitive data masking
 
 Supports:
 - Internal Auto-D JWTs (HS256)
@@ -16,6 +18,8 @@ Supports:
 """
 
 import random
+import secrets
+import string
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
@@ -215,17 +219,101 @@ def verify_phone(
 
 
 # =============================================================================
+# Sensitive Data Masking
+# =============================================================================
+
+def mask_sensitive(value: str, visible: int = 4) -> str:
+    """
+    Mask sensitive values for logging.
+
+    Args:
+        value: The string to mask
+        visible: Number of characters to show at start and end
+
+    Returns:
+        Masked string
+
+    Examples:
+        >>> mask_sensitive("254712345678")
+        '2547...5678'
+        >>> mask_sensitive("test@example.com")
+        'test...ple.com'
+        >>> mask_sensitive("short")
+        'sh...rt'
+        >>> mask_sensitive("")
+        '***'
+    """
+    if not value:
+        return "***"
+    if len(value) <= visible * 2:
+        return value[:2] + "***" + value[-2:]
+    return f"{value[:visible]}...{value[-visible:]}"
+
+
+def generate_random_string(length: int = 32) -> str:
+    """
+    Generate a cryptographically secure random string.
+
+    Args:
+        length: Length of the string to generate
+
+    Returns:
+        Random alphanumeric string
+    """
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+
+def generate_api_key() -> str:
+    """
+    Generate a secure API key with prefix.
+
+    Returns:
+        API key in format: ak_{32_random_chars}
+    """
+    prefix = "ak"
+    random_part = generate_random_string(32)
+    return f"{prefix}_{random_part}"
+
+
+def generate_secure_token(length: int = 64) -> str:
+    """
+    Generate a cryptographically secure token (hex).
+
+    Args:
+        length: Length of the token in bytes (output will be 2x length)
+
+    Returns:
+        Hexadecimal token
+    """
+    return secrets.token_hex(length)
+
+
+# =============================================================================
 # Exports
 # =============================================================================
 
 __all__ = [
+    # Password
     "hash_password",
     "get_password_hash",
     "verify_password",
+    
+    # JWT
     "create_access_token",
     "create_refresh_token",
     "decode_token",
+    
+    # OTP
     "generate_otp",
+    
+    # Phone
     "hash_phone",
     "verify_phone",
+    
+    # Utilities
+    "mask_sensitive",
+    "generate_random_string",
+    "generate_api_key",
+    "generate_secure_token",
 ]
