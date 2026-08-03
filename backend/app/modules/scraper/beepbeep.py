@@ -42,6 +42,20 @@ class BeepBeepScraper(BaseScraper):
         ]
 
     # ============================================================
+    # RUN METHOD (Called by worker)
+    # ============================================================
+
+    async def run(
+        self,
+        pages: int = 3,
+        limit_per_page: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        Run the scraper - entry point for worker.
+        """
+        return await self.scrape(pages, limit_per_page)
+
+    # ============================================================
     # MAIN SCRAPER
     # ============================================================
 
