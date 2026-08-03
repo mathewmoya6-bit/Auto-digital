@@ -7,8 +7,10 @@ import asyncio
 import logging
 import random
 from datetime import datetime, timezone
-from urllib.parse import urljoin
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+from urllib.parse import urljoin, urlparse
+
+from bs4 import BeautifulSoup
 
 from app.modules.scraper.base_scraper import BaseScraper
 
@@ -42,7 +44,10 @@ class ChekiScraper(BaseScraper):
 
         for page in range(1, pages + 1):
 
-            logger.info(f"Cheki: scraping page {page}")
+            logger.info(
+                "Cheki: scraping page %d",
+                page,
+            )
 
             try:
 
@@ -52,43 +57,32 @@ class ChekiScraper(BaseScraper):
                 )
 
                 if soup is None:
-                    logger.warning(f"Unable to fetch page {page}")
+                    logger.warning(
+                        "Unable to fetch Cheki page %d",
+                        page,
+                    )
                     continue
 
-                urls = []
-                seen = set()
-
-                for link in soup.find_all("a", href=True):
-
-                    href = link["href"]
-
-                    url = urljoin(
-                        self.base_url,
-                        href,
-                    )
-
-                    if "/car/" not in url:
-                        continue
-
-                    if url in seen:
-                        continue
-
-                    seen.add(url)
-                    urls.append(url)
+                urls = self._extract_urls(
+                    soup,
+                    ["/car/"],
+                )
 
                 logger.info(
-                    f"Found {len(urls)} listings on page {page}"
+                    "Found %d listings on Cheki page %d",
+                    len(urls),
+                    page,
                 )
 
                 for url in urls[:limit_per_page]:
 
                     listing = await self._parse_listing(url)
 
-                    if listing:
+                    if listing and listing.get("listing_id"):
                         listings.append(listing)
 
                     await asyncio.sleep(
-                        random.uniform(0.5, 1.2)
+                        random.uniform(0.3, 0.8)
                     )
 
                 await asyncio.sleep(
@@ -97,11 +91,13 @@ class ChekiScraper(BaseScraper):
 
             except Exception:
                 logger.exception(
-                    f"Cheki page {page} failed"
+                    "Cheki page %d failed",
+                    page,
                 )
 
         return {
             "status": "success",
+            "source": self.source_name,
             "listings": listings,
             "listings_found": len(listings),
             "listings_saved": 0,
@@ -126,44 +122,45 @@ class ChekiScraper(BaseScraper):
             if soup is None:
                 return None
 
-            title = ""
-
+            # Extract title
             h1 = soup.find("h1")
+            title = (
+                self._clean_text(h1.get_text())
+                if h1
+                else ""
+            )
 
-            if h1:
-                title = self._clean_text(
-                    h1.get_text()
-                )
-
+            # Get page text for parsing
             page_text = soup.get_text(
                 " ",
                 strip=True,
             )
 
-            listing = {
-                "listing_id": url.rstrip("/").split("/")[-1],
-                "title": title,
-                "url": url,
-                "price": self._parse_price(page_text),
-                "currency": "KES",
-                "make": None,
-                "model": None,
-                "year": None,
-                "mileage": None,
-                "engine_size": None,
-                "fuel_type": None,
-                "transmission": None,
-                "body_type": None,
-                "location": "Kenya",
-                "seller_name": "Cheki",
-                "seller_type": "Dealer",
-                "condition": "Used",
-            }
+            # Extract listing ID safely
+            listing_id = (
+                urlparse(url)
+                .path
+                .rstrip("/")
+                .split("/")[-1]
+            )
 
-            return listing
+            if not listing_id:
+                return None
+
+            return self._build_listing(
+                listing_id=listing_id,
+                title=title,
+                url=url,
+                price=self._parse_price(page_text),
+                year=self._parse_year(page_text),
+                mileage=self._parse_mileage(page_text),
+                engine_size=self._parse_engine_size(page_text),
+                seller_name="Cheki",
+            )
 
         except Exception:
             logger.exception(
-                f"Failed parsing Cheki listing: {url}"
+                "Failed parsing Cheki listing: %s",
+                url,
             )
             return None
