@@ -63,6 +63,51 @@ class MpesaService:
 
         return self._service_active_column
 
+    # ─── SHARED SERVICE ACCESS EVALUATOR ──────────────────────────
+
+    def _evaluate_service_access(self, record: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Fix #1: Shared helper for evaluating service access from a user_services record.
+        This avoids code duplication between check_service_access and check_service_access_by_id.
+        """
+        if not record:
+            return {
+                "has_access": False,
+                "status": "no_record",
+                "message": "No access record found"
+            }
+        
+        status = record.get("status")
+        expires_at = record.get("expires_at")
+        
+        # Check if expired
+        if expires_at:
+            try:
+                expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                if datetime.now(timezone.utc) > expires:
+                    return {
+                        "has_access": False,
+                        "status": "expired",
+                        "message": "Access has expired"
+                    }
+            except (ValueError, TypeError):
+                pass
+        
+        # Only "active" status grants access
+        if status == "active":
+            return {
+                "has_access": True,
+                "status": status,
+                "expires_at": expires_at,
+                "message": "Access granted"
+            }
+        else:
+            return {
+                "has_access": False,
+                "status": status,
+                "message": f"Access status: {status}"
+            }
+
     # ─── INITIATE PAYMENT ──────────────────────────────────────────
 
     async def initiate_payment(
@@ -237,7 +282,7 @@ class MpesaService:
 
     async def confirm_payment(self, checkout_request_id: str, user_id: str) -> Dict[str, Any]:
         """
-        Fix #5: Confirm payment and unlock service.
+        Confirm payment and unlock service.
         This is primarily for manual confirmation when callback fails.
         """
         payment = await self.repository.get_payment_by_checkout_id(checkout_request_id)
@@ -246,7 +291,7 @@ class MpesaService:
         
         status = payment.get("status")
         
-        # Fix #5: Simplified logic - only "paid" can be confirmed
+        # Only "paid" can be confirmed
         if status != "paid":
             raise AppException(f"Payment not yet confirmed by M-Pesa. Current status: {status}", status_code=409)
         
@@ -287,9 +332,14 @@ class MpesaService:
 
     async def check_service_access(self, user_id: str, service_code: str) -> Dict[str, Any]:
         """
-        Check if a user has access to a service.
+        Check if a user has access to a service by code.
         
-        Fix #9: Only status == "active" grants access.
+        Args:
+            user_id: User ID
+            service_code: Service code (e.g., "valuation", "mileage")
+            
+        Returns:
+            Dict with has_access boolean and details
         """
         try:
             supabase = self.supabase
@@ -326,47 +376,48 @@ class MpesaService:
                 .execute()
             )
             
-            if not response or not response.data:
-                return {
-                    "has_access": False,
-                    "status": "no_record",
-                    "message": "No access record found"
-                }
-            
-            record = response.data
-            status = record.get("status")
-            expires_at = record.get("expires_at")
-            
-            # Check if expired
-            if expires_at:
-                try:
-                    expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                    if datetime.now(timezone.utc) > expires:
-                        return {
-                            "has_access": False,
-                            "status": "expired",
-                            "message": "Access has expired"
-                        }
-                except (ValueError, TypeError):
-                    pass
-            
-            # Only "active" status grants access
-            if status == "active":
-                return {
-                    "has_access": True,
-                    "status": status,
-                    "expires_at": expires_at,
-                    "message": "Access granted"
-                }
-            else:
-                return {
-                    "has_access": False,
-                    "status": status,
-                    "message": f"Access status: {status}"
-                }
+            # Use shared evaluator
+            return self._evaluate_service_access(response.data if response else None)
                 
         except Exception as e:
             logger.error(f"Error checking service access: {e}")
+            return {
+                "has_access": False,
+                "status": "error",
+                "message": str(e)
+            }
+
+    async def check_service_access_by_id(self, user_id: str, service_id: int) -> Dict[str, Any]:
+        """
+        Fix #1: Check if a user has access to a service by ID.
+        Uses shared _evaluate_service_access() helper.
+        
+        Args:
+            user_id: User ID
+            service_id: Service ID (numeric)
+            
+        Returns:
+            Dict with has_access boolean and details
+        """
+        try:
+            supabase = self.supabase
+            
+            # Check user_services table directly by service_id
+            response = (
+                supabase
+                .table("user_services")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("service_id", service_id)
+                .maybe_single()
+                .execute()
+            )
+            
+            # Use shared evaluator
+            return self._evaluate_service_access(response.data if response else None)
+            
+        except Exception as e:
+            logger.error(f"Error checking service access by ID: {e}")
             return {
                 "has_access": False,
                 "status": "error",
@@ -384,7 +435,7 @@ class MpesaService:
         expires_at: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Fix #1: TRUE ATOMIC UPSERT using PostgreSQL ON CONFLICT.
+        TRUE ATOMIC UPSERT using PostgreSQL ON CONFLICT.
         This is the CORRECT atomic operation - no race conditions.
         
         REQUIRES: UNIQUE(user_id, service_id) constraint on user_services.
@@ -397,7 +448,7 @@ class MpesaService:
         if expires_at is None:
             expires_at = (datetime.now(timezone.utc) + timedelta(days=365)).isoformat()
 
-        # Fix #1: TRUE atomic UPSERT - single operation, no race condition
+        # TRUE atomic UPSERT - single operation, no race condition
         row = {
             "user_id": user_id,
             "service_id": service_id,
@@ -409,8 +460,7 @@ class MpesaService:
         if payment_id:
             row["payment_id"] = payment_id
 
-        # Fix #1: Atomic UPSERT with ON CONFLICT
-        # PostgreSQL will handle this atomically - no race condition
+        # Atomic UPSERT with ON CONFLICT
         result = supabase.table("user_services").upsert(
             row,
             on_conflict="user_id,service_id"
@@ -428,7 +478,7 @@ class MpesaService:
         expires_at: Optional[str] = None,
     ) -> None:
         """
-        Fix #3: Atomic unlock service with executor to avoid blocking event loop.
+        Atomic unlock service with executor to avoid blocking event loop.
         
         Args:
             user_id: User ID
@@ -441,12 +491,11 @@ class MpesaService:
         try:
             supabase = self.supabase
             
-            # Fix #8: Amount validation - strict equality (no overpayments)
+            # Amount validation - strict equality
             if callback_amount is not None and expected_amount is not None:
                 callback_dec = Decimal(str(callback_amount)).quantize(Decimal('0.01'))
                 expected_dec = Decimal(str(expected_amount)).quantize(Decimal('0.01'))
                 
-                # Fix #8: Strict equality - reject any mismatch
                 if callback_dec != expected_dec:
                     logger.error(
                         f"Amount mismatch - rejecting unlock | "
@@ -456,7 +505,7 @@ class MpesaService:
                         f"Amount mismatch: callback {callback_dec} != expected {expected_dec}"
                     )
 
-            # Fix #3: Run in executor to avoid blocking event loop
+            # Run in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
@@ -517,7 +566,7 @@ class MpesaService:
 
     async def _load_user_services(self, user_id: str, include_details: bool = False) -> Dict[str, Any]:
         """
-        Fix #10: Common method for loading user services.
+        Common method for loading user services.
         Avoids code duplication between get_user_services and get_user_services_details.
         """
         try:
@@ -561,7 +610,6 @@ class MpesaService:
                                 pass
                         
                         if include_details:
-                            # Fix #7: Return full details
                             services[code] = {
                                 "has_access": not is_expired,
                                 "expires_at": expires_at,
@@ -572,7 +620,6 @@ class MpesaService:
                                 "icon": service.get("icon"),
                             }
                         else:
-                            # Fix #7: Return boolean for backward compatibility
                             services[code] = not is_expired
             
             return services
@@ -583,15 +630,14 @@ class MpesaService:
 
     async def get_user_services(self, user_id: str) -> Dict[str, bool]:
         """
-        Fix #7: Get all services a user has access to.
-        Returns Dict[str, bool] for backward compatibility.
+        Get all services a user has access to.
+        Returns Dict[str, bool] - key is service code, value is access boolean.
         """
         return await self._load_user_services(user_id, include_details=False)
 
     async def get_user_services_details(self, user_id: str) -> Dict[str, Any]:
         """
-        Fix #7: Get all services a user has access to with full details.
-        New endpoint for detailed information.
+        Get all services a user has access to with full details.
         """
         return await self._load_user_services(user_id, include_details=True)
 
@@ -632,7 +678,6 @@ class MpesaService:
             
             if response and response.data:
                 for item in response.data:
-                    # Check if expired
                     expires_at = item.get("expires_at")
                     is_expired = False
                     if expires_at:
@@ -643,7 +688,6 @@ class MpesaService:
                         except (ValueError, TypeError):
                             pass
                     
-                    # Only include non-expired services
                     if not is_expired and item.get("services") and item["services"].get("code"):
                         services.append(item["services"]["code"])
             
@@ -658,20 +702,21 @@ class MpesaService:
 
     async def get_available_services(self) -> List[Dict[str, Any]]:
         """
-        Get all available services.
-        Handles missing display_order column gracefully.
+        Fix #4: Get all available services.
+        Uses correct Supabase order() syntax without 'ascending' parameter.
         """
         try:
             supabase = self.supabase
             active_column = await self._get_service_active_column()
             
             try:
+                # Fix #4: Correct order() syntax - no 'ascending' parameter
                 response = (
                     supabase
                     .table("services")
                     .select("*")
                     .eq(active_column, True)
-                    .order("display_order", ascending=True)
+                    .order("display_order")
                     .execute()
                 )
             except Exception:
@@ -681,7 +726,7 @@ class MpesaService:
                     .table("services")
                     .select("*")
                     .eq(active_column, True)
-                    .order("id", ascending=True)
+                    .order("id")
                     .execute()
                 )
             
@@ -739,8 +784,8 @@ class MpesaService:
         callback_payload: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """
-        Fix #4: Handle M-Pesa callback with proper validation.
-        Eliminates duplicate database lookups.
+        Handle M-Pesa callback with proper validation.
+        This is the ONLY place where services should be unlocked.
         """
         try:
             # Get payment
@@ -748,8 +793,6 @@ class MpesaService:
             if not payment:
                 logger.warning(f"Payment not found for callback: {checkout_request_id}")
                 return {"status": "not_found", "message": "Payment not found"}
-            
-            # Fix #4: Skip early user_service check - only check after payment is paid
             
             # Normalize phone numbers before comparison
             if phone and payment.get("phone"):
@@ -763,12 +806,11 @@ class MpesaService:
                     )
                     return {"status": "rejected", "message": "Phone number mismatch"}
             
-            # Fix #8: Use Decimal for money comparison - strict equality
+            # Use Decimal for money comparison - strict equality
             if amount is not None and payment.get("amount"):
                 callback_dec = Decimal(str(amount)).quantize(Decimal('0.01'))
                 expected_dec = Decimal(str(payment.get("amount", 0))).quantize(Decimal('0.01'))
                 
-                # Fix #8: Strict equality - reject any mismatch
                 if callback_dec != expected_dec:
                     logger.error(
                         f"Amount mismatch - rejecting callback | "
@@ -795,10 +837,10 @@ class MpesaService:
                     logger.error(f"Failed to fetch updated payment: {checkout_request_id}")
                     return {"status": "error", "message": "Failed to fetch updated payment"}
             
-            # Fix #4: Only check user_service AFTER payment is paid
+            # Only unlock after payment is paid
             if str(result_code) == "0" and updated_payment.get("status") == "paid":
                 if updated_payment.get("user_id") and updated_payment.get("service_id"):
-                    # Fix #4: Check if already unlocked (single lookup)
+                    # Check if already unlocked
                     existing = await self._get_user_service(
                         updated_payment["user_id"], 
                         updated_payment["service_id"]
