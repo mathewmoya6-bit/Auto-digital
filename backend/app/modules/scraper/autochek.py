@@ -1,324 +1,169 @@
 # app/modules/scraper/autochek.py
 # ================================================================
-# Auto-D Kenya - Autochek Vehicle Scraper
+# Auto-D Kenya - Autochek Scraper
 # ================================================================
 
 import asyncio
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urljoin
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from app.modules.scraper.base_scraper import BaseScraper
-
 
 logger = logging.getLogger(__name__)
 
 
 class AutochekScraper(BaseScraper):
     """
-    Scraper for Autochek vehicle listings.
+    Scraper for Autochek Kenya vehicle listings.
     """
 
-
     def __init__(self):
-
         super().__init__(
             source_name="autochek",
             base_url="https://autochek.africa"
         )
 
-        self.search_url = (
-            "https://autochek.africa/ke/cars"
-        )
+        self.search_url = "https://autochek.africa/ke/cars"
 
-
+    # ============================================================
+    # MAIN SCRAPER
+    # ============================================================
 
     async def scrape(
         self,
         pages: int = 3,
-        limit_per_page: int = 20
+        limit_per_page: int = 20,
     ) -> Dict[str, Any]:
 
         listings = []
 
-
         for page in range(1, pages + 1):
 
-            logger.info(
-                f"Autochek scraping page {page}"
-            )
-
+            logger.info(f"Autochek: scraping page {page}")
 
             try:
 
                 soup = await self._fetch_page(
                     self.search_url,
-                    {
-                        "page": page
-                    }
+                    params={"page": page},
                 )
 
-
-                if not soup:
-
+                if soup is None:
+                    logger.warning(f"Failed to load page {page}")
                     continue
 
-
-
                 urls = []
+                seen = set()
 
+                for link in soup.find_all("a", href=True):
 
-                for link in soup.find_all("a"):
+                    href = link["href"]
 
-                    href = link.get(
-                        "href"
+                    url = urljoin(
+                        self.base_url,
+                        href,
                     )
 
+                    if "/cars/" not in url:
+                        continue
 
-                    if href:
+                    if url in seen:
+                        continue
 
-                        url = urljoin(
-                            self.base_url,
-                            href
-                        )
+                    seen.add(url)
+                    urls.append(url)
 
-
-                        if (
-                            "/cars/" in url
-                            and url not in urls
-                        ):
-
-                            urls.append(url)
-
-
+                logger.info(
+                    f"Found {len(urls)} vehicle links on page {page}"
+                )
 
                 for url in urls[:limit_per_page]:
 
-                    listing = await self._parse_listing(
-                        url
-                    )
-
+                    listing = await self._parse_listing(url)
 
                     if listing:
-
-                        listings.append(
-                            listing
-                        )
-
+                        listings.append(listing)
 
                     await asyncio.sleep(
-                        random.uniform(
-                            0.5,
-                            1.5
-                        )
+                        random.uniform(0.5, 1.2)
                     )
-
-
 
                 await asyncio.sleep(
-                    random.uniform(
-                        1,
-                        2
-                    )
+                    random.uniform(1, 2)
                 )
 
-
-
-            except Exception as e:
-
-                logger.error(
-                    f"Autochek page error: {e}"
+            except Exception:
+                logger.exception(
+                    f"Autochek page {page} failed"
                 )
-
-
 
         return {
-
-            "listings":
-                listings,
-
-
-            "stats": {
-
-                "total_scraped":
-                    len(listings),
-
-                "successful":
-                    len(listings),
-
-                "failed":
-                    0
-
-            },
-
-
-            "completed_at":
-                datetime.utcnow()
-                .isoformat()
-
+            "status": "success",
+            "listings": listings,
+            "listings_found": len(listings),
+            "listings_saved": 0,
+            "completed_at": datetime.now(
+                timezone.utc
+            ).isoformat(),
         }
 
-
-
-
+    # ============================================================
+    # PARSE LISTING
+    # ============================================================
 
     async def _parse_listing(
         self,
-        url: str
-    ) -> Dict[str, Any]:
+        url: str,
+    ) -> Optional[Dict[str, Any]]:
 
         try:
 
-            soup = await self._fetch_page(
-                url
-            )
+            soup = await self._fetch_page(url)
 
-
-            if not soup:
-
-                return {}
-
-
+            if soup is None:
+                return None
 
             title = ""
 
+            title_tag = soup.find("h1")
 
-            title_element = soup.find(
-                "h1"
-            )
-
-
-            if title_element:
-
-                title = title_element.get_text(
-                    strip=True
+            if title_tag:
+                title = self._clean_text(
+                    title_tag.get_text()
                 )
-
-
 
             page_text = soup.get_text(
                 " ",
-                strip=True
+                strip=True,
             )
 
-
-
-            return {
-
-                "listing_id":
-
-                    url.rstrip("/")
-                    .split("/")
-                    [-1],
-
-
-
-                "title":
-
-                    title,
-
-
-
-                "url":
-
-                    url,
-
-
-
-                "price":
-
-                    self._parse_price(
-                        page_text
-                    ),
-
-
-
-                "currency":
-
-                    "KES",
-
-
-
-                "make":
-
-                    "",
-
-
-
-                "model":
-
-                    "",
-
-
-
-                "year":
-
-                    None,
-
-
-
-                "mileage":
-
-                    None,
-
-
-
-                "engine_size":
-
-                    None,
-
-
-
-                "fuel_type":
-
-                    "",
-
-
-
-                "transmission":
-
-                    "",
-
-
-
-                "body_type":
-
-                    "",
-
-
-
-                "location":
-
-                    "Kenya",
-
-
-
-                "seller_name":
-
-                    "Autochek",
-
-
-
-                "seller_type":
-
-                    "Dealer",
-
-
-
-                "condition":
-
-                    "Used"
-
+            listing = {
+                "listing_id": url.rstrip("/").split("/")[-1],
+                "title": title,
+                "url": url,
+                "price": self._parse_price(page_text),
+                "currency": "KES",
+                "make": None,
+                "model": None,
+                "year": None,
+                "mileage": None,
+                "engine_size": None,
+                "fuel_type": None,
+                "transmission": None,
+                "body_type": None,
+                "location": "Kenya",
+                "seller_name": "Autochek",
+                "seller_type": "Dealer",
+                "condition": "Used",
             }
 
+            return listing
 
-
-        except Exception as e:
-
-            logger.error(
-                f"Autochek parse failed: {e}"
+        except Exception:
+            logger.exception(
+                f"Failed parsing Autochek listing: {url}"
             )
-
-            return {}
+            return None
