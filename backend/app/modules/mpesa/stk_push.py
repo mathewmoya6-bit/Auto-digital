@@ -66,7 +66,7 @@ class ServiceStatus(str, Enum):
 
 # ─── CONFIGURATION ──────────────────────────────────────────
 
-HTTP_TIMEOUT = 30.0
+HTTP_TIMEOUT = 60.0  # Increased timeout
 MAX_RETRIES = 3
 RETRY_WAIT_MIN = 2
 RETRY_WAIT_MAX = 30
@@ -98,7 +98,6 @@ TRANSACTION_TYPE = "CustomerPayBillOnline"
 
 # Retryable HTTP status codes
 RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
-NON_RETRYABLE_HTTP_STATUS = {400, 401, 403, 404}
 
 
 # ─── DATA CLASSES ──────────────────────────────────────────
@@ -178,19 +177,6 @@ def generate_account_reference(service_name: str = "", user_id: str = "") -> str
     return f"{prefix}-{random_part}"
 
 
-def generate_callback_signature(checkout_request_id: str, timestamp: str) -> str:
-    """
-    Generate HMAC signature for callback verification.
-    NOTE: Safaricom does not sign callbacks. This is kept for future use.
-    """
-    message = f"{checkout_request_id}:{timestamp}"
-    return hmac.new(
-        settings.MPESA_CALLBACK_SECRET.encode(),
-        message.encode(),
-        hashlib.sha256
-    ).hexdigest()
-
-
 def _is_retryable_http_error(exc: BaseException) -> bool:
     """Check if an exception is retryable."""
     if isinstance(exc, (httpx.TimeoutException, httpx.TransportError, ConnectionError)):
@@ -264,16 +250,10 @@ class StkPushService:
                 errors.append(name)
 
         if not self.callback_secret:
-            logger.warning(
-                "MPESA_CALLBACK_SECRET not configured. "
-                "Callback signature verification is disabled."
-            )
+            logger.warning("MPESA_CALLBACK_SECRET not configured.")
 
         if errors:
-            raise AppException(
-                f"M-Pesa configuration incomplete: {', '.join(errors)}",
-                500
-            )
+            raise AppException(f"M-Pesa configuration incomplete: {', '.join(errors)}", 500)
 
     def _log_configuration(self) -> None:
         """Log M-Pesa configuration."""
@@ -306,85 +286,13 @@ class StkPushService:
 
     # ─── HEALTH CHECK ──────────────────────────────────────
 
-    async def health_check(self) -> Dict[str, Any]:
-        """Comprehensive health check endpoint."""
-        health = {
-            "status": "healthy",
-            "checks": {},
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-
+    async def health_check(self) -> bool:
+        """Simple health check for OAuth token."""
         try:
-            # Database connectivity
-            db_start = datetime.now()
-            try:
-                await execute_supabase_async(
-                    lambda: self.supabase.table(TABLE_PAYMENTS).select("id").limit(1).execute()
-                )
-                health["checks"]["database"] = {
-                    "status": "healthy",
-                    "response_time_ms": (datetime.now() - db_start).total_seconds() * 1000
-                }
-            except Exception as e:
-                health["checks"]["database"] = {"status": "unhealthy", "error": str(e)}
-                health["status"] = "degraded"
-
-            # OAuth token
-            try:
-                token_start = datetime.now()
-                await self._get_access_token()
-                health["checks"]["oauth"] = {
-                    "status": "healthy",
-                    "response_time_ms": (datetime.now() - token_start).total_seconds() * 1000
-                }
-            except Exception as e:
-                health["checks"]["oauth"] = {"status": "unhealthy", "error": str(e)}
-                health["status"] = "degraded"
-
-            # RPC availability
-            try:
-                rpc_start = datetime.now()
-                await execute_supabase_async(
-                    lambda: self.supabase.rpc("mpesa_health_ping", {}).execute()
-                )
-                health["checks"]["rpc"] = {
-                    "status": "healthy",
-                    "response_time_ms": (datetime.now() - rpc_start).total_seconds() * 1000
-                }
-            except Exception as e:
-                health["checks"]["rpc"] = {
-                    "status": "unknown",
-                    "message": "mpesa_health_ping RPC not found",
-                    "error": str(e)
-                }
-
-            # Services table
-            try:
-                services_start = datetime.now()
-                await self._get_service_active_column()
-                health["checks"]["services_table"] = {
-                    "status": "healthy",
-                    "response_time_ms": (datetime.now() - services_start).total_seconds() * 1000
-                }
-            except Exception as e:
-                health["checks"]["services_table"] = {"status": "unhealthy", "error": str(e)}
-                health["status"] = "degraded"
-
-            # Callback URL
-            if self.callback_url and "localhost" not in self.callback_url:
-                health["checks"]["callback_url"] = {"status": "healthy", "url_configured": True}
-            else:
-                health["checks"]["callback_url"] = {
-                    "status": "warning",
-                    "url_configured": False,
-                    "message": "Callback URL is not set or uses localhost"
-                }
-
-        except Exception as e:
-            health["status"] = "unhealthy"
-            health["error"] = str(e)
-
-        return health
+            await self._get_access_token()
+            return True
+        except Exception:
+            return False
 
     # ─── HTTP CLIENT ────────────────────────────────────────
 
@@ -399,7 +307,8 @@ class StkPushService:
                     limits=httpx.Limits(
                         max_connections=MAX_CONNECTIONS,
                         max_keepalive_connections=MAX_KEEPALIVE
-                    )
+                    ),
+                    http2=True,
                 )
             return self._client
 
@@ -523,7 +432,7 @@ class StkPushService:
             result = await execute_supabase_async(
                 lambda: self.supabase.table(TABLE_SERVICES).select("*").eq("id", service_id).maybe_single().execute()
             )
-            if result.data:
+            if result and result.data:
                 self._service_cache[service_id] = result.data
                 return result.data
         except Exception as e:
@@ -531,126 +440,7 @@ class StkPushService:
 
         return None
 
-    # ─── REPLAY PROTECTION ─────────────────────────────────
-
-    async def _is_replay(self, checkout_request_id: str) -> bool:
-        """Check if a callback has already been processed."""
-        now = datetime.now(timezone.utc)
-
-        async with self._cache_lock:
-            expired = [
-                k for k, v in self._callback_cache.items()
-                if now - v > timedelta(seconds=CALLBACK_SIGNATURE_TTL)
-            ]
-            for k in expired:
-                del self._callback_cache[k]
-
-            if checkout_request_id in self._callback_cache:
-                return True
-
-            self._callback_cache[checkout_request_id] = now
-
-        try:
-            await execute_supabase_async(
-                lambda: self.supabase.table(TABLE_CALLBACK_REPLAYS).insert({
-                    "checkout_request_id": checkout_request_id,
-                    "processed_at": now.isoformat()
-                }).execute()
-            )
-            if secrets.randbelow(100) < 5:
-                self._spawn_background(self._cleanup_old_replays())
-            return False
-        except Exception as e:
-            if "duplicate key" in str(e).lower() or "23505" in str(e):
-                return True
-            logger.warning(
-                f"Replay-protection DB check failed | "
-                f"checkout_request_id={mask_sensitive(checkout_request_id)} error={e}"
-            )
-            return False
-
     # ─── DATABASE HELPERS ──────────────────────────────────
-
-    async def _log_payment_event(
-        self,
-        checkout_request_id: str,
-        event_type: str,
-        details: Dict[str, Any]
-    ) -> None:
-        """Log payment event with automatic retention."""
-        try:
-            log_data = {
-                "checkout_request_id": checkout_request_id,
-                "event_type": event_type,
-                "details": details,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            await execute_supabase_async(
-                lambda: self.supabase.table(TABLE_PAYMENT_LOGS).insert(log_data).execute()
-            )
-
-            if secrets.randbelow(100) < 5:
-                await self._cleanup_old_logs()
-
-        except Exception as e:
-            logger.warning(
-                f"Failed to log payment event | checkout_request_id={mask_sensitive(checkout_request_id)} "
-                f"event_type={event_type} error={e}"
-            )
-
-    async def _cleanup_old_logs(self) -> None:
-        """Delete payment logs older than LOG_RETENTION_DAYS."""
-        try:
-            cutoff = datetime.now(timezone.utc) - timedelta(days=LOG_RETENTION_DAYS)
-            result = await execute_supabase_async(
-                lambda: self.supabase.table(TABLE_PAYMENT_LOGS).delete().lt("created_at", cutoff.isoformat()).execute()
-            )
-            if result.data:
-                logger.info(f"Cleaned up old payment logs | count={len(result.data)}")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup old logs | error={e}")
-
-    async def _cleanup_old_replays(self) -> None:
-        """Delete old callback replay records."""
-        try:
-            cutoff = datetime.now(timezone.utc) - timedelta(days=REPLAY_RETENTION_DAYS)
-            result = await execute_supabase_async(
-                lambda: self.supabase.table(TABLE_CALLBACK_REPLAYS).delete().lt(
-                    "processed_at", cutoff.isoformat()
-                ).execute()
-            )
-            if result.data:
-                logger.info(f"Cleaned up old callback replay records | count={len(result.data)}")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup old replay records | error={e}")
-
-    async def _create_notification(
-        self,
-        user_id: str,
-        title: str,
-        message: str,
-        notification_type: str = "info",
-        reference_id: Optional[str] = None,
-    ) -> None:
-        """Create a notification for a user."""
-        try:
-            notification_data = {
-                "user_id": user_id,
-                "title": title,
-                "message": message,
-                "type": notification_type,
-                "reference_id": reference_id,
-                "is_read": False,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            await execute_supabase_async(
-                lambda: self.supabase.table(TABLE_NOTIFICATIONS).upsert(
-                    notification_data, on_conflict="user_id,reference_id,type"
-                ).execute()
-            )
-            logger.info(f"Notification created | user_id={user_id} title={title}")
-        except Exception as e:
-            logger.warning(f"Failed to create notification | user_id={user_id} error={e}")
 
     async def _get_payment_record(self, checkout_request_id: str) -> Optional[Dict[str, Any]]:
         """Get payment record from database."""
@@ -660,62 +450,9 @@ class StkPushService:
                     "checkout_request_id", checkout_request_id
                 ).maybe_single().execute()
             )
-            return result.data
+            return result.data if result and result.data else None
         except Exception as e:
-            logger.error(
-                f"Error getting payment record | checkout_request_id={mask_sensitive(checkout_request_id)} error={e}"
-            )
-            return None
-
-    async def _update_payment_status(
-        self,
-        checkout_request_id: str,
-        result_code: str,
-        result_desc: str,
-        data: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        """Update payment record with status."""
-        try:
-            current = await self._get_payment_record(checkout_request_id)
-            if current and PaymentStatus(current.get("status", PaymentStatus.UNKNOWN.value)).is_terminal:
-                logger.info(
-                    f"Skipping status update — payment already terminal | "
-                    f"checkout_request_id={mask_sensitive(checkout_request_id)} "
-                    f"current_status={current.get('status')}"
-                )
-                return current
-
-            status = self._map_result_code_to_status(result_code)
-            now = datetime.now(timezone.utc).isoformat()
-
-            update_data = {
-                "status": status.value,
-                "result_code": result_code,
-                "result_desc": result_desc,
-                "updated_at": now
-            }
-
-            if str(result_code) == "0":
-                update_data["mpesa_receipt"] = data.get("MpesaReceiptNumber")
-                update_data["transaction_id"] = checkout_request_id
-                update_data["completed_at"] = now
-
-            result = await execute_supabase_async(
-                lambda: self.supabase.table(TABLE_PAYMENTS).update(update_data).eq(
-                    "checkout_request_id", checkout_request_id
-                ).execute()
-            )
-
-            self._spawn_background(self._log_payment_event(
-                checkout_request_id, "status_update", {"status": status.value, "result_code": result_code}
-            ))
-
-            return result.data[0] if result.data else None
-
-        except Exception as e:
-            logger.error(
-                f"Error updating payment status | checkout_request_id={mask_sensitive(checkout_request_id)} error={e}"
-            )
+            logger.error(f"Error getting payment record | checkout_request_id={mask_sensitive(checkout_request_id)} error={e}")
             return None
 
     async def _create_payment_record(
@@ -728,11 +465,10 @@ class StkPushService:
         service_id: Optional[int],
         description: str
     ) -> Dict[str, Any]:
-        """Create a payment record with idempotency check."""
+        """Create a payment record."""
         try:
             existing = await self._get_payment_record(checkout_request_id)
             if existing:
-                logger.info(f"Payment already exists | checkout_request_id={mask_sensitive(checkout_request_id)}")
                 return existing
 
             if service_id:
@@ -759,16 +495,10 @@ class StkPushService:
                 lambda: self.supabase.table(TABLE_PAYMENTS).insert(payment_data).execute()
             )
 
-            self._spawn_background(self._log_payment_event(
-                checkout_request_id, "payment_created", {"amount": amount, "service_id": service_id}
-            ))
-
-            return result.data[0]
+            return result.data[0] if result and result.data else payment_data
 
         except Exception as e:
-            logger.error(
-                f"Failed to create payment record | checkout_request_id={mask_sensitive(checkout_request_id)} error={e}"
-            )
+            logger.error(f"Failed to create payment record | error={e}")
             raise
 
     async def _get_service_active_column(self) -> str:
@@ -784,7 +514,7 @@ class StkPushService:
                 result = await execute_supabase_async(
                     lambda: self.supabase.table(TABLE_SERVICES).select("*").limit(1).execute()
                 )
-                if result.data:
+                if result and result.data:
                     columns = result.data[0].keys()
                     if "is_active" in columns:
                         self._service_active_column = "is_active"
@@ -795,171 +525,10 @@ class StkPushService:
                 else:
                     self._service_active_column = "active"
             except Exception as e:
-                logger.warning(f"Could not detect services active-column, defaulting to 'active' | error={e}")
+                logger.warning(f"Could not detect services active-column | error={e}")
                 self._service_active_column = "active"
 
             return self._service_active_column
-
-    async def _validate_service(self, service_id: int) -> Optional[Dict[str, Any]]:
-        """Validate that a service exists and is active."""
-        try:
-            active_column = await self._get_service_active_column()
-            result = await execute_supabase_async(
-                lambda: self.supabase.table(TABLE_SERVICES).select("*").eq(
-                    "id", service_id
-                ).eq(active_column, True).maybe_single().execute()
-            )
-            return result.data if result.data else None
-        except Exception as e:
-            logger.error(f"Error validating service | service_id={service_id} error={e}")
-            return None
-
-    async def _upsert_user_service(
-        self,
-        user_id: str,
-        service_id: int,
-        payment_id: int,
-        expiry_days: Optional[int] = None,
-        mpesa_receipt: Optional[str] = None,
-        transaction_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Atomic upsert user service record."""
-        now = datetime.now(timezone.utc).isoformat()
-        expires_at = self._get_expiry_date(expiry_days)
-
-        row = {
-            "user_id": user_id,
-            "service_id": service_id,
-            "payment_id": payment_id,
-            "status": ServiceStatus.ACTIVE.value,
-            "expires_at": expires_at,
-            "mpesa_receipt": mpesa_receipt,
-            "transaction_id": transaction_id,
-            "updated_at": now,
-        }
-
-        try:
-            result = await execute_supabase_async(
-                lambda: self.supabase.table(TABLE_USER_SERVICES).upsert(
-                    row, on_conflict="user_id,service_id"
-                ).execute()
-            )
-            if result.data:
-                return result.data[0]
-            return row
-
-        except Exception as e:
-            logger.error(
-                f"Error upserting user service | user_id={user_id} service_id={service_id} error={e}"
-            )
-            raise
-
-    async def _atomic_unlock_transaction(
-        self,
-        checkout_request_id: str,
-        mpesa_receipt: Optional[str] = None,
-        callback_amount: Optional[float] = None
-    ) -> Tuple[bool, str]:
-        """Atomically mark the payment unlocked AND grant user_services access."""
-        try:
-            payment = await self._get_payment_record(checkout_request_id)
-            if not payment:
-                return False, "Payment record not found"
-
-            if payment.get("unlock_status") == UnlockStatus.COMPLETED.value:
-                return True, "Service already unlocked"
-
-            user_id = payment.get("user_id")
-            service_id = payment.get("service_id")
-            payment_id = payment.get("id")
-            expected_amount = payment.get("amount")
-
-            if callback_amount is not None:
-                if callback_amount <= 0:
-                    return False, f"Invalid callback amount: {callback_amount}"
-                if expected_amount and abs(float(callback_amount) - float(expected_amount)) > 0.01:
-                    return False, f"Amount mismatch: expected {expected_amount}, got {callback_amount}"
-
-            if not user_id or not service_id:
-                return False, f"Missing user_id or service_id: {checkout_request_id}"
-
-            service = await self._get_cached_service(service_id)
-            expiry_days = service.get("expiry_days") if service else None
-            expires_at = self._get_expiry_date(expiry_days)
-
-            try:
-                rpc_result = await execute_supabase_async(
-                    lambda: self.supabase.rpc(
-                        "unlock_paid_service",
-                        {
-                            "p_payment_id": payment_id,
-                            "p_user_id": user_id,
-                            "p_service_id": service_id,
-                            "p_mpesa_receipt": mpesa_receipt,
-                            "p_transaction_id": checkout_request_id,
-                            "p_callback_amount": callback_amount,
-                            "p_expires_at": expires_at,
-                        },
-                    ).execute()
-                )
-                already_unlocked = bool(rpc_result.data) and rpc_result.data is False
-                unlock_via_rpc = True
-            except Exception as rpc_error:
-                logger.warning(
-                    f"unlock_paid_service RPC unavailable, falling back to two-step unlock | "
-                    f"checkout_request_id={mask_sensitive(checkout_request_id)} error={rpc_error}"
-                )
-                unlock_via_rpc = False
-                already_unlocked = False
-
-            if not unlock_via_rpc:
-                now = datetime.now(timezone.utc).isoformat()
-                result = await execute_supabase_async(
-                    lambda: self.supabase.table(TABLE_PAYMENTS).update({
-                        "unlock_status": UnlockStatus.COMPLETED.value,
-                        "unlocked_at": now,
-                        "mpesa_receipt": mpesa_receipt,
-                        "callback_amount": callback_amount
-                    }).eq("id", payment_id).eq("unlock_status", UnlockStatus.PENDING.value).execute()
-                )
-                if not result.data:
-                    return True, "Service already unlocked (concurrent)"
-
-                await self._upsert_user_service(
-                    user_id=user_id,
-                    service_id=service_id,
-                    payment_id=payment_id,
-                    expiry_days=expiry_days,
-                    mpesa_receipt=mpesa_receipt,
-                    transaction_id=checkout_request_id
-                )
-            elif already_unlocked:
-                return True, "Service already unlocked (concurrent)"
-
-            service_name = service.get("name", "Service") if service else "Service"
-
-            self._spawn_background(self._create_notification(
-                user_id=user_id,
-                title=f"🎉 {service_name} Unlocked!",
-                message=f"Your {service_name} has been successfully unlocked.",
-                notification_type="service_unlocked",
-                reference_id=checkout_request_id,
-            ))
-
-            self._spawn_background(self._log_payment_event(
-                checkout_request_id,
-                "service_unlocked",
-                {"user_id": user_id, "service_id": service_id, "mpesa_receipt": mpesa_receipt}
-            ))
-
-            logger.info(f"Service unlocked | service_id={service_id} user_id={user_id}")
-            return True, "Service unlocked successfully"
-
-        except Exception as e:
-            logger.error(
-                f"Error unlocking service | checkout_request_id={mask_sensitive(checkout_request_id)} error={e}"
-            )
-            return False, str(e)
 
     # ─── STK PUSH ──────────────────────────────────────────
 
@@ -972,8 +541,173 @@ class StkPushService:
         user_id: Optional[str] = None,
         service_id: Optional[int] = None
     ) -> Dict[str, Any]:
-        """Initiate STK Push payment."""
-        normalized_phone = normalize_phone(phone)
+        """
+        Initiate STK Push payment.
+        
+        Returns:
+            Dict with checkout_request_id, merchant_request_id, and status
+            
+        Raises:
+            AppException: If STK Push fails
+            ValidationException: If input validation fails
+            NotFoundException: If service not found
+        """
+        try:
+            # Validate phone
+            normalized_phone = normalize_phone(phone)
 
-        if amount <= 0:
-            raise ValidationException
+            # Validate amount
+            if amount <= 0:
+                raise ValidationException("Amount must be greater than zero")
+            if amount < MINIMUM_AMOUNT:
+                raise ValidationException(f"Amount must be at least {MINIMUM_AMOUNT}")
+
+            # Get service if service_id provided
+            service_name = None
+            if service_id:
+                service = await self._get_cached_service(service_id)
+                if not service:
+                    raise NotFoundException(f"Service {service_id} not found")
+                service_name = service.get("name", "Service")
+
+            # Round amount
+            rounded_amount = math.ceil(amount)
+
+            # Generate timestamp and password
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+            password = self._generate_password(timestamp)
+
+            # Generate account reference
+            account_reference = generate_account_reference(service_name, user_id)
+
+            # Build payload
+            payload = {
+                "BusinessShortCode": self.shortcode,
+                "Password": password,
+                "Timestamp": timestamp,
+                "TransactionType": TRANSACTION_TYPE,
+                "Amount": str(rounded_amount),
+                "PartyA": normalized_phone,
+                "PartyB": self.shortcode,
+                "PhoneNumber": normalized_phone,
+                "CallBackURL": self.callback_url,
+                "AccountReference": account_reference,
+                "TransactionDesc": description[:DESCRIPTION_MAX_LENGTH]
+            }
+
+            logger.info(f"Initiating STK Push | phone={mask_sensitive(normalized_phone)} amount={rounded_amount}")
+
+            # Get access token
+            token = await self._get_access_token()
+
+            # Make the STK Push request
+            response = await self._post_with_retry(
+                f"{self.base_url}/mpesa/stkpush/v1/processrequest",
+                {"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                payload
+            )
+
+            # Parse response
+            data = response.json()
+            
+            # Validate response
+            if "ResponseCode" not in data:
+                logger.error(f"STK Push response missing ResponseCode: {data}")
+                raise AppException("Invalid response from Safaricom - missing ResponseCode", 502)
+
+            response_code = data.get("ResponseCode")
+            response_description = data.get("ResponseDescription", "Unknown error")
+
+            # Check if Safaricom accepted the request
+            if response_code != "0":
+                logger.error(f"STK Push rejected | ResponseCode={response_code} Description={response_description}")
+                raise AppException(f"STK push failed: {response_description}", 400)
+
+            # Extract IDs from response
+            merchant_request_id = data.get("MerchantRequestID")
+            checkout_id = data.get("CheckoutRequestID")
+            customer_message = data.get("CustomerMessage", "STK Push sent successfully")
+
+            # Validate required IDs
+            if not checkout_id:
+                logger.error(f"STK Push response missing CheckoutRequestID")
+                raise AppException("Missing CheckoutRequestID from Safaricom", 502)
+            
+            if not merchant_request_id:
+                logger.error(f"STK Push response missing MerchantRequestID")
+                raise AppException("Missing MerchantRequestID from Safaricom", 502)
+
+            # Create payment record
+            payment = await self._create_payment_record(
+                checkout_request_id=checkout_id,
+                merchant_request_id=merchant_request_id,
+                amount=rounded_amount,
+                phone=normalized_phone,
+                user_id=user_id,
+                service_id=service_id,
+                description=description
+            )
+
+            logger.info(
+                f"STK Push successful | checkout_request_id={mask_sensitive(checkout_id)} "
+                f"payment_id={payment.get('id') if payment else 'unknown'}"
+            )
+
+            return {
+                "checkout_request_id": checkout_id,
+                "merchant_request_id": merchant_request_id,
+                "customer_message": customer_message,
+                "status": "pending",
+                "response_code": response_code,
+                "response_description": response_description
+            }
+
+        except (ValidationException, NotFoundException, AppException):
+            # Re-raise known exceptions
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.exception(f"HTTP error during STK Push: {e}")
+            raise AppException(f"STK Push HTTP error: {str(e)}", e.response.status_code if e.response else 503)
+        except httpx.TimeoutException as e:
+            logger.exception(f"Timeout during STK Push: {e}")
+            raise AppException("STK Push timed out - please try again", 504)
+        except httpx.TransportError as e:
+            logger.exception(f"Transport error during STK Push: {e}")
+            raise AppException("Network error - please try again", 503)
+        except Exception as e:
+            # IMPORTANT: Log the full exception and re-raise
+            # DO NOT return None or swallow the error
+            logger.exception(f"Unexpected error during STK Push: {e}")
+            raise AppException(f"STK Push failed: {str(e)}", 500)
+
+    # ─── HELPERS ─────────────────────────────────────────────
+
+    def _generate_password(self, timestamp: str) -> str:
+        """Generate password for STK push."""
+        password_str = f"{self.shortcode}{self.passkey}{timestamp}"
+        return base64.b64encode(password_str.encode()).decode()
+
+    # ─── STALE PAYMENT CLEANUP ──────────────────────────────
+
+    async def cleanup_stale_payments(self) -> int:
+        """Mark stale pending payments as expired."""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=STALE_PAYMENT_HOURS)
+            cutoff_str = cutoff.isoformat()
+
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENTS).update({
+                    "status": PaymentStatus.EXPIRED.value,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }).eq("status", PaymentStatus.PENDING.value).lt("created_at", cutoff_str).execute()
+            )
+
+            count = len(result.data) if result and result.data else 0
+            if count > 0:
+                logger.info(f"Cleaned up stale payments | count={count}")
+
+            return count
+
+        except Exception as e:
+            logger.error(f"Error cleaning up stale payments | error={e}")
+            return 0
