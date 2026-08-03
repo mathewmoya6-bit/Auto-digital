@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.core.dependencies import get_current_user, get_current_user_optional
 from app.core.exceptions import ValidationException, NotFoundException, AppException
-from app.core.security import mask_sensitive  # NOTE: adjust import path if mask_sensitive lives elsewhere
+from app.core.security import mask_sensitive
 from app.modules.mpesa.service import MpesaService
 from app.modules.mpesa.schemas import (
     MpesaPaymentRequest,
@@ -35,10 +35,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ─── SERVICE DEPENDENCY (fix #2 — was previously mis-numbered as #8) ───
-# A new MpesaService() per request throws away the OAuth token cache on
-# every single call, forcing a fresh Daraja token fetch constantly.
-# One instance, reused for the life of the process:
+# ─── SERVICE DEPENDENCY ──────────────────────────────────────────
+# One instance reused for the life of the process to preserve OAuth token cache
 
 _mpesa_service_singleton = MpesaService()
 
@@ -47,10 +45,7 @@ def get_mpesa_service() -> MpesaService:
     return _mpesa_service_singleton
 
 
-# ─── MINIMAL IN-MEMORY RATE LIMITER (fix #8) ────────────────────
-# Good enough to stop naive abuse on a single Render instance. Not
-# distributed — if you scale to multiple instances/workers, replace
-# this with slowapi + Redis or similar so limits are shared.
+# ─── MINIMAL IN-MEMORY RATE LIMITER ─────────────────────────────
 
 _rate_buckets: dict[str, deque] = defaultdict(deque)
 
@@ -73,10 +68,7 @@ def _client_ip(request: Request) -> str:
 
 
 class ServiceDetailResponse(BaseModel):
-    """fix #13: response_model for GET /mpesa/services/{service_id}.
-    Kept loose (Optional everywhere) since I don't have schemas.py in
-    front of me — move this into schemas.py and tighten types once you
-    can confirm the exact shape `get_available_services()` returns."""
+    """Response model for GET /mpesa/services/{service_id}"""
     id: int
     code: Optional[str] = None
     name: Optional[str] = None
@@ -123,21 +115,19 @@ async def stk_push(
     _rate_limit(f"stkpush:{current_user.get('id')}", max_requests=5, window_seconds=60)
 
     try:
-        # fix #7: plain f-string log instead of `extra=` dict, which blows up
-        # (KeyError) unless every deployment's logging formatter defines
-        # matching fields.
+        # Fix: plain f-string log instead of extra= dict
         logger.info(
             f"STK Push initiated | user={current_user.get('id')} "
-            f"service={request.service_id} request_id={request.request_id} "
+            f"service={request.service_id} "
             f"phone=***{request.phone[-4:] if request.phone else 'N/A'}"
         )
 
+        # Fix: Removed request_id parameter (not used)
         result = await mpesa_service.initiate_payment(
             phone=request.phone,
             service_id=request.service_id,
             description=request.description,
             user_id=current_user.get("id"),
-            request_id=request.request_id,
             amount=request.amount
         )
 
@@ -163,8 +153,7 @@ async def stk_push_public(
 
     POST /api/v1/mpesa/stkpush-public
 
-    Protected by a shared API key (fix #5) instead of being wide open.
-    Set PUBLIC_API_KEY in your environment/config to enable enforcement.
+    Protected by a shared API key.
     """
     if settings.PUBLIC_API_KEY and x_api_key != settings.PUBLIC_API_KEY:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
@@ -172,12 +161,12 @@ async def stk_push_public(
     _rate_limit(f"stkpush-public:{_client_ip(req)}", max_requests=5, window_seconds=60)
 
     try:
+        # Fix: Removed request_id parameter (not used)
         result = await mpesa_service.initiate_payment(
             phone=request.phone,
             service_id=request.service_id,
             description=request.description,
             user_id=request.user_id,
-            request_id=request.request_id,
             amount=request.amount
         )
 
@@ -233,33 +222,14 @@ async def mpesa_callback(
     This is called by Safaricom when the payment is completed.
     This is the ONLY place where services are unlocked.
 
-    fix #1 (CRITICAL): previously anyone on the internet could POST a
-    fabricated success payload here and — depending on what checks
-    process_callback() itself does — potentially unlock a service for
-    free. This endpoint now requires a shared secret before the body
-    is even parsed.
-
-    Set MPESA_CALLBACK_SECRET in your environment/config, and configure
-    the same value as a query param or header on the callback URL you
-    register with Daraja, e.g.:
-      https://your-api.com/api/v1/mpesa/callback?secret=<MPESA_CALLBACK_SECRET>
-    Safaricom doesn't let you set custom headers on the callback URL,
-    so a query-string secret is the practical option here (over HTTPS
-    it isn't logged by Safaricom or exposed to the client). Combine
-    with IP allowlisting at the infra/firewall level if you want a
-    second layer — Safaricom publishes their callback IP ranges.
+    Requires MPESA_CALLBACK_SECRET as query param or header.
     """
     if settings.MPESA_CALLBACK_SECRET:
         provided_secret = request.headers.get("X-Callback-Secret") or request.query_params.get("secret")
         if provided_secret != settings.MPESA_CALLBACK_SECRET:
             logger.warning(f"Rejected callback with invalid/missing secret from {_client_ip(request)}")
-            # Still 200: an attacker retrying a bad secret shouldn't be able
-            # to tell (via status code) that they got the check wrong, and
-            # Safaricom itself will only ever send the correct secret.
             return JSONResponse(status_code=200, content={"ResultCode": 0, "ResultDesc": "Accepted"})
 
-    # fix #6: never let request.json() raise past this point — a malformed
-    # body must still get a 200 back or Safaricom will hammer retries.
     try:
         content_type = request.headers.get("content-type", "")
         if "application/json" not in content_type:
@@ -271,8 +241,6 @@ async def mpesa_callback(
         logger.warning("Invalid/unparseable callback JSON")
         return JSONResponse(status_code=200, content={"ResultCode": 0, "ResultDesc": "Accepted"})
 
-    # fix #7 (minor): bail early on a structurally invalid payload rather
-    # than passing it down and hoping process_callback() handles it.
     if not body.get("Body", {}).get("stkCallback"):
         logger.warning("Callback missing Body.stkCallback")
         return JSONResponse(status_code=200, content={"ResultCode": 0, "ResultDesc": "Accepted"})
@@ -281,20 +249,13 @@ async def mpesa_callback(
         checkout_id = body.get("Body", {}).get("stkCallback", {}).get("CheckoutRequestID")
         result_code = body.get("Body", {}).get("stkCallback", {}).get("ResultCode")
 
-        # fix #4: mask the checkout ID before it hits the logs.
         logger.info(
             f"Callback received | checkout_id={mask_sensitive(checkout_id)} "
             f"result_code={result_code}"
         )
 
-        # fix #3: single source of truth for callback processing.
-        # MpesaCallbackHandler is removed — stk_push.process_callback()
-        # (on the service's stk_push component) now owns this logic.
         result = await mpesa_service.stk_push.process_callback(body)
 
-        # fix #5: don't silently discard the outcome — log it so a failed
-        # confirmation (e.g. couldn't find the matching payment row) shows
-        # up in your logs instead of vanishing.
         if result and result.get("status") == "error":
             logger.error(f"Callback processed with error | checkout_id={mask_sensitive(checkout_id)} result={result}")
         else:
@@ -304,7 +265,6 @@ async def mpesa_callback(
 
     except Exception:
         logger.exception("Callback processing failed")
-        # Always return 200 to Safaricom to prevent retries
         return JSONResponse(status_code=200, content={"ResultCode": 0, "ResultDesc": "Accepted"})
 
 
@@ -461,15 +421,6 @@ async def get_service(
     Get a specific service by ID.
 
     GET /api/v1/mpesa/services/{service_id}
-
-    fix #13: now has a response_model (ServiceDetailResponse, defined near
-    the top of this file — move it into schemas.py when convenient).
-
-    fix #11 (minor, not changed here): this still does an O(n) scan over
-    get_available_services() rather than a direct lookup. Fine at your
-    current service-catalog size; if that list ever grows meaningfully,
-    add a `get_service_by_id(service_id)` method to MpesaService that
-    queries Supabase directly with `.eq("id", service_id)`.
     """
     try:
         services = await mpesa_service.get_available_services()
@@ -503,23 +454,6 @@ async def health(
     Health check for M-Pesa service.
 
     GET /api/v1/mpesa/health
-
-    fix #4: response_model dropped. MpesaHealthResponse in schemas.py
-    doesn't declare a `checks` field, so returning it under that
-    response_model raises a FastAPI validation error on every call.
-    Either extend MpesaHealthResponse to include `checks: dict` and
-    re-add response_model=MpesaHealthResponse, or leave it unmodeled
-    like this. Left unmodeled here since I don't have schemas.py in front
-    of me to safely edit it.
-
-    Also fix #3: removed `shortcode` from the response — an external
-    caller has no legitimate use for your paybill/shortcode, and this
-    endpoint is currently unauthenticated (see fix #10 note below).
-
-    fix #10: this stays public for now since uptime monitors typically
-    need to hit it without auth. If you want it internal-only, swap in
-    `Depends(get_current_admin)` (or gate behind a shared header/secret
-    like the callback) — but then update whatever uptime check calls it.
     """
     health_status = {
         "status": "healthy",
@@ -533,16 +467,6 @@ async def health(
         }
     }
 
-    # fix #1: no more reaching into a private method from the router.
-    # Requires stk_push.py to expose:
-    #
-    #   async def health_check(self) -> bool:
-    #       try:
-    #           await self._get_access_token()
-    #           return True
-    #       except Exception:
-    #           return False
-    #
     try:
         health_status["checks"]["oauth"] = await mpesa_service.stk_push.health_check()
         if not health_status["checks"]["oauth"]:
@@ -552,8 +476,6 @@ async def health(
         health_status["checks"]["oauth"] = False
         health_status["status"] = "degraded"
 
-    # fix #2: count="exact" with select("count", ...) is not valid
-    # PostgREST syntax and will throw. Select a real column instead.
     try:
         supabase = mpesa_service.stk_push.supabase
         supabase.table("services").select("id").limit(1).execute()
@@ -578,10 +500,7 @@ async def webhook_test(request: Request):
 
     POST /api/v1/mpesa/webhook-test
 
-    fix #9: this has no business existing in production — it echoes back
-    whatever anyone POSTs at it, no auth, no rate limit. Gated behind
-    settings.DEBUG so it 404s unless explicitly enabled. Set DEBUG=True
-    only in local/dev environments, never on Render prod.
+    Only available when DEBUG=True.
     """
     if not getattr(settings, "DEBUG", False):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
