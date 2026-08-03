@@ -1,19 +1,9 @@
 # app/modules/scraper/router.py
-# ================================================================
-# Auto-D Kenya - Scraper Router
-# ================================================================
 
 import logging
-from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Optional
 
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Depends,
-    HTTPException,
-    Query,
-)
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.core.dependencies import (
@@ -36,28 +26,12 @@ service = ScraperService()
 # REQUEST MODELS
 # ============================================================
 
-class ScraperRequest(BaseModel):
+class RunScraperRequest(BaseModel):
     source: str = Field(default="all")
     pages: int = Field(default=3, ge=1, le=50)
     limit_per_page: int = Field(default=20, ge=1, le=100)
-
-
-class RunScrapersRequest(BaseModel):
-    sources: Optional[List[str]] = None
-    pages: int = Field(default=3, ge=1, le=50)
-    limit_per_page: int = Field(default=20, ge=1, le=100)
-
-
-# ============================================================
-# VALID SOURCES
-# ============================================================
-
-VALID_SOURCES = [
-    "jiji",
-    "cheki",
-    "autochek",
-    "beepbeep",
-]
+    parallel: bool = True
+    max_concurrent: int = Field(default=4, ge=1, le=20)
 
 
 # ============================================================
@@ -65,33 +39,21 @@ VALID_SOURCES = [
 # ============================================================
 
 @router.get("/status")
-async def scraper_status(
+async def get_status(
     current_user=Depends(get_current_user),
 ):
+    """
+    Get scraper dashboard status.
+    """
     try:
         return await service.get_status()
 
     except Exception:
         logger.exception("Unable to fetch scraper status")
-
-        return {
-            "status": "idle",
-            "running": False,
-            "last_run": None,
-            "total_listings": 0,
-            "sources": [],
-        }
-
-
-# ============================================================
-# STATS
-# ============================================================
-
-@router.get("/stats")
-async def scraper_stats(
-    current_user=Depends(get_current_admin),
-):
-    return await service.get_status()
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to fetch scraper status.",
+        )
 
 
 # ============================================================
@@ -99,307 +61,187 @@ async def scraper_stats(
 # ============================================================
 
 @router.get("/sources")
-async def scraper_sources(
+async def get_sources(
     current_user=Depends(get_current_user),
 ):
     """
-    Return all configured scraper sources.
+    List available scraper sources.
     """
-
     try:
-
-        result = await service.get_sources()
-
-        if isinstance(result, list):
-            sources = result
-
-        elif isinstance(result, dict):
-            sources = (
-                result.get("sources")
-                or result.get("data")
-                or []
-            )
-
-        else:
-            sources = []
-
-        return {
-            "success": True,
-            "count": len(sources),
-            "sources": sources,
-        }
+        return await service.get_sources()
 
     except Exception:
-        logger.exception("Failed loading scraper sources")
-
+        logger.exception("Unable to fetch scraper sources")
         raise HTTPException(
             status_code=500,
-            detail="Unable to load scraper sources.",
+            detail="Unable to fetch scraper sources.",
         )
 
 
 # ============================================================
-# RUN ALL SCRAPERS
+# RUN SCRAPER
 # ============================================================
 
 @router.post("/run")
-async def run_scrapers(
-    request: RunScrapersRequest,
-    background_tasks: BackgroundTasks,
+async def run_scraper(
+    request: RunScraperRequest,
     current_user=Depends(get_current_admin),
 ):
+    """
+    Run one scraper or all scrapers.
 
+    Source may be:
+    - all
+    - jiji
+    - cheki
+    - autochek
+    - beepbeep
+
+    Validation is handled by the worker.
+    """
     try:
+        return await service.run_scraper(
+            source=request.source,
+            pages=request.pages,
+            limit_per_page=request.limit_per_page,
+            parallel=request.parallel,
+            max_concurrent=request.max_concurrent,
+        )
 
-        sources = request.sources or VALID_SOURCES
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
 
-        valid_sources = [
-            source
-            for source in sources
-            if source in VALID_SOURCES
-        ]
-
-        invalid_sources = [
-            source
-            for source in sources
-            if source not in VALID_SOURCES
-        ]
-
-        if invalid_sources:
-            logger.warning(
-                "Ignoring invalid sources: %s",
-                ", ".join(invalid_sources),
-            )
-
-        if not valid_sources:
-            raise HTTPException(
-                status_code=400,
-                detail="No valid scraper sources supplied.",
-            )
-
-        jobs = []
-        failed = []
-
-        for source in valid_sources:
-
-            try:
-
-                logger.info(
-                    "Starting scraper %s",
-                    source,
-                )
-
-                job_id = await service.start_scraper(
-                    source=source,
-                    pages=request.pages,
-                    limit_per_page=request.limit_per_page,
-                )
-
-                jobs.append({
-                    "source": source,
-                    "job_id": job_id,
-                })
-
-                background_tasks.add_task(
-                    service.run_scraper_background,
-                    job_id,
-                    source,
-                    request.pages,
-                    request.limit_per_page,
-                )
-
-            except Exception as exc:
-
-                logger.exception(
-                    "Failed starting %s",
-                    source,
-                )
-
-                failed.append({
-                    "source": source,
-                    "error": str(exc),
-                })
-
-        return {
-            "success": len(jobs) > 0,
-            "status": "running" if jobs else "failed",
-            "jobs": jobs,
-            "failed": failed,
-            "job_count": len(jobs),
-            "pages": request.pages,
-            "limit_per_page": request.limit_per_page,
-            "started_at": datetime.now(
-                timezone.utc
-            ).isoformat(),
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as exc:
-
-        logger.exception("Run scraper failed")
-
+    except Exception:
+        logger.exception("Failed to start scraper")
         raise HTTPException(
             status_code=500,
-            detail=str(exc),
+            detail="Failed to start scraper.",
         )
 
 
 # ============================================================
-# RUN SINGLE SCRAPER
+# RUN SINGLE SOURCE
 # ============================================================
 
 @router.post("/{source}")
 async def run_single_source(
     source: str,
-    background_tasks: BackgroundTasks,
     current_user=Depends(get_current_admin),
 ):
+    """
+    Convenience endpoint.
 
-    if source not in VALID_SOURCES:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Unknown scraper source '{source}'.",
-        )
-
+    Example:
+        POST /scraper/jiji
+    """
     try:
+        return await service.run_scraper(source=source)
 
-        logger.info(
-            "Starting %s scraper",
-            source,
-        )
-
-        job_id = await service.start_scraper(
-            source=source,
-            pages=3,
-            limit_per_page=20,
-        )
-
-        background_tasks.add_task(
-            service.run_scraper_background,
-            job_id,
-            source,
-            3,
-            20,
-        )
-
-        return {
-            "success": True,
-            "status": "running",
-            "source": source,
-            "job_id": job_id,
-            "started_at": datetime.now(
-                timezone.utc
-            ).isoformat(),
-        }
-
-    except Exception as exc:
-
-        logger.exception(
-            "Failed starting %s",
-            source,
-        )
-
+    except ValueError as exc:
         raise HTTPException(
-            status_code=500,
+            status_code=400,
             detail=str(exc),
         )
 
-
-# ============================================================
-# LEGACY START ENDPOINT
-# ============================================================
-
-@router.post("/start")
-async def start_scraper(
-    request: ScraperRequest,
-    background_tasks: BackgroundTasks,
-    current_user=Depends(get_current_admin),
-):
-
-    if request.source == "all":
-
-        return await run_scrapers(
-            RunScrapersRequest(
-                sources=None,
-                pages=request.pages,
-                limit_per_page=request.limit_per_page,
-            ),
-            background_tasks,
-            current_user,
+    except Exception:
+        logger.exception("Failed running scraper %s", source)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to start scraper.",
         )
 
-    return await run_single_source(
-        request.source,
-        background_tasks,
-        current_user,
-    )
-
 
 # ============================================================
-# JOB STATUS
+# RUN STATUS
 # ============================================================
 
-@router.get("/job/{job_id}")
-async def job_status(
-    job_id: int,
+@router.get("/runs/{run_id}")
+async def get_run_status(
+    run_id: int,
     current_user=Depends(get_current_user),
 ):
+    """
+    Get a scraper run.
+    """
+    try:
+        result = await service.get_run_status(run_id)
 
-    job = await service.get_job_status(job_id)
+        if not result.get("found", False):
+            raise HTTPException(
+                status_code=404,
+                detail=result.get("error", "Run not found."),
+            )
 
-    if isinstance(job, dict) and "error" in job:
+        return result
+
+    except HTTPException:
+        raise
+
+    except Exception:
+        logger.exception("Unable to fetch run %s", run_id)
         raise HTTPException(
-            status_code=404,
-            detail=job["error"],
+            status_code=500,
+            detail="Unable to fetch run status.",
         )
 
-    return job
-
 
 # ============================================================
-# JOB HISTORY
+# RUN HISTORY
 # ============================================================
 
-@router.get("/jobs")
-async def job_history(
+@router.get("/runs")
+async def get_run_history(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    source: Optional[str] = None,
+    status: Optional[str] = None,
     current_user=Depends(get_current_admin),
 ):
+    """
+    List scraper runs.
+    """
+    try:
+        return await service.get_run_history(
+            limit=limit,
+            offset=offset,
+            source=source,
+            status=status,
+        )
 
-    return await service.get_job_history(
-        limit=limit,
-        offset=offset,
-    )
+    except Exception:
+        logger.exception("Unable to fetch run history")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to fetch run history.",
+        )
 
 
 # ============================================================
-# RUNNING JOBS
+# RUNNING
 # ============================================================
 
 @router.get("/running")
-async def running_jobs(
+async def get_running(
     current_user=Depends(get_current_user),
 ):
+    """
+    List currently running scraper jobs.
+    """
+    try:
+        return await service.get_run_history(
+            status="running",
+            limit=100,
+        )
 
-    history = await service.get_job_history(
-        limit=100,
-    )
-
-    jobs = history.get("jobs", [])
-
-    running = [
-        job
-        for job in jobs
-        if job.get("status") == "running"
-    ]
-
-    return {
-        "count": len(running),
-        "jobs": running,
-    }
+    except Exception:
+        logger.exception("Unable to fetch running jobs")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to fetch running jobs.",
+        )
 
 
 # ============================================================
@@ -407,5 +249,41 @@ async def running_jobs(
 # ============================================================
 
 @router.get("/health")
-async def scraper_health():
-    return await service.health_check()
+async def health():
+    """
+    Worker health check.
+    """
+    try:
+        return await service.health_check()
+
+    except Exception:
+        logger.exception("Health check failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Health check failed.",
+        )
+
+
+# ============================================================
+# RECOVER STUCK RUNS
+# ============================================================
+
+@router.post("/recover")
+async def recover_stuck_runs(
+    max_age_minutes: int = Query(60, ge=1),
+    current_user=Depends(get_current_admin),
+):
+    """
+    Recover scraper runs stuck in 'running' state.
+    """
+    try:
+        return await service.recover_stuck_jobs(
+            max_age_minutes=max_age_minutes,
+        )
+
+    except Exception:
+        logger.exception("Recovery failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Recovery failed.",
+        )
