@@ -46,6 +46,13 @@ class RunScrapersRequest(BaseModel):
 
 
 # =====================================================
+# VALID SOURCES
+# =====================================================
+
+VALID_SOURCES = ["autochek", "jiji", "cheki", "beepbeep"]
+
+
+# =====================================================
 # DASHBOARD STATUS
 # =====================================================
 
@@ -78,16 +85,26 @@ async def run_all_scrapers(
     current_user=Depends(get_current_admin),
 ):
     try:
-        sources = request.sources or [
-            "autochek",
-            "jiji",
-            "carapi",
-        ]
+        # Use provided sources or default to all valid sources
+        sources = request.sources or VALID_SOURCES
+        
+        # Filter to only valid sources
+        valid_sources = [s for s in sources if s in VALID_SOURCES]
+        
+        if not valid_sources:
+            raise HTTPException(
+                400,
+                f"No valid sources. Available: {', '.join(VALID_SOURCES)}"
+            )
+        
+        # Log warning for any invalid sources
+        invalid_sources = [s for s in sources if s not in VALID_SOURCES]
+        if invalid_sources:
+            logger.warning(f"Skipping invalid sources: {', '.join(invalid_sources)}")
 
         jobs = []
 
-        for source in sources:
-
+        for source in valid_sources:
             job_id = await service.start_scraper(
                 source=source,
                 pages=request.pages,
@@ -108,12 +125,14 @@ async def run_all_scrapers(
             "success": True,
             "status": "started",
             "job_ids": jobs,
-            "sources": sources,
+            "sources": valid_sources,
             "started_at": datetime.now(
                 timezone.utc
             ).isoformat(),
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Run scraper failed")
         raise HTTPException(500, str(e))
@@ -130,6 +149,12 @@ async def run_single_source(
     current_user=Depends(get_current_admin),
 ):
     try:
+        # Validate source
+        if source not in VALID_SOURCES:
+            raise HTTPException(
+                404,
+                f"Source '{source}' not found. Available: {', '.join(VALID_SOURCES)}"
+            )
 
         job_id = await service.start_scraper(
             source=source,
@@ -152,6 +177,8 @@ async def run_single_source(
             "status": "started",
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Single scraper failed")
         raise HTTPException(500, str(e))
@@ -167,6 +194,12 @@ async def start_scraper(
     background_tasks: BackgroundTasks,
 ):
     try:
+        # Validate source
+        if request.source not in VALID_SOURCES:
+            raise HTTPException(
+                400,
+                f"Invalid source '{request.source}'. Available: {', '.join(VALID_SOURCES)}"
+            )
 
         job_id = await service.start_scraper(
             source=request.source,
@@ -188,6 +221,8 @@ async def start_scraper(
             "status": "queued",
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Start scraper failed")
         raise HTTPException(500, str(e))
