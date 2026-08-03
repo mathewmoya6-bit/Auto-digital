@@ -2,25 +2,291 @@
 # Auto-D Kenya - M-Pesa STK Push
 # ================================================================
 # TYPE: MODULE - M-Pesa STK Push logic
+#
+# Fixes applied this pass:
+#   1.  _post_with_retry() now refreshes an expired OAuth token on a 401
+#       and retries the same request once, instead of hard-failing
+#   2.  Notification + audit-log writes inside the unlock transaction are
+#       now fire-and-forget background tasks — a slow/failed notification
+#       can no longer make a successful unlock look like it failed
+#   4.  mpesa_callback_replays now self-prunes rows older than
+#       REPLAY_RETENTION_DAYS (same random-sampling pattern as the
+#       existing payment_logs cleanup)
+#   5.  Service cache is a bounded cachetools.TTLCache (maxsize=500)
+#       instead of an unbounded dict
+#   6.  Audit-log writes (_log_payment_event) throughout the callback path
+#       are now background tasks so they can't add latency before this
+#       service responds to Safaricom
+#   7.  Notification creation uses upsert() instead of insert + catch
+#       duplicate-key
+#   9.  Retry backoff now uses wait_random_exponential (jittered) instead
+#       of a fixed exponential ladder, to avoid retry storms
+#   10. generate_callback_signature() docstring now explicitly says it's
+#       unused and why — Safaricom doesn't sign callbacks, so there was
+#       nothing on the other end to check it against
+#
+# NOT changed in this file (needs infra/DB, documented in comments below):
+#   3.  UNIQUE constraint on payments.checkout_request_id — add via
+#       migration, this file already treats it as unique
+#   8.  Currency validation on callback_amount — add once you confirm
+#       whether/how currency is stored on payments/services
+#   11. unlock_paid_service RPC should use SELECT ... FOR UPDATE — that's
+#       inside the Postgres function body, not this file
+#
+# Previously applied fixes (kept):
+#   - HTTP retry wraps STK push + status-query calls
+#   - Replay protection is DB-backed (persists across restarts/instances)
+#   - Logging uses plain f-strings, not extra={} dicts
+#   - _upsert_user_service() uses a real DB-level upsert (ON CONFLICT)
+#   - Health check pings a dedicated no-op RPC instead of calling
+#     unlock_paid_service with fake data
+#   - Removed duplicate user_services creation in initiate_push()
+#   - verify_payment_status() is read-only (no database writes)
+#   - callback_amount validation
+#   - payment_logs retention policy
+#   - notification creation is idempotent
+#   - PaymentContext correlation object for structured logging
 
+import asyncio
 import base64
+import hashlib
+import hmac
 import logging
+import math
 import secrets
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+import string
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+from typing import Optional, Dict, Any, Tuple
+from dataclasses import dataclass
 
 import httpx
+from cachetools import TTLCache
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_random_exponential,
+    retry_if_exception,
+)
 
 from app.core.config import settings
-from app.core.exceptions import AppException
+from app.core.exceptions import AppException, NotFoundException, ValidationException
 from app.core.database import get_supabase
 
 logger = logging.getLogger(__name__)
 
+# ─── CONSTANTS ──────────────────────────────────────────────
+
+class PaymentStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+    UNKNOWN = "unknown"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in (
+            PaymentStatus.COMPLETED,
+            PaymentStatus.FAILED,
+            PaymentStatus.CANCELLED,
+            PaymentStatus.EXPIRED,
+        )
+
+
+class UnlockStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class ServiceStatus(str, Enum):
+    ACTIVE = "active"
+    PENDING = "pending"
+    EXPIRED = "expired"
+    INACTIVE = "inactive"
+
+
+# ─── CONFIGURATION ──────────────────────────────────────────
+
+HTTP_TIMEOUT = 30.0
+MAX_RETRIES = 3
+RETRY_WAIT_MIN = 2
+RETRY_WAIT_MAX = 30
+DESCRIPTION_MAX_LENGTH = 100
+ACCESS_TOKEN_EXPIRY_OFFSET = 60
+DEFAULT_EXPIRY_DAYS = 365
+STALE_PAYMENT_HOURS = 24
+MAX_CONNECTIONS = 20
+MAX_KEEPALIVE = 10
+MINIMUM_AMOUNT = 1
+ACCOUNT_REFERENCE_LENGTH = 12
+ACCOUNT_REFERENCE_ALPHABET = string.ascii_uppercase + string.digits
+LOG_RETENTION_DAYS = 180
+CALLBACK_SIGNATURE_TTL = 300  # 5 minutes, in-memory fast-path cache only
+SERVICE_CACHE_TTL = 300  # 5 minutes
+SERVICE_CACHE_MAXSIZE = 500  # fix #5: bounded, so a huge catalog can't grow this unbounded
+REPLAY_RETENTION_DAYS = 30  # fix #4: mpesa_callback_replays rows older than this get purged
+
+# Table names
+TABLE_PAYMENTS = "payments"
+TABLE_USER_SERVICES = "user_services"
+TABLE_SERVICES = "services"
+TABLE_PAYMENT_LOGS = "payment_logs"
+TABLE_NOTIFICATIONS = "notifications"
+TABLE_CALLBACK_REPLAYS = "mpesa_callback_replays"  # NEW — see migration note below
+
+# Safaricom constants
+TRANSACTION_TYPE = "CustomerPayBillOnline"
+
+# Retryable HTTP status codes
+RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
+NON_RETRYABLE_HTTP_STATUS = {400, 401, 403, 404}
+
+
+# ─── DATA CLASSES FOR STRUCTURED LOGGING ──────────────────
+
+@dataclass
+class PaymentContext:
+    """Correlation context for payment operations."""
+    checkout_request_id: str
+    merchant_request_id: str = ""
+    payment_id: int = 0
+    user_id: str = ""
+    service_id: int = 0
+    amount: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "checkout_request_id": self.checkout_request_id,
+            "merchant_request_id": self.merchant_request_id,
+            "payment_id": self.payment_id,
+            "user_id": self.user_id,
+            "service_id": self.service_id,
+            "amount": self.amount,
+        }
+
+    def __str__(self) -> str:
+        d = self.to_dict()
+        return " ".join(f"{k}={v}" for k, v in d.items())
+
+
+# ─── PHONE VALIDATION ──────────────────────────────────────
+
+def normalize_phone(phone: str) -> str:
+    """Normalize phone number to 254 format."""
+    cleaned = ''.join(filter(str.isdigit, phone))
+    if not cleaned:
+        raise ValidationException("Phone number is empty")
+
+    if cleaned.startswith('2540'):
+        cleaned = cleaned.replace('2540', '254', 1)
+
+    if cleaned.startswith('0'):
+        cleaned = cleaned[1:]
+
+    if cleaned.startswith('254'):
+        normalized = cleaned
+    else:
+        normalized = f"254{cleaned}"
+
+    if len(normalized) != 12:
+        raise ValidationException(f"Phone number must be 12 digits, got {len(normalized)}")
+
+    if not (normalized.startswith('2547') or normalized.startswith('2541')):
+        raise ValidationException(f"Phone must start with 2547 or 2541, got {normalized[:4]}")
+
+    return normalized
+
+
+def mask_sensitive(value: str, visible: int = 4) -> str:
+    """Mask sensitive values for logging."""
+    if not value:
+        return "***"
+    if len(value) <= visible * 2:
+        return value[:2] + "***" + value[-2:]
+    return f"{value[:visible]}...{value[-visible:]}"
+
+
+def generate_account_reference(service_name: str = "", user_id: str = "") -> str:
+    """
+    Generate a meaningful account reference for support.
+    Format: {prefix}-{random}
+    """
+    if service_name:
+        prefix = service_name[:3].upper()
+    elif user_id:
+        prefix = user_id[:3].upper()
+    else:
+        prefix = "PAY"
+
+    random_part = ''.join(secrets.choice(ACCOUNT_REFERENCE_ALPHABET) for _ in range(8))
+    return f"{prefix}-{random_part}"
+
+
+def generate_callback_signature(checkout_request_id: str, timestamp: str) -> str:
+    """
+    fix #10: kept for backward compatibility, but NOT wired into the
+    callback path — and it shouldn't be, without more infrastructure.
+
+    Safaricom does not sign its STK callbacks with an HMAC of any kind, so
+    there's nothing on the receiving end to verify this signature against
+    unless you're running your own reverse proxy that independently signs
+    requests before they hit this service. Calling this function and
+    checking its output against an incoming callback would just be
+    comparing two values this service generated itself, which verifies
+    nothing.
+
+    The real protections against forged/malicious callbacks, already in
+    place across router.py + this file, are:
+      - a shared secret on the callback URL itself (query param, checked
+        in router.py before the body is even parsed)
+      - matching CheckoutRequestID to an existing, known payment record
+      - verifying MerchantRequestID matches what was issued at STK-push
+        time (see process_callback())
+      - validating the callback amount against the expected amount
+      - refusing to reprocess a payment that's already in a terminal
+        status (idempotency)
+      - DB-backed replay detection (see _is_replay())
+
+    If you later put this behind a reverse proxy that signs requests with
+    a shared key, THIS function becomes genuinely useful — call it there
+    to generate the signature, and verify it in router.py before this
+    function is ever reached. Until then, don't call it.
+    """
+    message = f"{checkout_request_id}:{timestamp}"
+    return hmac.new(
+        settings.MPESA_CALLBACK_SECRET.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+
+def _is_retryable_http_error(exc: BaseException) -> bool:
+    """fix #16: shared predicate for what counts as a transient, retryable
+    failure — connection-level issues, plus specific 429/5xx status codes.
+    Anything else (4xx auth/validation errors) is NOT retried."""
+    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError, ConnectionError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in RETRYABLE_HTTP_STATUS
+    return False
+
+
+# ─── HELPER: Async DB operations ──────────────────────────
+
+async def execute_supabase_async(query_func, *args, **kwargs):
+    """Execute Supabase query in thread to avoid blocking."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: query_func(*args, **kwargs))
+
+
+# ─── STK PUSH SERVICE ─────────────────────────────────────
 
 class StkPushService:
     """M-Pesa STK Push service with payment verification."""
-    
+
     def __init__(self):
         self.supabase = get_supabase()
         self.consumer_key = settings.MPESA_CONSUMER_KEY
@@ -28,132 +294,595 @@ class StkPushService:
         self.passkey = settings.MPESA_PASSKEY
         self.shortcode = settings.MPESA_SHORTCODE
         self.callback_url = settings.MPESA_CALLBACK_URL
-        
+        self.callback_secret = settings.MPESA_CALLBACK_SECRET
+
         self.base_url = (
             "https://api.safaricom.co.ke"
             if settings.MPESA_ENVIRONMENT == "production"
             else "https://sandbox.safaricom.co.ke"
         )
-        
+
+        self.access_token: Optional[str] = None
+        self.token_expiry: Optional[datetime] = None
+        self._token_lock = asyncio.Lock()
+        self._closed = False
+
+        # HTTP client with connection pooling
+        self._client = None
+        self._client_lock = asyncio.Lock()
+
+        # Cache for service data — fix #5: bounded TTLCache instead of a
+        # plain dict, so a catalog with thousands of services can't grow
+        # this unbounded. Handles expiry internally too.
+        self._service_cache: TTLCache = TTLCache(maxsize=SERVICE_CACHE_MAXSIZE, ttl=SERVICE_CACHE_TTL)
+
+        # Cache for active column detection
+        self._service_active_column: Optional[str] = None
+        self._service_column_lock = asyncio.Lock()
+
+        # In-memory replay fast-path cache (see _is_replay for the
+        # authoritative, DB-backed check — this just avoids a DB round
+        # trip for the common case of Safaricom re-firing the same
+        # callback seconds apart on the *same* process/instance).
+        self._callback_cache: Dict[str, datetime] = {}
+        self._cache_lock = asyncio.Lock()
+
+        # fix #2 / #6: strong references for fire-and-forget background
+        # tasks (notifications, audit logging) so they aren't garbage
+        # collected mid-flight — asyncio only holds a weak reference to
+        # tasks created via create_task().
+        self._background_tasks: set = set()
+
+        # Validate configuration
+        self._validate_configuration()
+        self._log_configuration()
+
+    # ─── HEALTH CHECK ────────────────────────────────────────
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Comprehensive health check endpoint."""
+        health = {
+            "status": "healthy",
+            "checks": {},
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+        try:
+            # 1. Database connectivity
+            db_start = datetime.now()
+            try:
+                await execute_supabase_async(
+                    lambda: self.supabase.table(TABLE_PAYMENTS).select("id").limit(1).execute()
+                )
+                health["checks"]["database"] = {
+                    "status": "healthy",
+                    "response_time_ms": (datetime.now() - db_start).total_seconds() * 1000
+                }
+            except Exception as e:
+                health["checks"]["database"] = {"status": "unhealthy", "error": str(e)}
+                health["status"] = "degraded"
+
+            # 2. OAuth token
+            try:
+                token_start = datetime.now()
+                await self._get_access_token()
+                health["checks"]["oauth"] = {
+                    "status": "healthy",
+                    "response_time_ms": (datetime.now() - token_start).total_seconds() * 1000
+                }
+            except Exception as e:
+                health["checks"]["oauth"] = {"status": "unhealthy", "error": str(e)}
+                health["status"] = "degraded"
+
+            # 3. RPC availability — fix #20: no longer calls unlock_paid_service
+            # with fabricated payment/user/service IDs. Even with p_payment_id=0,
+            # that's still a real invocation of a function that performs writes,
+            # which has no business running on every health check hit.
+            #
+            # Instead this pings a dedicated, side-effect-free function. Create
+            # it once in Supabase:
+            #
+            #   CREATE OR REPLACE FUNCTION mpesa_health_ping()
+            #   RETURNS boolean
+            #   LANGUAGE sql
+            #   AS $$ SELECT true; $$;
+            #
+            # If that function doesn't exist yet, this check reports "unknown"
+            # (not "unhealthy") so a missing ping-RPC doesn't page you at 2am.
+            try:
+                rpc_start = datetime.now()
+                await execute_supabase_async(
+                    lambda: self.supabase.rpc("mpesa_health_ping", {}).execute()
+                )
+                health["checks"]["rpc"] = {
+                    "status": "healthy",
+                    "response_time_ms": (datetime.now() - rpc_start).total_seconds() * 1000
+                }
+            except Exception as e:
+                health["checks"]["rpc"] = {
+                    "status": "unknown",
+                    "message": "mpesa_health_ping RPC not found — see health_check() docstring/comment to add it",
+                    "error": str(e)
+                }
+                # Deliberately NOT downgrading overall status for this one —
+                # it's a missing convenience probe, not a real outage signal.
+
+            # 4. Services table readable
+            try:
+                services_start = datetime.now()
+                await self._get_service_active_column()
+                health["checks"]["services_table"] = {
+                    "status": "healthy",
+                    "response_time_ms": (datetime.now() - services_start).total_seconds() * 1000
+                }
+            except Exception as e:
+                health["checks"]["services_table"] = {"status": "unhealthy", "error": str(e)}
+                health["status"] = "degraded"
+
+            # 5. Callback URL configured
+            if self.callback_url and "localhost" not in self.callback_url:
+                health["checks"]["callback_url"] = {"status": "healthy", "url_configured": True}
+            else:
+                health["checks"]["callback_url"] = {
+                    "status": "warning",
+                    "url_configured": False,
+                    "message": "Callback URL is not set or uses localhost"
+                }
+
+        except Exception as e:
+            health["status"] = "unhealthy"
+            health["error"] = str(e)
+
+        return health
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create HTTP client with connection pooling."""
+        if self._closed:
+            raise RuntimeError("Service is closed")
+        async with self._client_lock:
+            if self._client is None or self._client.is_closed:
+                self._client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(HTTP_TIMEOUT),
+                    limits=httpx.Limits(
+                        max_connections=MAX_CONNECTIONS,
+                        max_keepalive_connections=MAX_KEEPALIVE
+                    )
+                )
+            return self._client
+
+    async def close(self) -> None:
+        """Close HTTP client session."""
+        self._closed = True
+        async with self._client_lock:
+            if self._client and not self._client.is_closed:
+                await self._client.aclose()
+                logger.info("HTTP client closed")
+            self._client = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+
+    def _spawn_background(self, coro) -> asyncio.Task:
+        """fix #2 / #6: run a coroutine (notification creation, audit
+        logging) without making the caller wait for it. Keeps a strong
+        reference in self._background_tasks until it finishes so it can't
+        be silently garbage-collected mid-flight, and logs (rather than
+        raises) if the task itself errors — a background log/notification
+        failure should never surface as an error to whoever's awaiting the
+        payment flow."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+
+        def _on_done(t: asyncio.Task):
+            self._background_tasks.discard(t)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc:
+                logger.error(f"Background task failed | error={exc}")
+
+        task.add_done_callback(_on_done)
+        return task
+
+    def _validate_configuration(self) -> None:
+        """Validate M-Pesa configuration at startup."""
+        errors = []
+        if not self.consumer_key:
+            errors.append("MPESA_CONSUMER_KEY")
+        if not self.consumer_secret:
+            errors.append("MPESA_CONSUMER_SECRET")
+        if not self.passkey:
+            errors.append("MPESA_PASSKEY")
+        if not self.shortcode:
+            errors.append("MPESA_SHORTCODE")
+        if not self.callback_url:
+            errors.append("MPESA_CALLBACK_URL")
+        if not self.callback_secret:
+            errors.append("MPESA_CALLBACK_SECRET")
+
+        if errors:
+            raise AppException(f"M-Pesa configuration incomplete: {', '.join(errors)}", 500)
+
+    def _log_configuration(self) -> None:
+        """Log M-Pesa configuration."""
+        callback_host = self.callback_url.split("/")[2] if "://" in self.callback_url else "unset"
+        # fix #18: plain f-string instead of extra={} — see module docstring.
+        logger.info(
+            f"M-Pesa configuration loaded | environment={settings.MPESA_ENVIRONMENT} "
+            f"base_url={self.base_url} shortcode={self.shortcode} callback_host={callback_host}"
+        )
+
+    def _get_expiry_date(self, expiry_days: Optional[int] = None) -> str:
+        """Get expiry date for service access."""
+        days = expiry_days if expiry_days and expiry_days > 0 else DEFAULT_EXPIRY_DAYS
+        return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
+    # ─── TOKEN MANAGEMENT ────────────────────────────────────
+
+    def _token_is_fresh(self) -> bool:
+        if not (self.access_token and self.token_expiry):
+            return False
+        buffer_time = timedelta(seconds=ACCESS_TOKEN_EXPIRY_OFFSET)
+        return datetime.now(timezone.utc) < (self.token_expiry - buffer_time)
+
+    @retry(
+        stop=stop_after_attempt(MAX_RETRIES),
+        # fix #9: wait_random_exponential adds jitter (multiplier is randomized
+        # per attempt) instead of a deterministic 2/4/8s ladder — this stops
+        # every failing instance from retrying in lockstep and hammering
+        # Safaricom's API at the exact same moments (a "retry storm").
+        wait=wait_random_exponential(multiplier=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
+        retry=retry_if_exception(_is_retryable_http_error),
+        reraise=True
+    )
+    async def _get_access_token(self) -> str:
+        """Get OAuth access token, with double-checked locking."""
+        if self._token_is_fresh():
+            return self.access_token
+
+        async with self._token_lock:
+            if self._token_is_fresh():
+                logger.debug("Using token refreshed by a concurrent request")
+                return self.access_token
+
+            auth = base64.b64encode(
+                f"{self.consumer_key}:{self.consumer_secret}".encode()
+            ).decode()
+
+            url = f"{self.base_url}/oauth/v1/generate?grant_type=client_credentials"
+            logger.info("Requesting new OAuth token")
+
+            try:
+                client = await self._get_client()
+                response = await client.get(
+                    url,
+                    headers={"Authorization": f"Basic {auth}", "Accept": "application/json"}
+                )
+
+                if response.status_code == 401:
+                    logger.error("OAuth failed: Invalid credentials (401)")
+                    self.clear_token_cache()
+                    raise AppException("M-Pesa OAuth credentials invalid", 401)
+
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 401:
+                    self.clear_token_cache()
+                    raise AppException("M-Pesa OAuth credentials invalid", 401)
+                raise
+
+            data = response.json()
+            token = data.get("access_token")
+            if not token:
+                error_msg = data.get("error", data.get("error_description", "Unknown error"))
+                raise AppException(f"OAuth failed: {error_msg}", 503)
+
+            expires_in = int(data.get("expires_in", 3600))
+            self.access_token = token
+            self.token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+            logger.info(f"OAuth token obtained | expires_in_seconds={expires_in}")
+            return token
+
+    def clear_token_cache(self) -> None:
+        """Clear the cached access token to force refresh."""
         self.access_token = None
         self.token_expiry = None
-        
-        # Log configuration at startup
-        self._log_configuration()
-    
-    def _log_configuration(self) -> None:
-        """Log M-Pesa configuration for debugging."""
-        logger.info(f"=== M-Pesa Configuration ===")
-        logger.info(f"Environment: {settings.MPESA_ENVIRONMENT}")
-        logger.info(f"Base URL: {self.base_url}")
-        logger.info(f"Shortcode: {self.shortcode}")
-        logger.info(f"Callback URL: {self.callback_url}")
-        logger.info(f"Consumer Key Present: {bool(self.consumer_key)}")
-        logger.info(f"Consumer Secret Present: {bool(self.consumer_secret)}")
-        logger.info(f"Passkey Present: {bool(self.passkey)}")
-        logger.info(f"============================")
-    
-    async def _get_access_token(self) -> str:
-        """
-        Get OAuth access token using GET request.
-        
-        Returns:
-            str: Access token
-            
-        Raises:
-            AppException: If token retrieval fails
-        """
-        # Check cached token
-        if self.access_token and self.token_expiry and datetime.utcnow() < self.token_expiry:
-            logger.debug("Using cached access token (valid until {})".format(
-                self.token_expiry.isoformat()
-            ))
-            return self.access_token
-        
-        # Prepare authentication
-        auth = base64.b64encode(
-            f"{self.consumer_key}:{self.consumer_secret}".encode()
-        ).decode()
-        
-        url = f"{self.base_url}/oauth/v1/generate?grant_type=client_credentials"
-        
-        logger.info(f"Requesting OAuth token from: {url}")
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                url,
-                headers={
-                    "Authorization": f"Basic {auth}",
-                    "Accept": "application/json"
-                },
-                timeout=30.0
-            )
-        
-        # Log response details
-        logger.info(f"OAuth Status: {response.status_code}")
-        logger.info(f"OAuth Body: {response.text[:500]}...")
-        
-        # Check response status
+        logger.info("Token cache cleared")
+
+    # ─── RETRYABLE HTTP POST (fix #16) ──────────────────────
+    # Both the STK push initiation and the status query hit this. Transient
+    # 429/500/502/503/504 responses and connection-level failures are
+    # retried with exponential backoff; anything else (400/401/403/404,
+    # or a successful 2xx) passes straight through on the first attempt.
+
+    @retry(
+        stop=stop_after_attempt(MAX_RETRIES),
+        wait=wait_random_exponential(multiplier=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),  # fix #9: jittered
+        retry=retry_if_exception(_is_retryable_http_error),
+        reraise=True
+    )
+    async def _post_with_retry(self, url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> httpx.Response:
+        client = await self._get_client()
+        response = await client.post(url, headers=headers, json=payload)
+
+        # fix #1: Safaricom's token can expire slightly earlier than the
+        # `expires_in` value it originally quoted us, so _token_is_fresh()
+        # can say "fine" right before a call comes back 401. Rather than
+        # let that propagate as a hard failure (it's not in
+        # RETRYABLE_HTTP_STATUS, so the @retry decorator above won't touch
+        # it), refresh the token once here and retry the same request
+        # immediately with the new one.
+        if response.status_code == 401:
+            logger.warning("Got 401 from Safaricom mid-request — refreshing token and retrying once")
+            self.clear_token_cache()
+            new_token = await self._get_access_token()
+            headers = dict(headers)
+            headers["Authorization"] = f"Bearer {new_token}"
+            response = await client.post(url, headers=headers, json=payload)
+
         response.raise_for_status()
-        
-        # Parse JSON safely
+        return response
+
+    # ─── SERVICE CACHE ──────────────────────────────────────
+
+    async def _get_cached_service(self, service_id: int) -> Optional[Dict[str, Any]]:
+        """Get service from cache or database. TTLCache handles both
+        expiry and max-size eviction internally now (fix #5)."""
+        cached = self._service_cache.get(service_id)
+        if cached is not None:
+            return cached
+
         try:
-            data = response.json()
-        except ValueError as e:
-            logger.error(f"OAuth returned non-JSON response: {response.text}")
-            raise AppException(
-                f"OAuth returned non-JSON response: {response.text[:200]}",
-                503
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_SERVICES).select("*").eq("id", service_id).maybe_single().execute()
             )
-        
-        # Safe token extraction with validation
-        token = data.get("access_token")
-        
-        if not token:
-            error_msg = data.get("error", data.get("error_description", "Unknown error"))
-            logger.error(f"OAuth error: {error_msg}")
-            raise AppException(
-                f"OAuth failed: {error_msg}",
-                503
-            )
-        
-        # Safely parse expires_in with type checking
+            if result.data:
+                self._service_cache[service_id] = result.data
+                return result.data
+        except Exception as e:
+            logger.error(f"Error fetching service | service_id={service_id} error={e}")
+
+        return None
+
+    # ─── REPLAY PROTECTION (fix #17) ────────────────────────
+    # In-memory cache is a fast-path only; it does NOT survive restarts,
+    # deploys, or multiple Render instances. The database check below is
+    # the actual source of truth.
+    #
+    # Requires a migration once:
+    #
+    #   CREATE TABLE IF NOT EXISTS mpesa_callback_replays (
+    #       checkout_request_id text PRIMARY KEY,
+    #       processed_at timestamptz NOT NULL DEFAULT now()
+    #   );
+    #
+    # (Also fine to skip this table and rely purely on the existing
+    # "payment already terminal" idempotency check in process_callback() —
+    # that check is itself DB-backed and closes most of the same gap.
+    # This adds a second, independent layer specifically against exact
+    # duplicate callback replays arriving before the payment row updates.)
+
+    async def _is_replay(self, checkout_request_id: str) -> bool:
+        """Returns True if this checkout_request_id has already been seen —
+        checks the fast in-memory cache first, then the DB as the
+        authoritative record. Records the ID as seen either way."""
+        now = datetime.now(timezone.utc)
+
+        async with self._cache_lock:
+            expired = [
+                k for k, v in self._callback_cache.items()
+                if now - v > timedelta(seconds=CALLBACK_SIGNATURE_TTL)
+            ]
+            for k in expired:
+                del self._callback_cache[k]
+
+            if checkout_request_id in self._callback_cache:
+                return True
+
+            self._callback_cache[checkout_request_id] = now
+
         try:
-            expires_in = int(data.get("expires_in", 3600))
-        except (TypeError, ValueError):
-            logger.warning(f"Invalid expires_in value: {data.get('expires_in')}, using default 3600")
-            expires_in = 3600
-        
-        # Store token with expiry
-        self.access_token = token
-        self.token_expiry = datetime.utcnow() + timedelta(seconds=expires_in)
-        
-        logger.info(f"OAuth token obtained successfully, expires in {expires_in}s")
-        logger.debug(f"Token will expire at: {self.token_expiry.isoformat()}")
-        
-        return token
-    
-    def _generate_password(self, timestamp: str) -> str:
-        """Generate password for STK push."""
-        password_str = f"{self.shortcode}{self.passkey}{timestamp}"
-        return base64.b64encode(password_str.encode()).decode()
-    
-    def _normalize_phone(self, phone: str) -> str:
-        """Normalize phone number to 254 format."""
-        # Remove any non-digit characters
-        phone = ''.join(filter(str.isdigit, phone))
-        
-        # If it starts with 0, remove it
-        if phone.startswith('0'):
-            phone = phone[1:]
-        
-        # If it starts with 254, keep as is
-        if phone.startswith('254'):
-            return phone
-        
-        # Otherwise prepend 254
-        return f"254{phone}"
-    
+            await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_CALLBACK_REPLAYS).insert({
+                    "checkout_request_id": checkout_request_id,
+                    "processed_at": now.isoformat()
+                }).execute()
+            )
+            # fix #4: same random-sampling pattern as _cleanup_old_logs —
+            # avoid running a DELETE on every single callback, but make sure
+            # it happens regularly so this table doesn't grow forever.
+            if secrets.randbelow(100) < 5:  # 5% chance
+                self._spawn_background(self._cleanup_old_replays())
+            return False
+        except Exception as e:
+            if "duplicate key" in str(e).lower() or "23505" in str(e):
+                return True
+            # Table missing, or any other DB error: don't block real payment
+            # processing on this secondary safeguard — fall back to relying
+            # on the in-memory cache + the terminal-status idempotency check
+            # further down in process_callback().
+            logger.warning(
+                f"Replay-protection DB check failed, continuing on in-memory cache only | "
+                f"checkout_request_id={mask_sensitive(checkout_request_id)} error={e}"
+            )
+            return False
+
+    # ─── DATABASE HELPERS (Async) ──────────────────────────
+
+    async def _log_payment_event(
+        self,
+        checkout_request_id: str,
+        event_type: str,
+        details: Dict[str, Any]
+    ) -> None:
+        """Log payment event with automatic retention."""
+        try:
+            log_data = {
+                "checkout_request_id": checkout_request_id,
+                "event_type": event_type,
+                "details": details,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENT_LOGS).insert(log_data).execute()
+            )
+
+            if secrets.randbelow(100) < 5:  # 5% chance, avoid running every call
+                await self._cleanup_old_logs()
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to log payment event | checkout_request_id={mask_sensitive(checkout_request_id)} "
+                f"event_type={event_type} error={e}"
+            )
+
+    async def _cleanup_old_logs(self) -> None:
+        """Delete payment logs older than LOG_RETENTION_DAYS."""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=LOG_RETENTION_DAYS)
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENT_LOGS).delete().lt("created_at", cutoff.isoformat()).execute()
+            )
+            if result.data:
+                logger.info(f"Cleaned up old payment logs | count={len(result.data)}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup old logs | error={e}")
+
+    async def _cleanup_old_replays(self) -> None:
+        """fix #4: delete mpesa_callback_replays rows older than
+        REPLAY_RETENTION_DAYS. This table only needs to be long enough to
+        catch genuine duplicate deliveries (Safaricom retries within
+        minutes/hours, not weeks), so 30 days is generous headroom."""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=REPLAY_RETENTION_DAYS)
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_CALLBACK_REPLAYS).delete().lt(
+                    "processed_at", cutoff.isoformat()
+                ).execute()
+            )
+            if result.data:
+                logger.info(f"Cleaned up old callback replay records | count={len(result.data)}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup old replay records | error={e}")
+
+    async def _create_notification(
+        self,
+        user_id: str,
+        title: str,
+        message: str,
+        notification_type: str = "info",
+        reference_id: Optional[str] = None,
+    ) -> None:
+        """
+        Create a notification for a user.
+
+        fix #7: uses Supabase's upsert() instead of insert-then-catch-
+        duplicate-key. Simpler, and it's one round trip instead of
+        (sometimes) two.
+
+        REQUIRES a unique constraint matching the on_conflict columns below.
+        If your notifications table doesn't have one yet:
+
+          ALTER TABLE notifications
+          ADD CONSTRAINT notifications_user_reference_type_unique
+          UNIQUE (user_id, reference_id, type);
+
+        Adjust the columns/on_conflict to match whatever actually makes a
+        notification "the same" in your schema — this assumes one
+        notification per (user, reference_id, type) combo, e.g. one
+        "service_unlocked" notification per user per checkout_request_id.
+        """
+        try:
+            notification_data = {
+                "user_id": user_id,
+                "title": title,
+                "message": message,
+                "type": notification_type,
+                "reference_id": reference_id,
+                "is_read": False,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_NOTIFICATIONS).upsert(
+                    notification_data, on_conflict="user_id,reference_id,type"
+                ).execute()
+            )
+            logger.info(f"Notification created | user_id={user_id} title={title}")
+
+        except Exception as e:
+            logger.warning(f"Failed to create notification | user_id={user_id} error={e}")
+
+    async def _get_payment_record(self, checkout_request_id: str) -> Optional[Dict[str, Any]]:
+        """Get payment record from database."""
+        try:
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENTS).select("*").eq(
+                    "checkout_request_id", checkout_request_id
+                ).maybe_single().execute()
+            )
+            return result.data
+        except Exception as e:
+            logger.error(
+                f"Error getting payment record | checkout_request_id={mask_sensitive(checkout_request_id)} error={e}"
+            )
+            return None
+
+    async def _update_payment_status(
+        self,
+        checkout_request_id: str,
+        result_code: str,
+        result_desc: str,
+        data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Update payment record with status from a manual status query.
+        NOTE: This should only be used for non-terminal statuses."""
+        try:
+            current = await self._get_payment_record(checkout_request_id)
+            if current and PaymentStatus(current.get("status", PaymentStatus.UNKNOWN.value)).is_terminal:
+                logger.info(
+                    f"Skipping status update — payment already terminal | "
+                    f"checkout_request_id={mask_sensitive(checkout_request_id)} "
+                    f"current_status={current.get('status')}"
+                )
+                return current
+
+            status = self._map_result_code_to_status(result_code)
+            now = datetime.now(timezone.utc).isoformat()
+
+            update_data = {
+                "status": status.value,
+                "result_code": result_code,
+                "result_desc": result_desc,
+                "updated_at": now
+            }
+
+            if str(result_code) == "0":
+                update_data["mpesa_receipt"] = data.get("MpesaReceiptNumber")
+                update_data["transaction_id"] = checkout_request_id
+                update_data["completed_at"] = now
+
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENTS).update(update_data).eq(
+                    "checkout_request_id", checkout_request_id
+                ).execute()
+            )
+
+            self._spawn_background(self._log_payment_event(
+                checkout_request_id, "status_update", {"status": status.value, "result_code": result_code}
+            ))
+
+            return result.data[0] if result.data else None
+
+        except Exception as e:
+            logger.error(
+                f"Error updating payment status | checkout_request_id={mask_sensitive(checkout_request_id)} error={e}"
+            )
+            return None
+
     async def _create_payment_record(
         self,
         checkout_request_id: str,
@@ -161,11 +890,22 @@ class StkPushService:
         amount: float,
         phone: str,
         user_id: Optional[str],
-        service_id: Optional[str],
+        service_id: Optional[int],
         description: str
-    ) -> None:
-        """Create a payment record in the database."""
+    ) -> Dict[str, Any]:
+        """Create a payment record with idempotency check."""
         try:
+            existing = await self._get_payment_record(checkout_request_id)
+            if existing:
+                logger.info(f"Payment already exists | checkout_request_id={mask_sensitive(checkout_request_id)}")
+                return existing
+
+            if service_id:
+                service = await self._get_cached_service(service_id)
+                if not service:
+                    raise NotFoundException(f"Service {service_id} not found")
+
+            now = datetime.now(timezone.utc).isoformat()
             payment_data = {
                 "checkout_request_id": checkout_request_id,
                 "merchant_request_id": merchant_request_id,
@@ -173,48 +913,242 @@ class StkPushService:
                 "phone": phone,
                 "user_id": user_id,
                 "service_id": service_id,
-                "description": description,
-                "status": "pending",
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
+                "description": description[:DESCRIPTION_MAX_LENGTH],
+                "status": PaymentStatus.PENDING.value,
+                "unlock_status": UnlockStatus.PENDING.value,
+                "created_at": now,
+                "updated_at": now
             }
-            
-            result = self.supabase.table("payments").insert(payment_data).execute()
-            logger.info(f"Payment record created: {checkout_request_id}")
-            
+
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENTS).insert(payment_data).execute()
+            )
+
+            self._spawn_background(self._log_payment_event(
+                checkout_request_id, "payment_created", {"amount": amount, "service_id": service_id}
+            ))
+
+            return result.data[0]
+
         except Exception as e:
-            logger.error(f"Failed to create payment record: {e}")
-            # Don't raise - the STK push already succeeded
-    
-    async def _create_user_service_record(
+            logger.error(
+                f"Failed to create payment record | checkout_request_id={mask_sensitive(checkout_request_id)} error={e}"
+            )
+            raise
+
+    async def _get_service_active_column(self) -> str:
+        """Detect once whether the services table uses 'active' or 'is_active'."""
+        if self._service_active_column:
+            return self._service_active_column
+
+        async with self._service_column_lock:
+            if self._service_active_column:
+                return self._service_active_column
+
+            try:
+                result = await execute_supabase_async(
+                    lambda: self.supabase.table(TABLE_SERVICES).select("*").limit(1).execute()
+                )
+                if result.data:
+                    columns = result.data[0].keys()
+                    if "is_active" in columns:
+                        self._service_active_column = "is_active"
+                    elif "active" in columns:
+                        self._service_active_column = "active"
+                    else:
+                        self._service_active_column = "active"
+                else:
+                    self._service_active_column = "active"
+            except Exception as e:
+                logger.warning(f"Could not detect services active-column, defaulting to 'active' | error={e}")
+                self._service_active_column = "active"
+
+            return self._service_active_column
+
+    async def _validate_service(self, service_id: int) -> Optional[Dict[str, Any]]:
+        """Validate that a service exists and is active."""
+        try:
+            active_column = await self._get_service_active_column()
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_SERVICES).select("*").eq(
+                    "id", service_id
+                ).eq(active_column, True).maybe_single().execute()
+            )
+            return result.data if result.data else None
+        except Exception as e:
+            logger.error(f"Error validating service | service_id={service_id} error={e}")
+            return None
+
+    async def _upsert_user_service(
         self,
         user_id: str,
-        service_id: str,
+        service_id: int,
         payment_id: int,
-        expires_at: Optional[datetime] = None
-    ) -> None:
-        """Create a user service access record."""
+        expiry_days: Optional[int] = None,
+        mpesa_receipt: Optional[str] = None,
+        transaction_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        fix #19: real atomic upsert via Supabase's .upsert(), which issues a
+        single `INSERT ... ON CONFLICT (...) DO UPDATE` at the Postgres level
+        instead of the previous update-then-insert-then-update dance (which
+        had a real race window between the failed UPDATE and the INSERT).
+
+        REQUIRES a unique constraint on (user_id, service_id) in
+        user_services — if you don't already have one:
+
+          ALTER TABLE user_services
+          ADD CONSTRAINT user_services_user_service_unique
+          UNIQUE (user_id, service_id);
+
+        `on_conflict` below must match that constraint's columns exactly.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        expires_at = self._get_expiry_date(expiry_days)
+
+        row = {
+            "user_id": user_id,
+            "service_id": service_id,
+            "payment_id": payment_id,
+            "status": ServiceStatus.ACTIVE.value,
+            "expires_at": expires_at,
+            "mpesa_receipt": mpesa_receipt,
+            "transaction_id": transaction_id,
+            "updated_at": now,
+        }
+
         try:
-            # Set default expiry (1 year from now)
-            if not expires_at:
-                expires_at = datetime.utcnow() + timedelta(days=365)
-            
-            service_data = {
-                "user_id": user_id,
-                "service_id": service_id,
-                "payment_id": payment_id,
-                "status": "pending",
-                "expires_at": expires_at.isoformat(),
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
-            }
-            
-            result = self.supabase.table("user_services").insert(service_data).execute()
-            logger.info(f"User service record created: user={user_id}, service={service_id}")
-            
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_USER_SERVICES).upsert(
+                    row, on_conflict="user_id,service_id"
+                ).execute()
+            )
+            if result.data:
+                return result.data[0]
+            return row
+
         except Exception as e:
-            logger.error(f"Failed to create user service record: {e}")
-    
+            logger.error(
+                f"Error upserting user service | user_id={user_id} service_id={service_id} error={e}"
+            )
+            raise
+
+    async def _atomic_unlock_transaction(
+        self,
+        checkout_request_id: str,
+        mpesa_receipt: Optional[str] = None,
+        callback_amount: Optional[float] = None
+    ) -> Tuple[bool, str]:
+        """Atomically mark the payment unlocked AND grant user_services access."""
+        try:
+            payment = await self._get_payment_record(checkout_request_id)
+            if not payment:
+                return False, "Payment record not found"
+
+            if payment.get("unlock_status") == UnlockStatus.COMPLETED.value:
+                return True, "Service already unlocked"
+
+            user_id = payment.get("user_id")
+            service_id = payment.get("service_id")
+            payment_id = payment.get("id")
+            expected_amount = payment.get("amount")
+
+            if callback_amount is not None:
+                if callback_amount <= 0:
+                    return False, f"Invalid callback amount: {callback_amount}"
+                if expected_amount and abs(float(callback_amount) - float(expected_amount)) > 0.01:
+                    return False, f"Amount mismatch: expected {expected_amount}, got {callback_amount}"
+
+            if not user_id or not service_id:
+                return False, f"Missing user_id or service_id: {checkout_request_id}"
+
+            service = await self._get_cached_service(service_id)
+            expiry_days = service.get("expiry_days") if service else None
+            expires_at = self._get_expiry_date(expiry_days)
+
+            try:
+                rpc_result = await execute_supabase_async(
+                    lambda: self.supabase.rpc(
+                        "unlock_paid_service",
+                        {
+                            "p_payment_id": payment_id,
+                            "p_user_id": user_id,
+                            "p_service_id": service_id,
+                            "p_mpesa_receipt": mpesa_receipt,
+                            "p_transaction_id": checkout_request_id,
+                            "p_callback_amount": callback_amount,
+                            "p_expires_at": expires_at,
+                        },
+                    ).execute()
+                )
+                already_unlocked = bool(rpc_result.data) and rpc_result.data is False
+                unlock_via_rpc = True
+            except Exception as rpc_error:
+                logger.warning(
+                    f"unlock_paid_service RPC unavailable, falling back to two-step unlock | "
+                    f"checkout_request_id={mask_sensitive(checkout_request_id)} error={rpc_error}"
+                )
+                unlock_via_rpc = False
+                already_unlocked = False
+
+            if not unlock_via_rpc:
+                now = datetime.now(timezone.utc).isoformat()
+                result = await execute_supabase_async(
+                    lambda: self.supabase.table(TABLE_PAYMENTS).update({
+                        "unlock_status": UnlockStatus.COMPLETED.value,
+                        "unlocked_at": now,
+                        "mpesa_receipt": mpesa_receipt,
+                        "callback_amount": callback_amount
+                    }).eq("id", payment_id).eq("unlock_status", UnlockStatus.PENDING.value).execute()
+                )
+                if not result.data:
+                    return True, "Service already unlocked (concurrent)"
+
+                await self._upsert_user_service(
+                    user_id=user_id,
+                    service_id=service_id,
+                    payment_id=payment_id,
+                    expiry_days=expiry_days,
+                    mpesa_receipt=mpesa_receipt,
+                    transaction_id=checkout_request_id
+                )
+            elif already_unlocked:
+                return True, "Service already unlocked (concurrent)"
+
+            service_name = service.get("name", "Service") if service else "Service"
+
+            # fix #2 / #6: the payment/user_services rows are already
+            # durably written above (via the RPC, or the fallback
+            # update+upsert path) — that's the actual "unlock." A failed or
+            # slow notification insert must never make it look like the
+            # unlock itself failed, and it shouldn't add latency to the
+            # callback response either. Both go out as background tasks;
+            # their own internal try/except already logs failures.
+            self._spawn_background(self._create_notification(
+                user_id=user_id,
+                title=f"🎉 {service_name} Unlocked!",
+                message=f"Your {service_name} has been successfully unlocked. You can now access it from your dashboard.",
+                notification_type="service_unlocked",
+                reference_id=checkout_request_id,
+            ))
+
+            self._spawn_background(self._log_payment_event(
+                checkout_request_id,
+                "service_unlocked",
+                {"user_id": user_id, "service_id": service_id, "mpesa_receipt": mpesa_receipt}
+            ))
+
+            logger.info(f"Service unlocked | service_id={service_id} user_id={user_id}")
+            return True, "Service unlocked successfully"
+
+        except Exception as e:
+            logger.error(
+                f"Error unlocking service | checkout_request_id={mask_sensitive(checkout_request_id)} error={e}"
+            )
+            return False, str(e)
+
+    # ─── STK PUSH ────────────────────────────────────────────
+
     async def initiate_push(
         self,
         phone: str,
@@ -222,118 +1156,94 @@ class StkPushService:
         description: str,
         checkout_request_id: Optional[str] = None,
         user_id: Optional[str] = None,
-        service_id: Optional[str] = None
+        service_id: Optional[int] = None
     ) -> Dict[str, Any]:
-        """
-        Initiate STK Push payment.
-        
-        Args:
-            phone: Phone number (without country code)
-            amount: Amount to charge
-            description: Transaction description
-            checkout_request_id: Optional custom ID
-            user_id: Optional user ID for tracking
-            service_id: Optional service ID for tracking
-            
-        Returns:
-            Dict with checkout_request_id and status
-            
-        Raises:
-            AppException: If STK push fails
-        """
-        # Ensure phone is in correct format
-        phone = self._normalize_phone(phone)
-        
-        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        """Initiate STK Push payment."""
+        normalized_phone = normalize_phone(phone)
+
+        if amount <= 0:
+            raise ValidationException("Amount must be greater than zero")
+        if amount < MINIMUM_AMOUNT:
+            raise ValidationException(f"Amount must be at least {MINIMUM_AMOUNT}")
+
+        service_name = None
+        if service_id:
+            service = await self._get_cached_service(service_id)
+            if not service:
+                raise NotFoundException(f"Service {service_id} not found")
+            service_name = service.get("name", "Service")
+
+            service_price = float(service.get("price", 0))
+            if service_price > 0 and abs(amount - service_price) > 0.01:
+                logger.warning(
+                    f"Amount mismatch between request and service price | "
+                    f"service_id={service_id} requested_amount={amount} service_price={service_price}"
+                )
+
+        rounded_amount = math.ceil(amount)
+        if rounded_amount != amount:
+            logger.info(f"Amount rounded | original={amount} rounded={rounded_amount}")
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
         password = self._generate_password(timestamp)
-        
-        if not checkout_request_id:
-            checkout_request_id = f"STK-{secrets.token_hex(8)}"
-        
-        # Build payload
+
+        account_reference = generate_account_reference(service_name, user_id)
+
         payload = {
             "BusinessShortCode": self.shortcode,
             "Password": password,
             "Timestamp": timestamp,
-            "TransactionType": "CustomerPayBillOnline",
-            "Amount": str(int(amount)),
-            "PartyA": phone,
+            "TransactionType": TRANSACTION_TYPE,
+            "Amount": str(rounded_amount),
+            "PartyA": normalized_phone,
             "PartyB": self.shortcode,
-            "PhoneNumber": phone,
+            "PhoneNumber": normalized_phone,
             "CallBackURL": self.callback_url,
-            "AccountReference": checkout_request_id[:12],
-            "TransactionDesc": description[:36]
+            "AccountReference": account_reference,
+            "TransactionDesc": description[:DESCRIPTION_MAX_LENGTH]
         }
-        
-        logger.info(f"Initiating STK Push for {phone}: {amount} KES (Ref: {checkout_request_id})")
-        logger.debug(f"Payload: {payload}")
-        
-        # Get access token (with caching)
+
+        logger.info(f"Initiating STK Push | phone={mask_sensitive(normalized_phone)} amount={rounded_amount}")
+
         token = await self._get_access_token()
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/mpesa/stkpush/v1/processrequest",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json"
-                },
-                json=payload,
-                timeout=30.0
-            )
-        
-        logger.info(f"STK Push Status: {response.status_code}")
-        logger.info(f"STK Push Response: {response.text[:500]}")
-        
-        if response.status_code != 200:
-            logger.error(f"STK push HTTP error: {response.text}")
-            raise AppException(
-                f"Payment initiation failed: {response.text[:200]}",
-                502
-            )
-        
-        # Parse response safely
-        try:
-            data = response.json()
-        except ValueError:
-            logger.error(f"STK Push non-JSON response: {response.text}")
-            raise AppException("Payment initiation failed: Invalid response", 502)
-        
-        # Check response code
+
+        # fix #16: this now goes through the retry-wrapped helper instead of
+        # a bare client.post() — transient 429/502/503/504s and connection
+        # blips are retried with backoff before we give up.
+        response = await self._post_with_retry(
+            f"{self.base_url}/mpesa/stkpush/v1/processrequest",
+            {"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            payload
+        )
+
+        data = response.json()
+        if "ResponseCode" not in data:
+            raise AppException("Invalid response from Safaricom", 502)
+
         response_code = data.get("ResponseCode")
-        response_desc = data.get("ResponseDescription", "Unknown error")
-        
         if response_code != "0":
-            logger.error(f"STK push failed: {response_code} - {response_desc}")
-            raise AppException(
-                f"STK push failed: {response_desc}",
-                400
-            )
-        
+            raise AppException(f"STK push failed: {data.get('ResponseDescription', 'Unknown error')}", 400)
+
         merchant_request_id = data.get("MerchantRequestID")
-        checkout_id = data.get("CheckoutRequestID", checkout_request_id)
-        
-        logger.info(f"STK Push successful: {data.get('CustomerMessage')}")
-        
-        # ─── CREATE PAYMENT RECORD ──────────────────────────────
-        await self._create_payment_record(
+        checkout_id = data.get("CheckoutRequestID")
+
+        if not checkout_id or not merchant_request_id:
+            raise AppException("Missing CheckoutRequestID or MerchantRequestID from Safaricom", 502)
+
+        payment = await self._create_payment_record(
             checkout_request_id=checkout_id,
             merchant_request_id=merchant_request_id,
-            amount=amount,
-            phone=phone,
+            amount=rounded_amount,
+            phone=normalized_phone,
             user_id=user_id,
             service_id=service_id,
             description=description
         )
-        
-        # ─── CREATE USER SERVICE RECORD (pending) ──────────────
-        if user_id and service_id:
-            await self._create_user_service_record(
-                user_id=user_id,
-                service_id=service_id,
-                payment_id=None  # Will be updated on callback
-            )
-        
+
+        logger.info(
+            f"STK Push successful | checkout_request_id={mask_sensitive(checkout_id)} payment_id={payment.get('id')}"
+        )
+
         return {
             "checkout_request_id": checkout_id,
             "merchant_request_id": merchant_request_id,
@@ -341,405 +1251,199 @@ class StkPushService:
             "response_description": data.get("ResponseDescription"),
             "customer_message": data.get("CustomerMessage")
         }
-    
-    # ─── PAYMENT VERIFICATION ──────────────────────────────────────
-    
-    async def verify_payment_status(self, checkout_request_id: str) -> Dict[str, Any]:
-        """
-        Verify payment status with Safaricom API.
-        
-        Args:
-            checkout_request_id: The checkout request ID to verify
-            
-        Returns:
-            Dict with status and transaction details
-        """
-        try:
-            # Get payment record from database
-            payment = await self._get_payment_record(checkout_request_id)
-            if not payment:
-                return {
-                    "status": "not_found",
-                    "message": "Payment record not found"
-                }
-            
-            # If already completed, return cached status
-            if payment.get("status") in ["completed", "paid", "success"]:
-                return {
-                    "status": payment.get("status"),
-                    "mpesa_receipt": payment.get("mpesa_receipt"),
-                    "transaction_id": payment.get("transaction_id"),
-                    "result_desc": payment.get("result_desc")
-                }
-            
-            # Query Safaricom API
-            token = await self._get_access_token()
-            timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-            password = self._generate_password(timestamp)
-            
-            url = f"{self.base_url}/mpesa/stkpushquery/v1/query"
-            
-            payload = {
-                "BusinessShortCode": self.shortcode,
-                "Password": password,
-                "Timestamp": timestamp,
-                "CheckoutRequestID": checkout_request_id
-            }
-            
-            logger.info(f"Querying payment status: {checkout_request_id}")
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json"
-                    },
-                    json=payload,
-                    timeout=30.0
-                )
-            
-            logger.info(f"Status query response: {response.status_code}")
-            logger.info(f"Status query body: {response.text[:500]}")
-            
-            if response.status_code != 200:
-                logger.warning(f"Status query failed: {response.status_code}")
-                return {
-                    "status": "unknown",
-                    "message": "Unable to verify payment status"
-                }
-            
-            data = response.json()
-            result_code = data.get("ResultCode")
-            result_desc = data.get("ResultDesc", "Unknown")
-            
-            # Update payment record
-            await self._update_payment_status(
-                checkout_request_id=checkout_request_id,
-                result_code=result_code,
-                result_desc=result_desc,
-                data=data
-            )
-            
-            # ─── UNLOCK SERVICE ON SUCCESS ──────────────────────
-            if result_code == "0":
-                await self._unlock_service_on_payment(
-                    checkout_request_id=checkout_request_id,
-                    mpesa_receipt=data.get("MpesaReceiptNumber"),
-                    transaction_id=data.get("TransactionID")
-                )
-            
-            return {
-                "status": self._map_result_code_to_status(result_code),
-                "result_code": result_code,
-                "result_desc": result_desc,
-                "mpesa_receipt": data.get("MpesaReceiptNumber"),
-                "transaction_id": data.get("TransactionID")
-            }
-            
-        except Exception as e:
-            logger.error(f"Payment verification error: {e}")
-            return {
-                "status": "error",
-                "message": str(e)
-            }
-    
-    async def _get_payment_record(self, checkout_request_id: str) -> Optional[Dict[str, Any]]:
-        """Get payment record from database."""
-        try:
-            response = self.supabase.table("payments").select("*").eq("checkout_request_id", checkout_request_id).execute()
-            if response.data and len(response.data) > 0:
-                return response.data[0]
-            return None
-        except Exception as e:
-            logger.error(f"Error getting payment record: {e}")
-            return None
-    
-    async def _update_payment_status(
-        self,
-        checkout_request_id: str,
-        result_code: str,
-        result_desc: str,
-        data: Dict[str, Any]
-    ) -> None:
-        """Update payment record with status."""
-        try:
-            status = self._map_result_code_to_status(result_code)
-            
-            update_data = {
-                "status": status,
-                "result_code": result_code,
-                "result_desc": result_desc,
-                "updated_at": datetime.utcnow().isoformat()
-            }
-            
-            if result_code == "0":
-                update_data["mpesa_receipt"] = data.get("MpesaReceiptNumber")
-                update_data["transaction_id"] = data.get("TransactionID")
-                update_data["completed_at"] = datetime.utcnow().isoformat()
-            
-            response = self.supabase.table("payments").update(update_data).eq("checkout_request_id", checkout_request_id).execute()
-            logger.info(f"Payment status updated: {checkout_request_id} -> {status}")
-            
-        except Exception as e:
-            logger.error(f"Error updating payment status: {e}")
-    
-    async def _unlock_service_on_payment(
-        self,
-        checkout_request_id: str,
-        mpesa_receipt: Optional[str] = None,
-        transaction_id: Optional[str] = None
-    ) -> None:
-        """
-        Unlock service after successful payment.
-        
-        Only called when ResultCode == 0.
-        """
-        try:
-            # Get payment record
-            payment = await self._get_payment_record(checkout_request_id)
-            if not payment:
-                logger.warning(f"Payment record not found for unlock: {checkout_request_id}")
-                return
-            
-            user_id = payment.get("user_id")
-            service_id = payment.get("service_id")
-            payment_id = payment.get("id")
-            
-            if not user_id or not service_id:
-                logger.warning(f"Missing user_id or service_id for unlock: {checkout_request_id}")
-                return
-            
-            # Update user_service record
-            user_service = self.supabase.table("user_services").select("*").eq("user_id", user_id).eq("service_id", service_id).execute()
-            
-            if user_service.data and len(user_service.data) > 0:
-                # Update existing
-                update_data = {
-                    "status": "active",
-                    "payment_id": payment_id,
-                    "expires_at": (datetime.utcnow() + timedelta(days=365)).isoformat(),
-                    "updated_at": datetime.utcnow().isoformat()
-                }
-                if mpesa_receipt:
-                    update_data["mpesa_receipt"] = mpesa_receipt
-                if transaction_id:
-                    update_data["transaction_id"] = transaction_id
-                
-                response = self.supabase.table("user_services").update(update_data).eq("id", user_service.data[0]["id"]).execute()
-                logger.info(f"User service updated: user={user_id}, service={service_id}")
-            else:
-                # Create new
-                new_data = {
-                    "user_id": user_id,
-                    "service_id": service_id,
-                    "payment_id": payment_id,
-                    "status": "active",
-                    "expires_at": (datetime.utcnow() + timedelta(days=365)).isoformat(),
-                    "mpesa_receipt": mpesa_receipt,
-                    "transaction_id": transaction_id,
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat()
-                }
-                response = self.supabase.table("user_services").insert(new_data).execute()
-                logger.info(f"User service created: user={user_id}, service={service_id}")
-            
-            # Update payment with service unlocked flag
-            self.supabase.table("payments").update({
-                "service_unlocked": True,
-                "unlocked_at": datetime.utcnow().isoformat()
-            }).eq("id", payment_id).execute()
-            
-            logger.info(f"✅ Service unlocked: {service_id} for user {user_id}")
-            
-        except Exception as e:
-            logger.error(f"Error unlocking service: {e}")
-    
-    def _map_result_code_to_status(self, result_code: str) -> str:
-        """Map Safaricom result code to status."""
-        if result_code == "0":
-            return "completed"
-        elif result_code in ["1", "2", "3", "4", "5", "6", "7", "8", "9"]:
-            return "failed"
-        elif result_code in ["17", "18", "19"]:
-            return "cancelled"
-        else:
-            return "unknown"
-    
-    # ─── SERVICE ACCESS CHECK ──────────────────────────────────────
-    
-    async def check_service_access(self, user_id: str, service_id: str) -> Dict[str, Any]:
-        """
-        Check if a user has access to a service.
-        
-        Args:
-            user_id: User ID
-            service_id: Service ID (e.g., 'valuation', 'mileage', 'ownership')
-            
-        Returns:
-            Dict with has_access boolean and details
-        """
-        try:
-            # Check user_services table
-            response = self.supabase.table("user_services").select("*").eq("user_id", user_id).eq("service_id", service_id).execute()
-            
-            if not response.data or len(response.data) == 0:
-                return {
-                    "has_access": False,
-                    "status": "no_record",
-                    "message": "No access record found"
-                }
-            
-            record = response.data[0]
-            status = record.get("status")
-            expires_at = record.get("expires_at")
-            
-            # Check if expired
-            if expires_at:
-                try:
-                    expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                    if datetime.utcnow() > expires:
-                        return {
-                            "has_access": False,
-                            "status": "expired",
-                            "message": "Access has expired"
-                        }
-                except:
-                    pass
-            
-            # Check if active
-            if status in ["active", "completed", "paid", "success"]:
-                return {
-                    "has_access": True,
-                    "status": status,
-                    "expires_at": expires_at,
-                    "message": "Access granted"
-                }
-            else:
-                return {
-                    "has_access": False,
-                    "status": status,
-                    "message": f"Access status: {status}"
-                }
-                
-        except Exception as e:
-            logger.error(f"Error checking service access: {e}")
-            return {
-                "has_access": False,
-                "status": "error",
-                "message": str(e)
-            }
-    
-    # ─── USER SERVICES ─────────────────────────────────────────────
-    
-    async def get_user_services(self, user_id: str) -> Dict[str, bool]:
-        """
-        Get all services a user has access to.
-        
-        Args:
-            user_id: User ID
-            
-        Returns:
-            Dict with service_id as key and boolean access status
-        """
-        try:
-            response = self.supabase.table("user_services").select("service_id, status, expires_at").eq("user_id", user_id).execute()
-            
-            services = {}
-            now = datetime.utcnow()
-            
-            if response.data:
-                for record in response.data:
-                    service_id = record.get("service_id")
-                    status = record.get("status")
-                    expires_at = record.get("expires_at")
-                    
-                    # Check expiry
-                    is_expired = False
-                    if expires_at:
-                        try:
-                            expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                            if now > expires:
-                                is_expired = True
-                        except:
-                            pass
-                    
-                    # Determine access
-                    has_access = status in ["active", "completed", "paid", "success"] and not is_expired
-                    services[service_id] = has_access
-            
-            return services
-            
-        except Exception as e:
-            logger.error(f"Error getting user services: {e}")
-            return {}
-    
-    # ─── CALLBACK PROCESSING ───────────────────────────────────────
-    
+
+    # ─── CALLBACK PROCESSING ─────────────────────────────────
+
     async def process_callback(self, callback_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Process M-Pesa callback.
-        
-        This is the ONLY place where services should be unlocked.
-        """
+        """Process M-Pesa callback with replay protection."""
         try:
-            # Extract data from callback
             body = callback_data.get("Body", {})
             stk_callback = body.get("stkCallback", {})
-            
-            merchant_request_id = stk_callback.get("MerchantRequestID")
+
+            if not stk_callback:
+                logger.error("Invalid callback structure")
+                return {"status": "error", "message": "Invalid callback structure"}
+
             checkout_request_id = stk_callback.get("CheckoutRequestID")
+            merchant_request_id = stk_callback.get("MerchantRequestID")
             result_code = stk_callback.get("ResultCode")
-            result_desc = stk_callback.get("ResultDesc")
-            
-            logger.info(f"Processing callback: {checkout_request_id} (ResultCode: {result_code})")
-            
-            # Update payment record
+            result_desc = stk_callback.get("ResultDesc", "")
+
+            if not checkout_request_id:
+                logger.error("Callback missing CheckoutRequestID")
+                return {"status": "error", "message": "Missing CheckoutRequestID"}
+
+            # fix #17: DB-backed replay check (in-memory cache is just the
+            # fast path inside _is_replay()).
+            if await self._is_replay(checkout_request_id):
+                logger.warning(
+                    f"Replay detected — duplicate callback | "
+                    f"checkout_request_id={mask_sensitive(checkout_request_id)}"
+                )
+                return {
+                    "status": "replay_detected",
+                    "message": "Callback already processed",
+                    "checkout_request_id": checkout_request_id
+                }
+
             payment = await self._get_payment_record(checkout_request_id)
-            if not payment:
-                logger.warning(f"Payment record not found for callback: {checkout_request_id}")
-                return {"status": "ignored", "message": "Payment record not found"}
-            
-            # Update payment status
-            await self._update_payment_status(
+            context = PaymentContext(
                 checkout_request_id=checkout_request_id,
-                result_code=str(result_code),
-                result_desc=result_desc,
-                data=stk_callback
+                merchant_request_id=merchant_request_id,
+                payment_id=payment.get("id", 0) if payment else 0,
+                user_id=payment.get("user_id", "") if payment else "",
+                service_id=payment.get("service_id", 0) if payment else 0,
+                amount=payment.get("amount", 0.0) if payment else 0.0
             )
-            
-            # ─── UNLOCK SERVICE ONLY ON SUCCESS (ResultCode == 0) ───
-            if result_code == 0:
-                # Extract receipt from callback
-                callback_metadata = stk_callback.get("CallbackMetadata", {})
+
+            logger.info(
+                f"Processing callback | checkout_request_id={mask_sensitive(checkout_request_id)} "
+                f"result_code={result_code} {context}"
+            )
+
+            if not payment:
+                self._spawn_background(self._log_payment_event(checkout_request_id, "callback_unknown", {"result_code": result_code}))
+                return {"status": "ignored", "message": "Payment record not found"}
+
+            if payment.get("merchant_request_id") != merchant_request_id:
+                logger.error(
+                    f"MerchantRequestID mismatch — possible malicious callback | "
+                    f"expected={payment.get('merchant_request_id')} received={merchant_request_id}"
+                )
+                return {"status": "error", "message": "MerchantRequestID mismatch - possible malicious callback"}
+
+            current_status = PaymentStatus(payment.get("status", PaymentStatus.UNKNOWN.value))
+            if current_status.is_terminal:
+                logger.info(
+                    f"Callback already processed | "
+                    f"checkout_request_id={mask_sensitive(checkout_request_id)} status={current_status.value}"
+                )
+                return {
+                    "status": "already_processed",
+                    "checkout_request_id": checkout_request_id,
+                    "message": "Payment already processed"
+                }
+
+            callback_amount = None
+            mpesa_receipt = None
+            transaction_date = None
+
+            callback_metadata = stk_callback.get("CallbackMetadata")
+            if callback_metadata:
                 items = callback_metadata.get("Item", [])
-                
-                mpesa_receipt = None
-                transaction_id = None
-                
                 for item in items:
-                    if item.get("Name") == "MpesaReceiptNumber":
-                        mpesa_receipt = item.get("Value")
-                    elif item.get("Name") == "TransactionID":
-                        transaction_id = item.get("Value")
-                
-                # Unlock the service
-                await self._unlock_service_on_payment(
+                    name = item.get("Name")
+                    value = item.get("Value")
+                    if name == "Amount":
+                        callback_amount = float(value) if value else None
+                    elif name == "MpesaReceiptNumber":
+                        mpesa_receipt = value
+                    elif name == "TransactionDate":
+                        transaction_date = value
+            else:
+                logger.info(f"No CallbackMetadata in callback | checkout_request_id={mask_sensitive(checkout_request_id)}")
+
+            if callback_amount is not None:
+                if callback_amount <= 0:
+                    logger.error(
+                        f"Invalid callback amount (<= 0) | callback_amount={callback_amount} "
+                        f"checkout_request_id={mask_sensitive(checkout_request_id)}"
+                    )
+                    return {
+                        "status": "failed",
+                        "checkout_request_id": checkout_request_id,
+                        "message": f"Invalid callback amount: {callback_amount}"
+                    }
+
+                expected_amount = float(payment.get("amount", 0))
+                if abs(callback_amount - expected_amount) > 0.01:
+                    logger.error(f"Amount mismatch on callback | expected={expected_amount} received={callback_amount}")
+                    return {
+                        "status": "failed",
+                        "checkout_request_id": checkout_request_id,
+                        "message": f"Amount mismatch: expected {expected_amount}, got {callback_amount}"
+                    }
+
+            unlock_success = False
+            unlock_message = ""
+
+            if str(result_code) == "0":
+                unlock_success, unlock_message = await self._atomic_unlock_transaction(
                     checkout_request_id=checkout_request_id,
                     mpesa_receipt=mpesa_receipt,
-                    transaction_id=transaction_id
+                    callback_amount=callback_amount
                 )
-                
-                logger.info(f"✅ Service unlocked via callback: {checkout_request_id}")
+
+            if str(result_code) == "0":
+                status = PaymentStatus.COMPLETED
+                unlock_status = UnlockStatus.COMPLETED if unlock_success else UnlockStatus.FAILED
+                message = (
+                    "Payment confirmed and service unlocked"
+                    if unlock_success
+                    else f"Payment received but service unlock failed: {unlock_message}"
+                )
+                if not unlock_success:
+                    logger.error(f"Payment completed but unlock failed | reason={unlock_message} {context}")
+            else:
+                status = PaymentStatus.FAILED
+                unlock_status = UnlockStatus.FAILED
+                message = "Payment failed"
+
+            now = datetime.now(timezone.utc).isoformat()
+            update_data = {
+                "status": status.value,
+                "unlock_status": unlock_status.value,
+                "result_code": str(result_code),
+                "result_desc": result_desc,
+                "updated_at": now,
+                "mpesa_receipt": mpesa_receipt,
+                "transaction_id": checkout_request_id,
+                "callback_amount": callback_amount
+            }
+
+            if str(result_code) == "0":
+                update_data["completed_at"] = now
+
+            await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENTS).update(update_data).eq(
+                    "checkout_request_id", checkout_request_id
+                ).execute()
+            )
+
+            # fix #6: this is the audit-log write for the whole callback —
+            # exactly the one the review flagged as adding latency right
+            # before we respond to Safaricom. The payments row update above
+            # is already durable; this is just an audit trail.
+            self._spawn_background(self._log_payment_event(
+                checkout_request_id,
+                "callback_processed",
+                {
+                    "result_code": result_code,
+                    "status": status.value,
+                    "unlock_status": unlock_status.value,
+                    "unlock_message": unlock_message
+                }
+            ))
+
+            if str(result_code) == "0" and unlock_success:
+                logger.info(f"Payment completed and service unlocked | {context}")
                 return {
                     "status": "success",
                     "checkout_request_id": checkout_request_id,
                     "mpesa_receipt": mpesa_receipt,
-                    "transaction_id": transaction_id,
+                    "transaction_date": transaction_date,
+                    "amount": callback_amount,
                     "message": "Payment confirmed and service unlocked"
                 }
+            elif str(result_code) == "0" and not unlock_success:
+                return {
+                    "status": "partial",
+                    "checkout_request_id": checkout_request_id,
+                    "mpesa_receipt": mpesa_receipt,
+                    "message": f"Payment received but service unlock failed: {unlock_message}"
+                }
             else:
-                logger.warning(f"Callback received failed payment: {result_code} - {result_desc}")
+                logger.warning(f"Callback reported failure | result_code={result_code} result_desc={result_desc} {context}")
                 return {
                     "status": "failed",
                     "checkout_request_id": checkout_request_id,
@@ -747,16 +1451,219 @@ class StkPushService:
                     "result_desc": result_desc,
                     "message": "Payment failed"
                 }
-                
+
         except Exception as e:
-            logger.error(f"Error processing callback: {e}")
-            return {
-                "status": "error",
-                "message": str(e)
+            logger.error(f"Error processing callback | error={e}")
+            return {"status": "error", "message": str(e)}
+
+    # ─── PAYMENT VERIFICATION ────────────────────────────────
+
+    async def verify_payment_status(self, checkout_request_id: str) -> Dict[str, Any]:
+        """
+        Verify payment status with Safaricom API - READ-ONLY.
+        The callback is the only source of truth that modifies payment records.
+        """
+        try:
+            payment = await self._get_payment_record(checkout_request_id)
+            if not payment:
+                return {"status": "not_found", "message": "Payment record not found"}
+
+            current_status = PaymentStatus(payment.get("status", PaymentStatus.UNKNOWN.value))
+
+            if current_status.is_terminal:
+                return {
+                    "status": payment.get("status"),
+                    "unlock_status": payment.get("unlock_status"),
+                    "mpesa_receipt": payment.get("mpesa_receipt"),
+                    "transaction_id": payment.get("transaction_id"),
+                    "result_desc": payment.get("result_desc"),
+                }
+
+            token = await self._get_access_token()
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+            password = self._generate_password(timestamp)
+
+            payload = {
+                "BusinessShortCode": self.shortcode,
+                "Password": password,
+                "Timestamp": timestamp,
+                "CheckoutRequestID": checkout_request_id
             }
-    
-    def clear_token_cache(self) -> None:
-        """Clear the cached access token to force refresh."""
-        self.access_token = None
-        self.token_expiry = None
-        logger.info("Token cache cleared")
+
+            logger.info(f"Querying payment status (read-only) | checkout_request_id={mask_sensitive(checkout_request_id)}")
+
+            token_header = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            # fix #16: retry-wrapped here too.
+            response = await self._post_with_retry(
+                f"{self.base_url}/mpesa/stkpushquery/v1/query",
+                token_header,
+                payload
+            )
+
+            data = response.json()
+            result_code = data.get("ResultCode")
+            result_desc = data.get("ResultDesc", "Unknown")
+
+            return {
+                "status": self._map_result_code_to_status(result_code).value,
+                "result_code": result_code,
+                "result_desc": result_desc,
+                "mpesa_receipt": data.get("MpesaReceiptNumber"),
+                "transaction_id": checkout_request_id,
+                "query_verified": True,
+                "note": "Read-only query - callback is source of truth"
+            }
+
+        except httpx.HTTPError as e:
+            logger.warning(f"Status query HTTP error | error={e}")
+            return {"status": "unknown", "message": f"HTTP error: {str(e)}"}
+        except Exception as e:
+            logger.error(f"Payment verification error | error={e}")
+            return {"status": "error", "message": str(e)}
+
+    # ─── SERVICE ACCESS ──────────────────────────────────────
+
+    async def check_service_access(self, user_id: str, service_id: int) -> Dict[str, Any]:
+        """Check if a user has access to a service."""
+        try:
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_USER_SERVICES).select("*").eq(
+                    "user_id", user_id
+                ).eq("service_id", service_id).maybe_single().execute()
+            )
+
+            if result.data:
+                record = result.data
+                status = record.get("status")
+                expires_at = record.get("expires_at")
+
+                if expires_at:
+                    try:
+                        expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                        if datetime.now(timezone.utc) > expires:
+                            return {"has_access": False, "status": "expired", "message": "Access has expired"}
+                    except (ValueError, TypeError):
+                        pass
+
+                if status == ServiceStatus.ACTIVE.value:
+                    return {
+                        "has_access": True,
+                        "status": status,
+                        "expires_at": expires_at,
+                        "message": "Access granted"
+                    }
+
+            payments_result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENTS).select("*").eq(
+                    "user_id", user_id
+                ).eq("service_id", service_id).eq(
+                    "status", PaymentStatus.COMPLETED.value
+                ).eq(
+                    "unlock_status", UnlockStatus.COMPLETED.value
+                ).order("created_at", desc=True).limit(1).execute()
+            )
+
+            if payments_result.data:
+                payment = payments_result.data[0]
+                if not result.data:
+                    service = await self._get_cached_service(service_id)
+                    expiry_days = service.get("expiry_days") if service else None
+                    await self._upsert_user_service(
+                        user_id=user_id,
+                        service_id=service_id,
+                        payment_id=payment.get("id"),
+                        expiry_days=expiry_days,
+                        mpesa_receipt=payment.get("mpesa_receipt"),
+                        transaction_id=payment.get("transaction_id")
+                    )
+
+                return {"has_access": True, "status": "active", "message": "Access granted (recovered from payment)"}
+
+            return {"has_access": False, "status": "no_record", "message": "No access record found"}
+
+        except Exception as e:
+            logger.error(f"Error checking service access | user_id={user_id} service_id={service_id} error={e}")
+            return {"has_access": False, "status": "error", "message": str(e)}
+
+    async def get_user_services(self, user_id: str) -> Dict[int, bool]:
+        """Get all services a user has access to."""
+        try:
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_USER_SERVICES).select(
+                    "service_id, status, expires_at"
+                ).eq("user_id", user_id).execute()
+            )
+
+            services = {}
+            now = datetime.now(timezone.utc)
+
+            for record in result.data:
+                service_id = record.get("service_id")
+                status = record.get("status")
+                expires_at = record.get("expires_at")
+
+                is_expired = False
+                if expires_at:
+                    try:
+                        expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                        if now > expires:
+                            is_expired = True
+                    except (ValueError, TypeError):
+                        pass
+
+                has_access = status == ServiceStatus.ACTIVE.value and not is_expired
+                services[service_id] = has_access
+
+            return services
+
+        except Exception as e:
+            logger.error(f"Error getting user services | user_id={user_id} error={e}")
+            return {}
+
+    # ─── STALE PAYMENT CLEANUP ──────────────────────────────
+
+    async def cleanup_stale_payments(self) -> int:
+        """Mark stale pending payments as expired."""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=STALE_PAYMENT_HOURS)
+            cutoff_str = cutoff.isoformat()
+
+            result = await execute_supabase_async(
+                lambda: self.supabase.table(TABLE_PAYMENTS).update({
+                    "status": PaymentStatus.EXPIRED.value,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }).eq("status", PaymentStatus.PENDING.value).lt("created_at", cutoff_str).execute()
+            )
+
+            count = len(result.data) if result.data else 0
+            if count > 0:
+                logger.info(f"Cleaned up stale payments | count={count}")
+
+            return count
+
+        except Exception as e:
+            logger.error(f"Error cleaning up stale payments | error={e}")
+            return 0
+
+    # ─── HELPERS ─────────────────────────────────────────────
+
+    def _generate_password(self, timestamp: str) -> str:
+        """Generate password for STK push."""
+        password_str = f"{self.shortcode}{self.passkey}{timestamp}"
+        return base64.b64encode(password_str.encode()).decode()
+
+    def _map_result_code_to_status(self, result_code) -> PaymentStatus:
+        """Map Safaricom result code to PaymentStatus."""
+        try:
+            code = int(result_code)
+        except (TypeError, ValueError):
+            return PaymentStatus.UNKNOWN
+
+        if code == 0:
+            return PaymentStatus.COMPLETED
+        elif code in [1, 2, 3, 4, 5, 6, 7, 8, 9]:
+            return PaymentStatus.FAILED
+        elif code in [17, 18, 19, 20, 21]:
+            return PaymentStatus.CANCELLED
+        else:
+            return PaymentStatus.UNKNOWN
