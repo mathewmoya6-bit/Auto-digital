@@ -69,64 +69,78 @@ async def get_current_user(
 
     metadata = payload.get("user_metadata", {})
 
+    # -----------------------------------------------------------------
+    # Get user from database (supports both schema variants)
+    # -----------------------------------------------------------------
+    user = None
+
     try:
         supabase = get_supabase()
-
+        
+        # Preferred lookup using Supabase Auth user ID (auth_user_id)
         response = (
             supabase
             .table("users")
             .select("*")
-            .eq("id", user_id)
-            .single()
+            .eq("auth_user_id", user_id)
             .execute()
         )
 
         if response.data:
-            user = response.data
+            user = response.data[0]
+            logger.debug(f"User found via auth_user_id: {user_id}")
+        else:
+            # Fallback for projects that store the auth UUID in id
+            response = (
+                supabase
+                .table("users")
+                .select("*")
+                .eq("id", user_id)
+                .execute()
+            )
 
-            return {
-                "id": user.get("id"),
-                "email": user.get("email"),
-                "full_name": (
-                    user.get("full_name")
-                    or user.get("display_name")
-                    or user.get("name")
-                ),
-                "account_type": user.get(
-                    "account_type",
-                    "individual",
-                ),
-                "is_active": user.get(
-                    "is_active",
-                    True,
-                ),
-                "app_metadata": user.get("app_metadata", {}),
-                "user_metadata": user.get("user_metadata", {}),
-                "created_at": user.get("created_at"),
-                "payload": payload,
-            }
+            if response.data:
+                user = response.data[0]
+                logger.debug(f"User found via id: {user_id}")
 
-    except Exception as exc:
-        logger.warning(
-            "Unable to load user from database: %s",
-            exc,
-        )
+    except Exception as e:
+        logger.exception("Failed to fetch user from database")
+        user = None
+
+    if user:
+        return {
+            "id": user.get("id"),
+            "auth_user_id": user.get("auth_user_id") or user.get("id"),
+            "email": user.get("email"),
+            "full_name": (
+                user.get("full_name")
+                or user.get("display_name")
+                or user.get("name")
+            ),
+            "account_type": user.get("account_type"),
+            "is_active": user.get("is_active", True),
+            "app_metadata": user.get("app_metadata", {}),
+            "user_metadata": user.get("user_metadata", {}),
+            "created_at": user.get("created_at"),
+            "payload": payload,
+        }
 
     # -----------------------------------------------------------------
-    # Fallback to JWT Claims
+    # Fallback to JWT Claims (avoid creating fake "individual" users)
     # -----------------------------------------------------------------
+    logger.warning(
+        f"User {user_id} not found in database, using JWT claims fallback"
+    )
 
     return {
+        "auth_user_id": user_id,
         "id": user_id,
         "email": payload.get("email") or metadata.get("email"),
         "full_name": (
             metadata.get("full_name")
             or metadata.get("name")
         ),
-        "account_type": metadata.get(
-            "account_type",
-            "individual",
-        ),
+        "account_type": metadata.get("account_type"),
         "is_active": True,
         "app_metadata": payload.get("app_metadata", {}),
         "user_metadata": metadata,
@@ -311,7 +325,7 @@ async def require_service_access(
             )
         
         service_id = service_response.data[0]["id"]
-        user_id = current_user.get("id")
+        user_id = current_user.get("id") or current_user.get("auth_user_id")
         
         # Check if user has access
         user_service_response = (
@@ -337,7 +351,7 @@ async def require_service_access(
         if expires_at:
             try:
                 expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                if datetime.utcnow() > expires:
+                if datetime.now().astimezone() > expires:
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail=f"Access to '{service_code}' has expired. Please renew."
@@ -377,7 +391,7 @@ async def get_current_user_id(
     Returns:
         str: User ID
     """
-    return current_user.get("id")
+    return current_user.get("id") or current_user.get("auth_user_id")
 
 
 # ---------------------------------------------------------------------
@@ -402,7 +416,7 @@ __all__ = [
     "get_current_active_user",
     "get_current_admin_user",
     "require_admin",
-    "get_current_admin",  # Added for backward compatibility
+    "get_current_admin",
     "require_service_access",
     "get_current_user_id",
     "get_supabase_client",
