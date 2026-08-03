@@ -889,26 +889,11 @@
             <p>Everything you need to make smart vehicle decisions in Kenya</p>
         </div>
 
-        <div class="features-grid">
-            <div class="feature-card">
-                <div class="icon" aria-hidden="true">📊</div>
-                <h3>Instant Valuation</h3>
-                <p>Get AI-powered market value estimates for any car, motorcycle, or tricycle in Kenya.</p>
-                <a href="#" class="feature-link service-link" data-service="instant-value">Try Now →</a>
-            </div>
-
-            <div class="feature-card">
-                <div class="icon" aria-hidden="true">⛽</div>
-                <h3>Mileage Cost Calculator</h3>
-                <p>Calculate your total cost per kilometer including fuel, maintenance, insurance, and depreciation.</p>
-                <a href="#" class="feature-link service-link" data-service="mileage">Try Now →</a>
-            </div>
-
-            <div class="feature-card">
-                <div class="icon" aria-hidden="true">💰</div>
-                <h3>Ownership Cost Analysis</h3>
-                <p>Understand the true cost of owning a vehicle over time including purchase, fuel, maintenance, and resale.</p>
-                <a href="#" class="feature-link service-link" data-service="ownership">Try Now →</a>
+        <div class="features-grid" id="featuresGrid">
+            <!-- Dynamically populated from Supabase -->
+            <div style="text-align:center;color:var(--text-muted);padding:40px;">
+                <span class="spinner" style="display:inline-block;width:24px;height:24px;border:2px solid rgba(234,179,8,0.2);border-top-color:var(--amber);border-radius:50%;animation:spin 0.8s linear infinite;"></span>
+                Loading services...
             </div>
         </div>
     </section>
@@ -940,7 +925,7 @@
         <div class="info-icon" id="infoIcon">📊</div>
         <h3 id="infoTitle">Service Name</h3>
         <p id="infoDescription">Service description goes here.</p>
-        <div class="info-price" id="infoPrice">KES 150</div>
+        <div class="info-price" id="infoPrice">KES 0</div>
         <div class="info-actions">
             <button class="btn btn-primary" id="infoContinueBtn">Continue</button>
             <button class="btn btn-outline" onclick="closeServiceInfo()">Cancel</button>
@@ -1017,33 +1002,13 @@
             'ownership': '/ownership-cost.html'
         };
 
-        const SERVICE_INFO = {
-            'instant-value': {
-                icon: '📊',
-                title: 'Instant Vehicle Valuation',
-                description: 'Get an AI-powered market value estimate for any car, motorcycle, or tricycle in Kenya. Our machine learning model analyzes thousands of recent transactions, market trends, vehicle specifications, and condition factors to give you the most accurate valuation in seconds.',
-                price: 'KES 150'
-            },
-            'mileage': {
-                icon: '⛽',
-                title: 'Mileage Cost Calculator',
-                description: 'Calculate your total cost per kilometer driven. This tool factors in fuel consumption, maintenance costs, insurance premiums, depreciation, and other hidden costs to give you a complete picture of your vehicle\'s running costs.',
-                price: 'KES 100'
-            },
-            'ownership': {
-                icon: '💰',
-                title: 'Ownership Cost Analysis',
-                description: 'Understand the true total cost of owning a vehicle over time. This comprehensive analysis covers purchase price, financing costs, fuel, maintenance, insurance, taxes, and projected resale value to help you make an informed buying decision.',
-                price: 'KES 200'
-            }
-        };
-
         let supabaseClient = null;
         let currentUser = null;
         let isAuthenticated = false;
         let isSignupMode = false;
         let pendingServiceRoute = null;
         let pendingServiceKey = null;
+        let serviceData = {}; // Store fetched service data
 
         // DOM refs
         const authModal = document.getElementById('authModal');
@@ -1061,6 +1026,7 @@
         const signupBtn = document.getElementById('signupBtn');
         const mobileToggle = document.getElementById('mobileToggle');
         const navLinks = document.getElementById('navLinks');
+        const featuresGrid = document.getElementById('featuresGrid');
 
         // Service info popup
         const serviceInfoPopup = document.getElementById('serviceInfoPopup');
@@ -1076,6 +1042,85 @@
                 supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             }
             return supabaseClient;
+        }
+
+        async function fetchServicesFromSupabase() {
+            try {
+                const client = initSupabase();
+                if (!client) return null;
+
+                // Fetch active services from service_prices table
+                const { data, error } = await client
+                    .from('service_prices')
+                    .select('*')
+                    .eq('is_active', true)
+                    .order('display_order', { ascending: true });
+
+                if (error) {
+                    console.error('Error fetching services:', error);
+                    return null;
+                }
+
+                return data;
+            } catch (e) {
+                console.error('Fetch services error:', e);
+                return null;
+            }
+        }
+
+        function renderFeatures(services) {
+            if (!services || services.length === 0) {
+                featuresGrid.innerHTML = `
+                    <div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:40px;">
+                        <div style="font-size:48px;margin-bottom:12px;">🔧</div>
+                        <div style="font-size:18px;font-weight:600;color:var(--text-secondary);">Services Loading</div>
+                        <div style="font-size:14px;margin-top:4px;">Please check back later</div>
+                    </div>
+                `;
+                return;
+            }
+
+            // Map service types to icons and descriptions
+            const serviceMap = {
+                'valuation': { icon: '📊', name: 'Instant Valuation', desc: 'Get AI-powered market value estimates for any car, motorcycle, or tricycle in Kenya.' },
+                'mileage': { icon: '⛽', name: 'Mileage Cost Calculator', desc: 'Calculate your total cost per kilometer including fuel, maintenance, insurance, and depreciation.' },
+                'ownership': { icon: '💰', name: 'Ownership Cost Analysis', desc: 'Understand the true cost of owning a vehicle over time including purchase, fuel, maintenance, and resale.' }
+            };
+
+            let html = '';
+            services.forEach(service => {
+                const type = service.service_type;
+                const info = serviceMap[type] || { icon: '📦', name: service.service_name || type, desc: service.description || '' };
+                const price = service.price || 0;
+                const currency = service.currency || 'KES';
+                
+                html += `
+                    <div class="feature-card">
+                        <div class="icon" aria-hidden="true">${info.icon}</div>
+                        <h3>${info.name}</h3>
+                        <p>${info.desc}</p>
+                        <div style="margin:12px 0 8px;font-size:14px;color:var(--amber);font-weight:700;">
+                            ${currency} ${price.toFixed(2)}
+                        </div>
+                        <a href="#" class="feature-link service-link" data-service="${type}">Try Now →</a>
+                    </div>
+                `;
+            });
+
+            featuresGrid.innerHTML = html;
+
+            // Re-bind service links
+            document.querySelectorAll('.service-link').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const service = this.dataset.service;
+                    if (service && SERVICE_ROUTES[service]) {
+                        navigateToService(service);
+                    } else {
+                        showToast('Service not available', 'error');
+                    }
+                });
+            });
         }
 
         async function getCurrentUser() {
@@ -1114,7 +1159,6 @@
             updateUI();
             showToast('✅ Welcome back!', 'success');
             closeAuth();
-            // Always redirect to dashboard after login
             setTimeout(() => window.location.href = '/dashboard.html', 500);
             return data;
         }
@@ -1135,7 +1179,6 @@
                 showToast('🎉 Account created!', 'success');
                 updateUI();
                 closeAuth();
-                // Always redirect to dashboard after signup
                 setTimeout(() => window.location.href = '/dashboard.html', 500);
             } else {
                 showToast('📧 Please check your email for confirmation.', 'info');
@@ -1154,8 +1197,19 @@
         }
 
         function showServiceInfo(serviceKey) {
-            const info = SERVICE_INFO[serviceKey];
-            if (!info) return;
+            // Find service data from fetched services
+            const service = serviceData.find(s => s.service_type === serviceKey);
+            if (!service) {
+                showToast('Service information not available', 'error');
+                return;
+            }
+
+            const info = {
+                icon: service.icon || '📦',
+                title: service.service_name || serviceKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                description: service.description || 'Get detailed insights and analysis for your vehicle.',
+                price: `${service.currency || 'KES'} ${(service.price || 0).toFixed(2)}`
+            };
 
             pendingServiceKey = serviceKey;
             infoIcon.textContent = info.icon;
@@ -1163,7 +1217,6 @@
             infoDescription.textContent = info.description;
             infoPrice.textContent = info.price;
 
-            // Update continue button
             if (isAuthenticated) {
                 infoContinueBtn.textContent = 'Continue to Service';
                 infoContinueBtn.onclick = function() {
@@ -1193,8 +1246,6 @@
                 showToast('Service not available', 'error');
                 return;
             }
-
-            // Show service info popup first
             showServiceInfo(serviceKey);
         }
 
@@ -1290,30 +1341,6 @@
         }
         window.showToast = showToast;
 
-        // Setup service links
-        document.querySelectorAll('.service-link').forEach(link => {
-            link.addEventListener('click', function(e) {
-                e.preventDefault();
-                const service = this.dataset.service;
-                if (service && SERVICE_ROUTES[service]) {
-                    navigateToService(service);
-                } else {
-                    showToast('Service not available', 'error');
-                }
-            });
-        });
-
-        // Close popup on outside click & escape
-        serviceInfoPopup.addEventListener('click', function(e) {
-            if (e.target === serviceInfoPopup) closeServiceInfo();
-        });
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                if (serviceInfoPopup.classList.contains('open')) closeServiceInfo();
-                if (authModal.classList.contains('open')) closeAuth();
-            }
-        });
-
         // Mobile toggle
         if (mobileToggle && navLinks) {
             mobileToggle.addEventListener('click', function() {
@@ -1350,6 +1377,22 @@
             await getCurrentUser();
             updateUI();
 
+            // Fetch services from Supabase
+            const services = await fetchServicesFromSupabase();
+            if (services) {
+                serviceData = services;
+                renderFeatures(services);
+            } else {
+                // Fallback with default data if fetch fails
+                serviceData = [
+                    { service_type: 'valuation', service_name: 'Instant Valuation', price: 150, currency: 'KES', description: 'Get AI-powered market value estimates.' },
+                    { service_type: 'mileage', service_name: 'Mileage Cost Calculator', price: 200, currency: 'KES', description: 'Calculate total cost per kilometer.' },
+                    { service_type: 'ownership', service_name: 'Ownership Cost Analysis', price: 180, currency: 'KES', description: 'Understand true ownership costs.' }
+                ];
+                renderFeatures(serviceData);
+                showToast('Using default pricing (offline)', 'warning');
+            }
+
             window.__AUTOD = {
                 supabase: supabaseClient,
                 currentUser,
@@ -1363,12 +1406,24 @@
             };
         }
 
-        document.addEventListener('DOMContentLoaded', init);
+        // Close popup on outside click & escape
+        serviceInfoPopup.addEventListener('click', function(e) {
+            if (e.target === serviceInfoPopup) closeServiceInfo();
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                if (serviceInfoPopup.classList.contains('open')) closeServiceInfo();
+                if (authModal.classList.contains('open')) closeAuth();
+            }
+        });
 
         // Close auth modal on outside click
         authModal.addEventListener('click', function(e) {
             if (e.target === authModal) closeAuth();
         });
+
+        document.addEventListener('DOMContentLoaded', init);
+
     })();
 </script>
 </body>
