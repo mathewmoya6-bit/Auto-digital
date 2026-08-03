@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, UTC
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -188,6 +189,58 @@ app.include_router(
     prefix=settings.API_V1_PREFIX,
     tags=["Ownership"]
 )
+
+
+# ─── HTML PAGE REDIRECTS ────────────────────────────────────────
+# Prevent direct access to HTML pages - redirect to SPA root
+
+@app.get("/{page_name}.html", include_in_schema=False)
+async def redirect_html_pages(page_name: str):
+    """
+    Prevent direct access to HTML pages.
+    Always load the SPA from the root.
+    
+    This redirects:
+    - /services.html → /
+    - /login.html → /
+    - /admin.html → /
+    - /index.html → /
+    - /dashboard.html → /
+    - /valuation.html → /
+    - /market.html → /
+    - /scraper.html → /
+    - /profile.html → /
+    - /settings.html → /
+    - /vehicles.html → /
+    - /reports.html → /
+    - /notifications.html → /
+    - /ownership.html → /
+    - /running-cost.html → /
+    - /mpesa.html → /
+    """
+    return RedirectResponse(url="/", status_code=302)
+
+
+# Also redirect common SPA routes without .html extension
+@app.get("/{page_name}", include_in_schema=False)
+async def redirect_spa_pages(page_name: str):
+    """
+    Redirect common SPA routes to root.
+    This ensures the SPA handles routing.
+    """
+    # List of pages that should redirect to root
+    spa_pages = {
+        "services", "login", "admin", "index", "dashboard", 
+        "valuation", "market", "scraper", "profile", "settings",
+        "vehicles", "reports", "notifications", "ownership", 
+        "running-cost", "mpesa", "signup", "register", "forgot-password"
+    }
+    
+    if page_name.lower() in spa_pages:
+        return RedirectResponse(url="/", status_code=302)
+    
+    # Don't redirect API paths or other valid routes
+    # Let FastAPI handle them normally
 
 
 # ─── HEALTH CHECK ENDPOINTS ─────────────────────────────────────
