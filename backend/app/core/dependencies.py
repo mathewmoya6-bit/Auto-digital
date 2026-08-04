@@ -42,12 +42,23 @@ async def get_current_user(
     token = credentials.credentials
     
     try:
-        # Decode JWT token
-        payload = jwt.decode(
-            token,
-            settings.SUPABASE_JWT_SECRET,
-            algorithms=[settings.JWT_ALGORITHM]
-        )
+        # Decode JWT token - try Supabase JWT secret first
+        try:
+            payload = jwt.decode(
+                token,
+                settings.SUPABASE_JWT_SECRET,
+                algorithms=[settings.JWT_ALGORITHM]
+            )
+        except jwt.InvalidTokenError:
+            # Fallback to JWT_SECRET_KEY if available
+            if hasattr(settings, 'JWT_SECRET_KEY') and settings.JWT_SECRET_KEY:
+                payload = jwt.decode(
+                    token,
+                    settings.JWT_SECRET_KEY,
+                    algorithms=[settings.JWT_ALGORITHM]
+                )
+            else:
+                raise
         
         user_id = payload.get("sub")
         if user_id is None:
