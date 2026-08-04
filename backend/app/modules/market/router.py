@@ -8,7 +8,11 @@ from pydantic import BaseModel
 
 from app.modules.market.service import MarketService
 
-router = APIRouter()
+# ─── Router Definition ─────────────────────────────────────────────
+# Remove the prefix from here since main.py adds it
+router = APIRouter(
+    tags=["Market"]
+)
 
 # ────────────────────────────────────────────────────────────────
 # Schemas
@@ -60,16 +64,17 @@ class SourceStatusResponse(BaseModel):
 
 
 # ────────────────────────────────────────────────────────────────
-# Routes
+# Routes - Remove /market prefix since main.py adds it
 # ────────────────────────────────────────────────────────────────
 
-@router.get("/market/insights", response_model=MarketInsightsResponse)
+@router.get("/insights", response_model=MarketInsightsResponse)
 async def get_market_insights(
     make: Optional[str] = None,
     model: Optional[str] = None,
     year_from: Optional[int] = Query(None, ge=1900),
     year_to: Optional[int] = Query(None, ge=1900),
 ):
+    """Get market insights for vehicles."""
     service = MarketService()
     return await service.get_market_insights(
         make=make,
@@ -79,35 +84,58 @@ async def get_market_insights(
     )
 
 
-@router.get("/market/prices", response_model=PriceDataResponse)
+@router.get("/prices", response_model=PriceDataResponse)
 async def get_market_prices(
     variant_id: int,
     days: int = Query(30, ge=1, le=365),
 ):
+    """Get market prices for a specific variant."""
     service = MarketService()
     return await service.get_market_prices(variant_id, days)
 
 
-@router.get("/market/trends", response_model=TrendDataResponse)
+@router.get("/trends", response_model=TrendDataResponse)
 async def get_market_trends(
     make: Optional[str] = None,
     model: Optional[str] = None,
     period: str = Query("6m", pattern="^(1m|3m|6m|1y|2y)$"),
 ):
+    """Get market trends for vehicles."""
     service = MarketService()
     return await service.get_market_trends(make, model, period)
 
 
-@router.get("/market/location/factors", response_model=LocationFactorsResponse)
+@router.get("/location/factors", response_model=LocationFactorsResponse)
 async def get_location_factors(
     location: str,
     vehicle_type: Optional[str] = None,
 ):
+    """Get location-based market factors."""
     service = MarketService()
     return await service.get_location_factors(location, vehicle_type)
 
 
-@router.get("/market/sources/status", response_model=List[SourceStatusResponse])
+@router.get("/sources/status", response_model=List[SourceStatusResponse])
 async def get_source_status():
+    """Get status of all market data sources."""
     service = MarketService()
     return await service.get_source_status()
+
+
+@router.get("/health")
+async def market_health():
+    """Market service health check."""
+    return {
+        "status": "healthy",
+        "service": "market",
+        "version": "1.0",
+        "timestamp": datetime.utcnow().isoformat(),
+        "endpoints": [
+            "/insights",
+            "/prices",
+            "/trends",
+            "/location/factors",
+            "/sources/status",
+            "/health"
+        ]
+    }
