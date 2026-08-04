@@ -2,6 +2,7 @@
 # ================================================================
 
 import json
+import secrets
 from typing import List, Union, Optional
 
 from pydantic import model_validator
@@ -46,8 +47,8 @@ class Settings(BaseSettings):
     # SUPABASE
     # ============================================================
 
-    SUPABASE_URL: str
-    SUPABASE_KEY: str
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
     SUPABASE_JWT_SECRET: str = ""
 
 
@@ -55,7 +56,6 @@ class Settings(BaseSettings):
     # SECURITY
     # ============================================================
 
-    # SECRET_KEY is now optional - will use SUPABASE_JWT_SECRET if not provided
     SECRET_KEY: Optional[str] = None
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
@@ -105,8 +105,15 @@ class Settings(BaseSettings):
         "/api/v1/mpesa/callback"
     )
 
+    # ─── M-Pesa Callback Secret ──────────────────────────────────
+    MPESA_CALLBACK_SECRET: str = ""
+    
+    # ─── M-Pesa Timeouts ─────────────────────────────────────────
     MPESA_TIMEOUT: int = 30
     MPESA_STK_TIMEOUT: int = 60
+    
+    # ─── M-Pesa API Version ──────────────────────────────────────
+    MPESA_API_VERSION: str = "v1"
 
 
     # ============================================================
@@ -151,12 +158,12 @@ class Settings(BaseSettings):
         """Validate required security settings."""
         
         # ─── Validate Supabase credentials ──────────────────────
-        if not self.SUPABASE_KEY:
+        if not self.SUPABASE_KEY and self.ENVIRONMENT == "production":
             raise ValueError(
                 "SUPABASE_KEY environment variable missing"
             )
         
-        if not self.SUPABASE_URL:
+        if not self.SUPABASE_URL and self.ENVIRONMENT == "production":
             raise ValueError(
                 "SUPABASE_URL environment variable missing"
             )
@@ -164,15 +171,26 @@ class Settings(BaseSettings):
         # ─── Use SUPABASE_JWT_SECRET as fallback for SECRET_KEY ──
         if not self.SECRET_KEY:
             if self.SUPABASE_JWT_SECRET:
-                # Use Supabase JWT secret as the secret key
                 self.SECRET_KEY = self.SUPABASE_JWT_SECRET
                 print("✅ Using SUPABASE_JWT_SECRET as SECRET_KEY")
-            else:
-                # No secret key available - critical error
+            elif self.ENVIRONMENT == "production":
                 raise ValueError(
-                    "Neither SECRET_KEY nor SUPABASE_JWT_SECRET is set.\n"
-                    "Please set SUPABASE_JWT_SECRET in your environment variables."
+                    "Neither SECRET_KEY nor SUPABASE_JWT_SECRET is set"
                 )
+            else:
+                # Generate a temporary key for development
+                self.SECRET_KEY = secrets.token_urlsafe(32)
+                print("⚠️  WARNING: Generated temporary SECRET_KEY for development")
+        
+        # ─── M-Pesa validation (warning only) ────────────────────
+        if self.ENVIRONMENT == "production":
+            if not self.MPESA_CONSUMER_KEY or not self.MPESA_CONSUMER_SECRET:
+                print("⚠️  WARNING: M-Pesa credentials not fully configured")
+            
+            if not self.MPESA_CALLBACK_SECRET:
+                print("⚠️  WARNING: MPESA_CALLBACK_SECRET not set - using default")
+                # Generate a default secret
+                self.MPESA_CALLBACK_SECRET = secrets.token_urlsafe(32)
 
         return self
 
@@ -222,10 +240,8 @@ class Settings(BaseSettings):
 
     def get_jwt_secret(self) -> str:
         """Get the JWT secret to use."""
-        # Prefer SUPABASE_JWT_SECRET
         if self.SUPABASE_JWT_SECRET:
             return self.SUPABASE_JWT_SECRET
-        # Fallback to SECRET_KEY
         return self.SECRET_KEY or ""
 
 
