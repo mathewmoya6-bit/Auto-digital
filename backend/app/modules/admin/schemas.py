@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union, Generic, TypeVar
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
@@ -46,15 +46,6 @@ class SuccessResponse(Schema):
     """Generic success response."""
     success: bool = Field(True, description="Success status")
     message: str = Field("Success", description="Success message")
-
-
-T = TypeVar('T')
-
-class ApiResponse(Schema, Generic[T]):
-    """Generic API response wrapper."""
-    success: bool = Field(True, description="Success status")
-    data: T = Field(..., description="Response data")
-    message: Optional[str] = Field(None, description="Optional message")
 
 
 class DeleteResponse(Schema):
@@ -250,7 +241,7 @@ class AdminVehiclesResponse(Pagination):
     vehicles: List[AdminVehicle] = Field(..., description="List of vehicles")
 
 
-class AdminService(Schema):
+class AdminServiceSchema(Schema):
     """Admin service item."""
     id: UUID = Field(..., description="Service ID")
     code: ServiceCode = Field(..., description="Service code")
@@ -268,7 +259,7 @@ class AdminService(Schema):
 
 class AdminServicesResponse(Schema):
     """Admin services response."""
-    services: List[AdminService] = Field(..., description="List of services")
+    services: List[AdminServiceSchema] = Field(..., description="List of services")
     total: NonNegativeInt = Field(..., description="Total services")
 
 
@@ -332,7 +323,7 @@ class ServicePriceItem(Schema):
 class ServicePricesResponse(Schema):
     """Service prices response."""
     prices: Dict[ServiceCode, ServicePriceItem] = Field(..., description="Service prices by code")
-    services: List[AdminService] = Field(..., description="Full service list")
+    services: List[AdminServiceSchema] = Field(..., description="Full service list")
     total: NonNegativeInt = Field(..., description="Total services")
 
 
@@ -346,7 +337,7 @@ class UserServiceItem(Schema):
     status: UserServiceStatus = Field(..., description="Service status")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last updated timestamp")
-    service: Optional[AdminService] = Field(None, description="Service details")
+    service: Optional[AdminServiceSchema] = Field(None, description="Service details")
 
 
 class UserServicesResponse(Schema):
@@ -360,7 +351,7 @@ class UserServicesResponse(Schema):
 
 class ServiceResponse(SuccessResponse):
     """Generic service response."""
-    service: AdminService = Field(..., description="Service data")
+    service: AdminServiceSchema = Field(..., description="Service data")
 
 
 # ─── DELETE RESPONSE SCHEMAS ────────────────────────────────────
@@ -400,11 +391,10 @@ class AdminUserDetailResponse(Schema):
     data: AdminUserDetail = Field(..., description="User details")
 
 
-# ─── FIXED: PAGINATED WRAPPER WITH NO RECURSION ────────────────
+# ─── PAGINATED WRAPPER ──────────────────────────────────────────
 
-# Use a concrete paginated response instead of a generic one
 class PaginatedResponse(Schema):
-    """Generic paginated response wrapper (concrete implementation)."""
+    """Generic paginated response wrapper."""
     items: List[Any] = Field(..., description="List of items")
     total: NonNegativeInt = Field(..., description="Total items")
     limit: NonNegativeInt = Field(..., description="Items per page")
