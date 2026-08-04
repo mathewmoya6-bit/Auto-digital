@@ -1,10 +1,11 @@
+# app/modules/mpesa/schemas.py
 # Auto-D Kenya - M-Pesa Schemas
 # ================================================================
 # TYPE: MODULE - M-Pesa Pydantic schemas
 
 import re
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Union
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -16,11 +17,11 @@ from pydantic import BaseModel, Field, field_validator
 
 class MpesaPaymentRequest(BaseModel):
     """
-    M-Pesa payment initiation request.
+    M-Pesa STK Push request.
 
-    Supports:
-    - Numeric service ID
-    - Service code
+    Accepts:
+    - service_id = 1
+    - service_id = "valuation"
     """
 
     phone: str = Field(
@@ -34,17 +35,19 @@ class MpesaPaymentRequest(BaseModel):
     )
 
     description: Optional[str] = None
-
     user_id: Optional[str] = None
-
     request_id: Optional[str] = None
-
     amount: Optional[float] = None
 
 
     @field_validator("phone")
     @classmethod
-    def validate_phone(cls, value: str):
+    def validate_phone(cls, value: str) -> str:
+        """
+        Normalize Kenyan phone number.
+        Returns format:
+        7XXXXXXXX / 1XXXXXXXX
+        """
 
         phone = re.sub(
             r"\D",
@@ -52,14 +55,11 @@ class MpesaPaymentRequest(BaseModel):
             value
         )
 
-        # Convert 2547XXXXXXXX
         if phone.startswith("254"):
             phone = phone[3:]
 
-        # Convert 07XXXXXXXX
         if phone.startswith("0"):
             phone = phone[1:]
-
 
         if not re.match(
             r"^(7\d{8}|1\d{8})$",
@@ -72,22 +72,20 @@ class MpesaPaymentRequest(BaseModel):
         return phone
 
 
-
     @field_validator("service_id")
     @classmethod
-    def validate_service_id(
+    def validate_service(
         cls,
         value: Union[int, str]
-    ):
+    ) -> Union[int, str]:
 
-        allowed_services = [
+        allowed = {
             "valuation",
             "mileage",
             "ownership",
             "tco",
-            "valuation_report",
-        ]
-
+            "valuation_report"
+        }
 
         if isinstance(value, int):
 
@@ -103,21 +101,16 @@ class MpesaPaymentRequest(BaseModel):
 
             value = value.strip().lower()
 
-
             if value.isdigit():
-
                 return int(value)
 
-
-            if value in allowed_services:
-
+            if value in allowed:
                 return value
 
 
         raise ValueError(
             "Invalid service_id"
         )
-
 
 
 # ================================================================
@@ -131,39 +124,28 @@ class MpesaPaymentResponse(BaseModel):
 
     message: str
 
-    status: str
+    status: str = "pending"
 
 
     @field_validator("status")
     @classmethod
-    def validate_status(cls, value):
+    def validate_status(cls, value: str):
 
-        allowed = [
+        allowed = {
             "pending",
             "completed",
             "failed",
             "paid",
-            "success",
-        ]
+            "success"
+        }
 
         if value not in allowed:
-
             raise ValueError(
-                f"Status must be one of {allowed}"
+                "Invalid payment status"
             )
 
         return value
 
-
-    class Config:
-
-        from_attributes = True
-
-
-
-# ================================================================
-# PAYMENT STATUS
-# ================================================================
 
 
 class PaymentStatusResponse(BaseModel):
@@ -181,11 +163,6 @@ class PaymentStatusResponse(BaseModel):
     mpesa_receipt: Optional[str] = None
 
     transaction_id: Optional[str] = None
-
-
-    class Config:
-
-        from_attributes = True
 
 
 
@@ -231,7 +208,7 @@ class UserServicesResponse(BaseModel):
 
 
 # ================================================================
-# SERVICES
+# AVAILABLE SERVICES
 # ================================================================
 
 
@@ -295,7 +272,7 @@ class PaymentHistoryResponse(BaseModel):
 
 
 # ================================================================
-# MPESA CALLBACK
+# STK CALLBACK
 # ================================================================
 
 
@@ -303,13 +280,15 @@ class StkCallbackItem(BaseModel):
 
     Name: str
 
-    Value: Any
+    Value: Optional[Any] = None
 
 
 
 class StkCallbackMetadata(BaseModel):
 
-    Item: List[StkCallbackItem]
+    Item: List[StkCallbackItem] = Field(
+        default_factory=list
+    )
 
 
 
@@ -382,7 +361,7 @@ class MpesaHealthResponse(BaseModel):
 
 
 # ================================================================
-# FACTORY FUNCTIONS
+# FACTORY HELPERS
 # ================================================================
 
 
@@ -390,7 +369,7 @@ def create_payment_response(
     checkout_request_id: str,
     message: str,
     status: str = "pending"
-):
+) -> MpesaPaymentResponse:
 
     return MpesaPaymentResponse(
         checkout_request_id=checkout_request_id,
@@ -405,25 +384,21 @@ def create_service_access_response(
     status: str,
     expires_at: Optional[str] = None,
     message: str = ""
-):
+) -> ServiceAccessResponse:
 
     if not message:
 
         if has_access:
-
             message = "Access granted"
 
         elif status == "expired":
-
             message = "Access expired"
 
         elif status == "no_record":
-
             message = "No access record found"
 
         else:
-
-            message = status
+            message = f"Access status: {status}"
 
 
     return ServiceAccessResponse(
@@ -434,19 +409,18 @@ def create_service_access_response(
     )
 
 
-
 def create_webhook_response(
     status: str,
     message: str,
     checkout_request_id: Optional[str] = None,
     mpesa_receipt: Optional[str] = None,
-    transaction_id: Optional[str] = None,
-):
+    transaction_id: Optional[str] = None
+) -> WebhookResponse:
 
     return WebhookResponse(
         status=status,
         message=message,
         checkout_request_id=checkout_request_id,
         mpesa_receipt=mpesa_receipt,
-        transaction_id=transaction_id,
+        transaction_id=transaction_id
     )
