@@ -93,7 +93,7 @@ class DepreciationBreakdown(BaseModel):
     final_value: float = Field(..., description="Final vehicle value after ownership period")
 
 
-class Financing Breakdown(BaseModel):
+class FinancingBreakdown(BaseModel):
     """Financing cost breakdown."""
 
     monthly_installment: float = Field(..., description="Monthly installment")
