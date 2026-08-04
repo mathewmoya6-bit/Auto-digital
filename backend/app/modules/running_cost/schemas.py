@@ -6,9 +6,9 @@
 # ================================================================
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any, ForwardRef
+from typing import Optional, List, Dict, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 # ================================================================
@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 
 class RunningCostRequest(BaseModel):
     """Running cost calculation request."""
-    
+
     variant_id: int = Field(..., gt=0, description="Vehicle variant database ID")
     annual_mileage: int = Field(20000, ge=0, description="Annual mileage in KM")
     fuel_price_per_liter: Optional[float] = Field(None, ge=0, description="Fuel price per liter")
@@ -33,7 +33,7 @@ class RunningCostRequest(BaseModel):
 
 class RunningCostProjectionRequest(BaseModel):
     """Running cost projection request."""
-    
+
     variant_id: int = Field(..., gt=0, description="Vehicle variant database ID")
     annual_mileage: int = Field(20000, ge=0, description="Annual mileage in KM")
     years: int = Field(5, ge=1, le=20, description="Number of years to project")
@@ -48,7 +48,7 @@ class RunningCostProjectionRequest(BaseModel):
 
 class FuelCostBreakdown(BaseModel):
     """Fuel cost breakdown."""
-    
+
     annual_cost: float = Field(..., description="Annual fuel cost")
     monthly_cost: float = Field(..., description="Monthly fuel cost")
     weekly_cost: float = Field(..., description="Weekly fuel cost")
@@ -60,7 +60,7 @@ class FuelCostBreakdown(BaseModel):
 
 class ServiceCostBreakdown(BaseModel):
     """Service cost breakdown."""
-    
+
     annual_cost: float = Field(..., description="Annual service cost")
     monthly_cost: float = Field(..., description="Monthly service cost")
     weekly_cost: float = Field(..., description="Weekly service cost")
@@ -72,7 +72,7 @@ class ServiceCostBreakdown(BaseModel):
 
 class InsuranceCostBreakdown(BaseModel):
     """Insurance cost breakdown."""
-    
+
     annual_cost: float = Field(..., description="Annual insurance cost")
     monthly_cost: float = Field(..., description="Monthly insurance cost")
     weekly_cost: float = Field(..., description="Weekly insurance cost")
@@ -83,7 +83,7 @@ class InsuranceCostBreakdown(BaseModel):
 
 class DepreciationBreakdown(BaseModel):
     """Depreciation breakdown."""
-    
+
     annual_depreciation: float = Field(..., description="Annual depreciation")
     monthly_depreciation: float = Field(..., description="Monthly depreciation")
     weekly_depreciation: float = Field(..., description="Weekly depreciation")
@@ -95,7 +95,7 @@ class DepreciationBreakdown(BaseModel):
 
 class FinancingBreakdown(BaseModel):
     """Financing cost breakdown."""
-    
+
     monthly_installment: float = Field(..., description="Monthly installment")
     annual_interest: float = Field(..., description="Annual interest cost")
     total_interest: float = Field(..., description="Total interest over period")
@@ -112,7 +112,7 @@ class FinancingBreakdown(BaseModel):
 
 class ProjectionYear(BaseModel):
     """Single year projection data."""
-    
+
     year: int = Field(..., description="Year number (1-based)")
     annual_mileage: int = Field(..., description="Annual mileage for this year")
     fuel_cost: float = Field(..., description="Fuel cost for this year")
@@ -130,7 +130,7 @@ class ProjectionYear(BaseModel):
 
 class RunningCostSummary(BaseModel):
     """Running cost summary."""
-    
+
     total_annual_cost: float = Field(..., description="Total annual running cost")
     total_monthly_cost: float = Field(..., description="Total monthly running cost")
     total_weekly_cost: float = Field(..., description="Total weekly running cost")
@@ -147,10 +147,25 @@ class RunningCostSummary(BaseModel):
 # RESPONSE SCHEMAS
 # ================================================================
 
+class VehicleSummary(BaseModel):
+    """Minimal vehicle identity block used in running-cost responses.
+
+    Prefer this over a bare Dict[str, Any] so callers can't accidentally
+    pass a live ORM instance (with circular relationship attributes) into
+    the response model.
+    """
+
+    id: int = Field(..., description="Variant database ID")
+    make: str = Field(..., description="Vehicle make")
+    model: str = Field(..., description="Vehicle model")
+    variant: str = Field(..., description="Vehicle variant/trim")
+    year: Optional[int] = Field(None, description="Model year")
+
+
 class RunningCostResponse(BaseModel):
     """Running cost response."""
-    
-    vehicle: Dict[str, Any] = Field(..., description="Vehicle details")
+
+    vehicle: VehicleSummary = Field(..., description="Vehicle details")
     annual_mileage: int = Field(..., description="Annual mileage used")
     currency: str = Field("KES", description="Currency code")
     summary: RunningCostSummary = Field(..., description="Cost summary")
@@ -162,8 +177,8 @@ class RunningCostResponse(BaseModel):
 
 class RunningCostProjectionResponse(BaseModel):
     """Running cost projection response."""
-    
-    vehicle: Dict[str, Any] = Field(..., description="Vehicle details")
+
+    vehicle: VehicleSummary = Field(..., description="Vehicle details")
     initial_annual_mileage: int = Field(..., description="Initial annual mileage")
     years: int = Field(..., description="Number of years projected")
     inflation_rate: float = Field(..., description="Inflation rate used")
@@ -182,7 +197,7 @@ class RunningCostProjectionResponse(BaseModel):
 
 class LegacyRunningCostResponse(BaseModel):
     """Legacy running cost response for backward compatibility."""
-    
+
     vehicle_make: str = Field(..., description="Vehicle make")
     vehicle_model: str = Field(..., description="Vehicle model")
     vehicle_variant: str = Field(..., description="Vehicle variant")
@@ -213,7 +228,7 @@ class LegacyRunningCostResponse(BaseModel):
 
 class RunningCostComparisonItem(BaseModel):
     """Comparison item for running costs."""
-    
+
     vehicle_name: str = Field(..., description="Vehicle name")
     total_annual_cost: float = Field(..., description="Total annual cost")
     fuel_cost: float = Field(..., description="Fuel cost")
@@ -225,7 +240,7 @@ class RunningCostComparisonItem(BaseModel):
 
 class RunningCostComparisonResponse(BaseModel):
     """Running cost comparison response."""
-    
+
     vehicles: List[RunningCostComparisonItem] = Field(..., description="List of vehicle comparisons")
     average_cost: float = Field(..., description="Average annual cost")
     cheapest: str = Field(..., description="Name of cheapest vehicle")
@@ -239,7 +254,7 @@ class RunningCostComparisonResponse(BaseModel):
 
 class RunningCostHistoryItem(BaseModel):
     """Running cost history item."""
-    
+
     id: str = Field(..., description="Record ID")
     vehicle_id: str = Field(..., description="Vehicle ID")
     annual_mileage: int = Field(..., description="Annual mileage")
@@ -252,7 +267,7 @@ class RunningCostHistoryItem(BaseModel):
 
 class RunningCostHistoryResponse(BaseModel):
     """Running cost history response."""
-    
+
     items: List[RunningCostHistoryItem] = Field(default_factory=list, description="History items")
     total: int = Field(0, description="Total number of items")
 
@@ -263,7 +278,7 @@ class RunningCostHistoryResponse(BaseModel):
 
 class RunningCostHealthResponse(BaseModel):
     """Running cost service health response."""
-    
+
     status: str = Field(..., description="Service status")
     service: str = "running-cost"
     version: str = "1.0"
@@ -278,7 +293,7 @@ __all__ = [
     # Request schemas
     "RunningCostRequest",
     "RunningCostProjectionRequest",
-    
+
     # Response schemas
     "RunningCostResponse",
     "RunningCostProjectionResponse",
@@ -286,8 +301,9 @@ __all__ = [
     "RunningCostComparisonResponse",
     "RunningCostHistoryResponse",
     "RunningCostHealthResponse",
-    
+
     # Component schemas
+    "VehicleSummary",
     "FuelCostBreakdown",
     "ServiceCostBreakdown",
     "InsuranceCostBreakdown",
