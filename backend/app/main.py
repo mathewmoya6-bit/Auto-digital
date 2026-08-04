@@ -1,353 +1,420 @@
-# app/main.py
-# Auto-D Kenya - Application Entry Point
+# app/modules/admin/schemas.py
+# Auto-D Kenya - Admin Schemas
 # ================================================================
+# TYPE: MODULE - Admin Pydantic schemas
 
-import logging
-from contextlib import asynccontextmanager
-from datetime import datetime, UTC
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from __future__ import annotations
 
-from app.core.config import settings
-from app.core.logging import setup_logging
-from app.core.database import init_db, get_supabase
-from app.core.middleware import setup_middleware
-from app.core.exceptions import setup_exception_handlers
+from typing import Any, Dict, List, Optional, Union
+from datetime import datetime, date
+from decimal import Decimal
+from uuid import UUID
+from enum import Enum
+from typing_extensions import Annotated
 
-# Import module routers
-from app.modules.auth.router import router as auth_router
-from app.modules.vehicles.router import router as vehicles_router
-from app.modules.valuation.router import router as valuation_router
-from app.modules.mpesa.router import router as mpesa_router
-from app.modules.reports.router import router as reports_router
-from app.modules.scraper.router import router as scraper_router
-from app.modules.market.router import router as market_router
-from app.modules.notifications.router import router as notifications_router
-from app.modules.admin.router import router as admin_router
-from app.modules.running_cost.router import router as running_cost_router
-from app.modules.ownership.router import router as ownership_router
-
-logger = logging.getLogger(__name__)
-
-# ─── LIFESPAN MANAGER ────────────────────────────────────────────
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan manager"""
-    # Startup
-    logger.info("=" * 60)
-    logger.info(f"{settings.PROJECT_NAME} starting up...")
-    logger.info(f"Environment: {settings.ENVIRONMENT}")
-    logger.info(f"API Base URL: {settings.API_BASE_URL}")
-    logger.info(f"Port: {settings.PORT}")
-    logger.info("=" * 60)
-
-    # Initialize logging
-    try:
-        setup_logging()
-        logger.info("✅ Logging configured successfully")
-    except Exception as e:
-        print(f"❌ Logging configuration failed: {str(e)}")
-
-    # Initialize database
-    try:
-        await init_db()
-        logger.info("✅ Database initialized successfully")
-    except Exception as e:
-        logger.error(f"❌ Database initialization failed: {str(e)}")
-
-    yield
-
-    # Shutdown
-    logger.info(f"{settings.PROJECT_NAME} shutting down...")
-
-
-# ─── CREATE APP ──────────────────────────────────────────────────
-
-app = FastAPI(
-    title=settings.PROJECT_NAME,
-    version=settings.VERSION,
-    description=settings.DESCRIPTION,
-    # ✅ ENABLED: Docs are now accessible in all environments
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
-    lifespan=lifespan
+from pydantic import (
+    BaseModel, 
+    Field, 
+    ConfigDict, 
+    EmailStr, 
+    field_validator,
+    StringConstraints,
+    PositiveFloat,
+    NonNegativeInt,
 )
 
+# ─── BASE SCHEMAS ────────────────────────────────────────────────
 
-# ─── MIDDLEWARE (non-CORS) ───────────────────────────────────────
-# ⚠️ IMPORTANT: This must run BEFORE CORSMiddleware is added below.
-# In Starlette, the LAST middleware added becomes the OUTERMOST layer.
-# CORS has to be outermost so it can attach Access-Control-* headers
-# even to responses produced by TrustedHostMiddleware, auth checks,
-# or errors from the middleware below — and so unauthenticated OPTIONS
-# preflight requests never get rejected before reaching CORSMiddleware.
-
-setup_middleware(app)
-
-
-# ─── CORS MIDDLEWARE ─────────────────────────────────────────────
-# ⚠️ CRITICAL: CORS MUST be the LAST middleware registered so it ends
-# up as the outermost layer (see note above).
-
-cors_origins = settings.get_cors_origins()
-logger.info(f"CORS Origins configured: {cors_origins}")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=86400,
-)
-
-
-# ─── EXCEPTION HANDLERS ──────────────────────────────────────────
-
-setup_exception_handlers(app)
-
-
-# ─── ROUTES ──────────────────────────────────────────────────────
-
-# Authentication Routes
-app.include_router(
-    auth_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["Authentication"]
-)
-
-# Vehicles Routes
-app.include_router(
-    vehicles_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["Vehicles"]
-)
-
-# Valuation Routes
-app.include_router(
-    valuation_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["Valuation"]
-)
-
-# M-Pesa Payment Routes
-app.include_router(
-    mpesa_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["M-Pesa"]
-)
-
-# Reports Routes
-app.include_router(
-    reports_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["Reports"]
-)
-
-# Scraper Routes
-app.include_router(
-    scraper_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["Scraper"]
-)
-
-# Market Routes
-app.include_router(
-    market_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["Market"]
-)
-
-# Notifications Routes
-app.include_router(
-    notifications_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["Notifications"]
-)
-
-# Admin Routes
-app.include_router(
-    admin_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["Admin"]
-)
-
-# Running Cost Routes
-app.include_router(
-    running_cost_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["Running Cost"]
-)
-
-# Ownership Routes
-app.include_router(
-    ownership_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["Ownership"]
-)
-
-
-# ─── HTML PAGE REDIRECTS ────────────────────────────────────────
-# Prevent direct access to HTML pages - redirect to SPA root
-
-@app.get("/{page_name}.html", include_in_schema=False)
-async def redirect_html_pages(page_name: str):
-    """
-    Prevent direct access to HTML pages.
-    Always load the SPA from the root.
-    
-    This redirects:
-    - /services.html → /
-    - /login.html → /
-    - /admin.html → /
-    - /index.html → /
-    - /dashboard.html → /
-    - /valuation.html → /
-    - /market.html → /
-    - /scraper.html → /
-    - /profile.html → /
-    - /settings.html → /
-    - /vehicles.html → /
-    - /reports.html → /
-    - /notifications.html → /
-    - /ownership.html → /
-    - /running-cost.html → /
-    - /mpesa.html → /
-    """
-    return RedirectResponse(url="/", status_code=302)
-
-
-# Also redirect common SPA routes without .html extension
-@app.get("/{page_name}", include_in_schema=False)
-async def redirect_spa_pages(page_name: str):
-    """
-    Redirect common SPA routes to root.
-    This ensures the SPA handles routing.
-    """
-    # List of pages that should redirect to root
-    spa_pages = {
-        "services", "login", "admin", "index", "dashboard", 
-        "valuation", "market", "scraper", "profile", "settings",
-        "vehicles", "reports", "notifications", "ownership", 
-        "running-cost", "mpesa", "signup", "register", "forgot-password"
-    }
-    
-    if page_name.lower() in spa_pages:
-        return RedirectResponse(url="/", status_code=302)
-    
-    # Don't redirect API paths or other valid routes
-    # Let FastAPI handle them normally
-
-
-# ─── HEALTH CHECK ENDPOINTS ─────────────────────────────────────
-
-@app.get("/health", tags=["Health"])
-async def health_check():
-    """Health check endpoint"""
-    health_status = {
-        "status": "healthy",
-        "environment": settings.ENVIRONMENT,
-        "version": settings.VERSION,
-        "service": settings.PROJECT_NAME,
-        "timestamp": datetime.now(UTC).isoformat(),
-        "dependencies": {}
-    }
-
-    # Check Supabase connection
-    try:
-        client = get_supabase()
-        client.table("services").select("*", count="exact").limit(1).execute()
-        health_status["dependencies"]["supabase"] = "connected"
-    except Exception as e:
-        health_status["dependencies"]["supabase"] = "disconnected"
-        health_status["dependencies"]["supabase_error"] = str(e)
-        health_status["status"] = "degraded"
-
-    return health_status
-
-
-@app.get("/ready", tags=["Health"])
-async def readiness_check():
-    """Readiness check endpoint"""
-    readiness_status = {
-        "status": "ready",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "environment": settings.ENVIRONMENT
-    }
-
-    try:
-        client = get_supabase()
-        client.table("services").select("*", count="exact").limit(1).execute()
-        readiness_status["supabase"] = "ready"
-    except Exception:
-        readiness_status["supabase"] = "not_ready"
-        readiness_status["status"] = "not_ready"
-
-    return readiness_status
-
-
-@app.get("/live", tags=["Health"])
-async def liveness_check():
-    """Liveness check endpoint"""
-    return {
-        "status": "alive",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "environment": settings.ENVIRONMENT
-    }
-
-
-@app.get("/api/health", tags=["Health"])
-async def api_health_check():
-    """API Health check endpoint (for Render.com compatibility)"""
-    return await health_check()
-
-
-@app.get("/api/ready", tags=["Health"])
-async def api_readiness_check():
-    """API Readiness check endpoint (for Render.com compatibility)"""
-    return await readiness_check()
-
-
-@app.get("/api/live", tags=["Health"])
-async def api_liveness_check():
-    """API Liveness check endpoint (for Render.com compatibility)"""
-    return await liveness_check()
-
-
-@app.get("/", tags=["Health"])
-async def root():
-    """Root endpoint"""
-    return {
-        "name": settings.PROJECT_NAME,
-        "version": settings.VERSION,
-        "environment": settings.ENVIRONMENT,
-        "api_prefix": settings.API_V1_PREFIX,
-        "base_url": settings.API_BASE_URL,
-        "docs_url": f"{settings.API_BASE_URL}/docs",
-        "cors_origins": settings.get_cors_origins(),
-    }
-
-
-# ─── STARTUP ──────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    import uvicorn
-
-    logger.info("=" * 60)
-    logger.info(f"🚀 Starting {settings.PROJECT_NAME}")
-    logger.info(f"📡 API Base URL: {settings.API_BASE_URL}")
-    logger.info(f"🔧 Environment: {settings.ENVIRONMENT}")
-    logger.info(f"🔌 Port: {settings.PORT}")
-    logger.info("=" * 60)
-
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=settings.PORT,
-        reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
+class Schema(BaseModel):
+    """Base schema with common configuration."""
+    model_config = ConfigDict(
+        from_attributes=True,
+        extra="ignore",
+        populate_by_name=True,
+        use_enum_values=True,
     )
+
+
+class Pagination(Schema):
+    """Pagination fields."""
+    total: NonNegativeInt = Field(..., description="Total items")
+    limit: NonNegativeInt = Field(..., description="Items per page")
+    offset: NonNegativeInt = Field(..., description="Pagination offset")
+
+
+class SuccessResponse(Schema):
+    """Generic success response."""
+    success: bool = Field(True, description="Success status")
+    message: str = Field("Success", description="Success message")
+
+
+class DeleteResponse(Schema):
+    """Generic delete response."""
+    success: bool = Field(True, description="Success status")
+    message: str = Field(..., description="Delete message")
+    deleted_at: Optional[datetime] = Field(None, description="Deletion timestamp")
+
+
+# ─── ENUMS ────────────────────────────────────────────────────────
+
+class ServiceCode(str, Enum):
+    """Service code enum."""
+    VALUATION = "valuation"
+    MILEAGE = "mileage"
+    OWNERSHIP = "ownership"
+    TCO = "tco"
+
+
+class UserServiceStatus(str, Enum):
+    """User service status enum."""
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    CANCELLED = "cancelled"
+
+
+class PaymentStatus(str, Enum):
+    """Payment status enum."""
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    PAID = "paid"
+    SUCCESS = "success"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+
+
+class ComponentStatus(str, Enum):
+    """Component status enum."""
+    HEALTHY = "healthy"
+    UNHEALTHY = "unhealthy"
+    DEGRADED = "degraded"
+
+
+# ─── TYPE ALIASES ────────────────────────────────────────────────
+
+Metadata = Dict[str, Any]
+CurrencyCode = Annotated[str, StringConstraints(min_length=3, max_length=3)]
+
+
+# ─── REQUEST SCHEMAS ──────────────────────────────────────────────
+
+class UpdateServiceRequest(Schema):
+    """Update service request."""
+    name: Optional[str] = Field(None, description="Service name")
+    price: Optional[PositiveFloat] = Field(None, description="Service price")
+    currency: Optional[CurrencyCode] = Field("KES", description="Currency code")
+    description: Optional[str] = Field(None, description="Service description")
+    icon: Optional[str] = Field(None, description="Service icon")
+    active: Optional[bool] = Field(None, description="Whether service is active")
+    display_order: Optional[NonNegativeInt] = Field(None, description="Display order")
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, v: Optional[str]) -> Optional[str]:
+        """Normalize currency to uppercase."""
+        if v:
+            return v.upper()
+        return v
+
+
+class UpdateServicePriceRequest(Schema):
+    """Update service price request."""
+    price: PositiveFloat = Field(..., description="Service price")
+    currency: CurrencyCode = Field("KES", description="Currency code")
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, v: str) -> str:
+        """Normalize currency to uppercase."""
+        return v.upper()
+
+
+class CreateServiceRequest(Schema):
+    """Create service request."""
+    code: ServiceCode = Field(..., description="Service code (unique)")
+    name: str = Field(..., description="Service name")
+    price: PositiveFloat = Field(..., description="Service price")
+    currency: CurrencyCode = Field("KES", description="Currency code")
+    description: Optional[str] = Field(None, description="Service description")
+    icon: Optional[str] = Field(None, description="Service icon")
+    active: bool = Field(True, description="Whether service is active")
+    display_order: NonNegativeInt = Field(0, description="Display order")
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, v: str) -> str:
+        """Normalize currency to uppercase."""
+        return v.upper()
+
+
+class UpdateUserServiceRequest(Schema):
+    """Update user service request."""
+    user_id: UUID = Field(..., description="User ID")
+    service_id: UUID = Field(..., description="Service ID")
+    status: UserServiceStatus = Field(..., description="Service status")
+
+
+# ─── RESPONSE SCHEMAS ─────────────────────────────────────────────
+
+class AdminStatsResponse(Schema):
+    """Admin statistics response."""
+    total_users: NonNegativeInt = Field(..., description="Total users")
+    total_vehicles: NonNegativeInt = Field(..., description="Total vehicles")
+    total_payments: NonNegativeInt = Field(..., description="Total payments")
+    total_revenue: Decimal = Field(..., description="Total revenue")
+    total_services_purchased: NonNegativeInt = Field(..., description="Total services purchased")
+    new_users_this_week: NonNegativeInt = Field(..., description="New users this week")
+    active_services: NonNegativeInt = Field(..., description="Active services")
+    updated_at: datetime = Field(..., description="Last updated timestamp")
+    error: Optional[str] = Field(None, description="Error message if any")
+
+
+class AdminUserService(Schema):
+    """User service item."""
+    service_id: UUID = Field(..., description="Service ID")
+    service_name: str = Field(..., description="Service name")
+    service_code: ServiceCode = Field(..., description="Service code")
+    status: UserServiceStatus = Field(..., description="Service status")
+
+
+class AdminUser(Schema):
+    """Admin user item."""
+    id: UUID = Field(..., description="User ID")
+    email: EmailStr = Field(..., description="User email")
+    full_name: str = Field(..., description="User full name")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    last_sign_in_at: Optional[datetime] = Field(None, description="Last sign-in timestamp")
+    confirmed_at: Optional[datetime] = Field(None, description="Confirmation timestamp")
+    phone: Optional[str] = Field(None, description="Phone number")
+    services: List[AdminUserService] = Field(default_factory=list, description="User services")
+
+
+class AdminPayment(Schema):
+    """Admin payment item."""
+    id: UUID = Field(..., description="Payment ID")
+    user_id: Optional[UUID] = Field(None, description="User ID")
+    service_id: Optional[UUID] = Field(None, description="Service ID")
+    service_name: Optional[str] = Field(None, description="Service name")
+    service_code: Optional[ServiceCode] = Field(None, description="Service code")
+    amount: Decimal = Field(..., description="Payment amount")
+    currency: CurrencyCode = Field("KES", description="Currency code")
+    status: PaymentStatus = Field(..., description="Payment status")
+    phone: Optional[str] = Field(None, description="Phone number")
+    checkout_request_id: Optional[str] = Field(None, description="Checkout request ID")
+    mpesa_receipt: Optional[str] = Field(None, description="M-Pesa receipt")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    completed_at: Optional[datetime] = Field(None, description="Completion timestamp")
+
+
+class AdminUserDetail(Schema):
+    """Detailed admin user with payments."""
+    id: UUID = Field(..., description="User ID")
+    email: EmailStr = Field(..., description="User email")
+    full_name: str = Field(..., description="User full name")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    last_sign_in_at: Optional[datetime] = Field(None, description="Last sign-in timestamp")
+    confirmed_at: Optional[datetime] = Field(None, description="Confirmation timestamp")
+    phone: Optional[str] = Field(None, description="Phone number")
+    services: List[AdminUserService] = Field(default_factory=list, description="User services")
+    app_metadata: Metadata = Field(default_factory=dict, description="App metadata")
+    user_metadata: Metadata = Field(default_factory=dict, description="User metadata")
+    payments: List[AdminPayment] = Field(default_factory=list, description="User payments")
+
+
+class AdminUsersResponse(Pagination):
+    """Admin users response."""
+    users: List[AdminUser] = Field(..., description="List of users")
+
+
+class AdminPaymentsResponse(Pagination):
+    """Admin payments response."""
+    payments: List[AdminPayment] = Field(..., description="List of payments")
+
+
+class AdminVehicle(Schema):
+    """Admin vehicle item."""
+    id: UUID = Field(..., description="Vehicle ID")
+    user_id: Optional[UUID] = Field(None, description="User ID")
+    make: str = Field(..., description="Vehicle make")
+    model: str = Field(..., description="Vehicle model")
+    year: Optional[int] = Field(None, description="Vehicle year")
+    variant: Optional[str] = Field(None, description="Vehicle variant")
+    verified: bool = Field(False, description="Verification status")
+    created_at: datetime = Field(..., description="Creation timestamp")
+
+
+class AdminVehiclesResponse(Pagination):
+    """Admin vehicles response."""
+    vehicles: List[AdminVehicle] = Field(..., description="List of vehicles")
+
+
+# Renamed to avoid conflict with service class
+class AdminServiceItem(Schema):
+    """Admin service item."""
+    id: UUID = Field(..., description="Service ID")
+    code: ServiceCode = Field(..., description="Service code")
+    name: str = Field(..., description="Service name")
+    price: Decimal = Field(..., description="Service price")
+    currency: CurrencyCode = Field("KES", description="Currency code")
+    description: Optional[str] = Field(None, description="Service description")
+    icon: Optional[str] = Field(None, description="Service icon")
+    active: bool = Field(True, description="Whether service is active")
+    display_order: NonNegativeInt = Field(0, description="Display order")
+    purchase_count: NonNegativeInt = Field(0, description="Number of purchases")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last updated timestamp")
+
+
+class AdminServicesResponse(Schema):
+    """Admin services response."""
+    services: List[AdminServiceItem] = Field(..., description="List of services")
+    total: NonNegativeInt = Field(..., description="Total services")
+
+
+class AnalyticsDay(Schema):
+    """Analytics day item."""
+    date: date = Field(..., description="Date")
+    users: NonNegativeInt = Field(0, description="New users on this day")
+    payments: NonNegativeInt = Field(0, description="Payments on this day")
+    revenue: Decimal = Field(Decimal(0), description="Revenue on this day")
+    vehicles: NonNegativeInt = Field(0, description="Vehicles added on this day")
+
+
+class AnalyticsTotals(Schema):
+    """Analytics totals."""
+    users: NonNegativeInt = Field(..., description="Total users")
+    payments: NonNegativeInt = Field(..., description="Total payments")
+    revenue: Decimal = Field(..., description="Total revenue")
+    vehicles: NonNegativeInt = Field(..., description="Total vehicles")
+
+
+class AdminAnalyticsResponse(Schema):
+    """Admin analytics response."""
+    period_days: NonNegativeInt = Field(..., description="Period in days")
+    start_date: date = Field(..., description="Start date")
+    end_date: date = Field(..., description="End date")
+    daily_stats: List[AnalyticsDay] = Field(..., description="Daily statistics")
+    totals: AnalyticsTotals = Field(..., description="Total statistics")
+
+
+class ComponentStatuses(Schema):
+    """System component statuses."""
+    supabase: ComponentStatus = Field(..., description="Supabase status")
+    database: ComponentStatus = Field(..., description="Database status")
+    mpesa: ComponentStatus = Field(..., description="M-Pesa status")
+
+
+class AdminStatusResponse(Schema):
+    """Admin system status response."""
+    status: ComponentStatus = Field(..., description="Overall system status")
+    timestamp: datetime = Field(..., description="Status timestamp")
+    components: ComponentStatuses = Field(..., description="Component statuses")
+
+
+class RevenueReportResponse(Schema):
+    """Revenue report response."""
+    total_revenue: Decimal = Field(..., description="Total revenue")
+    total_transactions: NonNegativeInt = Field(..., description="Total transactions")
+    revenue_by_service: Dict[str, Decimal] = Field(..., description="Revenue breakdown by service")
+    start_date: Optional[datetime] = Field(None, description="Start date")
+    end_date: Optional[datetime] = Field(None, description="End date")
+    error: Optional[str] = Field(None, description="Error message if any")
+
+
+class ServicePriceItem(Schema):
+    """Service price item."""
+    price: Decimal = Field(..., description="Service price")
+    currency: CurrencyCode = Field("KES", description="Currency code")
+    name: str = Field(..., description="Service name")
+
+
+class ServicePricesResponse(Schema):
+    """Service prices response."""
+    prices: Dict[ServiceCode, ServicePriceItem] = Field(..., description="Service prices by code")
+    services: List[AdminServiceItem] = Field(..., description="Full service list")
+    total: NonNegativeInt = Field(..., description="Total services")
+
+
+# ─── USER SERVICE RESPONSE ──────────────────────────────────────
+
+class UserServiceItem(Schema):
+    """User service item."""
+    id: UUID = Field(..., description="User service ID")
+    user_id: UUID = Field(..., description="User ID")
+    service_id: UUID = Field(..., description="Service ID")
+    status: UserServiceStatus = Field(..., description="Service status")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last updated timestamp")
+    # Use a separate field to avoid circular reference
+    service_details: Optional[AdminServiceItem] = Field(None, description="Service details", alias="service")
+
+
+class UserServicesResponse(Schema):
+    """User services response."""
+    user_id: UUID = Field(..., description="User ID")
+    services: List[UserServiceItem] = Field(..., description="List of user services")
+    total: NonNegativeInt = Field(..., description="Total services")
+
+
+# ─── SERVICE RESPONSE SCHEMAS ────────────────────────────────────
+
+class ServiceResponse(SuccessResponse):
+    """Generic service response."""
+    service: AdminServiceItem = Field(..., description="Service data")
+
+
+# ─── DELETE RESPONSE SCHEMAS ────────────────────────────────────
+
+class DeleteUserResponse(DeleteResponse):
+    """Delete user response."""
+    user_id: UUID = Field(..., description="Deleted user ID")
+
+
+class DeleteServiceResponse(DeleteResponse):
+    """Delete service response."""
+    service_id: UUID = Field(..., description="Deleted service ID")
+
+
+class UpdateUserServiceResponse(SuccessResponse):
+    """Update user service response."""
+    user_id: UUID = Field(..., description="User ID")
+    service_id: UUID = Field(..., description="Service ID")
+    status: UserServiceStatus = Field(..., description="Updated status")
+    updated_at: datetime = Field(..., description="Update timestamp")
+
+
+# ─── HEALTH RESPONSE ─────────────────────────────────────────────
+
+class AdminHealthResponse(Schema):
+    """Admin health response."""
+    status: ComponentStatus = Field(..., description="Health status")
+    service: str = Field("admin", description="Service name")
+    timestamp: datetime = Field(..., description="Health check timestamp")
+
+
+# ─── USER DETAIL RESPONSE ────────────────────────────────────────
+
+class AdminUserDetailResponse(Schema):
+    """Admin user detail response."""
+    success: bool = Field(True, description="Success status")
+    data: AdminUserDetail = Field(..., description="User details")
+
+
+# ─── PAGINATED WRAPPER ──────────────────────────────────────────
+
+class PaginatedResponse(Schema):
+    """Generic paginated response wrapper."""
+    items: List[Any] = Field(..., description="List of items")
+    total: NonNegativeInt = Field(..., description="Total items")
+    limit: NonNegativeInt = Field(..., description="Items per page")
+    offset: NonNegativeInt = Field(..., description="Pagination offset")
+    has_more: bool = Field(False, description="Whether there are more items")
+
+
+# ─── FORWARD REFERENCES ──────────────────────────────────────────
+
+# Resolve forward references - explicitly rebuild all models with potential circular refs
+AdminUserDetail.model_rebuild()
+AdminUserDetailResponse.model_rebuild()
+UserServicesResponse.model_rebuild()
