@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 class MarketInsightsRequest(BaseModel):
     """Market insights request."""
-    
+
     make: Optional[str] = Field(None, description="Filter by vehicle make")
     model: Optional[str] = Field(None, description="Filter by vehicle model")
     year_from: Optional[int] = Field(None, ge=1900, description="Year range start")
@@ -26,7 +26,7 @@ class MarketInsightsRequest(BaseModel):
 
 class MarketPricesRequest(BaseModel):
     """Market prices request."""
-    
+
     variant_id: UUID = Field(..., description="Vehicle variant ID")
     days: int = Field(30, ge=1, le=365, description="Days of data to analyze")
     source: Optional[str] = Field(None, description="Filter by data source")
@@ -34,7 +34,7 @@ class MarketPricesRequest(BaseModel):
 
 class MarketTrendsRequest(BaseModel):
     """Market trends request."""
-    
+
     make: Optional[str] = Field(None, description="Filter by vehicle make")
     model: Optional[str] = Field(None, description="Filter by vehicle model")
     period: str = Field("6m", description="Time period: 1m, 3m, 6m, 1y, 2y")
@@ -43,7 +43,7 @@ class MarketTrendsRequest(BaseModel):
 
 class LocationFactorsRequest(BaseModel):
     """Location factors request."""
-    
+
     location: str = Field(..., description="Location name")
     vehicle_type: Optional[str] = Field(None, description="Vehicle type")
     radius_km: int = Field(50, ge=1, le=500, description="Search radius in KM")
@@ -53,7 +53,7 @@ class LocationFactorsRequest(BaseModel):
 
 class MarketInsightsResponse(BaseModel):
     """Market insights response."""
-    
+
     average_price: float = Field(..., description="Average market price")
     price_range: Dict[str, float] = Field(..., description="Min and max price")
     demand_score: float = Field(..., ge=0, le=100, description="Demand score")
@@ -65,7 +65,7 @@ class MarketInsightsResponse(BaseModel):
 
 class PriceDataResponse(BaseModel):
     """Price data response."""
-    
+
     current_price: float = Field(..., description="Current market price")
     historical_prices: List[Dict[str, Any]] = Field(default_factory=list, description="Historical prices")
     price_trend: str = Field(..., description="Price trend direction")
@@ -76,7 +76,7 @@ class PriceDataResponse(BaseModel):
 
 class TrendDataResponse(BaseModel):
     """Trend data response."""
-    
+
     trend_type: str = Field(..., description="Type of trend")
     data_points: List[Dict[str, Any]] = Field(default_factory=list, description="Data points")
     forecast: Optional[List[Dict[str, Any]]] = Field(None, description="Forecast data")
@@ -86,7 +86,7 @@ class TrendDataResponse(BaseModel):
 
 class LocationFactorsResponse(BaseModel):
     """Location factors response."""
-    
+
     location: str = Field(..., description="Location name")
     demand_factor: float = Field(..., ge=0, le=100, description="Demand factor")
     supply_factor: float = Field(..., ge=0, le=100, description="Supply factor")
@@ -98,7 +98,7 @@ class LocationFactorsResponse(BaseModel):
 
 class SourceStatusResponse(BaseModel):
     """Data source status response."""
-    
+
     source_name: str = Field(..., description="Source name")
     status: str = Field(..., description="Source status")
     last_update: Optional[datetime] = Field(None, description="Last update timestamp")
@@ -108,7 +108,7 @@ class SourceStatusResponse(BaseModel):
 
 class MarketPrice(BaseModel):
     """Market price item."""
-    
+
     id: UUID = Field(..., description="Price record ID")
     variant_id: UUID = Field(..., description="Vehicle variant ID")
     price: Decimal = Field(..., description="Price")
@@ -124,7 +124,7 @@ class MarketPrice(BaseModel):
 
 class MarketStatistic(BaseModel):
     """Market statistic."""
-    
+
     metric: str = Field(..., description="Metric name")
     value: float = Field(..., description="Metric value")
     change: float = Field(0, description="Change percentage")
@@ -133,7 +133,7 @@ class MarketStatistic(BaseModel):
 
 class MarketComparison(BaseModel):
     """Market comparison."""
-    
+
     make: str = Field(..., description="Vehicle make")
     model: str = Field(..., description="Vehicle model")
     average_price: float = Field(..., description="Average price")
@@ -144,7 +144,7 @@ class MarketComparison(BaseModel):
 
 class MarketHealthResponse(BaseModel):
     """Market service health response."""
-    
+
     status: str = Field(..., description="Service status")
     service: str = Field("market", description="Service name")
     version: str = Field("1.0", description="Service version")
