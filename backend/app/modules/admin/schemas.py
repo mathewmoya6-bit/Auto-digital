@@ -5,23 +5,23 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
-from uuid import UUID
 from enum import Enum
-from typing_extensions import Annotated
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from pydantic import (
-    BaseModel, 
-    Field, 
-    ConfigDict, 
-    EmailStr, 
-    field_validator,
-    StringConstraints,
-    PositiveFloat,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
     NonNegativeInt,
+    PositiveFloat,
+    StringConstraints,
+    field_validator,
 )
+from typing_extensions import Annotated
 
 # ─── BASE SCHEMAS ────────────────────────────────────────────────
 
@@ -36,20 +36,17 @@ class Schema(BaseModel):
 
 
 class Pagination(Schema):
-    """Pagination fields."""
     total: NonNegativeInt = Field(..., description="Total items")
     limit: NonNegativeInt = Field(..., description="Items per page")
     offset: NonNegativeInt = Field(..., description="Pagination offset")
 
 
 class SuccessResponse(Schema):
-    """Generic success response."""
     success: bool = Field(True, description="Success status")
     message: str = Field("Success", description="Success message")
 
 
 class DeleteResponse(Schema):
-    """Generic delete response."""
     success: bool = Field(True, description="Success status")
     message: str = Field(..., description="Delete message")
     deleted_at: Optional[datetime] = Field(None, description="Deletion timestamp")
@@ -58,7 +55,6 @@ class DeleteResponse(Schema):
 # ─── ENUMS ────────────────────────────────────────────────────────
 
 class ServiceCode(str, Enum):
-    """Service code enum."""
     VALUATION = "valuation"
     MILEAGE = "mileage"
     OWNERSHIP = "ownership"
@@ -66,14 +62,12 @@ class ServiceCode(str, Enum):
 
 
 class UserServiceStatus(str, Enum):
-    """User service status enum."""
     ACTIVE = "active"
     SUSPENDED = "suspended"
     CANCELLED = "cancelled"
 
 
 class PaymentStatus(str, Enum):
-    """Payment status enum."""
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
@@ -85,7 +79,6 @@ class PaymentStatus(str, Enum):
 
 
 class ComponentStatus(str, Enum):
-    """Component status enum."""
     HEALTHY = "healthy"
     UNHEALTHY = "unhealthy"
     DEGRADED = "degraded"
@@ -100,7 +93,6 @@ CurrencyCode = Annotated[str, StringConstraints(min_length=3, max_length=3)]
 # ─── REQUEST SCHEMAS ──────────────────────────────────────────────
 
 class UpdateServiceRequest(Schema):
-    """Update service request."""
     name: Optional[str] = Field(None, description="Service name")
     price: Optional[PositiveFloat] = Field(None, description="Service price")
     currency: Optional[CurrencyCode] = Field("KES", description="Currency code")
@@ -112,26 +104,20 @@ class UpdateServiceRequest(Schema):
     @field_validator("currency")
     @classmethod
     def normalize_currency(cls, v: Optional[str]) -> Optional[str]:
-        """Normalize currency to uppercase."""
-        if v:
-            return v.upper()
-        return v
+        return v.upper() if v else v
 
 
 class UpdateServicePriceRequest(Schema):
-    """Update service price request."""
     price: PositiveFloat = Field(..., description="Service price")
     currency: CurrencyCode = Field("KES", description="Currency code")
 
     @field_validator("currency")
     @classmethod
     def normalize_currency(cls, v: str) -> str:
-        """Normalize currency to uppercase."""
         return v.upper()
 
 
 class CreateServiceRequest(Schema):
-    """Create service request."""
     code: ServiceCode = Field(..., description="Service code (unique)")
     name: str = Field(..., description="Service name")
     price: PositiveFloat = Field(..., description="Service price")
@@ -144,12 +130,10 @@ class CreateServiceRequest(Schema):
     @field_validator("currency")
     @classmethod
     def normalize_currency(cls, v: str) -> str:
-        """Normalize currency to uppercase."""
         return v.upper()
 
 
 class UpdateUserServiceRequest(Schema):
-    """Update user service request."""
     user_id: UUID = Field(..., description="User ID")
     service_id: UUID = Field(..., description="Service ID")
     status: UserServiceStatus = Field(..., description="Service status")
@@ -158,7 +142,6 @@ class UpdateUserServiceRequest(Schema):
 # ─── RESPONSE SCHEMAS ─────────────────────────────────────────────
 
 class AdminStatsResponse(Schema):
-    """Admin statistics response."""
     total_users: NonNegativeInt = Field(..., description="Total users")
     total_vehicles: NonNegativeInt = Field(..., description="Total vehicles")
     total_payments: NonNegativeInt = Field(..., description="Total payments")
@@ -171,7 +154,6 @@ class AdminStatsResponse(Schema):
 
 
 class AdminUserService(Schema):
-    """User service item."""
     service_id: UUID = Field(..., description="Service ID")
     service_name: str = Field(..., description="Service name")
     service_code: ServiceCode = Field(..., description="Service code")
@@ -179,7 +161,6 @@ class AdminUserService(Schema):
 
 
 class AdminUser(Schema):
-    """Admin user item."""
     id: UUID = Field(..., description="User ID")
     email: EmailStr = Field(..., description="User email")
     full_name: str = Field(..., description="User full name")
@@ -191,7 +172,6 @@ class AdminUser(Schema):
 
 
 class AdminPayment(Schema):
-    """Admin payment item."""
     id: UUID = Field(..., description="Payment ID")
     user_id: Optional[UUID] = Field(None, description="User ID")
     service_id: Optional[UUID] = Field(None, description="Service ID")
@@ -208,7 +188,6 @@ class AdminPayment(Schema):
 
 
 class AdminUserDetail(Schema):
-    """Detailed admin user with payments."""
     id: UUID = Field(..., description="User ID")
     email: EmailStr = Field(..., description="User email")
     full_name: str = Field(..., description="User full name")
@@ -223,17 +202,14 @@ class AdminUserDetail(Schema):
 
 
 class AdminUsersResponse(Pagination):
-    """Admin users response."""
     users: List[AdminUser] = Field(..., description="List of users")
 
 
 class AdminPaymentsResponse(Pagination):
-    """Admin payments response."""
     payments: List[AdminPayment] = Field(..., description="List of payments")
 
 
 class AdminVehicle(Schema):
-    """Admin vehicle item."""
     id: UUID = Field(..., description="Vehicle ID")
     user_id: Optional[UUID] = Field(None, description="User ID")
     make: str = Field(..., description="Vehicle make")
@@ -245,12 +221,10 @@ class AdminVehicle(Schema):
 
 
 class AdminVehiclesResponse(Pagination):
-    """Admin vehicles response."""
     vehicles: List[AdminVehicle] = Field(..., description="List of vehicles")
 
 
 class AdminServiceItem(Schema):
-    """Admin service item."""
     id: UUID = Field(..., description="Service ID")
     code: ServiceCode = Field(..., description="Service code")
     name: str = Field(..., description="Service name")
@@ -266,13 +240,11 @@ class AdminServiceItem(Schema):
 
 
 class AdminServicesResponse(Schema):
-    """Admin services response."""
     services: List[AdminServiceItem] = Field(..., description="List of services")
     total: NonNegativeInt = Field(..., description="Total services")
 
 
 class AnalyticsDay(Schema):
-    """Analytics day item."""
     date: date = Field(..., description="Date")
     users: NonNegativeInt = Field(0, description="New users on this day")
     payments: NonNegativeInt = Field(0, description="Payments on this day")
@@ -281,7 +253,6 @@ class AnalyticsDay(Schema):
 
 
 class AnalyticsTotals(Schema):
-    """Analytics totals."""
     users: NonNegativeInt = Field(..., description="Total users")
     payments: NonNegativeInt = Field(..., description="Total payments")
     revenue: Decimal = Field(..., description="Total revenue")
@@ -289,7 +260,6 @@ class AnalyticsTotals(Schema):
 
 
 class AdminAnalyticsResponse(Schema):
-    """Admin analytics response."""
     period_days: NonNegativeInt = Field(..., description="Period in days")
     start_date: date = Field(..., description="Start date")
     end_date: date = Field(..., description="End date")
@@ -298,21 +268,18 @@ class AdminAnalyticsResponse(Schema):
 
 
 class ComponentStatuses(Schema):
-    """System component statuses."""
     supabase: ComponentStatus = Field(..., description="Supabase status")
     database: ComponentStatus = Field(..., description="Database status")
     mpesa: ComponentStatus = Field(..., description="M-Pesa status")
 
 
 class AdminStatusResponse(Schema):
-    """Admin system status response."""
     status: ComponentStatus = Field(..., description="Overall system status")
     timestamp: datetime = Field(..., description="Status timestamp")
     components: ComponentStatuses = Field(..., description="Component statuses")
 
 
 class RevenueReportResponse(Schema):
-    """Revenue report response."""
     total_revenue: Decimal = Field(..., description="Total revenue")
     total_transactions: NonNegativeInt = Field(..., description="Total transactions")
     revenue_by_service: Dict[str, Decimal] = Field(..., description="Revenue breakdown by service")
@@ -322,7 +289,6 @@ class RevenueReportResponse(Schema):
 
 
 class ServicePriceItem(Schema):
-    """Service price item."""
     price: Decimal = Field(..., description="Service price")
     currency: CurrencyCode = Field("KES", description="Currency code")
     name: str = Field(..., description="Service name")
@@ -330,7 +296,11 @@ class ServicePriceItem(Schema):
 
 class ServicePricesResponse(Schema):
     """Service prices response."""
-    prices: Dict[ServiceCode, ServicePriceItem] = Field(..., description="Service prices by code")
+    # NOTE: was `Dict[ServiceCode, ServicePriceItem]`. An Enum used as a dict
+    # *key* type, combined with `from __future__ import annotations`, triggers
+    # a RecursionError in Pydantic's schema/repr builder on some 2.x versions.
+    # Keying by plain str (the enum's value) is equivalent and safe.
+    prices: Dict[str, ServicePriceItem] = Field(..., description="Service prices by code")
     services: List[AdminServiceItem] = Field(..., description="Full service list")
     total: NonNegativeInt = Field(..., description="Total services")
 
@@ -338,7 +308,6 @@ class ServicePricesResponse(Schema):
 # ─── USER SERVICE RESPONSE ──────────────────────────────────────
 
 class UserServiceItem(Schema):
-    """User service item."""
     id: UUID = Field(..., description="User service ID")
     user_id: UUID = Field(..., description="User ID")
     service_id: UUID = Field(..., description="Service ID")
@@ -349,7 +318,6 @@ class UserServiceItem(Schema):
 
 
 class UserServicesResponse(Schema):
-    """User services response."""
     user_id: UUID = Field(..., description="User ID")
     services: List[UserServiceItem] = Field(..., description="List of user services")
     total: NonNegativeInt = Field(..., description="Total services")
@@ -358,24 +326,20 @@ class UserServicesResponse(Schema):
 # ─── SERVICE RESPONSE SCHEMAS ────────────────────────────────────
 
 class ServiceResponse(SuccessResponse):
-    """Generic service response."""
     service: AdminServiceItem = Field(..., description="Service data")
 
 
 # ─── DELETE RESPONSE SCHEMAS ────────────────────────────────────
 
 class DeleteUserResponse(DeleteResponse):
-    """Delete user response."""
     user_id: UUID = Field(..., description="Deleted user ID")
 
 
 class DeleteServiceResponse(DeleteResponse):
-    """Delete service response."""
     service_id: UUID = Field(..., description="Deleted service ID")
 
 
 class UpdateUserServiceResponse(SuccessResponse):
-    """Update user service response."""
     user_id: UUID = Field(..., description="User ID")
     service_id: UUID = Field(..., description="Service ID")
     status: UserServiceStatus = Field(..., description="Updated status")
@@ -385,7 +349,6 @@ class UpdateUserServiceResponse(SuccessResponse):
 # ─── HEALTH RESPONSE ─────────────────────────────────────────────
 
 class AdminHealthResponse(Schema):
-    """Admin health response."""
     status: ComponentStatus = Field(..., description="Health status")
     service: str = Field("admin", description="Service name")
     timestamp: datetime = Field(..., description="Health check timestamp")
@@ -394,7 +357,6 @@ class AdminHealthResponse(Schema):
 # ─── USER DETAIL RESPONSE ────────────────────────────────────────
 
 class AdminUserDetailResponse(Schema):
-    """Admin user detail response."""
     success: bool = Field(True, description="Success status")
     data: AdminUserDetail = Field(..., description="User details")
 
@@ -402,22 +364,12 @@ class AdminUserDetailResponse(Schema):
 # ─── PAGINATED WRAPPER ──────────────────────────────────────────
 
 class PaginatedResponse(Schema):
-    """Generic paginated response wrapper."""
     items: List[Any] = Field(..., description="List of items")
     total: NonNegativeInt = Field(..., description="Total items")
     limit: NonNegativeInt = Field(..., description="Items per page")
     offset: NonNegativeInt = Field(..., description="Pagination offset")
     has_more: bool = Field(False, description="Whether there are more items")
 
-
-# ─── FORWARD REFERENCES ──────────────────────────────────────────
-
-# Resolve forward references - using model_rebuild for all models that might have circular refs
-AdminUserDetail.model_rebuild()
-AdminUserDetailResponse.model_rebuild()
-AdminUsersResponse.model_rebuild()
-AdminPaymentsResponse.model_rebuild()
-AdminVehiclesResponse.model_rebuild()
-AdminServicesResponse.model_rebuild()
-UserServicesResponse.model_rebuild()
-ServiceResponse.model_rebuild()
+# No manual model_rebuild() calls needed: none of these models use真
+# string-quoted forward references to types defined later in the file,
+# so Pydantic resolves everything automatically at class-creation time.
