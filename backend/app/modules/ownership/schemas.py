@@ -1,266 +1,417 @@
 # app/modules/ownership/schemas.py
-"""Ownership (TCO) schemas for Auto-D Kenya"""
-import logging
-from typing import Optional, List, Dict, Any
+# Auto-D Kenya - TCO / Ownership Schemas
+# ================================================================
+# TYPE: MODULE - Total Cost of Ownership Pydantic schemas
+
+
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-# ─── REQUEST SCHEMAS ──────────────────────────────────────────────
+
+# ================================================================
+# REQUEST SCHEMA
+# ================================================================
+
 
 class TCORequest(BaseModel):
     """
-    Total Cost of Ownership request.
-    
-    Matches the HTML frontend with all options:
-    - Vehicle Type (ICE, Hybrid, EV)
-    - Fuel Type (Petrol, Diesel, Hybrid, LPG, Electric)
-    - Vehicle Condition (New, Used)
-    - Purchase Type (Cash, Financing)
+    Total Cost of Ownership calculation request.
     """
-    
-    # ─── Vehicle Details ──────────────────────────────────────────
-    variant_id: int = Field(..., description="Vehicle variant ID", gt=0)
-    vehicle_year: int = Field(2020, description="Vehicle year of manufacture", ge=1980, le=2026)
-    vehicle_type: str = Field("ice", description="Vehicle type: ice, hybrid, ev")
-    vehicle_condition: str = Field("new", description="Vehicle condition: new, used")
-    fuel_type: str = Field("petrol", description="Fuel type: petrol, diesel, hybrid, lpg, electric, cng")
-    
-    # ─── Financial Details ────────────────────────────────────────
-    purchase_type: str = Field("cash", description="Purchase type: cash, finance")
-    purchase_price: float = Field(4500000, description="Purchase price in KES", ge=100000)
-    down_payment: float = Field(1000000, description="Down payment in KES", ge=0)
-    loan_term_years: int = Field(3, description="Loan term in years", ge=1, le=7)
-    interest_rate: float = Field(14.0, description="Annual interest rate percentage", ge=0, le=28)
-    
-    # ─── Usage Profile ────────────────────────────────────────────
-    annual_mileage: float = Field(20000, description="Annual mileage in km", ge=0, le=60000)
-    fuel_price: float = Field(200, description="Fuel price in KES per litre", ge=0, le=500)
-    insurance_rate: float = Field(3.0, description="Insurance rate percentage", ge=0, le=8)
-    maintenance_cost_per_km: float = Field(1.5, description="Maintenance cost per km", ge=0, le=5)
-    tyre_cost_per_km: float = Field(0.8, description="Tyre cost per km", ge=0, le=2)
-    
-    # ─── Toggles ──────────────────────────────────────────────────
-    include_depreciation: bool = Field(True, description="Include depreciation in calculation")
-    include_insurance: bool = Field(True, description="Include insurance in calculation")
-    include_maintenance: bool = Field(True, description="Include maintenance in calculation")
-    include_tyres: bool = Field(True, description="Include tyres in calculation")
-    include_inflation: bool = Field(True, description="Include inflation in calculation")
-    
-    @field_validator('fuel_type')
-    @classmethod
-    def validate_fuel_type(cls, v: str) -> str:
-        allowed = ["petrol", "diesel", "hybrid", "lpg", "electric", "cng"]
-        v = v.lower()
-        if v not in allowed:
-            raise ValueError(f"Fuel type must be one of: {', '.join(allowed)}")
-        return v
-    
-    @field_validator('vehicle_type')
-    @classmethod
-    def validate_vehicle_type(cls, v: str) -> str:
-        allowed = ["ice", "hybrid", "ev"]
-        v = v.lower()
-        if v not in allowed:
-            raise ValueError(f"Vehicle type must be one of: {', '.join(allowed)}")
-        return v
-    
-    @field_validator('vehicle_condition')
-    @classmethod
-    def validate_vehicle_condition(cls, v: str) -> str:
-        allowed = ["new", "used"]
-        v = v.lower()
-        if v not in allowed:
-            raise ValueError(f"Vehicle condition must be one of: {', '.join(allowed)}")
-        return v
-    
-    @field_validator('purchase_type')
-    @classmethod
-    def validate_purchase_type(cls, v: str) -> str:
-        allowed = ["cash", "finance"]
-        v = v.lower()
-        if v not in allowed:
-            raise ValueError(f"Purchase type must be one of: {', '.join(allowed)}")
-        return v
-    
-    @field_validator('vehicle_year')
-    @classmethod
-    def validate_vehicle_year(cls, v: int) -> int:
-        current_year = datetime.now().year
-        if v < 1980 or v > current_year + 1:
-            raise ValueError(f"Vehicle year must be between 1980 and {current_year + 1}")
-        return v
-    
-    @field_validator('annual_mileage')
-    @classmethod
-    def validate_annual_mileage(cls, v: float) -> float:
-        if v < 0:
-            raise ValueError("Annual mileage cannot be negative")
-        if v > 200000:
-            raise ValueError("Annual mileage cannot exceed 200,000 km")
-        return v
-    
-    @field_validator('purchase_price')
-    @classmethod
-    def validate_purchase_price(cls, v: float) -> float:
-        if v < 100000:
-            raise ValueError("Purchase price must be at least 100,000 KES")
-        return v
+
+    variant_id: int = Field(
+        ...,
+        gt=0,
+        description="Vehicle variant ID"
+    )
+
+    vehicle_year: int = Field(
+        2020,
+        ge=1980,
+        description="Vehicle manufacturing year"
+    )
+
+    vehicle_type: str = "ice"
+
+    vehicle_condition: str = "new"
+
+    fuel_type: str = "petrol"
 
 
-# ─── RESPONSE SCHEMAS ─────────────────────────────────────────────
+    # Financial
+
+    purchase_type: str = "cash"
+
+    purchase_price: float = Field(
+        4500000,
+        ge=100000
+    )
+
+    down_payment: float = Field(
+        1000000,
+        ge=0
+    )
+
+    loan_term_years: int = Field(
+        3,
+        ge=1,
+        le=7
+    )
+
+    interest_rate: float = Field(
+        14.0,
+        ge=0,
+        le=50
+    )
+
+
+    # Usage
+
+    annual_mileage: float = Field(
+        20000,
+        ge=0,
+        le=200000
+    )
+
+    fuel_price: float = Field(
+        200,
+        ge=0
+    )
+
+    insurance_rate: float = Field(
+        3.0,
+        ge=0
+    )
+
+    maintenance_cost_per_km: float = Field(
+        1.5,
+        ge=0
+    )
+
+    tyre_cost_per_km: float = Field(
+        0.8,
+        ge=0
+    )
+
+
+    # Options
+
+    include_depreciation: bool = True
+    include_insurance: bool = True
+    include_maintenance: bool = True
+    include_tyres: bool = True
+    include_inflation: bool = True
+
+
+
+    @field_validator(
+        "fuel_type"
+    )
+    @classmethod
+    def validate_fuel(cls, value: str):
+
+        allowed = {
+            "petrol",
+            "diesel",
+            "hybrid",
+            "electric",
+            "lpg",
+            "cng"
+        }
+
+        value = value.lower()
+
+        if value not in allowed:
+            raise ValueError(
+                "Invalid fuel type"
+            )
+
+        return value
+
+
+
+    @field_validator(
+        "vehicle_type"
+    )
+    @classmethod
+    def validate_vehicle_type(cls, value: str):
+
+        allowed = {
+            "ice",
+            "hybrid",
+            "ev"
+        }
+
+        value = value.lower()
+
+        if value not in allowed:
+            raise ValueError(
+                "Invalid vehicle type"
+            )
+
+        return value
+
+
+
+    @field_validator(
+        "vehicle_condition"
+    )
+    @classmethod
+    def validate_condition(cls, value: str):
+
+        allowed = {
+            "new",
+            "used"
+        }
+
+        value = value.lower()
+
+        if value not in allowed:
+            raise ValueError(
+                "Invalid vehicle condition"
+            )
+
+        return value
+
+
+
+    @field_validator(
+        "purchase_type"
+    )
+    @classmethod
+    def validate_purchase_type(cls, value: str):
+
+        allowed = {
+            "cash",
+            "finance"
+        }
+
+        value = value.lower()
+
+        if value not in allowed:
+            raise ValueError(
+                "Invalid purchase type"
+            )
+
+        return value
+
+
+
+# ================================================================
+# RESPONSE COMPONENTS
+# ================================================================
+
 
 class MonthlyBreakdown(BaseModel):
-    """Monthly running cost breakdown."""
-    loan_payment: float = Field(..., description="Monthly loan payment")
-    fuel: float = Field(..., description="Monthly fuel cost")
-    maintenance: float = Field(..., description="Monthly maintenance cost")
-    tyres: float = Field(..., description="Monthly tyre cost")
-    insurance: float = Field(..., description="Monthly insurance cost")
-    total: float = Field(..., description="Total monthly running cost")
+
+    loan_payment: float
+
+    fuel: float
+
+    maintenance: float
+
+    tyres: float
+
+    insurance: float
+
+    total: float
+
 
 
 class TCOComponent(BaseModel):
-    """Single cost component with percentage."""
-    name: str = Field(..., description="Component name")
-    amount: float = Field(..., description="Amount in KES")
-    percentage: float = Field(..., description="Percentage of total cost")
+
+    name: str
+
+    amount: float
+
+    percentage: float
+
 
 
 class LoanDetails(BaseModel):
-    """Loan calculation details."""
-    principal: float = Field(..., description="Loan principal amount")
-    interest_rate: float = Field(..., description="Annual interest rate")
-    term_years: int = Field(..., description="Term in years")
-    term_months: int = Field(..., description="Term in months")
-    total_payment: float = Field(..., description="Total payment including interest")
-    purchase_type: str = Field(..., description="Purchase type: cash or finance")
+
+    principal: float
+
+    interest_rate: float
+
+    term_years: int
+
+    term_months: int
+
+    total_payment: float
+
+    purchase_type: str
+
 
 
 class VehicleDetails(BaseModel):
-    """Vehicle details in response."""
-    variant_id: int = Field(..., description="Vehicle variant ID")
-    make: str = Field(..., description="Vehicle make")
-    model: str = Field(..., description="Vehicle model")
-    variant: str = Field(..., description="Vehicle variant name")
-    fuel_type: str = Field(..., description="Fuel type display name")
-    fuel_type_display: str = Field(..., description="Fuel type display name")
-    vehicle_condition: str = Field(..., description="Vehicle condition: new or used")
-    purchase_type: str = Field(..., description="Purchase type: cash or finance")
-    vehicle_year: int = Field(..., description="Vehicle year")
-    vehicle_type: str = Field("ice", description="Vehicle type: ice, hybrid, ev")
+
+    variant_id: int
+
+    make: str
+
+    model: str
+
+    variant: str
+
+    fuel_type: str
+
+    fuel_type_display: str
+
+    vehicle_condition: str
+
+    purchase_type: str
+
+    vehicle_year: int
+
+    vehicle_type: str = "ice"
+
 
 
 class YearlyBreakdownItem(BaseModel):
-    """Single year breakdown item."""
-    year: int = Field(..., description="Year number")
-    total_cost: float = Field(..., description="Total cost for the year")
-    depreciation: float = Field(..., description="Depreciation for the year")
-    running_cost: float = Field(..., description="Running cost for the year")
-    insurance: float = Field(..., description="Insurance cost for the year")
-    loan_payment: float = Field(..., description="Loan payment for the year")
-    fuel: float = Field(..., description="Fuel cost for the year")
-    maintenance: float = Field(..., description="Maintenance cost for the year")
-    tyres: float = Field(..., description="Tyre cost for the year")
-    vehicle_value: float = Field(..., description="Vehicle value at year end")
+
+    year: int
+
+    total_cost: float
+
+    depreciation: float
+
+    running_cost: float
+
+    insurance: float
+
+    loan_payment: float
+
+    fuel: float
+
+    maintenance: float
+
+    tyres: float
+
+    vehicle_value: float
+
+
+
+# ================================================================
+# MAIN RESPONSE
+# ================================================================
 
 
 class TCOResponse(BaseModel):
-    """Total Cost of Ownership response."""
-    
-    # ─── Summary ──────────────────────────────────────────────────
-    total_cost: float = Field(..., description="Total ownership cost")
-    monthly_cost: float = Field(..., description="Average monthly cost")
-    monthly_payment: float = Field(..., description="Monthly loan payment")
-    total_interest: float = Field(..., description="Total interest paid")
-    cost_per_km: float = Field(..., description="Cost per kilometer")
-    total_depreciation: float = Field(..., description="Total depreciation over period")
-    resale_value: float = Field(..., description="Estimated resale value")
-    
-    # ─── Monthly Breakdown ───────────────────────────────────────
-    monthly_breakdown: MonthlyBreakdown = Field(..., description="Monthly running cost breakdown")
-    
-    # ─── Components ──────────────────────────────────────────────
-    components: List[TCOComponent] = Field(..., description="Cost components breakdown")
-    
-    # ─── Yearly Breakdown ────────────────────────────────────────
-    yearly_breakdown: List[YearlyBreakdownItem] = Field(..., description="Year-by-year cost breakdown")
-    
-    # ─── Loan Details ────────────────────────────────────────────
-    loan_details: LoanDetails = Field(..., description="Loan calculation details")
-    
-    # ─── Vehicle Details ─────────────────────────────────────────
-    vehicle_details: VehicleDetails = Field(..., description="Vehicle details")
-    
-    # ─── Metadata ────────────────────────────────────────────────
-    currency: str = Field("KES", description="Currency code")
-    calculated_at: str = Field(..., description="ISO timestamp of calculation")
+
+    total_cost: float
+
+    monthly_cost: float
+
+    monthly_payment: float
+
+    total_interest: float
+
+    cost_per_km: float
+
+    total_depreciation: float
+
+    resale_value: float
 
 
-# ─── HEALTH RESPONSE ──────────────────────────────────────────────
+    monthly_breakdown: MonthlyBreakdown
+
+    components: List[TCOComponent]
+
+    yearly_breakdown: List[YearlyBreakdownItem]
+
+    loan_details: LoanDetails
+
+    vehicle_details: VehicleDetails
+
+
+    currency: str = "KES"
+
+    calculated_at: str
+
+
+
+# ================================================================
+# STATIC OPTION RESPONSES
+# ================================================================
+
 
 class HealthResponse(BaseModel):
-    """Health check response."""
-    status: str = Field(..., description="Service health status")
-    service: str = Field(..., description="Service name")
-    version: str = Field("1.0", description="API version")
-    timestamp: str = Field(..., description="ISO timestamp")
+
+    status: str
+
+    service: str
+
+    version: str = "1.0"
+
+    timestamp: str
 
 
-# ─── FUEL TYPES RESPONSE ──────────────────────────────────────────
 
 class FuelTypeItem(BaseModel):
-    """Fuel type item."""
-    value: str = Field(..., description="Fuel type value")
-    label: str = Field(..., description="Fuel type display label")
-    price: float = Field(..., description="Default price in KES per litre")
-    description: str = Field(..., description="Fuel type description")
+
+    value: str
+
+    label: str
+
+    price: float
+
+    description: str
+
 
 
 class FuelTypesResponse(BaseModel):
-    """Fuel types response."""
-    fuel_types: List[FuelTypeItem] = Field(..., description="List of fuel types")
+
+    fuel_types: List[FuelTypeItem]
 
 
-# ─── VEHICLE CONDITIONS RESPONSE ──────────────────────────────────
 
 class VehicleConditionItem(BaseModel):
-    """Vehicle condition item."""
-    value: str = Field(..., description="Condition value")
-    label: str = Field(..., description="Condition display label")
-    factor: float = Field(..., description="Price adjustment factor")
-    description: str = Field(..., description="Condition description")
+
+    value: str
+
+    label: str
+
+    factor: float
+
+    description: str
+
 
 
 class VehicleConditionsResponse(BaseModel):
-    """Vehicle conditions response."""
-    conditions: List[VehicleConditionItem] = Field(..., description="List of vehicle conditions")
+
+    conditions: List[VehicleConditionItem]
 
 
-# ─── PURCHASE TYPES RESPONSE ──────────────────────────────────────
 
 class PurchaseTypeItem(BaseModel):
-    """Purchase type item."""
-    value: str = Field(..., description="Purchase type value")
-    label: str = Field(..., description="Purchase type display label")
-    description: str = Field(..., description="Purchase type description")
+
+    value: str
+
+    label: str
+
+    description: str
+
 
 
 class PurchaseTypesResponse(BaseModel):
-    """Purchase types response."""
-    purchase_types: List[PurchaseTypeItem] = Field(..., description="List of purchase types")
+
+    purchase_types: List[PurchaseTypeItem]
 
 
-# ─── DEFAULTS RESPONSE ────────────────────────────────────────────
 
 class DefaultsResponse(BaseModel):
-    """Default values for TCO calculator."""
-    defaults: Dict[str, Any] = Field(..., description="Default values")
+
+    defaults: Dict[str, Any]
 
 
-# ─── FACTORY FUNCTIONS ────────────────────────────────────────────
+
+# ================================================================
+# FACTORY
+# ================================================================
+
 
 def create_tco_response(
     total_cost: float,
@@ -277,40 +428,41 @@ def create_tco_response(
     vehicle_details: Dict[str, Any],
     currency: str = "KES"
 ) -> TCOResponse:
-    """
-    Factory function to create a TCO response.
-    
-    Args:
-        total_cost: Total ownership cost
-        monthly_cost: Average monthly cost
-        monthly_payment: Monthly loan payment
-        total_interest: Total interest paid
-        cost_per_km: Cost per kilometer
-        total_depreciation: Total depreciation
-        resale_value: Estimated resale value
-        monthly_breakdown: Monthly running cost breakdown
-        components: Cost components breakdown
-        yearly_breakdown: Year-by-year breakdown
-        loan_details: Loan calculation details
-        vehicle_details: Vehicle details
-        currency: Currency code
-        
-    Returns:
-        TCOResponse: Complete TCO response
-    """
+
+
     return TCOResponse(
-        total_cost=round(total_cost, 2),
-        monthly_cost=round(monthly_cost, 2),
-        monthly_payment=round(monthly_payment, 2),
-        total_interest=round(total_interest, 2),
-        cost_per_km=round(cost_per_km, 2),
-        total_depreciation=round(total_depreciation, 2),
-        resale_value=round(resale_value, 2),
-        monthly_breakdown=MonthlyBreakdown(**monthly_breakdown),
-        components=[TCOComponent(**comp) for comp in components],
-        yearly_breakdown=[YearlyBreakdownItem(**year) for year in yearly_breakdown],
-        loan_details=LoanDetails(**loan_details),
-        vehicle_details=VehicleDetails(**vehicle_details),
+
+        total_cost=round(total_cost,2),
+        monthly_cost=round(monthly_cost,2),
+        monthly_payment=round(monthly_payment,2),
+        total_interest=round(total_interest,2),
+        cost_per_km=round(cost_per_km,2),
+        total_depreciation=round(total_depreciation,2),
+        resale_value=round(resale_value,2),
+
+        monthly_breakdown=MonthlyBreakdown(
+            **monthly_breakdown
+        ),
+
+        components=[
+            TCOComponent(**item)
+            for item in components
+        ],
+
+        yearly_breakdown=[
+            YearlyBreakdownItem(**item)
+            for item in yearly_breakdown
+        ],
+
+        loan_details=LoanDetails(
+            **loan_details
+        ),
+
+        vehicle_details=VehicleDetails(
+            **vehicle_details
+        ),
+
         currency=currency,
+
         calculated_at=datetime.utcnow().isoformat()
     )
