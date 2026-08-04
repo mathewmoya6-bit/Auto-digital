@@ -45,7 +45,7 @@ async def get_current_user(
         # Decode JWT token
         payload = jwt.decode(
             token,
-            settings.JWT_SECRET_KEY,
+            settings.SUPABASE_JWT_SECRET,
             algorithms=[settings.JWT_ALGORITHM]
         )
         
@@ -120,6 +120,23 @@ async def get_current_active_user(
     return current_user
 
 
+async def get_current_user_optional(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> Optional[Dict[str, Any]]:
+    """
+    Get current user if authenticated, otherwise return None.
+    Useful for endpoints that work for both authenticated and unauthenticated users.
+    """
+    if not credentials:
+        return None
+    
+    try:
+        return await get_current_user(credentials)
+    except HTTPException:
+        return None
+
+
 async def get_current_admin_user(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ) -> Dict[str, Any]:
@@ -145,6 +162,15 @@ async def get_current_admin_user(
         )
     
     return current_user
+
+
+async def get_admin_user(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Alias for get_current_admin_user.
+    """
+    return await get_current_admin_user(current_user)
 
 
 async def get_current_super_admin_user(
@@ -259,27 +285,6 @@ def require_roles(allowed_roles: List[str]):
         return current_user
     
     return _require_roles
-
-
-# =============================================================================
-# Optional Dependencies (with fallback for development)
-# =============================================================================
-
-async def get_optional_user(
-    request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
-) -> Optional[Dict[str, Any]]:
-    """
-    Get current user if authenticated, otherwise return None.
-    Useful for endpoints that work for both authenticated and unauthenticated users.
-    """
-    if not credentials:
-        return None
-    
-    try:
-        return await get_current_user(credentials)
-    except HTTPException:
-        return None
 
 
 # =============================================================================
@@ -446,7 +451,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, settings.SUPABASE_JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 
 
@@ -463,7 +468,7 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
-    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, settings.SUPABASE_JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 
 
@@ -481,7 +486,7 @@ def verify_token(token: str) -> Dict[str, Any]:
         HTTPException: If token is invalid
     """
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        payload = jwt.decode(token, settings.SUPABASE_JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(
@@ -503,9 +508,10 @@ __all__ = [
     # Authentication
     "get_current_user",
     "get_current_active_user",
+    "get_current_user_optional",
     "get_current_admin_user",
+    "get_admin_user",
     "get_current_super_admin_user",
-    "get_optional_user",
     
     # Database
     "get_db",
