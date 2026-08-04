@@ -1163,6 +1163,26 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="fuelTypeSelect">Fuel Type</label>
+                    <select id="fuelTypeSelect">
+                        <option value="petrol">⛽ Petrol</option>
+                        <option value="diesel">🛢️ Diesel</option>
+                        <option value="lpg">🔥 LPG</option>
+                        <option value="electric">🔋 Electric</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="transmissionSelect">Transmission</label>
+                    <select id="transmissionSelect">
+                        <option value="manual">🎚️ Manual</option>
+                        <option value="automatic" selected>⚙️ Automatic</option>
+                        <option value="cvt">🔄 CVT</option>
+                        <option value="amt">🅰️ AMT</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
                     <label for="yearSelect">Year of Manufacture</label>
                     <select id="yearSelect">
                         <option value="2026">2026</option>
@@ -1490,6 +1510,8 @@
                 modelSelect: document.getElementById('modelSelect'),
                 generationSelect: document.getElementById('generationSelect'),
                 variantSelect: document.getElementById('variantSelect'),
+                fuelTypeSelect: document.getElementById('fuelTypeSelect'),
+                transmissionSelect: document.getElementById('transmissionSelect'),
                 yearSelect: document.getElementById('yearSelect'),
                 mileageInput: document.getElementById('mileageInput'),
                 conditionSelect: document.getElementById('conditionSelect'),
@@ -1636,6 +1658,52 @@
                     return `${cleanMake} ${cleanVariant}`.trim();
                 }
                 return `${cleanMake} ${cleanModel} ${cleanVariant}`.trim();
+            }
+
+            const FUEL_TYPE_LABELS = {
+                petrol: '⛽ Petrol', diesel: '🛢️ Diesel', lpg: '🔥 LPG', electric: '🔋 Electric'
+            };
+            const TRANSMISSION_LABELS = {
+                manual: '🎚️ Manual', automatic: '⚙️ Automatic', cvt: '🔄 CVT', amt: '🅰️ AMT'
+            };
+
+            function normalizeFuelType(name) {
+                if (!name) return null;
+                const n = String(name).toLowerCase();
+                if (n.includes('petrol') || n.includes('gasoline') || n.includes('gas')) return 'petrol';
+                if (n.includes('diesel')) return 'diesel';
+                if (n.includes('lpg')) return 'lpg';
+                if (n.includes('electric') || n.includes('ev') || n.includes('battery')) return 'electric';
+                if (n.includes('hybrid')) return 'petrol';
+                return null;
+            }
+
+            function normalizeTransmission(name) {
+                if (!name) return null;
+                const n = String(name).toLowerCase();
+                if (n.includes('manual')) return 'manual';
+                if (n.includes('cvt')) return 'cvt';
+                if (n.includes('amt') || n.includes('automated manual')) return 'amt';
+                if (n.includes('auto')) return 'automatic';
+                return null;
+            }
+
+            // Prefill fuel type / transmission selects from variant data, falling
+            // back to the current selection if the variant doesn't specify one.
+            function prefillFuelAndTransmission(variant) {
+                const fuelGuess = normalizeFuelType(variant && variant.fuel_type_name);
+                if (fuelGuess) el.fuelTypeSelect.value = fuelGuess;
+                const transGuess = normalizeTransmission(variant && variant.transmission_type_name);
+                if (transGuess) el.transmissionSelect.value = transGuess;
+            }
+
+            // Reflect the current Fuel Type / Transmission selections onto the
+            // vehicle profile pills, overriding any raw/placeholder variant data.
+            function updateVehiclePills() {
+                const fuelVal = el.fuelTypeSelect.value;
+                const transVal = el.transmissionSelect.value;
+                el.fuelPill.textContent = FUEL_TYPE_LABELS[fuelVal] || '—';
+                el.transmissionPill.textContent = TRANSMISSION_LABELS[transVal] || '—';
             }
 
             function cleanBodyType(bodyType) {
@@ -2093,8 +2161,6 @@
                 );
                 const cleanBody = cleanBodyType(variant.body_type_name || variant.model_body_type || '');
                 el.vehicleLabel.textContent = label || 'Unnamed variant';
-                el.fuelPill.textContent = variant.fuel_type_name || '—';
-                el.transmissionPill.textContent = variant.transmission_type_name || '—';
                 const engineCC = variant.engine_size_cc || null;
                 if (engineCC) {
                     el.engineCCDisplay.textContent = `${engineCC}cc`;
@@ -2236,6 +2302,8 @@
                     previous_owners: parseInt(formData.previous_owners) || 1,
                     service_history: true,
                     location: formData.location || 'nairobi',
+                    fuel_type: formData.fuel_type || 'petrol',
+                    transmission: formData.transmission || 'automatic',
                     images: images.length > 0 ? images : undefined
                 };
                 const url = `${CONFIG.API_BASE}/valuation/calculate`;
@@ -2300,6 +2368,14 @@
                     };
                     adjustments.fuel_type = fuelFactors[valuation.fuel_type.toLowerCase()] || 1.0;
                 }
+                if (valuation.transmission_factor !== undefined) {
+                    adjustments.transmission = valuation.transmission_factor;
+                } else if (valuation.transmission) {
+                    const transmissionFactors = {
+                        'manual': 0.96, 'automatic': 1.03, 'cvt': 1.00, 'amt': 1.00
+                    };
+                    adjustments.transmission = transmissionFactors[valuation.transmission.toLowerCase()] || 1.0;
+                }
                 if (valuation.body_type_factor !== undefined) {
                     adjustments.body_type = valuation.body_type_factor;
                 } else if (valuation.body_type) {
@@ -2355,6 +2431,7 @@
                 }
                 currentVariantData = variant;
                 displayVehicleInfo(variant);
+                updateVehiclePills();
                 const formData = {
                     variant_id: variantId,
                     year: parseInt(el.yearSelect.value) || 2020,
@@ -2362,7 +2439,9 @@
                     condition: el.conditionSelect.value,
                     accident_history: el.accidentSelect.value,
                     previous_owners: parseInt(el.ownersSelect.value) || 1,
-                    location: el.locationSelect.value
+                    location: el.locationSelect.value,
+                    fuel_type: el.fuelTypeSelect.value,
+                    transmission: el.transmissionSelect.value
                 };
                 const imageFiles = [];
                 const req = { mandatory: ['Front', 'Rear', 'Left Side', 'Right Side'], totalRequired: 4 };
@@ -2464,8 +2543,8 @@
                     mileage = el.mileageInput.value ? `${formatNumber(el.mileageInput.value)} km` : '—';
                     location = el.locationSelect.options[el.locationSelect.selectedIndex]?.text || '—';
                     condition = el.conditionSelect.options[el.conditionSelect.selectedIndex]?.text || '—';
-                    fuelType = currentVariantData?.fuel_type_name || '—';
-                    transmission = currentVariantData?.transmission_type_name || '—';
+                    fuelType = FUEL_TYPE_LABELS[el.fuelTypeSelect.value] || currentVariantData?.fuel_type_name || '—';
+                    transmission = TRANSMISSION_LABELS[el.transmissionSelect.value] || currentVariantData?.transmission_type_name || '—';
                     engine = currentVariantData?.engine_size_cc ? `${currentVariantData.engine_size_cc}cc` : '—';
                 }
                 // Format and display value
@@ -2515,6 +2594,7 @@
                     'mileage': '📊 Mileage',
                     'location': '📍 Location',
                     'fuel_type': '⛽ Fuel Type',
+                    'transmission': '⚙️ Transmission',
                     'body_type': '🚗 Body Type',
                     'condition': '⭐ Condition',
                     'accident': '⚠️ Accident History',
@@ -2680,10 +2760,15 @@
                         if (variant) {
                             currentVariantData = variant;
                             displayVehicleInfo(variant);
+                            prefillFuelAndTransmission(variant);
+                            updateVehiclePills();
                         }
                         el.resultBox.classList.remove('show');
                     }
                 });
+
+                el.fuelTypeSelect.addEventListener('change', updateVehiclePills);
+                el.transmissionSelect.addEventListener('change', updateVehiclePills);
 
                 el.valuateBtn.addEventListener('click', valuate);
 
