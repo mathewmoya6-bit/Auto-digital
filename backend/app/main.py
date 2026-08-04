@@ -1,420 +1,625 @@
-# app/modules/admin/schemas.py
-# Auto-D Kenya - Admin Schemas
+# main.py
 # ================================================================
-# TYPE: MODULE - Admin Pydantic schemas
+# Auto-D Kenya - Main Application Entry Point
+# ================================================================
 
-from __future__ import annotations
+import logging
+import os
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional
 
-from typing import Any, Dict, List, Optional, Union
-from datetime import datetime, date
-from decimal import Decimal
-from uuid import UUID
-from enum import Enum
-from typing_extensions import Annotated
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
-from pydantic import (
-    BaseModel, 
-    Field, 
-    ConfigDict, 
-    EmailStr, 
-    field_validator,
-    StringConstraints,
-    PositiveFloat,
-    NonNegativeInt,
+from app.core.database import get_supabase, init_db
+from app.core.middleware import LoggingMiddleware
+from app.modules.scraper.service import ScraperService
+from app.modules.scraper.worker import ScraperWorker
+
+# ─── LOGGING ─────────────────────────────────────────────────────
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# ─── MODELS ─────────────────────────────────────────────────────
+
+class ScraperRunRequest(BaseModel):
+    """Request model for running a scraper."""
+    source: str = "all"
+    pages: int = 3
+    limit_per_page: int = 20
+
+class SourceUpdateRequest(BaseModel):
+    """Request model for updating a source."""
+    name: str
+    active: Optional[bool] = None
+    config: Optional[Dict[str, Any]] = None
+
+class SettingsUpdateRequest(BaseModel):
+    """Request model for updating engine settings."""
+    key: str
+    value: float
+
+# ─── LIFESPAN ──────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan manager.
+    Handles startup and shutdown events.
+    """
+    # Startup
+    logger.info("Starting Auto-D Kenya API...")
+    
+    # Initialize database
+    try:
+        init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+    
+    # Initialize services
+    app.state.scraper_service = ScraperService()
+    app.state.worker = ScraperWorker()
+    
+    logger.info("API started successfully")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down Auto-D Kenya API...")
+
+# ─── APP CREATION ─────────────────────────────────────────────
+
+app = FastAPI(
+    title="Auto-D Kenya API",
+    description="Vehicle scraper and valuation API for the Kenyan car market",
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
-# ─── BASE SCHEMAS ────────────────────────────────────────────────
+# ─── MIDDLEWARE ───────────────────────────────────────────────
 
-class Schema(BaseModel):
-    """Base schema with common configuration."""
-    model_config = ConfigDict(
-        from_attributes=True,
-        extra="ignore",
-        populate_by_name=True,
-        use_enum_values=True,
+app.add_middleware(LoggingMiddleware)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ─── HEALTH ENDPOINTS ────────────────────────────────────────
+
+@app.get("/api/health")
+async def health_check():
+    """
+    Health check endpoint.
+    """
+    service = app.state.scraper_service
+    result = await service.health_check()
+    
+    if result.get("success") and result.get("data", {}).get("status") == "healthy":
+        return JSONResponse(
+            status_code=200,
+            content=result
+        )
+    else:
+        return JSONResponse(
+            status_code=503,
+            content=result
+        )
+
+@app.get("/api/status")
+async def get_status():
+    """
+    Get the current status of the scraper system.
+    """
+    service = app.state.scraper_service
+    return await service.get_status()
+
+# ─── SOURCE ENDPOINTS ─────────────────────────────────────────
+
+@app.get("/api/sources")
+async def get_sources():
+    """
+    Get all available scraper sources.
+    """
+    service = app.state.scraper_service
+    result = await service.get_sources()
+    
+    return {
+        "sources": result.get("sources", []),
+        "count": result.get("count", 0)
+    }
+
+@app.post("/api/sources")
+async def create_source(request: SourceUpdateRequest):
+    """
+    Create a new scraper source.
+    """
+    try:
+        supabase = get_supabase()
+        
+        data = {"name": request.name}
+        if request.active is not None:
+            data["active"] = request.active
+        if request.config is not None:
+            data["config"] = request.config
+        
+        response = (
+            supabase.table("market_sources")
+            .insert(data)
+            .execute()
+        )
+        
+        if not response.data:
+            raise HTTPException(status_code=400, detail="Failed to create source")
+        
+        return {
+            "success": True,
+            "source": response.data[0]
+        }
+        
+    except Exception as e:
+        logger.exception("Failed to create source")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/sources/{source_id}")
+async def update_source(source_id: int, request: SourceUpdateRequest):
+    """
+    Update an existing scraper source.
+    """
+    try:
+        supabase = get_supabase()
+        
+        data = {}
+        if request.active is not None:
+            data["active"] = request.active
+        if request.config is not None:
+            data["config"] = request.config
+        
+        if not data:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        
+        response = (
+            supabase.table("market_sources")
+            .update(data)
+            .eq("id", source_id)
+            .execute()
+        )
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Source not found")
+        
+        return {
+            "success": True,
+            "source": response.data[0]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to update source")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ─── SCRAPER ENDPOINTS ────────────────────────────────────────
+
+@app.post("/api/scraper/run")
+async def run_scraper(request: ScraperRunRequest, background_tasks: BackgroundTasks):
+    """
+    Run the scraper for a specific source or all sources.
+    """
+    try:
+        service = app.state.scraper_service
+        
+        # Validate source
+        valid_sources = service.worker.get_sources()
+        if request.source != "all" and request.source not in valid_sources:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid source. Available sources: {', '.join(valid_sources)}"
+            )
+        
+        if request.source == "all":
+            # Run all scrapers
+            logger.info("Running all scrapers")
+            result = await service.worker.run_all(
+                pages=request.pages,
+                limit_per_page=request.limit_per_page
+            )
+            return {
+                "success": True,
+                "source": "all",
+                "result": result
+            }
+        else:
+            # Run a single scraper
+            job_id = await service.start_scraper(
+                source=request.source,
+                pages=request.pages,
+                limit_per_page=request.limit_per_page
+            )
+            
+            # Run in background
+            background_tasks.add_task(
+                service.run_scraper_background,
+                job_id=job_id,
+                source=request.source,
+                pages=request.pages,
+                limit_per_page=request.limit_per_page
+            )
+            
+            return {
+                "success": True,
+                "job_id": job_id,
+                "source": request.source,
+                "status": "pending",
+                "message": f"Scraper job {job_id} started for {request.source}"
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to run scraper")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/scraper/jobs")
+async def get_job_history(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0)
+):
+    """
+    Get scraper job history with pagination.
+    """
+    try:
+        service = app.state.scraper_service
+        return await service.get_job_history(limit=limit, offset=offset)
+        
+    except Exception as e:
+        logger.exception("Failed to get job history")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/scraper/jobs/{job_id}")
+async def get_job_status(job_id: int):
+    """
+    Get the status of a specific scraper job.
+    """
+    try:
+        service = app.state.scraper_service
+        job = await service.get_job_status(job_id)
+        
+        if "error" in job:
+            raise HTTPException(status_code=404, detail=job["error"])
+        
+        return job
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to get job {job_id} status")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/scraper/jobs/{job_id}")
+async def cancel_job(job_id: int):
+    """
+    Cancel a pending or running scraper job.
+    """
+    try:
+        service = app.state.scraper_service
+        job = await service.get_job_status(job_id)
+        
+        if "error" in job:
+            raise HTTPException(status_code=404, detail=job["error"])
+        
+        # Only pending or running jobs can be cancelled
+        if job.get("status") not in ["pending", "running"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot cancel job with status: {job.get('status')}"
+            )
+        
+        # Update job status
+        supabase = get_supabase()
+        response = (
+            supabase.table("scraper_jobs")
+            .update({
+                "status": "cancelled",
+                "completed_at": datetime.now(timezone.utc).isoformat()
+            })
+            .eq("id", job_id)
+            .execute()
+        )
+        
+        return {
+            "success": True,
+            "job_id": job_id,
+            "status": "cancelled",
+            "message": f"Job {job_id} cancelled successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to cancel job {job_id}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ─── SETTINGS ENDPOINTS ───────────────────────────────────────
+
+@app.get("/api/settings")
+async def get_settings():
+    """
+    Get all engine settings.
+    """
+    try:
+        supabase = get_supabase()
+        response = (
+            supabase.table("engine_settings")
+            .select("*")
+            .execute()
+        )
+        
+        return {
+            "settings": response.data or []
+        }
+        
+    except Exception as e:
+        logger.exception("Failed to get settings")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/settings/{key}")
+async def get_setting(key: str):
+    """
+    Get a specific engine setting.
+    """
+    try:
+        supabase = get_supabase()
+        response = (
+            supabase.table("engine_settings")
+            .select("*")
+            .eq("key", key)
+            .execute()
+        )
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
+        
+        return response.data[0]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to get setting '{key}'")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/settings")
+async def create_setting(request: SettingsUpdateRequest):
+    """
+    Create a new engine setting.
+    """
+    try:
+        supabase = get_supabase()
+        
+        response = (
+            supabase.table("engine_settings")
+            .insert({
+                "key": request.key,
+                "value": request.value
+            })
+            .execute()
+        )
+        
+        if not response.data:
+            raise HTTPException(status_code=400, detail="Failed to create setting")
+        
+        return {
+            "success": True,
+            "setting": response.data[0]
+        }
+        
+    except Exception as e:
+        logger.exception("Failed to create setting")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/settings/{key}")
+async def update_setting(key: str, request: SettingsUpdateRequest):
+    """
+    Update an existing engine setting.
+    """
+    try:
+        supabase = get_supabase()
+        
+        response = (
+            supabase.table("engine_settings")
+            .update({"value": request.value})
+            .eq("key", key)
+            .execute()
+        )
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
+        
+        return {
+            "success": True,
+            "setting": response.data[0]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to update setting '{key}'")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ─── LISTINGS ENDPOINTS ───────────────────────────────────────
+
+@app.get("/api/listings")
+async def get_listings(
+    source: Optional[str] = None,
+    make: Optional[str] = None,
+    model: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    min_year: Optional[int] = None,
+    max_year: Optional[int] = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0)
+):
+    """
+    Get vehicle listings with filters.
+    """
+    try:
+        supabase = get_supabase()
+        
+        # Start building the query
+        query = supabase.table("market_listings").select("*")
+        
+        # Apply filters
+        if source:
+            # Get source ID first
+            source_response = (
+                supabase.table("market_sources")
+                .select("id")
+                .eq("name", source)
+                .execute()
+            )
+            if source_response.data:
+                query = query.eq("source_id", source_response.data[0]["id"])
+        
+        if make:
+            query = query.ilike("make", f"%{make}%")
+        if model:
+            query = query.ilike("model", f"%{model}%")
+        if min_price is not None:
+            query = query.gte("price", min_price)
+        if max_price is not None:
+            query = query.lte("price", max_price)
+        if min_year is not None:
+            query = query.gte("year", min_year)
+        if max_year is not None:
+            query = query.lte("year", max_year)
+        
+        # Get total count
+        count_response = query.execute()
+        total = len(count_response.data) if count_response.data else 0
+        
+        # Apply pagination
+        query = query.range(offset, offset + limit - 1)
+        query = query.order("created_at", desc=True)
+        
+        response = query.execute()
+        
+        return {
+            "listings": response.data or [],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": (offset + limit) < total
+        }
+        
+    except Exception as e:
+        logger.exception("Failed to get listings")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/listings/{listing_id}")
+async def get_listing(listing_id: str):
+    """
+    Get a specific listing by ID.
+    """
+    try:
+        supabase = get_supabase()
+        response = (
+            supabase.table("market_listings")
+            .select("*")
+            .eq("listing_id", listing_id)
+            .execute()
+        )
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Listing not found")
+        
+        return response.data[0]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to get listing {listing_id}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ─── ROOT ──────────────────────────────────────────────────────
+
+@app.get("/")
+async def root():
+    """
+    Root endpoint - API information.
+    """
+    return {
+        "name": "Auto-D Kenya API",
+        "version": "1.0.0",
+        "description": "Vehicle scraper and valuation API",
+        "endpoints": {
+            "health": "/api/health",
+            "status": "/api/status",
+            "sources": "/api/sources",
+            "scraper": "/api/scraper/run",
+            "jobs": "/api/scraper/jobs",
+            "settings": "/api/settings",
+            "listings": "/api/listings"
+        },
+        "documentation": "/docs",
+        "redoc": "/redoc"
+    }
+
+# ─── ERROR HANDLING ───────────────────────────────────────────
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    """
+    Custom HTTP exception handler.
+    """
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.detail,
+            "status_code": exc.status_code,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
     )
 
-
-class Pagination(Schema):
-    """Pagination fields."""
-    total: NonNegativeInt = Field(..., description="Total items")
-    limit: NonNegativeInt = Field(..., description="Items per page")
-    offset: NonNegativeInt = Field(..., description="Pagination offset")
-
-
-class SuccessResponse(Schema):
-    """Generic success response."""
-    success: bool = Field(True, description="Success status")
-    message: str = Field("Success", description="Success message")
-
-
-class DeleteResponse(Schema):
-    """Generic delete response."""
-    success: bool = Field(True, description="Success status")
-    message: str = Field(..., description="Delete message")
-    deleted_at: Optional[datetime] = Field(None, description="Deletion timestamp")
-
-
-# ─── ENUMS ────────────────────────────────────────────────────────
-
-class ServiceCode(str, Enum):
-    """Service code enum."""
-    VALUATION = "valuation"
-    MILEAGE = "mileage"
-    OWNERSHIP = "ownership"
-    TCO = "tco"
-
-
-class UserServiceStatus(str, Enum):
-    """User service status enum."""
-    ACTIVE = "active"
-    SUSPENDED = "suspended"
-    CANCELLED = "cancelled"
-
-
-class PaymentStatus(str, Enum):
-    """Payment status enum."""
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    PAID = "paid"
-    SUCCESS = "success"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    EXPIRED = "expired"
-
-
-class ComponentStatus(str, Enum):
-    """Component status enum."""
-    HEALTHY = "healthy"
-    UNHEALTHY = "unhealthy"
-    DEGRADED = "degraded"
-
-
-# ─── TYPE ALIASES ────────────────────────────────────────────────
-
-Metadata = Dict[str, Any]
-CurrencyCode = Annotated[str, StringConstraints(min_length=3, max_length=3)]
-
-
-# ─── REQUEST SCHEMAS ──────────────────────────────────────────────
-
-class UpdateServiceRequest(Schema):
-    """Update service request."""
-    name: Optional[str] = Field(None, description="Service name")
-    price: Optional[PositiveFloat] = Field(None, description="Service price")
-    currency: Optional[CurrencyCode] = Field("KES", description="Currency code")
-    description: Optional[str] = Field(None, description="Service description")
-    icon: Optional[str] = Field(None, description="Service icon")
-    active: Optional[bool] = Field(None, description="Whether service is active")
-    display_order: Optional[NonNegativeInt] = Field(None, description="Display order")
-
-    @field_validator("currency")
-    @classmethod
-    def normalize_currency(cls, v: Optional[str]) -> Optional[str]:
-        """Normalize currency to uppercase."""
-        if v:
-            return v.upper()
-        return v
-
-
-class UpdateServicePriceRequest(Schema):
-    """Update service price request."""
-    price: PositiveFloat = Field(..., description="Service price")
-    currency: CurrencyCode = Field("KES", description="Currency code")
-
-    @field_validator("currency")
-    @classmethod
-    def normalize_currency(cls, v: str) -> str:
-        """Normalize currency to uppercase."""
-        return v.upper()
-
-
-class CreateServiceRequest(Schema):
-    """Create service request."""
-    code: ServiceCode = Field(..., description="Service code (unique)")
-    name: str = Field(..., description="Service name")
-    price: PositiveFloat = Field(..., description="Service price")
-    currency: CurrencyCode = Field("KES", description="Currency code")
-    description: Optional[str] = Field(None, description="Service description")
-    icon: Optional[str] = Field(None, description="Service icon")
-    active: bool = Field(True, description="Whether service is active")
-    display_order: NonNegativeInt = Field(0, description="Display order")
-
-    @field_validator("currency")
-    @classmethod
-    def normalize_currency(cls, v: str) -> str:
-        """Normalize currency to uppercase."""
-        return v.upper()
-
-
-class UpdateUserServiceRequest(Schema):
-    """Update user service request."""
-    user_id: UUID = Field(..., description="User ID")
-    service_id: UUID = Field(..., description="Service ID")
-    status: UserServiceStatus = Field(..., description="Service status")
-
-
-# ─── RESPONSE SCHEMAS ─────────────────────────────────────────────
-
-class AdminStatsResponse(Schema):
-    """Admin statistics response."""
-    total_users: NonNegativeInt = Field(..., description="Total users")
-    total_vehicles: NonNegativeInt = Field(..., description="Total vehicles")
-    total_payments: NonNegativeInt = Field(..., description="Total payments")
-    total_revenue: Decimal = Field(..., description="Total revenue")
-    total_services_purchased: NonNegativeInt = Field(..., description="Total services purchased")
-    new_users_this_week: NonNegativeInt = Field(..., description="New users this week")
-    active_services: NonNegativeInt = Field(..., description="Active services")
-    updated_at: datetime = Field(..., description="Last updated timestamp")
-    error: Optional[str] = Field(None, description="Error message if any")
-
-
-class AdminUserService(Schema):
-    """User service item."""
-    service_id: UUID = Field(..., description="Service ID")
-    service_name: str = Field(..., description="Service name")
-    service_code: ServiceCode = Field(..., description="Service code")
-    status: UserServiceStatus = Field(..., description="Service status")
-
-
-class AdminUser(Schema):
-    """Admin user item."""
-    id: UUID = Field(..., description="User ID")
-    email: EmailStr = Field(..., description="User email")
-    full_name: str = Field(..., description="User full name")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    last_sign_in_at: Optional[datetime] = Field(None, description="Last sign-in timestamp")
-    confirmed_at: Optional[datetime] = Field(None, description="Confirmation timestamp")
-    phone: Optional[str] = Field(None, description="Phone number")
-    services: List[AdminUserService] = Field(default_factory=list, description="User services")
-
-
-class AdminPayment(Schema):
-    """Admin payment item."""
-    id: UUID = Field(..., description="Payment ID")
-    user_id: Optional[UUID] = Field(None, description="User ID")
-    service_id: Optional[UUID] = Field(None, description="Service ID")
-    service_name: Optional[str] = Field(None, description="Service name")
-    service_code: Optional[ServiceCode] = Field(None, description="Service code")
-    amount: Decimal = Field(..., description="Payment amount")
-    currency: CurrencyCode = Field("KES", description="Currency code")
-    status: PaymentStatus = Field(..., description="Payment status")
-    phone: Optional[str] = Field(None, description="Phone number")
-    checkout_request_id: Optional[str] = Field(None, description="Checkout request ID")
-    mpesa_receipt: Optional[str] = Field(None, description="M-Pesa receipt")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    completed_at: Optional[datetime] = Field(None, description="Completion timestamp")
-
-
-class AdminUserDetail(Schema):
-    """Detailed admin user with payments."""
-    id: UUID = Field(..., description="User ID")
-    email: EmailStr = Field(..., description="User email")
-    full_name: str = Field(..., description="User full name")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    last_sign_in_at: Optional[datetime] = Field(None, description="Last sign-in timestamp")
-    confirmed_at: Optional[datetime] = Field(None, description="Confirmation timestamp")
-    phone: Optional[str] = Field(None, description="Phone number")
-    services: List[AdminUserService] = Field(default_factory=list, description="User services")
-    app_metadata: Metadata = Field(default_factory=dict, description="App metadata")
-    user_metadata: Metadata = Field(default_factory=dict, description="User metadata")
-    payments: List[AdminPayment] = Field(default_factory=list, description="User payments")
-
-
-class AdminUsersResponse(Pagination):
-    """Admin users response."""
-    users: List[AdminUser] = Field(..., description="List of users")
-
-
-class AdminPaymentsResponse(Pagination):
-    """Admin payments response."""
-    payments: List[AdminPayment] = Field(..., description="List of payments")
-
-
-class AdminVehicle(Schema):
-    """Admin vehicle item."""
-    id: UUID = Field(..., description="Vehicle ID")
-    user_id: Optional[UUID] = Field(None, description="User ID")
-    make: str = Field(..., description="Vehicle make")
-    model: str = Field(..., description="Vehicle model")
-    year: Optional[int] = Field(None, description="Vehicle year")
-    variant: Optional[str] = Field(None, description="Vehicle variant")
-    verified: bool = Field(False, description="Verification status")
-    created_at: datetime = Field(..., description="Creation timestamp")
-
-
-class AdminVehiclesResponse(Pagination):
-    """Admin vehicles response."""
-    vehicles: List[AdminVehicle] = Field(..., description="List of vehicles")
-
-
-# Renamed to avoid conflict with service class
-class AdminServiceItem(Schema):
-    """Admin service item."""
-    id: UUID = Field(..., description="Service ID")
-    code: ServiceCode = Field(..., description="Service code")
-    name: str = Field(..., description="Service name")
-    price: Decimal = Field(..., description="Service price")
-    currency: CurrencyCode = Field("KES", description="Currency code")
-    description: Optional[str] = Field(None, description="Service description")
-    icon: Optional[str] = Field(None, description="Service icon")
-    active: bool = Field(True, description="Whether service is active")
-    display_order: NonNegativeInt = Field(0, description="Display order")
-    purchase_count: NonNegativeInt = Field(0, description="Number of purchases")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    updated_at: datetime = Field(..., description="Last updated timestamp")
-
-
-class AdminServicesResponse(Schema):
-    """Admin services response."""
-    services: List[AdminServiceItem] = Field(..., description="List of services")
-    total: NonNegativeInt = Field(..., description="Total services")
-
-
-class AnalyticsDay(Schema):
-    """Analytics day item."""
-    date: date = Field(..., description="Date")
-    users: NonNegativeInt = Field(0, description="New users on this day")
-    payments: NonNegativeInt = Field(0, description="Payments on this day")
-    revenue: Decimal = Field(Decimal(0), description="Revenue on this day")
-    vehicles: NonNegativeInt = Field(0, description="Vehicles added on this day")
-
-
-class AnalyticsTotals(Schema):
-    """Analytics totals."""
-    users: NonNegativeInt = Field(..., description="Total users")
-    payments: NonNegativeInt = Field(..., description="Total payments")
-    revenue: Decimal = Field(..., description="Total revenue")
-    vehicles: NonNegativeInt = Field(..., description="Total vehicles")
-
-
-class AdminAnalyticsResponse(Schema):
-    """Admin analytics response."""
-    period_days: NonNegativeInt = Field(..., description="Period in days")
-    start_date: date = Field(..., description="Start date")
-    end_date: date = Field(..., description="End date")
-    daily_stats: List[AnalyticsDay] = Field(..., description="Daily statistics")
-    totals: AnalyticsTotals = Field(..., description="Total statistics")
-
-
-class ComponentStatuses(Schema):
-    """System component statuses."""
-    supabase: ComponentStatus = Field(..., description="Supabase status")
-    database: ComponentStatus = Field(..., description="Database status")
-    mpesa: ComponentStatus = Field(..., description="M-Pesa status")
-
-
-class AdminStatusResponse(Schema):
-    """Admin system status response."""
-    status: ComponentStatus = Field(..., description="Overall system status")
-    timestamp: datetime = Field(..., description="Status timestamp")
-    components: ComponentStatuses = Field(..., description="Component statuses")
-
-
-class RevenueReportResponse(Schema):
-    """Revenue report response."""
-    total_revenue: Decimal = Field(..., description="Total revenue")
-    total_transactions: NonNegativeInt = Field(..., description="Total transactions")
-    revenue_by_service: Dict[str, Decimal] = Field(..., description="Revenue breakdown by service")
-    start_date: Optional[datetime] = Field(None, description="Start date")
-    end_date: Optional[datetime] = Field(None, description="End date")
-    error: Optional[str] = Field(None, description="Error message if any")
-
-
-class ServicePriceItem(Schema):
-    """Service price item."""
-    price: Decimal = Field(..., description="Service price")
-    currency: CurrencyCode = Field("KES", description="Currency code")
-    name: str = Field(..., description="Service name")
-
-
-class ServicePricesResponse(Schema):
-    """Service prices response."""
-    prices: Dict[ServiceCode, ServicePriceItem] = Field(..., description="Service prices by code")
-    services: List[AdminServiceItem] = Field(..., description="Full service list")
-    total: NonNegativeInt = Field(..., description="Total services")
-
-
-# ─── USER SERVICE RESPONSE ──────────────────────────────────────
-
-class UserServiceItem(Schema):
-    """User service item."""
-    id: UUID = Field(..., description="User service ID")
-    user_id: UUID = Field(..., description="User ID")
-    service_id: UUID = Field(..., description="Service ID")
-    status: UserServiceStatus = Field(..., description="Service status")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    updated_at: datetime = Field(..., description="Last updated timestamp")
-    # Use a separate field to avoid circular reference
-    service_details: Optional[AdminServiceItem] = Field(None, description="Service details", alias="service")
-
-
-class UserServicesResponse(Schema):
-    """User services response."""
-    user_id: UUID = Field(..., description="User ID")
-    services: List[UserServiceItem] = Field(..., description="List of user services")
-    total: NonNegativeInt = Field(..., description="Total services")
-
-
-# ─── SERVICE RESPONSE SCHEMAS ────────────────────────────────────
-
-class ServiceResponse(SuccessResponse):
-    """Generic service response."""
-    service: AdminServiceItem = Field(..., description="Service data")
-
-
-# ─── DELETE RESPONSE SCHEMAS ────────────────────────────────────
-
-class DeleteUserResponse(DeleteResponse):
-    """Delete user response."""
-    user_id: UUID = Field(..., description="Deleted user ID")
-
-
-class DeleteServiceResponse(DeleteResponse):
-    """Delete service response."""
-    service_id: UUID = Field(..., description="Deleted service ID")
-
-
-class UpdateUserServiceResponse(SuccessResponse):
-    """Update user service response."""
-    user_id: UUID = Field(..., description="User ID")
-    service_id: UUID = Field(..., description="Service ID")
-    status: UserServiceStatus = Field(..., description="Updated status")
-    updated_at: datetime = Field(..., description="Update timestamp")
-
-
-# ─── HEALTH RESPONSE ─────────────────────────────────────────────
-
-class AdminHealthResponse(Schema):
-    """Admin health response."""
-    status: ComponentStatus = Field(..., description="Health status")
-    service: str = Field("admin", description="Service name")
-    timestamp: datetime = Field(..., description="Health check timestamp")
-
-
-# ─── USER DETAIL RESPONSE ────────────────────────────────────────
-
-class AdminUserDetailResponse(Schema):
-    """Admin user detail response."""
-    success: bool = Field(True, description="Success status")
-    data: AdminUserDetail = Field(..., description="User details")
-
-
-# ─── PAGINATED WRAPPER ──────────────────────────────────────────
-
-class PaginatedResponse(Schema):
-    """Generic paginated response wrapper."""
-    items: List[Any] = Field(..., description="List of items")
-    total: NonNegativeInt = Field(..., description="Total items")
-    limit: NonNegativeInt = Field(..., description="Items per page")
-    offset: NonNegativeInt = Field(..., description="Pagination offset")
-    has_more: bool = Field(False, description="Whether there are more items")
-
-
-# ─── FORWARD REFERENCES ──────────────────────────────────────────
-
-# Resolve forward references - explicitly rebuild all models with potential circular refs
-AdminUserDetail.model_rebuild()
-AdminUserDetailResponse.model_rebuild()
-UserServicesResponse.model_rebuild()
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """
+    General exception handler.
+    """
+    logger.exception("Unhandled exception")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "status_code": 500,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    )
+
+# ─── RUN SERVER ──────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    port = int(os.getenv("PORT", 8000))
+    host = os.getenv("HOST", "0.0.0.0")
+    
+    uvicorn.run(
+        "main:app",
+        host=host,
+        port=port,
+        reload=os.getenv("DEBUG", "false").lower() == "true",
+        log_level=os.getenv("LOG_LEVEL", "info")
+    )
