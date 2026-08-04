@@ -6,7 +6,7 @@
 # ================================================================
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, ForwardRef
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -16,132 +16,34 @@ from pydantic import BaseModel, Field, field_validator
 # ================================================================
 
 class RunningCostRequest(BaseModel):
-    """
-    Running cost calculation request.
+    """Running cost calculation request."""
     
-    Calculates:
-    - Fuel cost
-    - Service cost
-    - Insurance cost
-    - Depreciation cost
-    - Total running cost
-    """
-    
-    variant_id: int = Field(
-        ...,
-        gt=0,
-        description="Vehicle variant database ID"
-    )
-    
-    annual_mileage: int = Field(
-        20000,
-        ge=0,
-        description="Annual mileage in KM"
-    )
-    
-    fuel_price_per_liter: Optional[float] = Field(
-        None,
-        ge=0,
-        description="Fuel price per liter (auto-detect if not provided)"
-    )
-    
-    fuel_type: Optional[str] = Field(
-        None,
-        description="Fuel type (auto-detect if not provided)"
-    )
-    
-    insurance_rate: Optional[float] = Field(
-        None,
-        ge=0,
-        le=1,
-        description="Insurance rate as percentage"
-    )
-    
-    service_cost_per_km: Optional[float] = Field(
-        None,
-        ge=0,
-        description="Service cost per KM (auto-calculate if not provided)"
-    )
-    
-    ownership_years: int = Field(
-        5,
-        ge=1,
-        description="Number of years of ownership"
-    )
-    
-    include_depreciation: bool = Field(
-        True,
-        description="Include depreciation in calculation"
-    )
-    
-    include_financing: bool = Field(
-        False,
-        description="Include financing costs"
-    )
-    
-    interest_rate: Optional[float] = Field(
-        None,
-        ge=0,
-        le=1,
-        description="Financing interest rate"
-    )
-    
-    down_payment_percent: Optional[float] = Field(
-        None,
-        ge=0,
-        le=1,
-        description="Down payment percentage"
-    )
+    variant_id: int = Field(..., gt=0, description="Vehicle variant database ID")
+    annual_mileage: int = Field(20000, ge=0, description="Annual mileage in KM")
+    fuel_price_per_liter: Optional[float] = Field(None, ge=0, description="Fuel price per liter")
+    fuel_type: Optional[str] = Field(None, description="Fuel type")
+    insurance_rate: Optional[float] = Field(None, ge=0, le=1, description="Insurance rate as percentage")
+    service_cost_per_km: Optional[float] = Field(None, ge=0, description="Service cost per KM")
+    ownership_years: int = Field(5, ge=1, description="Number of years of ownership")
+    include_depreciation: bool = Field(True, description="Include depreciation")
+    include_financing: bool = Field(False, description="Include financing costs")
+    interest_rate: Optional[float] = Field(None, ge=0, le=1, description="Financing interest rate")
+    down_payment_percent: Optional[float] = Field(None, ge=0, le=1, description="Down payment percentage")
 
 
 class RunningCostProjectionRequest(BaseModel):
-    """
-    Running cost projection request.
+    """Running cost projection request."""
     
-    Calculates projected costs over multiple years.
-    """
-    
-    variant_id: int = Field(
-        ...,
-        gt=0,
-        description="Vehicle variant database ID"
-    )
-    
-    annual_mileage: int = Field(
-        20000,
-        ge=0,
-        description="Annual mileage in KM"
-    )
-    
-    years: int = Field(
-        5,
-        ge=1,
-        le=20,
-        description="Number of years to project"
-    )
-    
-    inflation_rate: float = Field(
-        0.05,
-        ge=0,
-        le=1,
-        description="Annual inflation rate"
-    )
-    
-    mileage_increase_rate: float = Field(
-        0.02,
-        ge=0,
-        le=1,
-        description="Annual mileage increase rate"
-    )
-    
-    include_depreciation: bool = Field(
-        True,
-        description="Include depreciation in calculation"
-    )
+    variant_id: int = Field(..., gt=0, description="Vehicle variant database ID")
+    annual_mileage: int = Field(20000, ge=0, description="Annual mileage in KM")
+    years: int = Field(5, ge=1, le=20, description="Number of years to project")
+    inflation_rate: float = Field(0.05, ge=0, le=1, description="Annual inflation rate")
+    mileage_increase_rate: float = Field(0.02, ge=0, le=1, description="Annual mileage increase rate")
+    include_depreciation: bool = Field(True, description="Include depreciation")
 
 
 # ================================================================
-# RESPONSE SCHEMAS
+# BREAKDOWN SCHEMAS
 # ================================================================
 
 class FuelCostBreakdown(BaseModel):
@@ -154,7 +56,7 @@ class FuelCostBreakdown(BaseModel):
     fuel_efficiency: float = Field(..., description="Fuel efficiency in KM/L")
     fuel_price: float = Field(..., description="Fuel price per liter")
     liters_per_year: float = Field(..., description="Liters consumed per year")
-    
+
 
 class ServiceCostBreakdown(BaseModel):
     """Service cost breakdown."""
@@ -204,6 +106,10 @@ class FinancingBreakdown(BaseModel):
     loan_term_months: int = Field(..., description="Loan term in months")
 
 
+# ================================================================
+# PROJECTION SCHEMA
+# ================================================================
+
 class ProjectionYear(BaseModel):
     """Single year projection data."""
     
@@ -212,11 +118,15 @@ class ProjectionYear(BaseModel):
     fuel_cost: float = Field(..., description="Fuel cost for this year")
     service_cost: float = Field(..., description="Service cost for this year")
     insurance_cost: float = Field(..., description="Insurance cost for this year")
-    depreciation_cost: Optional[float] = Field(None, description="Depreciation cost for this year")
+    depreciation_cost: Optional[float] = Field(None, description="Depreciation cost")
     total_cost: float = Field(..., description="Total cost for this year")
     cumulative_cost: float = Field(..., description="Cumulative cost up to this year")
     cost_per_km: float = Field(..., description="Cost per kilometer for this year")
 
+
+# ================================================================
+# SUMMARY SCHEMA
+# ================================================================
 
 class RunningCostSummary(BaseModel):
     """Running cost summary."""
@@ -226,14 +136,16 @@ class RunningCostSummary(BaseModel):
     total_weekly_cost: float = Field(..., description="Total weekly running cost")
     total_cost_per_km: float = Field(..., description="Total cost per kilometer")
     total_ownership_cost: float = Field(..., description="Total cost over ownership period")
-    
-    # Breakdown by category
-    fuel: FuelCostBreakdown
-    service: ServiceCostBreakdown
-    insurance: InsuranceCostBreakdown
-    depreciation: Optional[DepreciationBreakdown] = None
-    financing: Optional[FinancingBreakdown] = None
+    fuel: FuelCostBreakdown = Field(..., description="Fuel cost breakdown")
+    service: ServiceCostBreakdown = Field(..., description="Service cost breakdown")
+    insurance: InsuranceCostBreakdown = Field(..., description="Insurance cost breakdown")
+    depreciation: Optional[DepreciationBreakdown] = Field(None, description="Depreciation breakdown")
+    financing: Optional[FinancingBreakdown] = Field(None, description="Financing breakdown")
 
+
+# ================================================================
+# RESPONSE SCHEMAS
+# ================================================================
 
 class RunningCostResponse(BaseModel):
     """Running cost response."""
@@ -244,66 +156,8 @@ class RunningCostResponse(BaseModel):
     summary: RunningCostSummary = Field(..., description="Cost summary")
     breakdown_by_category: Dict[str, float] = Field(..., description="Cost breakdown by category")
     comparison: Optional[Dict[str, Any]] = Field(None, description="Comparison with average costs")
-    recommendations: List[str] = Field(default_factory=list, description="Cost reduction recommendations")
+    recommendations: List[str] = Field(default_factory=list, description="Recommendations")
     calculated_at: str = Field(..., description="Calculation timestamp")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "vehicle": {
-                    "make": "Toyota",
-                    "model": "Corolla",
-                    "variant": "1.8 GL",
-                    "year": 2020
-                },
-                "annual_mileage": 20000,
-                "currency": "KES",
-                "summary": {
-                    "total_annual_cost": 450000,
-                    "total_monthly_cost": 37500,
-                    "total_weekly_cost": 8653.85,
-                    "total_cost_per_km": 22.50,
-                    "total_ownership_cost": 2250000,
-                    "fuel": {
-                        "annual_cost": 150000,
-                        "monthly_cost": 12500,
-                        "weekly_cost": 2884.62,
-                        "cost_per_km": 7.50,
-                        "fuel_efficiency": 14.0,
-                        "fuel_price": 214.03,
-                        "liters_per_year": 700
-                    },
-                    "service": {
-                        "annual_cost": 50000,
-                        "monthly_cost": 4166.67,
-                        "weekly_cost": 961.54,
-                        "cost_per_km": 2.50,
-                        "service_interval": 5000,
-                        "services_per_year": 4,
-                        "average_service_cost": 12500
-                    },
-                    "insurance": {
-                        "annual_cost": 100000,
-                        "monthly_cost": 8333.33,
-                        "weekly_cost": 1923.08,
-                        "cost_per_km": 5.00,
-                        "premium_rate": 0.045,
-                        "insured_value": 3500000
-                    }
-                },
-                "breakdown_by_category": {
-                    "fuel": 150000,
-                    "service": 50000,
-                    "insurance": 100000,
-                    "depreciation": 150000
-                },
-                "recommendations": [
-                    "Consider diesel variant for better fuel economy",
-                    "Regular servicing can reduce maintenance costs"
-                ],
-                "calculated_at": "2024-01-15T10:30:00"
-            }
-        }
 
 
 class RunningCostProjectionResponse(BaseModel):
@@ -327,69 +181,30 @@ class RunningCostProjectionResponse(BaseModel):
 # ================================================================
 
 class LegacyRunningCostResponse(BaseModel):
-    """
-    Legacy running cost response for backward compatibility.
-    
-    Used by the /running-cost/calculate-legacy endpoint.
-    """
+    """Legacy running cost response for backward compatibility."""
     
     vehicle_make: str = Field(..., description="Vehicle make")
     vehicle_model: str = Field(..., description="Vehicle model")
     vehicle_variant: str = Field(..., description="Vehicle variant")
     vehicle_year: int = Field(..., description="Vehicle year")
-    
     annual_cost: float = Field(..., description="Total annual running cost")
     monthly_cost: float = Field(..., description="Total monthly running cost")
     weekly_cost: float = Field(..., description="Total weekly running cost")
     cost_per_km: float = Field(..., description="Cost per kilometer")
     total_ownership_cost: float = Field(..., description="Total cost over ownership period")
-    
     fuel_cost: float = Field(..., description="Annual fuel cost")
     service_cost: float = Field(..., description="Annual service cost")
     insurance_cost: float = Field(..., description="Annual insurance cost")
     depreciation_cost: Optional[float] = Field(None, description="Annual depreciation cost")
     financing_cost: Optional[float] = Field(None, description="Annual financing cost")
-    
     currency: str = Field("KES", description="Currency code")
     annual_mileage: int = Field(..., description="Annual mileage used")
-    
     fuel_efficiency: float = Field(..., description="Fuel efficiency in KM/L")
     fuel_price: float = Field(..., description="Fuel price per liter")
-    
     insurance_rate: float = Field(..., description="Insurance premium rate")
     service_interval: int = Field(..., description="Service interval in KM")
-    
     recommendations: List[str] = Field(default_factory=list, description="Recommendations")
     calculated_at: str = Field(..., description="Calculation timestamp")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "vehicle_make": "Toyota",
-                "vehicle_model": "Corolla",
-                "vehicle_variant": "1.8 GL",
-                "vehicle_year": 2020,
-                "annual_cost": 450000,
-                "monthly_cost": 37500,
-                "weekly_cost": 8653.85,
-                "cost_per_km": 22.50,
-                "total_ownership_cost": 2250000,
-                "fuel_cost": 150000,
-                "service_cost": 50000,
-                "insurance_cost": 100000,
-                "depreciation_cost": 150000,
-                "currency": "KES",
-                "annual_mileage": 20000,
-                "fuel_efficiency": 14.0,
-                "fuel_price": 214.03,
-                "insurance_rate": 0.045,
-                "service_interval": 5000,
-                "recommendations": [
-                    "Consider diesel variant for better fuel economy"
-                ],
-                "calculated_at": "2024-01-15T10:30:00"
-            }
-        }
 
 
 # ================================================================
