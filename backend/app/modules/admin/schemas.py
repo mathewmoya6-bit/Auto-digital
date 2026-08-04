@@ -223,19 +223,28 @@ class AdminUserDetail(AdminUser):
     payments: List[AdminPayment] = Field(default_factory=list, description="User payments")
 
 
-# FIXED: Removed redundant Schema inheritance
 class AdminUsersResponse(Pagination):
     """Admin users response."""
     users: List[AdminUser] = Field(..., description="List of users")
 
 
-# FIXED: Removed redundant Schema inheritance
 class AdminPaymentsResponse(Pagination):
     """Admin payments response."""
     payments: List[AdminPayment] = Field(..., description="List of payments")
 
 
-# FIXED: Removed redundant Schema inheritance
+class AdminVehicle(Schema):
+    """Admin vehicle item."""
+    id: UUID = Field(..., description="Vehicle ID")
+    user_id: Optional[UUID] = Field(None, description="User ID")
+    make: str = Field(..., description="Vehicle make")
+    model: str = Field(..., description="Vehicle model")
+    year: Optional[int] = Field(None, description="Vehicle year")
+    variant: Optional[str] = Field(None, description="Vehicle variant")
+    verified: bool = Field(False, description="Verification status")
+    created_at: datetime = Field(..., description="Creation timestamp")
+
+
 class AdminVehiclesResponse(Pagination):
     """Admin vehicles response."""
     vehicles: List[AdminVehicle] = Field(..., description="List of vehicles")
@@ -391,11 +400,12 @@ class AdminUserDetailResponse(Schema):
     data: AdminUserDetail = Field(..., description="User details")
 
 
-# ─── PAGINATED WRAPPER ──────────────────────────────────────────
+# ─── FIXED: PAGINATED WRAPPER WITH NO RECURSION ────────────────
 
-class PaginatedResponse(Schema, Generic[T]):
-    """Generic paginated response wrapper."""
-    items: List[T] = Field(..., description="List of items")
+# Use a concrete paginated response instead of a generic one
+class PaginatedResponse(Schema):
+    """Generic paginated response wrapper (concrete implementation)."""
+    items: List[Any] = Field(..., description="List of items")
     total: NonNegativeInt = Field(..., description="Total items")
     limit: NonNegativeInt = Field(..., description="Items per page")
     offset: NonNegativeInt = Field(..., description="Pagination offset")
