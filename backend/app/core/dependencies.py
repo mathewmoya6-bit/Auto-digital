@@ -1,547 +1,423 @@
-# app/core/dependencies.py
-
 """
-Auto-D Kenya - Dependencies
-===========================
+Auto-D Kenya - Authentication Dependencies
+==========================================
 
-FastAPI dependency injection functions for authentication, authorization,
-and database operations.
+FastAPI dependency injection for authentication.
+
+Provides:
+- Current authenticated user
+- Optional authentication
+- Active user validation
+- Admin validation
+- Supabase client dependency
 """
 
-from typing import Optional, List, Dict, Any
-from fastapi import Depends, HTTPException, status, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from datetime import datetime, timedelta
+from __future__ import annotations
+
 import logging
-import jwt
-from jwt.exceptions import PyJWTError
+from typing import Optional, Dict, Any
+from datetime import datetime
 
-from app.core.config import settings
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
 from app.core.database import get_supabase
+from app.core.exceptions import UnauthorizedException
+from app.core.security import decode_token
 
 logger = logging.getLogger(__name__)
-security = HTTPBearer()
+
+# ---------------------------------------------------------------------
+# Security Scheme
+# ---------------------------------------------------------------------
+
+security = HTTPBearer(auto_error=False)
 
 
-# =============================================================================
-# Authentication Dependencies
-# =============================================================================
+# ---------------------------------------------------------------------
+# Current User
+# ---------------------------------------------------------------------
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-) -> Dict[str, Any]:
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> dict:
     """
-    Get the current authenticated user from the JWT token.
-    
-    Returns:
-        Dict containing user information
-        
-    Raises:
-        HTTPException: If authentication fails
+    Returns the authenticated user.
+
+    Priority:
+    1. Validate JWT.
+    2. Load user from database.
+    3. Fall back to JWT claims.
     """
+
+    if credentials is None:
+        raise UnauthorizedException("Authentication required")
+
     token = credentials.credentials
-    
+
     try:
-        # Decode JWT token - try Supabase JWT secret first
-        try:
-            payload = jwt.decode(
-                token,
-                settings.SUPABASE_JWT_SECRET,
-                algorithms=[settings.JWT_ALGORITHM]
-            )
-        except jwt.InvalidTokenError:
-            # Fallback to JWT_SECRET_KEY if available
-            if hasattr(settings, 'JWT_SECRET_KEY') and settings.JWT_SECRET_KEY:
-                payload = jwt.decode(
-                    token,
-                    settings.JWT_SECRET_KEY,
-                    algorithms=[settings.JWT_ALGORITHM]
-                )
-            else:
-                raise
-        
-        user_id = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        # Get user from database
+        payload = decode_token(token)
+
+    except Exception as exc:
+        logger.warning("Authentication failed: %s", exc)
+        raise UnauthorizedException("Invalid or expired token")
+
+    user_id = payload.get("sub")
+
+    if not user_id:
+        raise UnauthorizedException("Invalid token payload")
+
+    metadata = payload.get("user_metadata", {})
+
+    # -----------------------------------------------------------------
+    # Get user from database (supports both schema variants)
+    # -----------------------------------------------------------------
+    user = None
+
+    try:
         supabase = get_supabase()
-        response = supabase.table("users").select("*").eq("id", user_id).execute()
         
-        if not response.data:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        user = response.data[0]
-        
-        # Check if user is active
-        if not user.get("is_active", True):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User account is disabled"
-            )
-        
-        return user
-        
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except jwt.InvalidTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except Exception as e:
-        logger.error(f"Authentication error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication failed",
-            headers={"WWW-Authenticate": "Bearer"},
+        # Preferred lookup using Supabase Auth user ID (auth_user_id)
+        response = (
+            supabase
+            .table("users")
+            .select("*")
+            .eq("auth_user_id", user_id)
+            .execute()
         )
 
+        if response.data:
+            user = response.data[0]
+            logger.debug(f"User found via auth_user_id: {user_id}")
+        else:
+            # Fallback for projects that store the auth UUID in id
+            response = (
+                supabase
+                .table("users")
+                .select("*")
+                .eq("id", user_id)
+                .execute()
+            )
+
+            if response.data:
+                user = response.data[0]
+                logger.debug(f"User found via id: {user_id}")
+
+    except Exception as e:
+        logger.exception("Failed to fetch user from database")
+        user = None
+
+    if user:
+        return {
+            "id": user.get("id"),
+            "auth_user_id": user.get("auth_user_id") or user.get("id"),
+            "email": user.get("email"),
+            "full_name": (
+                user.get("full_name")
+                or user.get("display_name")
+                or user.get("name")
+            ),
+            "account_type": user.get("account_type"),
+            "is_active": user.get("is_active", True),
+            "app_metadata": user.get("app_metadata", {}),
+            "user_metadata": user.get("user_metadata", {}),
+            "created_at": user.get("created_at"),
+            "payload": payload,
+        }
+
+    # -----------------------------------------------------------------
+    # Fallback to JWT Claims (avoid creating fake "individual" users)
+    # -----------------------------------------------------------------
+    logger.warning(
+        f"User {user_id} not found in database, using JWT claims fallback"
+    )
+
+    return {
+        "auth_user_id": user_id,
+        "id": user_id,
+        "email": payload.get("email") or metadata.get("email"),
+        "full_name": (
+            metadata.get("full_name")
+            or metadata.get("name")
+        ),
+        "account_type": metadata.get("account_type"),
+        "is_active": True,
+        "app_metadata": payload.get("app_metadata", {}),
+        "user_metadata": metadata,
+        "created_at": payload.get("created_at"),
+        "payload": payload,
+    }
+
+
+# ---------------------------------------------------------------------
+# Optional Authentication
+# ---------------------------------------------------------------------
+
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> Optional[dict]:
+    """
+    Returns the authenticated user or None.
+    """
+
+    if credentials is None:
+        return None
+
+    try:
+        return await get_current_user(credentials)
+
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------
+# Active User
+# ---------------------------------------------------------------------
 
 async def get_current_active_user(
-    current_user: Dict[str, Any] = Depends(get_current_user)
-) -> Dict[str, Any]:
+    current_user: dict = Depends(get_current_user),
+) -> dict:
     """
-    Get the current active user.
-    
-    Returns:
-        Dict containing user information
-        
-    Raises:
-        HTTPException: If user is not active
+    Ensure account is active.
     """
+
     if not current_user.get("is_active", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Inactive user"
+            detail="Account is inactive.",
         )
+
     return current_user
 
 
-async def get_current_user_optional(
-    request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
-) -> Optional[Dict[str, Any]]:
-    """
-    Get current user if authenticated, otherwise return None.
-    Useful for endpoints that work for both authenticated and unauthenticated users.
-    """
-    if not credentials:
-        return None
-    
-    try:
-        return await get_current_user(credentials)
-    except HTTPException:
-        return None
-
+# ---------------------------------------------------------------------
+# Admin User (Legacy)
+# ---------------------------------------------------------------------
 
 async def get_current_admin_user(
-    current_user: Dict[str, Any] = Depends(get_current_user)
-) -> Dict[str, Any]:
+    current_user: dict = Depends(get_current_user),
+) -> dict:
     """
-    Get the current user and verify they are an admin.
+    Ensure user has administrator privileges.
+
+    Deprecated: Use require_admin() instead.
+    """
+    allowed_roles = {
+        "admin",
+        "super_admin",
+        "staff",
+    }
+
+    if current_user.get("account_type") not in allowed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator privileges required.",
+        )
+
+    return current_user
+
+
+# ---------------------------------------------------------------------
+# Require Admin (Recommended)
+# ---------------------------------------------------------------------
+
+async def require_admin(
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """
+    Require admin role for access.
+    
+    Checks both app_metadata and user_metadata for admin role.
     
     Returns:
-        Dict containing user information
+        dict: User information if admin
         
     Raises:
         HTTPException: If user is not an admin
     """
-    # Check if user is admin
-    is_admin = (
-        current_user.get("is_admin", False) or 
-        current_user.get("role") in ["admin", "super_admin"]
-    )
+    # Check app_metadata
+    app_metadata = current_user.get("app_metadata", {})
+    role = app_metadata.get("role")
     
-    if not is_admin:
+    # Check user_metadata if not found
+    if not role:
+        user_metadata = current_user.get("user_metadata", {})
+        role = user_metadata.get("role")
+    
+    # Check account_type
+    if not role:
+        account_type = current_user.get("account_type")
+        if account_type in ["admin", "super_admin", "staff"]:
+            role = account_type
+    
+    if role not in ["admin", "super_admin", "staff"]:
+        logger.warning(
+            f"User {current_user.get('email', 'unknown')} "
+            f"attempted admin access without admin role"
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required"
+            detail="Admin access required"
         )
     
     return current_user
 
 
-async def get_admin_user(
-    current_user: Dict[str, Any] = Depends(get_current_user)
-) -> Dict[str, Any]:
-    """
-    Alias for get_current_admin_user.
-    """
-    return await get_current_admin_user(current_user)
+# ---------------------------------------------------------------------
+# get_current_admin (Alias for backward compatibility)
+# ---------------------------------------------------------------------
 
-
-async def get_current_super_admin_user(
-    current_user: Dict[str, Any] = Depends(get_current_user)
-) -> Dict[str, Any]:
+async def get_current_admin(
+    current_user: dict = Depends(require_admin),
+) -> dict:
     """
-    Get the current user and verify they are a super admin.
+    Alias for require_admin() for backward compatibility.
+    
+    This is used by the scraper router and other admin endpoints.
     
     Returns:
-        Dict containing user information
+        dict: User information if admin
         
     Raises:
-        HTTPException: If user is not a super admin
+        HTTPException: If user is not an admin
     """
-    if current_user.get("role") != "super_admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Super admin privileges required"
-        )
-    
     return current_user
 
 
-# =============================================================================
-# Database Dependencies
-# =============================================================================
+# ---------------------------------------------------------------------
+# Require Service Access
+# ---------------------------------------------------------------------
 
-async def get_db():
+async def require_service_access(
+    service_code: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
     """
-    Get database connection.
-    
-    Yields:
-        Supabase client instance
-    """
-    supabase = get_supabase()
-    try:
-        yield supabase
-    except Exception as e:
-        logger.error(f"Database error: {e}")
-        raise
-
-
-# =============================================================================
-# Permission Dependencies
-# =============================================================================
-
-def require_permission(permission: str):
-    """
-    Dependency factory for checking user permissions.
+    Check if user has access to a specific service.
     
     Args:
-        permission: Required permission string
-    
-    Returns:
-        Dependency function
-    """
-    async def _require_permission(
-        current_user: Dict[str, Any] = Depends(get_current_user)
-    ) -> Dict[str, Any]:
-        """
-        Check if user has the required permission.
-        """
-        # Admin users have all permissions
-        if current_user.get("is_admin", False) or current_user.get("role") in ["admin", "super_admin"]:
-            return current_user
+        service_code: Service code (e.g., 'valuation', 'mileage')
+        current_user: Current authenticated user
         
-        # Get user permissions from database
+    Returns:
+        dict: User information if access granted
+        
+    Raises:
+        HTTPException: If user does not have access
+    """
+    try:
         supabase = get_supabase()
-        response = supabase.table("user_permissions").select("permission").eq("user_id", current_user["id"]).execute()
         
-        user_permissions = [p["permission"] for p in response.data]
+        # Get service ID
+        service_response = (
+            supabase
+            .table("services")
+            .select("id")
+            .eq("code", service_code)
+            .eq("active", True)
+            .execute()
+        )
         
-        if permission not in user_permissions:
+        if not service_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Service '{service_code}' not found"
+            )
+        
+        service_id = service_response.data[0]["id"]
+        user_id = current_user.get("id") or current_user.get("auth_user_id")
+        
+        # Check if user has access
+        user_service_response = (
+            supabase
+            .table("user_services")
+            .select("status, expires_at")
+            .eq("user_id", user_id)
+            .eq("service_id", service_id)
+            .execute()
+        )
+        
+        if not user_service_response.data:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission '{permission}' required"
+                detail=f"Access to '{service_code}' required. Please purchase this service."
+            )
+        
+        record = user_service_response.data[0]
+        status = record.get("status")
+        expires_at = record.get("expires_at")
+        
+        # Check if expired
+        if expires_at:
+            try:
+                expires = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                if datetime.now().astimezone() > expires:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Access to '{service_code}' has expired. Please renew."
+                    )
+            except:
+                pass
+        
+        # Check if active
+        if status not in ["active", "completed", "paid", "success"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access to '{service_code}' is not active. Please purchase this service."
             )
         
         return current_user
-    
-    return _require_permission
-
-
-def require_roles(allowed_roles: List[str]):
-    """
-    Dependency factory for checking user roles.
-    
-    Args:
-        allowed_roles: List of allowed role names
-    
-    Returns:
-        Dependency function
-    """
-    async def _require_roles(
-        current_user: Dict[str, Any] = Depends(get_current_user)
-    ) -> Dict[str, Any]:
-        """
-        Check if user has one of the allowed roles.
-        """
-        user_role = current_user.get("role", "user")
         
-        # Admin users have access to everything
-        if current_user.get("is_admin", False) or user_role == "super_admin":
-            return current_user
-        
-        if user_role not in allowed_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Role '{user_role}' not allowed. Required: {', '.join(allowed_roles)}"
-            )
-        
-        return current_user
-    
-    return _require_roles
-
-
-# =============================================================================
-# Pagination Dependencies
-# =============================================================================
-
-def get_pagination_params(
-    page: int = 1,
-    limit: int = 20,
-    sort_by: Optional[str] = None,
-    sort_order: str = "desc"
-) -> Dict[str, Any]:
-    """
-    Get pagination parameters from query string.
-    
-    Args:
-        page: Page number (default: 1)
-        limit: Items per page (default: 20)
-        sort_by: Field to sort by
-        sort_order: Sort order ('asc' or 'desc', default: 'desc')
-    
-    Returns:
-        Dict containing pagination parameters
-    """
-    # Validate parameters
-    if page < 1:
-        page = 1
-    if limit < 1 or limit > 100:
-        limit = 20
-    if sort_order not in ["asc", "desc"]:
-        sort_order = "desc"
-    
-    offset = (page - 1) * limit
-    
-    return {
-        "page": page,
-        "limit": limit,
-        "offset": offset,
-        "sort_by": sort_by,
-        "sort_order": sort_order
-    }
-
-
-def get_search_params(
-    search: Optional[str] = None,
-    search_fields: Optional[List[str]] = None
-) -> Dict[str, Any]:
-    """
-    Get search parameters from query string.
-    
-    Args:
-        search: Search query string
-        search_fields: Fields to search in
-    
-    Returns:
-        Dict containing search parameters
-    """
-    return {
-        "search": search,
-        "search_fields": search_fields or ["name", "description"]
-    }
-
-
-def get_filter_params(
-    filters: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    """
-    Get filter parameters from query string.
-    
-    Args:
-        filters: Dictionary of filter parameters
-    
-    Returns:
-        Dict containing filter parameters
-    """
-    return {"filters": filters or {}}
-
-
-# =============================================================================
-# Rate Limiting Dependencies
-# =============================================================================
-
-class RateLimiter:
-    """Simple in-memory rate limiter."""
-    
-    def __init__(self, max_requests: int = 60, window_seconds: int = 60):
-        """
-        Initialize rate limiter.
-        
-        Args:
-            max_requests: Maximum requests allowed in the window
-            window_seconds: Time window in seconds
-        """
-        self.max_requests = max_requests
-        self.window_seconds = window_seconds
-        self.requests = {}
-    
-    async def __call__(self, request: Request) -> bool:
-        """
-        Check if request is within rate limit.
-        
-        Args:
-            request: FastAPI request object
-        
-        Returns:
-            True if within limit, raises HTTPException if exceeded
-        
-        Raises:
-            HTTPException: If rate limit exceeded
-        """
-        client_ip = request.client.host if request.client else "unknown"
-        current_time = datetime.utcnow().timestamp()
-        
-        # Clean up old entries
-        if client_ip in self.requests:
-            self.requests[client_ip] = [
-                t for t in self.requests[client_ip]
-                if current_time - t < self.window_seconds
-            ]
-        else:
-            self.requests[client_ip] = []
-        
-        # Check limit
-        if len(self.requests[client_ip]) >= self.max_requests:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Rate limit exceeded. Maximum {self.max_requests} requests per {self.window_seconds} seconds."
-            )
-        
-        # Add current request
-        self.requests[client_ip].append(current_time)
-        return True
-
-
-def get_rate_limiter(max_requests: int = 60, window_seconds: int = 60) -> RateLimiter:
-    """
-    Get a rate limiter instance.
-    
-    Args:
-        max_requests: Maximum requests allowed in the window
-        window_seconds: Time window in seconds
-    
-    Returns:
-        RateLimiter instance
-    """
-    return RateLimiter(max_requests=max_requests, window_seconds=window_seconds)
-
-
-# =============================================================================
-# Helper Functions
-# =============================================================================
-
-def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
-    """
-    Create a JWT access token.
-    
-    Args:
-        data: Data to encode in the token
-        expires_delta: Token expiration time
-    
-    Returns:
-        JWT token string
-    """
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.SUPABASE_JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
-    return encoded_jwt
-
-
-def create_refresh_token(data: Dict[str, Any]) -> str:
-    """
-    Create a JWT refresh token.
-    
-    Args:
-        data: Data to encode in the token
-    
-    Returns:
-        JWT token string
-    """
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "type": "refresh"})
-    encoded_jwt = jwt.encode(to_encode, settings.SUPABASE_JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
-    return encoded_jwt
-
-
-def verify_token(token: str) -> Dict[str, Any]:
-    """
-    Verify a JWT token.
-    
-    Args:
-        token: JWT token string
-    
-    Returns:
-        Decoded token payload
-    
-    Raises:
-        HTTPException: If token is invalid
-    """
-    try:
-        payload = jwt.decode(token, settings.SUPABASE_JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-        return payload
-    except jwt.ExpiredSignatureError:
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking service access: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired"
-        )
-    except jwt.InvalidTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check service access: {str(e)}"
         )
 
 
-# =============================================================================
+# ---------------------------------------------------------------------
+# Get User ID
+# ---------------------------------------------------------------------
+
+async def get_current_user_id(
+    current_user: dict = Depends(get_current_user),
+) -> str:
+    """
+    Get current user ID.
+    
+    Returns:
+        str: User ID
+    """
+    return current_user.get("id") or current_user.get("auth_user_id")
+
+
+# ---------------------------------------------------------------------
+# Supabase Client
+# ---------------------------------------------------------------------
+
+def get_supabase_client():
+    """
+    Returns the configured Supabase client.
+    """
+    return get_supabase()
+
+
+# ---------------------------------------------------------------------
 # Exports
-# =============================================================================
+# ---------------------------------------------------------------------
 
 __all__ = [
-    # Authentication
-    "get_current_user",
-    "get_current_active_user",
-    "get_current_user_optional",
-    "get_current_admin_user",
-    "get_admin_user",
-    "get_current_super_admin_user",
-    
-    # Database
-    "get_db",
-    
-    # Permissions
-    "require_permission",
-    "require_roles",
-    
-    # Pagination
-    "get_pagination_params",
-    "get_search_params",
-    "get_filter_params",
-    
-    # Rate Limiting
-    "get_rate_limiter",
-    
-    # Helpers
-    "create_access_token",
-    "create_refresh_token",
-    "verify_token",
     "security",
+    "get_current_user",
+    "get_current_user_optional",
+    "get_current_active_user",
+    "get_current_admin_user",
+    "require_admin",
+    "get_current_admin",
+    "require_service_access",
+    "get_current_user_id",
+    "get_supabase_client",
 ]
