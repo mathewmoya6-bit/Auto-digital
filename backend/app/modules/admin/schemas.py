@@ -1,11 +1,11 @@
- # app/modules/admin/schemas.py
+# app/modules/admin/schemas.py
 # Auto-D Kenya - Admin Schemas
 # ================================================================
 # TYPE: MODULE - Admin Pydantic schemas
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Generic, TypeVar
 from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
@@ -47,9 +47,6 @@ class SuccessResponse(Schema):
     success: bool = Field(True, description="Success status")
     message: str = Field("Success", description="Success message")
 
-
-# Use typing.Generic for Python 3.11 compatibility
-from typing import Generic, TypeVar
 
 T = TypeVar('T')
 
@@ -226,29 +223,20 @@ class AdminUserDetail(AdminUser):
     payments: List[AdminPayment] = Field(default_factory=list, description="User payments")
 
 
-class AdminUsersResponse(Schema, Pagination):
+# FIXED: Removed redundant Schema inheritance
+class AdminUsersResponse(Pagination):
     """Admin users response."""
     users: List[AdminUser] = Field(..., description="List of users")
 
 
-class AdminPaymentsResponse(Schema, Pagination):
+# FIXED: Removed redundant Schema inheritance
+class AdminPaymentsResponse(Pagination):
     """Admin payments response."""
     payments: List[AdminPayment] = Field(..., description="List of payments")
 
 
-class AdminVehicle(Schema):
-    """Admin vehicle item."""
-    id: UUID = Field(..., description="Vehicle ID")
-    user_id: Optional[UUID] = Field(None, description="User ID")
-    make: str = Field(..., description="Vehicle make")
-    model: str = Field(..., description="Vehicle model")
-    year: Optional[int] = Field(None, description="Vehicle year")
-    variant: Optional[str] = Field(None, description="Vehicle variant")
-    verified: bool = Field(False, description="Verification status")
-    created_at: datetime = Field(..., description="Creation timestamp")
-
-
-class AdminVehiclesResponse(Schema, Pagination):
+# FIXED: Removed redundant Schema inheritance
+class AdminVehiclesResponse(Pagination):
     """Admin vehicles response."""
     vehicles: List[AdminVehicle] = Field(..., description="List of vehicles")
 
