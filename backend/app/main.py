@@ -16,7 +16,8 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
 from app.core.config import settings
-from app.core.database import supabase
+from app.core.database import get_supabase  # ← FIXED: Import function instead of variable
+from app.core.middleware import setup_middleware  # ← ADDED: Import middleware setup
 
 # Import routers directly from their modules
 from app.api.v1.auth import router as auth_router
@@ -111,8 +112,9 @@ async def lifespan(app: FastAPI):
     logger.info(f"📱 M-Pesa Environment: {getattr(settings, 'MPESA_ENV', 'sandbox')}")
     logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
 
-    # Check Supabase connection
+    # Check Supabase connection - USE get_supabase()
     try:
+        supabase = get_supabase()
         response = supabase.table("vehicle_makes").select("count", count="exact").limit(1).execute()
         logger.info("✅ Supabase connection successful")
     except Exception as e:
@@ -151,6 +153,7 @@ async def lifespan(app: FastAPI):
     
     # ─── Check if services table exists ──────────────────────────
     try:
+        supabase = get_supabase()
         response = supabase.table("services").select("count", count="exact").limit(1).execute()
         logger.info(f"✅ Services table found: {response.count} services")
     except Exception as e:
@@ -159,6 +162,7 @@ async def lifespan(app: FastAPI):
     
     # ─── Check if market_prices table exists ─────────────────────
     try:
+        supabase = get_supabase()
         response = supabase.table("market_prices").select("count", count="exact").limit(1).execute()
         logger.info(f"✅ Market prices table found: {response.count} records")
     except Exception as e:
@@ -193,7 +197,14 @@ app = FastAPI(
 )
 
 
+# ─── Setup Middleware (BEFORE CORS) ──────────────────────────────
+# TrustedHostMiddleware, logging, and security middleware
+setup_middleware(app)
+logger.info("✅ Middleware configured")
+
+
 # ─── CORS Configuration ────────────────────────────────────────────
+# CORS MUST be added LAST so it wraps all other middleware
 cors_origins = settings.BACKEND_CORS_ORIGINS
 
 logger.info(f"🔒 Configuring CORS with origins: {cors_origins}")
@@ -332,6 +343,7 @@ async def health_check():
     """Health check endpoint - Supports both /health and /api/health"""
     supabase_status = "connected"
     try:
+        supabase = get_supabase()
         response = supabase.table("vehicle_makes").select("count", count="exact").limit(1).execute()
     except Exception as e:
         supabase_status = f"error: {str(e)}"
@@ -346,6 +358,7 @@ async def health_check():
     # Check if services exist
     services_exist = False
     try:
+        supabase = get_supabase()
         response = supabase.table("services").select("count", count="exact").limit(1).execute()
         services_exist = response.count > 0 if hasattr(response, 'count') else True
     except Exception:
@@ -354,6 +367,7 @@ async def health_check():
     # Check if market_prices exist
     market_prices_exist = False
     try:
+        supabase = get_supabase()
         response = supabase.table("market_prices").select("count", count="exact").limit(1).execute()
         market_prices_exist = response.count > 0 if hasattr(response, 'count') else True
     except Exception:
