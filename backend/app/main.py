@@ -28,7 +28,6 @@ from app.modules.ownership.router import router as ownership_router
 from app.modules.reports.router import router as reports_router
 from app.modules.running_cost.router import router as running_cost_router
 from app.modules.admin.router import router as admin_router
-from app.modules.fuel.router import router as fuel_router
 from app.modules.mileage.router import router as mileage_router
 
 # ─── Market Router ──────────────────────────────────────────────
@@ -298,9 +297,6 @@ logger.info(f"✅ Admin router registered at {api_prefix}/admin")
 app.include_router(running_cost_router, prefix=f"{api_prefix}/running-cost", tags=["Running Cost"])
 logger.info(f"✅ Running Cost router registered at {api_prefix}/running-cost")
 
-app.include_router(fuel_router, prefix=f"{api_prefix}/fuel", tags=["Fuel"])
-logger.info(f"✅ Fuel router registered at {api_prefix}/fuel")
-
 app.include_router(mileage_router, prefix=f"{api_prefix}/mileage", tags=["Mileage"])
 logger.info(f"✅ Mileage router registered at {api_prefix}/mileage")
 
@@ -518,7 +514,6 @@ async def root():
             "reports": f"{api_prefix}/reports",
             "admin": f"{api_prefix}/admin",
             "running_cost": f"{api_prefix}/running-cost",
-            "fuel": f"{api_prefix}/fuel",
             "mileage": f"{api_prefix}/mileage",
             "market": f"{api_prefix}/market" if MARKET_ROUTER_LOADED else "unavailable",
             "scraper": f"{api_prefix}/scraper" if SCRAPER_ROUTER_LOADED else "unavailable",
