@@ -1,7 +1,8 @@
 # app/modules/scraper/schemas.py
-# ================================================================
 # Auto-D Kenya - Scraper Schemas
 # ================================================================
+# TYPE: MODULE - Scraper Pydantic schemas
+
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -9,97 +10,167 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
-# ============================================================
+
+# ================================================================
 # RUN REQUEST
-# ============================================================
+# ================================================================
+
 
 class ScraperRunRequest(BaseModel):
+    """
+    Start scraper job request.
+    """
+
     source: str = Field(
         default="all",
-        description="Scraper source (all, jiji, cheki, autochek, beepbeep)",
+        description=(
+            "Scraper source: "
+            "all, jiji, cheki, autochek, beepbeep"
+        )
     )
+
+
     pages: int = Field(
         default=3,
         ge=1,
         le=10,
+        description="Number of pages to scrape"
     )
+
+
     limit_per_page: int = Field(
         default=20,
         ge=1,
         le=50,
+        description="Listings per page"
     )
 
 
-# ============================================================
+
+# ================================================================
 # RUN RESPONSE
-# ============================================================
+# ================================================================
+
 
 class ScraperRunResponse(BaseModel):
+
     job_id: int
+
     source: str
+
     status: str
+
     message: str
 
 
-# ============================================================
-# SCRAPER STATUS
-# ============================================================
+
+# ================================================================
+# STATUS
+# ================================================================
+
 
 class ScraperStatusResponse(BaseModel):
+
     is_running: bool
+
     last_run: Optional[datetime] = None
+
     current_job: Optional[int] = None
-    jobs: int
-    sources: List[str] = Field(default_factory=list)
+
+    jobs: int = 0
+
+    sources: List[str] = Field(
+        default_factory=list
+    )
 
 
-# ============================================================
+
+# ================================================================
 # SOURCES
-# ============================================================
+# ================================================================
+
 
 class ScraperSourceResponse(BaseModel):
-    sources: List[str] = Field(default_factory=list)
-    status: Dict[str, Any] = Field(default_factory=dict)
-    total_sources: int
+
+    sources: List[str] = Field(
+        default_factory=list
+    )
+
+    status: Dict[str, Any] = Field(
+        default_factory=dict
+    )
+
+    total_sources: int = 0
 
 
-# ============================================================
+
+# ================================================================
 # HEALTH
-# ============================================================
+# ================================================================
+
 
 class ScraperHealthResponse(BaseModel):
+
     status: str
+
     timestamp: datetime
+
     worker: str
-    jobs_pending: int
-    jobs_running: int
+
+    jobs_pending: int = 0
+
+    jobs_running: int = 0
 
 
-# ============================================================
+
+# ================================================================
 # JOB
-# ============================================================
+# ================================================================
+
 
 class ScraperJobResponse(BaseModel):
+
     id: int
+
     source: str
+
     status: str
 
+
     started_at: datetime
+
     completed_at: Optional[datetime] = None
 
+
     listings_found: int = 0
+
     listings_saved: int = 0
 
+
     error: Optional[str] = None
-    result: Optional[Dict[str, Any]] = None
+
+    result: Optional[
+        Dict[str, Any]
+    ] = None
 
 
-# ============================================================
-# JOB HISTORY
-# ============================================================
+
+# ================================================================
+# HISTORY
+# ================================================================
+
 
 class ScraperHistoryResponse(BaseModel):
-    jobs: List[ScraperJobResponse] = Field(default_factory=list)
-    total: int
-    limit: int
-    offset: int
+
+    jobs: List[
+        ScraperJobResponse
+    ] = Field(
+        default_factory=list
+    )
+
+
+    total: int = 0
+
+    limit: int = 20
+
+    offset: int = 0
