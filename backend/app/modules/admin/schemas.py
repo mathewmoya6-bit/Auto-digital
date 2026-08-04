@@ -1,246 +1,146 @@
 # app/modules/admin/schemas.py
+# ================================================================
 # Auto-D Kenya - Admin Schemas
 # ================================================================
 # TYPE: MODULE - Admin Pydantic schemas
+# ================================================================
 
-from __future__ import annotations
-
-from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, date
 from decimal import Decimal
+from typing import Optional, List, Dict, Any
 from uuid import UUID
-from enum import Enum
-from typing_extensions import Annotated
 
-from pydantic import (
-    BaseModel, 
-    Field, 
-    ConfigDict, 
-    EmailStr, 
-    field_validator,
-    StringConstraints,
-    PositiveFloat,
-    NonNegativeInt,
-)
-
-# ─── BASE SCHEMAS ────────────────────────────────────────────────
-
-class Schema(BaseModel):
-    """Base schema with common configuration."""
-    model_config = ConfigDict(
-        from_attributes=True,
-        extra="ignore",
-        populate_by_name=True,
-        use_enum_values=True,
-    )
+from pydantic import BaseModel, Field, field_validator
 
 
-class Pagination(Schema):
-    """Pagination fields."""
-    total: NonNegativeInt = Field(0, description="Total items")
-    limit: NonNegativeInt = Field(20, description="Items per page")
-    offset: NonNegativeInt = Field(0, description="Pagination offset")
+# ================================================================
+# ENUMS
+# ================================================================
 
-
-class SuccessResponse(Schema):
-    """Generic success response."""
-    success: bool = Field(True, description="Success status")
-    message: str = Field("Success", description="Success message")
-
-
-class DeleteResponse(Schema):
-    """Generic delete response."""
-    success: bool = Field(True, description="Success status")
-    message: str = Field(..., description="Delete message")
-    deleted_at: Optional[datetime] = Field(None, description="Deletion timestamp")
-
-
-# ─── ENUMS ────────────────────────────────────────────────────────
-
-class ServiceCode(str, Enum):
-    """Service code enum."""
+class ServiceCode(str):
+    """Service code constants."""
     VALUATION = "valuation"
     MILEAGE = "mileage"
-    OWNERSHIP = "ownership"
-    TCO = "tco"
+    MARKET = "market"
+    REPORTS = "reports"
+    RUNNING_COST = "running_cost"
 
 
-class UserServiceStatus(str, Enum):
-    """User service status enum."""
-    ACTIVE = "active"
-    SUSPENDED = "suspended"
-    CANCELLED = "cancelled"
+# ================================================================
+# DASHBOARD & STATS
+# ================================================================
 
-
-class PaymentStatus(str, Enum):
-    """Payment status enum."""
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    PAID = "paid"
-    SUCCESS = "success"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    EXPIRED = "expired"
-
-
-class ComponentStatus(str, Enum):
-    """Component status enum."""
-    HEALTHY = "healthy"
-    UNHEALTHY = "unhealthy"
-    DEGRADED = "degraded"
-
-
-# ─── TYPE ALIASES ────────────────────────────────────────────────
-
-Metadata = dict[str, Any]
-CurrencyCode = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace=True,
-        min_length=3,
-        max_length=3,
-    ),
-]
-
-
-# ─── REQUEST SCHEMAS ──────────────────────────────────────────────
-
-class UpdateServiceRequest(Schema):
-    """Update service request."""
-    name: Optional[str] = Field(None, description="Service name")
-    price: Optional[PositiveFloat] = Field(None, description="Service price")
-    currency: Optional[CurrencyCode] = Field("KES", description="Currency code")
-    description: Optional[str] = Field(None, description="Service description")
-    icon: Optional[str] = Field(None, description="Service icon")
-    active: Optional[bool] = Field(None, description="Whether service is active")
-    display_order: Optional[NonNegativeInt] = Field(None, description="Display order")
-
-    @field_validator("currency")
-    @classmethod
-    def normalize_currency(cls, v: Optional[str]) -> Optional[str]:
-        """Normalize currency to uppercase."""
-        if v:
-            return v.upper()
-        return v
-
-
-class UpdateServicePriceRequest(Schema):
-    """Update service price request."""
-    price: PositiveFloat = Field(..., description="Service price")
-    currency: CurrencyCode = Field("KES", description="Currency code")
-
-    @field_validator("currency")
-    @classmethod
-    def normalize_currency(cls, v: str) -> str:
-        """Normalize currency to uppercase."""
-        return v.upper()
-
-
-class CreateServiceRequest(Schema):
-    """Create service request."""
-    code: ServiceCode = Field(..., description="Service code (unique)")
-    name: str = Field(..., description="Service name")
-    price: PositiveFloat = Field(..., description="Service price")
-    currency: CurrencyCode = Field("KES", description="Currency code")
-    description: Optional[str] = Field(None, description="Service description")
-    icon: Optional[str] = Field(None, description="Service icon")
-    active: bool = Field(True, description="Whether service is active")
-    display_order: NonNegativeInt = Field(0, description="Display order")
-
-    @field_validator("currency")
-    @classmethod
-    def normalize_currency(cls, v: str) -> str:
-        """Normalize currency to uppercase."""
-        return v.upper()
-
-
-class UpdateUserServiceRequest(Schema):
-    """Update user service request."""
-    user_id: UUID = Field(..., description="User ID")
-    service_id: int = Field(..., description="Service ID")
-    status: UserServiceStatus = Field(..., description="Service status")
-
-
-# ─── RESPONSE SCHEMAS ─────────────────────────────────────────────
-
-class AdminStatsResponse(Schema):
-    """Admin statistics response."""
-    total_users: NonNegativeInt = Field(0, description="Total users")
-    total_vehicles: NonNegativeInt = Field(0, description="Total vehicles")
-    total_payments: NonNegativeInt = Field(0, description="Total payments")
-    total_revenue: Decimal = Field(Decimal(0), description="Total revenue")
-    total_services_purchased: NonNegativeInt = Field(0, description="Total services purchased")
-    new_users_this_week: NonNegativeInt = Field(0, description="New users this week")
-    active_services: NonNegativeInt = Field(0, description="Active services")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last updated timestamp")
+class AdminStatsResponse(BaseModel):
+    """Admin dashboard statistics response."""
+    
+    total_users: int = Field(..., description="Total number of users")
+    total_vehicles: int = Field(..., description="Total number of vehicles")
+    total_payments: int = Field(..., description="Total number of payments")
+    total_revenue: Decimal = Field(..., description="Total revenue from payments")
+    total_services_purchased: int = Field(..., description="Total services purchased")
+    new_users_this_week: int = Field(..., description="New users in the last 7 days")
+    active_services: int = Field(..., description="Number of active services")
+    updated_at: datetime = Field(..., description="Last update timestamp")
     error: Optional[str] = Field(None, description="Error message if any")
 
 
-class AdminUserService(Schema):
-    """User service item."""
-    service_id: int = Field(..., description="Service ID")
-    service_name: str = Field(..., description="Service name")
-    service_code: ServiceCode = Field(..., description="Service code")
-    status: UserServiceStatus = Field(..., description="Service status")
+# ================================================================
+# USER MANAGEMENT
+# ================================================================
 
-
-class AdminUser(Schema):
-    """Admin user item."""
+class AdminUser(BaseModel):
+    """Admin user list item."""
+    
     id: UUID = Field(..., description="User ID")
-    email: EmailStr = Field(..., description="User email")
+    email: str = Field(..., description="User email")
     full_name: str = Field(..., description="User full name")
-    created_at: datetime = Field(..., description="Creation timestamp")
+    created_at: datetime = Field(..., description="User creation timestamp")
     last_sign_in_at: Optional[datetime] = Field(None, description="Last sign-in timestamp")
-    confirmed_at: Optional[datetime] = Field(None, description="Confirmation timestamp")
-    phone: Optional[str] = Field(None, description="Phone number")
-    services: List[AdminUserService] = Field(default_factory=list, description="User services")
+    confirmed_at: Optional[datetime] = Field(None, description="Email confirmation timestamp")
+    phone: Optional[str] = Field(None, description="User phone number")
+    services: List[Dict[str, Any]] = Field(default_factory=list, description="User services")
 
 
-class AdminPayment(Schema):
+class AdminUsersResponse(BaseModel):
+    """Admin users list response."""
+    
+    users: List[AdminUser] = Field(..., description="List of users")
+    total: int = Field(..., description="Total number of users")
+    limit: int = Field(..., description="Items per page")
+    offset: int = Field(..., description="Items offset")
+
+
+class AdminPayment(BaseModel):
     """Admin payment item."""
+    
     id: UUID = Field(..., description="Payment ID")
     user_id: Optional[UUID] = Field(None, description="User ID")
-    service_id: Optional[int] = Field(None, description="Service ID")
+    service_id: Optional[UUID] = Field(None, description="Service ID")
     service_name: Optional[str] = Field(None, description="Service name")
-    service_code: Optional[ServiceCode] = Field(None, description="Service code")
+    service_code: Optional[str] = Field(None, description="Service code")
     amount: Decimal = Field(..., description="Payment amount")
-    currency: CurrencyCode = Field("KES", description="Currency code")
-    status: PaymentStatus = Field(..., description="Payment status")
-    phone: Optional[str] = Field(None, description="Phone number")
-    checkout_request_id: Optional[str] = Field(None, description="Checkout request ID")
-    mpesa_receipt: Optional[str] = Field(None, description="M-Pesa receipt")
+    currency: str = Field("KES", description="Currency code")
+    status: str = Field(..., description="Payment status")
+    phone: Optional[str] = Field(None, description="Customer phone number")
+    checkout_request_id: Optional[str] = Field(None, description="M-Pesa checkout request ID")
+    mpesa_receipt: Optional[str] = Field(None, description="M-Pesa receipt number")
     created_at: datetime = Field(..., description="Creation timestamp")
     completed_at: Optional[datetime] = Field(None, description="Completion timestamp")
 
 
-class AdminUserDetail(Schema):
-    """Detailed admin user with payments."""
+class AdminUserDetail(BaseModel):
+    """Detailed user information."""
+    
     id: UUID = Field(..., description="User ID")
-    email: EmailStr = Field(..., description="User email")
+    email: str = Field(..., description="User email")
     full_name: str = Field(..., description="User full name")
-    created_at: datetime = Field(..., description="Creation timestamp")
+    created_at: datetime = Field(..., description="User creation timestamp")
     last_sign_in_at: Optional[datetime] = Field(None, description="Last sign-in timestamp")
-    confirmed_at: Optional[datetime] = Field(None, description="Confirmation timestamp")
-    phone: Optional[str] = Field(None, description="Phone number")
-    services: List[AdminUserService] = Field(default_factory=list, description="User services")
-    app_metadata: Metadata = Field(default_factory=dict, description="App metadata")
-    user_metadata: Metadata = Field(default_factory=dict, description="User metadata")
+    confirmed_at: Optional[datetime] = Field(None, description="Email confirmation timestamp")
+    phone: Optional[str] = Field(None, description="User phone number")
+    services: List[Dict[str, Any]] = Field(default_factory=list, description="User services")
+    app_metadata: Dict[str, Any] = Field(default_factory=dict, description="App metadata")
+    user_metadata: Dict[str, Any] = Field(default_factory=dict, description="User metadata")
     payments: List[AdminPayment] = Field(default_factory=list, description="User payments")
 
 
-class AdminUsersResponse(Pagination):
-    """Admin users response."""
-    users: List[AdminUser] = Field(default_factory=list, description="List of users")
+# ─── FIX: AdminUserDetailResponse (line 55) ──────────────────────
+class AdminUserDetailResponse(BaseModel):
+    """Admin user detail response wrapper."""
+    
+    success: bool = Field(True, description="Operation success status")
+    data: AdminUserDetail = Field(..., description="User details")
 
 
-class AdminPaymentsResponse(Pagination):
-    """Admin payments response."""
-    payments: List[AdminPayment] = Field(default_factory=list, description="List of payments")
+class DeleteUserResponse(BaseModel):
+    """Delete user response (line 95)."""
+    
+    success: bool = Field(..., description="Operation success status")
+    message: str = Field(..., description="Operation message")
+    user_id: UUID = Field(..., description="Deleted user ID")
+    deleted_at: datetime = Field(..., description="Deletion timestamp")
 
 
-class AdminVehicle(Schema):
+# ================================================================
+# PAYMENT MANAGEMENT
+# ================================================================
+
+class AdminPaymentsResponse(BaseModel):
+    """Admin payments list response."""
+    
+    payments: List[AdminPayment] = Field(..., description="List of payments")
+    total: int = Field(..., description="Total number of payments")
+    limit: int = Field(..., description="Items per page")
+    offset: int = Field(..., description="Items offset")
+
+
+# ================================================================
+# VEHICLE MANAGEMENT
+# ================================================================
+
+class AdminVehicle(BaseModel):
     """Admin vehicle item."""
+    
     id: UUID = Field(..., description="Vehicle ID")
     user_id: Optional[UUID] = Field(None, description="User ID")
     make: str = Field(..., description="Vehicle make")
@@ -251,170 +151,331 @@ class AdminVehicle(Schema):
     created_at: datetime = Field(..., description="Creation timestamp")
 
 
-class AdminVehiclesResponse(Pagination):
-    """Admin vehicles response."""
-    vehicles: List[AdminVehicle] = Field(default_factory=list, description="List of vehicles")
+class AdminVehiclesResponse(BaseModel):
+    """Admin vehicles list response."""
+    
+    vehicles: List[AdminVehicle] = Field(..., description="List of vehicles")
+    total: int = Field(..., description="Total number of vehicles")
+    limit: int = Field(..., description="Items per page")
+    offset: int = Field(..., description="Items offset")
 
 
-class AdminServiceItem(Schema):
+# ================================================================
+# SERVICE MANAGEMENT
+# ================================================================
+
+class AdminServiceItem(BaseModel):
     """Admin service item."""
-    id: int = Field(..., description="Service ID")
-    code: ServiceCode = Field(..., description="Service code")
+    
+    id: UUID = Field(..., description="Service ID")
+    code: str = Field(..., description="Service code")
     name: str = Field(..., description="Service name")
     price: Decimal = Field(..., description="Service price")
-    currency: CurrencyCode = Field("KES", description="Currency code")
+    currency: str = Field("KES", description="Currency code")
     description: Optional[str] = Field(None, description="Service description")
     icon: Optional[str] = Field(None, description="Service icon")
-    active: bool = Field(True, description="Whether service is active")
-    display_order: NonNegativeInt = Field(0, description="Display order")
-    purchase_count: NonNegativeInt = Field(0, description="Number of purchases")
+    active: bool = Field(True, description="Service active status")
+    display_order: int = Field(0, description="Display order")
+    purchase_count: int = Field(0, description="Number of purchases")
     created_at: datetime = Field(..., description="Creation timestamp")
-    updated_at: datetime = Field(..., description="Last updated timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
 
 
-class AdminServicesResponse(Schema):
-    """Admin services response."""
-    services: List[AdminServiceItem] = Field(default_factory=list, description="List of services")
-    total: NonNegativeInt = Field(0, description="Total services")
+class AdminServicesResponse(BaseModel):
+    """Admin services list response."""
+    
+    services: List[AdminServiceItem] = Field(..., description="List of services")
+    total: int = Field(..., description="Total number of services")
 
 
-class AnalyticsDay(Schema):
-    """Analytics day item."""
-    date: date = Field(..., description="Date")
-    users: NonNegativeInt = Field(0, description="New users on this day")
-    payments: NonNegativeInt = Field(0, description="Payments on this day")
-    revenue: Decimal = Field(Decimal(0), description="Revenue on this day")
-    vehicles: NonNegativeInt = Field(0, description="Vehicles added on this day")
-
-
-class AnalyticsTotals(Schema):
-    """Analytics totals."""
-    users: NonNegativeInt = Field(0, description="Total users")
-    payments: NonNegativeInt = Field(0, description="Total payments")
-    revenue: Decimal = Field(Decimal(0), description="Total revenue")
-    vehicles: NonNegativeInt = Field(0, description="Total vehicles")
-
-
-class AdminAnalyticsResponse(Schema):
-    """Admin analytics response."""
-    period_days: NonNegativeInt = Field(0, description="Period in days")
-    start_date: date = Field(..., description="Start date")
-    end_date: date = Field(..., description="End date")
-    daily_stats: List[AnalyticsDay] = Field(default_factory=list, description="Daily statistics")
-    totals: AnalyticsTotals = Field(default_factory=AnalyticsTotals, description="Total statistics")
-
-
-class ComponentStatuses(Schema):
-    """System component statuses."""
-    supabase: ComponentStatus = Field(ComponentStatus.HEALTHY, description="Supabase status")
-    database: ComponentStatus = Field(ComponentStatus.HEALTHY, description="Database status")
-    mpesa: ComponentStatus = Field(ComponentStatus.HEALTHY, description="M-Pesa status")
-
-
-class AdminStatusResponse(Schema):
-    """Admin system status response."""
-    status: ComponentStatus = Field(ComponentStatus.HEALTHY, description="Overall system status")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Status timestamp")
-    components: ComponentStatuses = Field(default_factory=ComponentStatuses, description="Component statuses")
-
-
-class RevenueReportResponse(Schema):
-    """Revenue report response."""
-    total_revenue: Decimal = Field(Decimal(0), description="Total revenue")
-    total_transactions: NonNegativeInt = Field(0, description="Total transactions")
-    revenue_by_service: Dict[str, Decimal] = Field(default_factory=dict, description="Revenue breakdown by service")
-    start_date: Optional[datetime] = Field(None, description="Start date")
-    end_date: Optional[datetime] = Field(None, description="End date")
-    error: Optional[str] = Field(None, description="Error message if any")
-
-
-class ServicePriceItem(Schema):
-    """Service price item."""
-    price: Decimal = Field(..., description="Service price")
-    currency: CurrencyCode = Field("KES", description="Currency code")
+class CreateServiceRequest(BaseModel):
+    """Create service request."""
+    
+    code: str = Field(..., description="Service code")
     name: str = Field(..., description="Service name")
+    price: Decimal = Field(..., gt=0, description="Service price")
+    currency: str = Field("KES", description="Currency code")
+    description: Optional[str] = Field(None, description="Service description")
+    icon: Optional[str] = Field(None, description="Service icon")
+    display_order: int = Field(0, description="Display order")
+    active: bool = Field(True, description="Service active status")
+    
+    @field_validator('price')
+    @classmethod
+    def validate_price(cls, v: Decimal) -> Decimal:
+        if v <= 0:
+            raise ValueError("Price must be greater than 0")
+        return v
 
 
-class ServicePricesResponse(Schema):
-    """Service prices response."""
-    prices: Dict[str, ServicePriceItem] = Field(
-        default_factory=dict,
-        description="Service prices keyed by service code"
-    )
-    services: List[AdminServiceItem] = Field(default_factory=list, description="Full service list")
-    total: NonNegativeInt = Field(0, description="Total services")
+class UpdateServiceRequest(BaseModel):
+    """Update service request."""
+    
+    name: Optional[str] = Field(None, description="Service name")
+    description: Optional[str] = Field(None, description="Service description")
+    icon: Optional[str] = Field(None, description="Service icon")
+    active: Optional[bool] = Field(None, description="Service active status")
+    display_order: Optional[int] = Field(None, description="Display order")
 
 
-# ─── USER SERVICE RESPONSE ──────────────────────────────────────
+class UpdateServicePriceRequest(BaseModel):
+    """Update service price request."""
+    
+    price: Decimal = Field(..., gt=0, description="New service price")
+    currency: str = Field("KES", description="Currency code")
+    
+    @field_validator('price')
+    @classmethod
+    def validate_price(cls, v: Decimal) -> Decimal:
+        if v <= 0:
+            raise ValueError("Price must be greater than 0")
+        return v
 
-class UserServiceItem(Schema):
+
+class DeleteServiceResponse(BaseModel):
+    """Delete service response."""
+    
+    success: bool = Field(..., description="Operation success status")
+    message: str = Field(..., description="Operation message")
+    service_id: UUID = Field(..., description="Deleted service ID")
+    deleted_at: datetime = Field(..., description="Deletion timestamp")
+
+
+# ─── FIX: ServiceResponse (for POST and PUT) ──────────────────────
+class ServiceResponse(BaseModel):
+    """Service operation response wrapper."""
+    
+    success: bool = Field(..., description="Operation success status")
+    message: str = Field(..., description="Operation message")
+    service: AdminServiceItem = Field(..., description="Service details")
+
+
+# ================================================================
+# USER SERVICE MANAGEMENT
+# ================================================================
+
+class UserServiceItem(BaseModel):
     """User service item."""
+    
     id: UUID = Field(..., description="User service ID")
     user_id: UUID = Field(..., description="User ID")
-    service_id: int = Field(..., description="Service ID")
-    status: UserServiceStatus = Field(..., description="Service status")
+    service_id: UUID = Field(..., description="Service ID")
+    status: str = Field(..., description="Service status")
     created_at: datetime = Field(..., description="Creation timestamp")
-    updated_at: datetime = Field(..., description="Last updated timestamp")
-    service_details: Optional[AdminServiceItem] = Field(None, description="Service details", alias="service")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+    service_details: Optional[AdminServiceItem] = Field(None, description="Service details")
 
 
-class UserServicesResponse(Schema):
+class UserServicesResponse(BaseModel):
     """User services response."""
+    
     user_id: UUID = Field(..., description="User ID")
-    services: List[UserServiceItem] = Field(default_factory=list, description="List of user services")
-    total: NonNegativeInt = Field(0, description="Total services")
+    services: List[UserServiceItem] = Field(..., description="User services")
+    total: int = Field(..., description="Total number of services")
 
 
-# ─── SERVICE RESPONSE SCHEMAS ────────────────────────────────────
-
-class ServiceResponse(SuccessResponse):
-    """Generic service response."""
-    service: AdminServiceItem = Field(..., description="Service data")
-
-
-# ─── DELETE RESPONSE SCHEMAS ────────────────────────────────────
-
-class DeleteUserResponse(DeleteResponse):
-    """Delete user response."""
-    user_id: UUID = Field(..., description="Deleted user ID")
+class UpdateUserServiceRequest(BaseModel):
+    """Update user service request."""
+    
+    status: str = Field(..., description="New service status")
 
 
-class DeleteServiceResponse(DeleteResponse):
-    """Delete service response."""
-    service_id: int = Field(..., description="Deleted service ID")
-
-
-class UpdateUserServiceResponse(SuccessResponse):
+class UpdateUserServiceResponse(BaseModel):
     """Update user service response."""
+    
+    success: bool = Field(..., description="Operation success status")
+    message: str = Field(..., description="Operation message")
     user_id: UUID = Field(..., description="User ID")
-    service_id: int = Field(..., description="Service ID")
-    status: UserServiceStatus = Field(..., description="Updated status")
+    service_id: UUID = Field(..., description="Service ID")
+    status: str = Field(..., description="Updated status")
     updated_at: datetime = Field(..., description="Update timestamp")
 
 
-# ─── HEALTH RESPONSE ─────────────────────────────────────────────
+# ================================================================
+# ANALYTICS
+# ================================================================
 
-class AdminHealthResponse(Schema):
-    """Admin health response."""
-    status: ComponentStatus = Field(ComponentStatus.HEALTHY, description="Health status")
+class AnalyticsDay(BaseModel):
+    """Single day analytics data."""
+    
+    date: date = Field(..., description="Date")
+    users: int = Field(0, description="New users")
+    payments: int = Field(0, description="Payments count")
+    revenue: Decimal = Field(Decimal(0), description="Revenue")
+    vehicles: int = Field(0, description="New vehicles")
+
+
+class AnalyticsTotals(BaseModel):
+    """Analytics totals."""
+    
+    users: int = Field(0, description="Total users")
+    payments: int = Field(0, description="Total payments")
+    revenue: Decimal = Field(Decimal(0), description="Total revenue")
+    vehicles: int = Field(0, description="Total vehicles")
+
+
+class AdminAnalyticsResponse(BaseModel):
+    """Admin analytics response."""
+    
+    period_days: int = Field(..., description="Number of days in period")
+    start_date: date = Field(..., description="Period start date")
+    end_date: date = Field(..., description="Period end date")
+    daily_stats: List[AnalyticsDay] = Field(..., description="Daily statistics")
+    totals: AnalyticsTotals = Field(..., description="Totals")
+
+
+# ================================================================
+# REVENUE REPORT
+# ================================================================
+
+class RevenueReportResponse(BaseModel):
+    """Revenue report response."""
+    
+    total_revenue: Decimal = Field(..., description="Total revenue")
+    total_transactions: int = Field(..., description="Total transactions")
+    revenue_by_service: Dict[str, Decimal] = Field(default_factory=dict, description="Revenue by service")
+    start_date: Optional[datetime] = Field(None, description="Report start date")
+    end_date: Optional[datetime] = Field(None, description="Report end date")
+    error: Optional[str] = Field(None, description="Error message if any")
+
+
+# ================================================================
+# SERVICE PRICES
+# ================================================================
+
+class ServicePriceItem(BaseModel):
+    """Service price item."""
+    
+    price: Decimal = Field(..., description="Service price")
+    currency: str = Field("KES", description="Currency code")
+    name: str = Field(..., description="Service name")
+
+
+class ServicePricesResponse(BaseModel):
+    """Service prices response."""
+    
+    prices: Dict[str, ServicePriceItem] = Field(..., description="Prices by service code")
+    services: List[AdminServiceItem] = Field(..., description="Services list")
+    total: int = Field(..., description="Total number of services")
+
+
+# ================================================================
+# SYSTEM STATUS
+# ================================================================
+
+class ComponentStatuses(BaseModel):
+    """Component statuses."""
+    
+    supabase: str = Field(..., description="Supabase status")
+    database: str = Field(..., description="Database status")
+    mpesa: str = Field(..., description="M-Pesa status")
+
+
+class AdminStatusResponse(BaseModel):
+    """Admin system status response."""
+    
+    status: str = Field(..., description="Overall system status")
+    timestamp: datetime = Field(..., description="Status timestamp")
+    components: ComponentStatuses = Field(..., description="Component statuses")
+
+
+# ================================================================
+# HEALTH CHECK
+# ================================================================
+
+class AdminHealthResponse(BaseModel):
+    """Admin health check response."""
+    
+    status: str = Field(..., description="Health status")
     service: str = Field("admin", description="Service name")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Health check timestamp")
+    version: str = Field("1.0", description="Service version")
+    timestamp: datetime = Field(..., description="Current timestamp")
 
 
-# ─── USER DETAIL RESPONSE ────────────────────────────────────────
+# ================================================================
+# SUCCESS RESPONSE
+# ================================================================
 
-class AdminUserDetailResponse(Schema):
-    """Admin user detail response."""
-    success: bool = Field(True, description="Success status")
-    data: AdminUserDetail = Field(..., description="User details")
+class SuccessResponse(BaseModel):
+    """Generic success response."""
+    
+    success: bool = Field(True, description="Operation success status")
+    message: str = Field(..., description="Success message")
 
 
-# ─── PAGINATED WRAPPER ──────────────────────────────────────────
+# ================================================================
+# PAGINATION
+# ================================================================
 
-class PaginatedResponse(Schema):
-    """Generic paginated response wrapper."""
-    items: List[Dict[str, Any]] = Field(default_factory=list, description="List of items")
-    total: NonNegativeInt = Field(0, description="Total items")
-    limit: NonNegativeInt = Field(20, description="Items per page")
-    offset: NonNegativeInt = Field(0, description="Pagination offset")
-    has_more: bool = Field(False, description="Whether there are more items")
+class Pagination(BaseModel):
+    """Pagination parameters."""
+    
+    page: int = Field(1, description="Current page")
+    limit: int = Field(20, description="Items per page")
+    total: int = Field(0, description="Total items")
+    pages: int = Field(0, description="Total pages")
+
+
+# ================================================================
+# EXPORTS
+# ================================================================
+
+__all__ = [
+    # Dashboard & Stats
+    "AdminStatsResponse",
+    
+    # User Management
+    "AdminUser",
+    "AdminUsersResponse",
+    "AdminPayment",
+    "AdminUserDetailResponse",
+    "AdminUserDetail",
+    "DeleteUserResponse",
+    
+    # Payment Management
+    "AdminPaymentsResponse",
+    
+    # Vehicle Management
+    "AdminVehicle",
+    "AdminVehiclesResponse",
+    
+    # Service Management
+    "AdminServiceItem",
+    "AdminServicesResponse",
+    "CreateServiceRequest",
+    "UpdateServiceRequest",
+    "UpdateServicePriceRequest",
+    "DeleteServiceResponse",
+    "ServiceResponse",
+    
+    # User Service Management
+    "UserServiceItem",
+    "UserServicesResponse",
+    "UpdateUserServiceRequest",
+    "UpdateUserServiceResponse",
+    
+    # Analytics
+    "AnalyticsDay",
+    "AnalyticsTotals",
+    "AdminAnalyticsResponse",
+    
+    # Revenue Report
+    "RevenueReportResponse",
+    
+    # Service Prices
+    "ServicePriceItem",
+    "ServicePricesResponse",
+    
+    # System Status
+    "ComponentStatuses",
+    "AdminStatusResponse",
+    
+    # Health Check
+    "AdminHealthResponse",
+    
+    # Success Response
+    "SuccessResponse",
+    
+    # Pagination
+    "Pagination",
+]
