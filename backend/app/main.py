@@ -183,6 +183,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ Market prices table not found: {e}")
     
+    # Check mileage table
+    try:
+        supabase = get_supabase()
+        response = supabase.table("mileage_records").select("count", count="exact").limit(1).execute()
+        logger.info(f"✅ Mileage records table found: {response.count} records")
+    except Exception as e:
+        logger.warning(f"⚠️ Mileage records table not found: {e}")
+        logger.warning("   Please run the database migration to create the mileage_records table")
+    
     logger.info("=" * 60)
     logger.info("✅ Application is ready to serve requests")
     logger.info("=" * 60)
