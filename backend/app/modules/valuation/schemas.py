@@ -197,6 +197,22 @@ class MarketComparison(BaseModel):
     listings_count: int = 0
 
 
+class ComparableVehicle(BaseModel):
+    """Schema for a comparable vehicle."""
+    
+    id: Optional[int] = None
+    year: int = Field(..., description="Vehicle year")
+    mileage: int = Field(..., description="Vehicle mileage")
+    price: float = Field(..., description="Listing price")
+    source: str = Field(..., description="Data source")
+    location: Optional[str] = Field(None, description="Vehicle location")
+    make: Optional[str] = Field(None, description="Vehicle make")
+    model: Optional[str] = Field(None, description="Vehicle model")
+    date: Optional[str] = Field(None, description="Listing date")
+    url: Optional[str] = Field(None, description="Listing URL")
+    difference: Optional[float] = Field(None, description="Price difference")
+
+
 # ================================================================
 # RESPONSE SCHEMA
 # ================================================================
@@ -235,6 +251,117 @@ class ValuationResponse(BaseModel):
     currency: str = "KES"
 
     calculated_at: str
+
+
+# ================================================================
+# VALUATION REPORT RESPONSE (NEW)
+# ================================================================
+
+class ReportMetadata(BaseModel):
+    """Report metadata."""
+    
+    report_number: str = Field(..., description="Unique report number")
+    generated_at: datetime = Field(..., description="Report generation timestamp")
+    report_status: str = Field("completed", description="Report status")
+    report_title: str = Field(..., description="Report title")
+    report_description: str = Field(..., description="Report description")
+    expires_at: Optional[datetime] = Field(None, description="Report expiration timestamp")
+
+
+class ValuationResult(BaseModel):
+    """Valuation result details."""
+    
+    estimated_vehicle_value: float = Field(..., description="Estimated vehicle value")
+    retail_value: float = Field(..., description="Retail value")
+    trade_value: float = Field(..., description="Trade-in value")
+    dealer_value: float = Field(..., description="Dealer value")
+    currency: str = Field("KES", description="Currency code")
+    confidence_score: float = Field(..., description="Confidence score (0-1)")
+    estimated_value_range: Dict[str, float] = Field(..., description="Min and max value range")
+    sample_size: int = Field(0, description="Number of comparable vehicles used")
+
+
+class ValuationAnalysis(BaseModel):
+    """Analysis details."""
+    
+    methodology: str = Field(..., description="Analysis methodology")
+    data_points: int = Field(..., description="Number of data points analyzed")
+    key_factors: List[str] = Field(default_factory=list, description="Key factors considered")
+    market_trend: Optional[str] = Field(None, description="Market trend direction")
+    market_conditions: Optional[str] = Field(None, description="Market conditions")
+    recommendations: List[str] = Field(default_factory=list, description="Recommendations")
+
+
+class Disclaimer(BaseModel):
+    """Disclaimer text."""
+    
+    text: str = Field(..., description="Disclaimer text")
+    type: str = Field("standard", description="Disclaimer type")
+
+
+class ValuationReportResponse(BaseModel):
+    """
+    Comprehensive valuation report response.
+    
+    Used by the main /valuation/calculate endpoint.
+    """
+    
+    report: ReportMetadata = Field(..., description="Report metadata")
+    vehicle: VehicleDetails = Field(..., description="Vehicle information")
+    valuation: ValuationResult = Field(..., description="Valuation results")
+    comparables: List[ComparableVehicle] = Field(default_factory=list, description="Comparable vehicles")
+    analysis: ValuationAnalysis = Field(..., description="Analysis details")
+    disclaimer: Disclaimer = Field(..., description="Disclaimer")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "report": {
+                    "report_number": "VAL-2024-001",
+                    "generated_at": "2024-01-15T10:30:00",
+                    "report_status": "completed",
+                    "report_title": "Vehicle Valuation Report",
+                    "report_description": "Comprehensive valuation report for Toyota Corolla 2020"
+                },
+                "vehicle": {
+                    "variant_id": 123,
+                    "make": "Toyota",
+                    "model": "Corolla",
+                    "variant": "1.8 GL",
+                    "year": 2020,
+                    "fuel_type": "Petrol",
+                    "transmission": "Automatic",
+                    "engine_size": 1.8,
+                    "body_type": "Sedan"
+                },
+                "valuation": {
+                    "estimated_vehicle_value": 3500000,
+                    "retail_value": 3800000,
+                    "trade_value": 3200000,
+                    "dealer_value": 3400000,
+                    "currency": "KES",
+                    "confidence_score": 0.85,
+                    "estimated_value_range": {
+                        "min": 3300000,
+                        "max": 3700000
+                    },
+                    "sample_size": 15
+                },
+                "comparables": [],
+                "analysis": {
+                    "methodology": "Market-based valuation using comparable sales",
+                    "data_points": 15,
+                    "key_factors": ["Mileage", "Condition", "Market Demand", "Location"],
+                    "market_trend": "Stable",
+                    "market_conditions": "Normal",
+                    "recommendations": ["Get professional inspection", "Consider market timing"]
+                },
+                "disclaimer": {
+                    "text": "This valuation is an estimate based on market data...",
+                    "type": "standard"
+                }
+            }
+        }
 
 
 # ================================================================
@@ -281,6 +408,24 @@ class ValuationHistoryResponse(BaseModel):
 
 
 # ================================================================
+# STATS RESPONSE
+# ================================================================
+
+class ValuationStats(BaseModel):
+    """Valuation statistics."""
+    
+    total_valuations: int = Field(0, description="Total number of valuations")
+    average_value: float = Field(0, description="Average valuation value")
+    highest_value: float = Field(0, description="Highest valuation value")
+    lowest_value: float = Field(0, description="Lowest valuation value")
+    last_valuation_date: Optional[datetime] = Field(None, description="Last valuation date")
+    total_value: float = Field(0, description="Total value of all valuations")
+    valuations_by_make: Dict[str, int] = Field(default_factory=dict, description="Valuations by make")
+    valuations_by_month: Dict[str, int] = Field(default_factory=dict, description="Valuations by month")
+    average_confidence: float = Field(0, description="Average confidence score")
+
+
+# ================================================================
 # HEALTH RESPONSE
 # ================================================================
 
@@ -296,7 +441,7 @@ class ValuationHealthResponse(BaseModel):
 
 
 # ================================================================
-# FACTORY FUNCTION
+# FACTORY FUNCTIONS
 # ================================================================
 
 def create_valuation_response(
@@ -332,3 +477,79 @@ def create_valuation_response(
             timezone.utc
         ).isoformat()
     )
+
+
+def create_valuation_report_response(
+    vehicle: Dict[str, Any],
+    valuation: Dict[str, Any],
+    analysis: Dict[str, Any],
+    comparables: Optional[List[Dict[str, Any]]] = None,
+    report_number: Optional[str] = None
+) -> ValuationReportResponse:
+    """
+    Create a valuation report response.
+    
+    Args:
+        vehicle: Vehicle details
+        valuation: Valuation results
+        analysis: Analysis details
+        comparables: List of comparable vehicles
+        report_number: Optional report number (auto-generated if not provided)
+    
+    Returns:
+        ValuationReportResponse
+    """
+    if not report_number:
+        report_number = f"VAL-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{datetime.now(timezone.utc).timestamp():.0f}"
+    
+    return ValuationReportResponse(
+        report=ReportMetadata(
+            report_number=report_number,
+            generated_at=datetime.now(timezone.utc),
+            report_status="completed",
+            report_title="Vehicle Valuation Report",
+            report_description=f"Comprehensive valuation report for {vehicle.get('make', '')} {vehicle.get('model', '')} {vehicle.get('year', '')}"
+        ),
+        vehicle=VehicleDetails(**vehicle),
+        valuation=ValuationResult(**valuation),
+        comparables=[ComparableVehicle(**c) for c in (comparables or [])],
+        analysis=ValuationAnalysis(**analysis),
+        disclaimer=Disclaimer(
+            text="This valuation is an estimate based on market data and should not be considered as a definitive appraisal. Actual market prices may vary based on vehicle condition, location, demand, and other factors. This report is for informational purposes only and does not constitute financial advice.",
+            type="standard"
+        )
+    )
+
+
+# ================================================================
+# EXPORTS
+# ================================================================
+
+__all__ = [
+    # Request schemas
+    "ValuationRequest",
+    
+    # Response schemas
+    "ValuationResponse",
+    "ValuationReportResponse",
+    "QuickValuationResponse",
+    "ValuationHealthResponse",
+    "ValuationHistoryResponse",
+    "ValuationHistoryItem",
+    "ValuationStats",
+    
+    # Component schemas
+    "VehicleDetails",
+    "ValuationAdjustment",
+    "DepreciationDetails",
+    "MarketComparison",
+    "ComparableVehicle",
+    "ReportMetadata",
+    "ValuationResult",
+    "ValuationAnalysis",
+    "Disclaimer",
+    
+    # Factory functions
+    "create_valuation_response",
+    "create_valuation_report_response",
+]
