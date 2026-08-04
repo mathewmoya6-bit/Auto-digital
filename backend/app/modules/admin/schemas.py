@@ -1,74 +1,140 @@
 """
 Auto-D Kenya - Admin Schemas
 ================================================
-Pydantic models for the Admin module.
 """
 
 from datetime import datetime
-from typing import Optional, List
+from decimal import Decimal
+from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
-# ------------------------------------------------------------------
+# ==========================================================
+# Base
+# ==========================================================
+
+class Schema(BaseModel):
+    model_config = ConfigDict(
+        from_attributes=True,
+        extra="ignore",
+    )
+
+
+# ==========================================================
 # Dashboard
-# ------------------------------------------------------------------
+# ==========================================================
 
-class DashboardStats(BaseModel):
-    total_users: int = 0
-    active_users: int = 0
-    total_payments: int = 0
-    completed_payments: int = 0
-    pending_payments: int = 0
-    failed_payments: int = 0
-    total_revenue: float = 0
-    services_sold: int = 0
+class DashboardResponse(Schema):
+    total_users: int
+    total_vehicles: int
+    total_payments: int
+    total_revenue: Decimal
+    total_services_purchased: int
+    active_services: int
+    new_users_this_week: int
+    updated_at: datetime
+    error: Optional[str] = None
 
 
-# ------------------------------------------------------------------
+# ==========================================================
 # Users
-# ------------------------------------------------------------------
+# ==========================================================
 
-class UserSummary(BaseModel):
+class UserResponse(Schema):
     id: str
-    email: str
+    email: EmailStr
     full_name: Optional[str] = None
     phone: Optional[str] = None
     created_at: Optional[datetime] = None
-    active: bool = True
 
 
-# ------------------------------------------------------------------
+class UsersResponse(Schema):
+    users: List[UserResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+# ==========================================================
 # Payments
-# ------------------------------------------------------------------
+# ==========================================================
 
-class PaymentSummary(BaseModel):
-    id: int
-    user_id: str
-    service_name: str
-    amount: float
+class PaymentResponse(Schema):
+    id: str
+    user_id: Optional[str] = None
+    service_id: Optional[int] = None
+    amount: Decimal
+    currency: str = "KES"
     status: str
-    phone: str
-    created_at: datetime
+    phone: Optional[str] = None
+    checkout_request_id: Optional[str] = None
+    mpesa_receipt: Optional[str] = None
+    created_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
 
 
-# ------------------------------------------------------------------
+class PaymentsResponse(Schema):
+    payments: List[PaymentResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+# ==========================================================
 # Services
-# ------------------------------------------------------------------
+# ==========================================================
 
-class ServiceSummary(BaseModel):
+class ServiceResponse(Schema):
     id: int
     code: str
     name: str
-    price: float
-    active: bool
+    price: Decimal
+    currency: str = "KES"
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    active: bool = True
+    display_order: int = 0
 
 
-# ------------------------------------------------------------------
-# Dashboard Response
-# ------------------------------------------------------------------
+class ServicesResponse(Schema):
+    services: List[ServiceResponse]
+    total: int
 
-class DashboardResponse(BaseModel):
-    stats: DashboardStats
-    recent_users: List[UserSummary] = []
-    recent_payments: List[PaymentSummary] = []
+
+# ==========================================================
+# Update Service
+# ==========================================================
+
+class UpdateServiceRequest(Schema):
+    name: Optional[str] = None
+    price: Optional[Decimal] = None
+    currency: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    active: Optional[bool] = None
+    display_order: Optional[int] = None
+
+
+# ==========================================================
+# Revenue Report
+# ==========================================================
+
+class RevenueReportResponse(Schema):
+    total_revenue: Decimal
+    total_transactions: int
+    revenue_by_service: dict
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    error: Optional[str] = None
+
+
+# ==========================================================
+# Health
+# ==========================================================
+
+class HealthResponse(Schema):
+    status: str
+    service: str
+    timestamp: datetime
+    error: Optional[str] = None
