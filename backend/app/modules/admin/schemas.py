@@ -14,33 +14,20 @@ from pydantic import BaseModel, Field, field_validator
 
 
 # ================================================================
-# ENUMS
-# ================================================================
-
-class ServiceCode(str):
-    """Service code constants."""
-    VALUATION = "valuation"
-    MILEAGE = "mileage"
-    MARKET = "market"
-    REPORTS = "reports"
-    RUNNING_COST = "running_cost"
-
-
-# ================================================================
 # DASHBOARD & STATS
 # ================================================================
 
 class AdminStatsResponse(BaseModel):
     """Admin dashboard statistics response."""
     
-    total_users: int = Field(..., description="Total number of users")
-    total_vehicles: int = Field(..., description="Total number of vehicles")
-    total_payments: int = Field(..., description="Total number of payments")
-    total_revenue: Decimal = Field(..., description="Total revenue from payments")
-    total_services_purchased: int = Field(..., description="Total services purchased")
-    new_users_this_week: int = Field(..., description="New users in the last 7 days")
-    active_services: int = Field(..., description="Number of active services")
-    updated_at: datetime = Field(..., description="Last update timestamp")
+    total_users: int = Field(0, description="Total number of users")
+    total_vehicles: int = Field(0, description="Total number of vehicles")
+    total_payments: int = Field(0, description="Total number of payments")
+    total_revenue: Decimal = Field(Decimal(0), description="Total revenue from payments")
+    total_services_purchased: int = Field(0, description="Total services purchased")
+    new_users_this_week: int = Field(0, description="New users in the last 7 days")
+    active_services: int = Field(0, description="Number of active services")
+    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
     error: Optional[str] = Field(None, description="Error message if any")
 
 
@@ -53,7 +40,7 @@ class AdminUser(BaseModel):
     
     id: UUID = Field(..., description="User ID")
     email: str = Field(..., description="User email")
-    full_name: str = Field(..., description="User full name")
+    full_name: str = Field("", description="User full name")
     created_at: datetime = Field(..., description="User creation timestamp")
     last_sign_in_at: Optional[datetime] = Field(None, description="Last sign-in timestamp")
     confirmed_at: Optional[datetime] = Field(None, description="Email confirmation timestamp")
@@ -64,10 +51,10 @@ class AdminUser(BaseModel):
 class AdminUsersResponse(BaseModel):
     """Admin users list response."""
     
-    users: List[AdminUser] = Field(..., description="List of users")
-    total: int = Field(..., description="Total number of users")
-    limit: int = Field(..., description="Items per page")
-    offset: int = Field(..., description="Items offset")
+    users: List[AdminUser] = Field(default_factory=list, description="List of users")
+    total: int = Field(0, description="Total number of users")
+    limit: int = Field(20, description="Items per page")
+    offset: int = Field(0, description="Items offset")
 
 
 class AdminPayment(BaseModel):
@@ -93,7 +80,7 @@ class AdminUserDetail(BaseModel):
     
     id: UUID = Field(..., description="User ID")
     email: str = Field(..., description="User email")
-    full_name: str = Field(..., description="User full name")
+    full_name: str = Field("", description="User full name")
     created_at: datetime = Field(..., description="User creation timestamp")
     last_sign_in_at: Optional[datetime] = Field(None, description="Last sign-in timestamp")
     confirmed_at: Optional[datetime] = Field(None, description="Email confirmation timestamp")
@@ -104,7 +91,6 @@ class AdminUserDetail(BaseModel):
     payments: List[AdminPayment] = Field(default_factory=list, description="User payments")
 
 
-# ─── FIX: AdminUserDetailResponse (line 55) ──────────────────────
 class AdminUserDetailResponse(BaseModel):
     """Admin user detail response wrapper."""
     
@@ -113,12 +99,12 @@ class AdminUserDetailResponse(BaseModel):
 
 
 class DeleteUserResponse(BaseModel):
-    """Delete user response (line 95)."""
+    """Delete user response."""
     
     success: bool = Field(..., description="Operation success status")
     message: str = Field(..., description="Operation message")
     user_id: UUID = Field(..., description="Deleted user ID")
-    deleted_at: datetime = Field(..., description="Deletion timestamp")
+    deleted_at: datetime = Field(default_factory=datetime.utcnow, description="Deletion timestamp")
 
 
 # ================================================================
@@ -128,10 +114,10 @@ class DeleteUserResponse(BaseModel):
 class AdminPaymentsResponse(BaseModel):
     """Admin payments list response."""
     
-    payments: List[AdminPayment] = Field(..., description="List of payments")
-    total: int = Field(..., description="Total number of payments")
-    limit: int = Field(..., description="Items per page")
-    offset: int = Field(..., description="Items offset")
+    payments: List[AdminPayment] = Field(default_factory=list, description="List of payments")
+    total: int = Field(0, description="Total number of payments")
+    limit: int = Field(20, description="Items per page")
+    offset: int = Field(0, description="Items offset")
 
 
 # ================================================================
@@ -154,10 +140,10 @@ class AdminVehicle(BaseModel):
 class AdminVehiclesResponse(BaseModel):
     """Admin vehicles list response."""
     
-    vehicles: List[AdminVehicle] = Field(..., description="List of vehicles")
-    total: int = Field(..., description="Total number of vehicles")
-    limit: int = Field(..., description="Items per page")
-    offset: int = Field(..., description="Items offset")
+    vehicles: List[AdminVehicle] = Field(default_factory=list, description="List of vehicles")
+    total: int = Field(0, description="Total number of vehicles")
+    limit: int = Field(20, description="Items per page")
+    offset: int = Field(0, description="Items offset")
 
 
 # ================================================================
@@ -184,8 +170,8 @@ class AdminServiceItem(BaseModel):
 class AdminServicesResponse(BaseModel):
     """Admin services list response."""
     
-    services: List[AdminServiceItem] = Field(..., description="List of services")
-    total: int = Field(..., description="Total number of services")
+    services: List[AdminServiceItem] = Field(default_factory=list, description="List of services")
+    total: int = Field(0, description="Total number of services")
 
 
 class CreateServiceRequest(BaseModel):
@@ -232,22 +218,21 @@ class UpdateServicePriceRequest(BaseModel):
         return v
 
 
-class DeleteServiceResponse(BaseModel):
-    """Delete service response."""
-    
-    success: bool = Field(..., description="Operation success status")
-    message: str = Field(..., description="Operation message")
-    service_id: UUID = Field(..., description="Deleted service ID")
-    deleted_at: datetime = Field(..., description="Deletion timestamp")
-
-
-# ─── FIX: ServiceResponse (for POST and PUT) ──────────────────────
 class ServiceResponse(BaseModel):
     """Service operation response wrapper."""
     
     success: bool = Field(..., description="Operation success status")
     message: str = Field(..., description="Operation message")
     service: AdminServiceItem = Field(..., description="Service details")
+
+
+class DeleteServiceResponse(BaseModel):
+    """Delete service response."""
+    
+    success: bool = Field(..., description="Operation success status")
+    message: str = Field(..., description="Operation message")
+    service_id: UUID = Field(..., description="Deleted service ID")
+    deleted_at: datetime = Field(default_factory=datetime.utcnow, description="Deletion timestamp")
 
 
 # ================================================================
@@ -270,8 +255,8 @@ class UserServicesResponse(BaseModel):
     """User services response."""
     
     user_id: UUID = Field(..., description="User ID")
-    services: List[UserServiceItem] = Field(..., description="User services")
-    total: int = Field(..., description="Total number of services")
+    services: List[UserServiceItem] = Field(default_factory=list, description="User services")
+    total: int = Field(0, description="Total number of services")
 
 
 class UpdateUserServiceRequest(BaseModel):
@@ -288,7 +273,7 @@ class UpdateUserServiceResponse(BaseModel):
     user_id: UUID = Field(..., description="User ID")
     service_id: UUID = Field(..., description="Service ID")
     status: str = Field(..., description="Updated status")
-    updated_at: datetime = Field(..., description="Update timestamp")
+    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Update timestamp")
 
 
 # ================================================================
@@ -320,8 +305,8 @@ class AdminAnalyticsResponse(BaseModel):
     period_days: int = Field(..., description="Number of days in period")
     start_date: date = Field(..., description="Period start date")
     end_date: date = Field(..., description="Period end date")
-    daily_stats: List[AnalyticsDay] = Field(..., description="Daily statistics")
-    totals: AnalyticsTotals = Field(..., description="Totals")
+    daily_stats: List[AnalyticsDay] = Field(default_factory=list, description="Daily statistics")
+    totals: AnalyticsTotals = Field(default_factory=AnalyticsTotals, description="Totals")
 
 
 # ================================================================
@@ -331,8 +316,8 @@ class AdminAnalyticsResponse(BaseModel):
 class RevenueReportResponse(BaseModel):
     """Revenue report response."""
     
-    total_revenue: Decimal = Field(..., description="Total revenue")
-    total_transactions: int = Field(..., description="Total transactions")
+    total_revenue: Decimal = Field(Decimal(0), description="Total revenue")
+    total_transactions: int = Field(0, description="Total transactions")
     revenue_by_service: Dict[str, Decimal] = Field(default_factory=dict, description="Revenue by service")
     start_date: Optional[datetime] = Field(None, description="Report start date")
     end_date: Optional[datetime] = Field(None, description="Report end date")
@@ -354,9 +339,9 @@ class ServicePriceItem(BaseModel):
 class ServicePricesResponse(BaseModel):
     """Service prices response."""
     
-    prices: Dict[str, ServicePriceItem] = Field(..., description="Prices by service code")
-    services: List[AdminServiceItem] = Field(..., description="Services list")
-    total: int = Field(..., description="Total number of services")
+    prices: Dict[str, ServicePriceItem] = Field(default_factory=dict, description="Prices by service code")
+    services: List[AdminServiceItem] = Field(default_factory=list, description="Services list")
+    total: int = Field(0, description="Total number of services")
 
 
 # ================================================================
@@ -366,17 +351,17 @@ class ServicePricesResponse(BaseModel):
 class ComponentStatuses(BaseModel):
     """Component statuses."""
     
-    supabase: str = Field(..., description="Supabase status")
-    database: str = Field(..., description="Database status")
-    mpesa: str = Field(..., description="M-Pesa status")
+    supabase: str = Field("unknown", description="Supabase status")
+    database: str = Field("unknown", description="Database status")
+    mpesa: str = Field("unknown", description="M-Pesa status")
 
 
 class AdminStatusResponse(BaseModel):
     """Admin system status response."""
     
     status: str = Field(..., description="Overall system status")
-    timestamp: datetime = Field(..., description="Status timestamp")
-    components: ComponentStatuses = Field(..., description="Component statuses")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Status timestamp")
+    components: ComponentStatuses = Field(default_factory=ComponentStatuses, description="Component statuses")
 
 
 # ================================================================
@@ -389,7 +374,7 @@ class AdminHealthResponse(BaseModel):
     status: str = Field(..., description="Health status")
     service: str = Field("admin", description="Service name")
     version: str = Field("1.0", description="Service version")
-    timestamp: datetime = Field(..., description="Current timestamp")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Current timestamp")
 
 
 # ================================================================
