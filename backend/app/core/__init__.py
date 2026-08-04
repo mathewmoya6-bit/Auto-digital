@@ -1,81 +1,58 @@
 # app/core/__init__.py
-"""
-Auto-D Kenya Core Package
-"""
 
 from .config import settings
 from .database import get_supabase
-
-from .security import (
+from .middleware import setup_middleware
+from .dependencies import (
+    # Authentication
+    get_current_user,
+    get_current_active_user,
+    get_current_user_optional,
+    get_current_admin_user,
+    get_admin_user,
+    get_current_super_admin_user,
+    
+    # Database
+    get_db,
+    
+    # Permissions
+    require_permission,
+    require_roles,
+    
+    # Pagination
+    get_pagination_params,
+    get_search_params,
+    get_filter_params,
+    
+    # Rate Limiting
+    get_rate_limiter,
+    
+    # Helpers
     create_access_token,
     create_refresh_token,
-    decode_token,
-    get_password_hash as hash_password,
-    verify_password,
-    mask_sensitive,
-    generate_random_string,
-    generate_otp,
-    generate_api_key,
+    verify_token,
+    security,
 )
-
-from .utils import (
-    mask_sensitive as utils_mask_sensitive,
-    generate_random_token,
-    generate_otp as utils_generate_otp,
-    utc_now,
-    safe_get,
-    truncate_string,
-)
-
-from .dependencies import (
-    get_current_user,
-    get_current_user_optional,
-    get_supabase_client,
-)
-
-from .exceptions import (
-    AppException,
-    NotFoundException,
-    UnauthorizedException,
-    ForbiddenException,
-    ValidationException,
-)
-
-# Re-export mask_sensitive from utils (preferred location)
-# but keep security version for backward compatibility
-mask_sensitive = utils_mask_sensitive
 
 __all__ = [
-    # Config & Database
     "settings",
     "get_supabase",
-    
-    # Security
+    "setup_middleware",
+    "get_current_user",
+    "get_current_active_user",
+    "get_current_user_optional",
+    "get_current_admin_user",
+    "get_admin_user",
+    "get_current_super_admin_user",
+    "get_db",
+    "require_permission",
+    "require_roles",
+    "get_pagination_params",
+    "get_search_params",
+    "get_filter_params",
+    "get_rate_limiter",
     "create_access_token",
     "create_refresh_token",
-    "decode_token",
-    "hash_password",
-    "verify_password",
-    "mask_sensitive",
-    "generate_random_string",
-    "generate_otp",
-    "generate_api_key",
-    
-    # Utilities
-    "generate_random_token",
-    "utc_now",
-    "safe_get",
-    "truncate_string",
-    
-    # Dependencies
-    "get_current_user",
-    "get_current_user_optional",
-    "get_supabase_client",
-    
-    # Exceptions
-    "AppException",
-    "NotFoundException",
-    "UnauthorizedException",
-    "ForbiddenException",
-    "ValidationException",
+    "verify_token",
+    "security",
 ]
