@@ -2,7 +2,7 @@
 # ================================================================
 
 import json
-from typing import List, Union
+from typing import List, Union, Optional
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -55,10 +55,9 @@ class Settings(BaseSettings):
     # SECURITY
     # ============================================================
 
-    SECRET_KEY: str
-
+    # SECRET_KEY is now optional - will use SUPABASE_JWT_SECRET if not provided
+    SECRET_KEY: Optional[str] = None
     ALGORITHM: str = "HS256"
-
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
@@ -130,6 +129,17 @@ class Settings(BaseSettings):
     # ============================================================
 
     LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+
+    # ============================================================
+    # DOCUMENTATION
+    # ============================================================
+
+    ENABLE_DOCS: bool = True
+    API_DOCS_URL: str = "/docs"
+    API_REDOC_URL: str = "/redoc"
+    API_OPENAPI_URL: str = "/openapi.json"
 
 
     # ============================================================
@@ -138,16 +148,31 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security(self):
-
+        """Validate required security settings."""
+        
+        # ─── Validate Supabase credentials ──────────────────────
         if not self.SUPABASE_KEY:
             raise ValueError(
                 "SUPABASE_KEY environment variable missing"
             )
-
-        if not self.SECRET_KEY:
+        
+        if not self.SUPABASE_URL:
             raise ValueError(
-                "SECRET_KEY environment variable missing"
+                "SUPABASE_URL environment variable missing"
             )
+        
+        # ─── Use SUPABASE_JWT_SECRET as fallback for SECRET_KEY ──
+        if not self.SECRET_KEY:
+            if self.SUPABASE_JWT_SECRET:
+                # Use Supabase JWT secret as the secret key
+                self.SECRET_KEY = self.SUPABASE_JWT_SECRET
+                print("✅ Using SUPABASE_JWT_SECRET as SECRET_KEY")
+            else:
+                # No secret key available - critical error
+                raise ValueError(
+                    "Neither SECRET_KEY nor SUPABASE_JWT_SECRET is set.\n"
+                    "Please set SUPABASE_JWT_SECRET in your environment variables."
+                )
 
         return self
 
@@ -157,7 +182,7 @@ class Settings(BaseSettings):
     # ============================================================
 
     def get_cors_origins(self) -> List[str]:
-
+        """Parse CORS origins from string or list."""
         origins = self.BACKEND_CORS_ORIGINS
 
         if isinstance(origins, list):
@@ -165,10 +190,8 @@ class Settings(BaseSettings):
 
         try:
             parsed = json.loads(origins)
-
             if isinstance(parsed, list):
                 return parsed
-
         except Exception:
             pass
 
@@ -179,8 +202,8 @@ class Settings(BaseSettings):
         ]
 
 
-    def get_cors_methods(self):
-
+    def get_cors_methods(self) -> List[str]:
+        """Parse CORS methods from string."""
         return [
             x.strip()
             for x in self.CORS_ALLOW_METHODS.split(",")
@@ -188,8 +211,8 @@ class Settings(BaseSettings):
         ]
 
 
-    def get_cors_headers(self):
-
+    def get_cors_headers(self) -> List[str]:
+        """Parse CORS headers from string."""
         return [
             x.strip()
             for x in self.CORS_ALLOW_HEADERS.split(",")
@@ -197,4 +220,14 @@ class Settings(BaseSettings):
         ]
 
 
+    def get_jwt_secret(self) -> str:
+        """Get the JWT secret to use."""
+        # Prefer SUPABASE_JWT_SECRET
+        if self.SUPABASE_JWT_SECRET:
+            return self.SUPABASE_JWT_SECRET
+        # Fallback to SECRET_KEY
+        return self.SECRET_KEY or ""
+
+
+# ─── Create settings instance ──────────────────────────────────────
 settings = Settings()
