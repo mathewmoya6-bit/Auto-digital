@@ -1,28 +1,32 @@
-from app.core.database import get_supabase
+"""
+Auto-D Kenya - Admin Service
+================================================
+Business logic for the Admin module.
+"""
+
+from app.modules.admin.repository import AdminRepository
 
 
 class AdminService:
+
     def __init__(self):
-        self.db = get_supabase()
+
+        self.repository = AdminRepository()
 
     async def dashboard(self):
+
+        stats = await self.repository.dashboard_stats()
+
+        recent_users = await self.repository.recent_users()
+
+        recent_payments = await self.repository.recent_payments()
+
         return {
-            "total_users": 0,
-            "total_vehicles": 0,
-            "total_payments": 0,
-            "total_revenue": 0.0,
+            "stats": {
+                "total_users": stats["users"].count or 0,
+                "total_payments": stats["payments"].count or 0,
+                "services_sold": stats["services"].count or 0,
+            },
+            "recent_users": recent_users.data or [],
+            "recent_payments": recent_payments.data or [],
         }
-
-    async def list_services(self):
-        result = self.db.table("services").select("*").execute()
-        return result.data or []
-
-    async def update_service(self, service_id: int, data: dict):
-        result = (
-            self.db.table("services")
-            .update(data)
-            .eq("id", service_id)
-            .execute()
-        )
-
-        return result.data
