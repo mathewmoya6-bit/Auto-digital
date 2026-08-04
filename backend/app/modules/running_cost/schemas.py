@@ -94,6 +94,52 @@ class RunningCostRequest(BaseModel):
     )
 
 
+class RunningCostProjectionRequest(BaseModel):
+    """
+    Running cost projection request.
+    
+    Calculates projected costs over multiple years.
+    """
+    
+    variant_id: int = Field(
+        ...,
+        gt=0,
+        description="Vehicle variant database ID"
+    )
+    
+    annual_mileage: int = Field(
+        20000,
+        ge=0,
+        description="Annual mileage in KM"
+    )
+    
+    years: int = Field(
+        5,
+        ge=1,
+        le=20,
+        description="Number of years to project"
+    )
+    
+    inflation_rate: float = Field(
+        0.05,
+        ge=0,
+        le=1,
+        description="Annual inflation rate"
+    )
+    
+    mileage_increase_rate: float = Field(
+        0.02,
+        ge=0,
+        le=1,
+        description="Annual mileage increase rate"
+    )
+    
+    include_depreciation: bool = Field(
+        True,
+        description="Include depreciation in calculation"
+    )
+
+
 # ================================================================
 # RESPONSE SCHEMAS
 # ================================================================
@@ -156,6 +202,20 @@ class FinancingBreakdown(BaseModel):
     loan_amount: float = Field(..., description="Total loan amount")
     interest_rate: float = Field(..., description="Interest rate")
     loan_term_months: int = Field(..., description="Loan term in months")
+
+
+class ProjectionYear(BaseModel):
+    """Single year projection data."""
+    
+    year: int = Field(..., description="Year number (1-based)")
+    annual_mileage: int = Field(..., description="Annual mileage for this year")
+    fuel_cost: float = Field(..., description="Fuel cost for this year")
+    service_cost: float = Field(..., description="Service cost for this year")
+    insurance_cost: float = Field(..., description="Insurance cost for this year")
+    depreciation_cost: Optional[float] = Field(None, description="Depreciation cost for this year")
+    total_cost: float = Field(..., description="Total cost for this year")
+    cumulative_cost: float = Field(..., description="Cumulative cost up to this year")
+    cost_per_km: float = Field(..., description="Cost per kilometer for this year")
 
 
 class RunningCostSummary(BaseModel):
@@ -244,6 +304,22 @@ class RunningCostResponse(BaseModel):
                 "calculated_at": "2024-01-15T10:30:00"
             }
         }
+
+
+class RunningCostProjectionResponse(BaseModel):
+    """Running cost projection response."""
+    
+    vehicle: Dict[str, Any] = Field(..., description="Vehicle details")
+    initial_annual_mileage: int = Field(..., description="Initial annual mileage")
+    years: int = Field(..., description="Number of years projected")
+    inflation_rate: float = Field(..., description="Inflation rate used")
+    mileage_increase_rate: float = Field(..., description="Mileage increase rate used")
+    currency: str = Field("KES", description="Currency code")
+    yearly_projections: List[ProjectionYear] = Field(..., description="Year-by-year projections")
+    total_cost_over_period: float = Field(..., description="Total cost over the projection period")
+    average_annual_cost: float = Field(..., description="Average annual cost")
+    recommendations: List[str] = Field(default_factory=list, description="Recommendations")
+    calculated_at: str = Field(..., description="Calculation timestamp")
 
 
 # ================================================================
@@ -386,9 +462,11 @@ class RunningCostHealthResponse(BaseModel):
 __all__ = [
     # Request schemas
     "RunningCostRequest",
+    "RunningCostProjectionRequest",
     
     # Response schemas
     "RunningCostResponse",
+    "RunningCostProjectionResponse",
     "LegacyRunningCostResponse",
     "RunningCostComparisonResponse",
     "RunningCostHistoryResponse",
@@ -401,6 +479,7 @@ __all__ = [
     "DepreciationBreakdown",
     "FinancingBreakdown",
     "RunningCostSummary",
+    "ProjectionYear",
     "RunningCostComparisonItem",
     "RunningCostHistoryItem",
 ]
