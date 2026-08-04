@@ -1,625 +1,525 @@
-# main.py
-# ================================================================
-# Auto-D Kenya - Main Application Entry Point
-# ================================================================
+"""
+Auto-D Kenya - FastAPI Application
+Vehicle cost analysis and valuation system
+"""
 
-import logging
 import os
+import sys
+import json
+import logging
+import traceback
+from datetime import datetime
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional
-
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from fastapi.exceptions import RequestValidationError
 
-from app.core.database import get_supabase, init_db
-from app.core.middleware import LoggingMiddleware
-from app.modules.scraper.service import ScraperService
-from app.modules.scraper.worker import ScraperWorker
+from app.core.config import settings
+from app.core.database import supabase
 
-# ─── LOGGING ─────────────────────────────────────────────────────
+# Import routers directly from their modules
+from app.api.v1.auth import router as auth_router
+from app.api.v1.vehicles import router as vehicles_router
+from app.api.v1.valuation import router as valuation_router
+from app.api.v1.mileage import router as mileage_router
+from app.api.v1.ownership import router as ownership_router
+from app.api.v1.fuel import router as fuel_router
+from app.api.v1.admin import router as admin_router
+from app.api.v1.reports import router as reports_router
+from app.api.v1.running_cost import router as running_cost_router
+
+# ─── NEW: Price Alignment & Market Scraper Routers ────────────────
+try:
+    from app.api.v1.price_alignment import router as price_alignment_router
+    PRICE_ALIGNMENT_LOADED = True
+    logger_import = logging.getLogger(__name__)
+    logger_import.info("✅ Price Alignment router loaded successfully")
+except ImportError as e:
+    PRICE_ALIGNMENT_LOADED = False
+    logger_import = logging.getLogger(__name__)
+    logger_import.warning(f"⚠️ Price Alignment router not available: {e}")
+    price_alignment_router = None
+
+try:
+    from app.api.v1.market import router as market_router
+    MARKET_ROUTER_LOADED = True
+    logger_import = logging.getLogger(__name__)
+    logger_import.info("✅ Market router loaded successfully")
+except ImportError as e:
+    MARKET_ROUTER_LOADED = False
+    logger_import = logging.getLogger(__name__)
+    logger_import.warning(f"⚠️ Market router not available: {e}")
+    market_router = None
+
+# ─── Market Scraper Router ───────────────────────────────────────
+try:
+    from app.api.v1.scraper import router as scraper_router
+    SCRAPER_ROUTER_LOADED = True
+    logger_import = logging.getLogger(__name__)
+    logger_import.info("✅ Market Scraper router loaded successfully")
+except ImportError as e:
+    SCRAPER_ROUTER_LOADED = False
+    logger_import = logging.getLogger(__name__)
+    logger_import.warning(f"⚠️ Market Scraper router not available: {e}")
+    scraper_router = None
+
+# ─── M-Pesa Router ────────────────────────────────────────────────
+try:
+    from app.api.v1.mpesa import router as mpesa_router
+    MPESA_ROUTER_LOADED = True
+    logger_import = logging.getLogger(__name__)
+    logger_import.info("✅ M-Pesa router loaded successfully")
+except ImportError as e:
+    MPESA_ROUTER_LOADED = False
+    logger_import = logging.getLogger(__name__)
+    logger_import.warning(f"⚠️ M-Pesa router not available: {e}")
+    mpesa_router = None
+
+# ─── Configure Logging ─────────────────────────────────────────────
+try:
+    log_level_name = getattr(settings, "LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+except Exception:
+    log_level = logging.INFO
+
+log_format = getattr(settings, "LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=log_level,
+    format=log_format,
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 logger = logging.getLogger(__name__)
 
-# ─── MODELS ─────────────────────────────────────────────────────
+logger.info("=" * 60)
+logger.info("🚀 Auto-D Kenya API Starting...")
+logger.info(f"📋 Log Level: {logging.getLevelName(log_level)}")
+logger.info("=" * 60)
 
-class ScraperRunRequest(BaseModel):
-    """Request model for running a scraper."""
-    source: str = "all"
-    pages: int = 3
-    limit_per_page: int = 20
 
-class SourceUpdateRequest(BaseModel):
-    """Request model for updating a source."""
-    name: str
-    active: Optional[bool] = None
-    config: Optional[Dict[str, Any]] = None
-
-class SettingsUpdateRequest(BaseModel):
-    """Request model for updating engine settings."""
-    key: str
-    value: float
-
-# ─── LIFESPAN ──────────────────────────────────────────────────
-
+# ─── Lifespan Context Manager ──────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Application lifespan manager.
-    Handles startup and shutdown events.
-    """
-    # Startup
-    logger.info("Starting Auto-D Kenya API...")
-    
-    # Initialize database
+    """Application lifespan context manager"""
+    logger.info(f"🚀 Starting {settings.PROJECT_NAME}...")
+    logger.info(f"📍 Environment: {settings.ENVIRONMENT}")
+    logger.info(f"🔗 API Base URL: {settings.API_BASE_URL}")
+    logger.info(f"🔗 Supabase URL: {settings.SUPABASE_URL}")
+    logger.info(f"📱 M-Pesa Environment: {getattr(settings, 'MPESA_ENV', 'sandbox')}")
+    logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
+
+    # Check Supabase connection
     try:
-        init_db()
-        logger.info("Database initialized successfully")
+        response = supabase.table("vehicle_makes").select("count", count="exact").limit(1).execute()
+        logger.info("✅ Supabase connection successful")
     except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
+        logger.error(f"❌ Supabase connection failed: {e}")
     
-    # Initialize services
-    app.state.scraper_service = ScraperService()
-    app.state.worker = ScraperWorker()
+    # Check M-Pesa configuration
+    mpesa_configured = bool(
+        getattr(settings, 'MPESA_CONSUMER_KEY', '') and 
+        getattr(settings, 'MPESA_CONSUMER_SECRET', '') and 
+        getattr(settings, 'MPESA_PASSKEY', '')
+    )
+    if mpesa_configured:
+        logger.info("✅ M-Pesa configuration loaded")
+    else:
+        logger.warning("⚠️ M-Pesa configuration incomplete - payment endpoints may not work")
     
-    logger.info("API started successfully")
+    # ─── Check Price Alignment Services ──────────────────────────
+    if PRICE_ALIGNMENT_LOADED:
+        logger.info("✅ Price Alignment services loaded")
+        logger.info("   Data Sources: Jiji, Cheki, Autochek, BeepBeep, PigiaMe")
+    else:
+        logger.warning("⚠️ Price Alignment services not loaded")
+    
+    if MARKET_ROUTER_LOADED:
+        logger.info("✅ Market services loaded")
+    else:
+        logger.warning("⚠️ Market services not loaded")
+    
+    if SCRAPER_ROUTER_LOADED:
+        logger.info("✅ Market Scraper loaded")
+    else:
+        logger.warning("⚠️ Market Scraper not loaded")
+    
+    # ─── Log CORS origins from settings ──────────────────────────
+    logger.info(f"🔒 CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
+    
+    # ─── Check if services table exists ──────────────────────────
+    try:
+        response = supabase.table("services").select("count", count="exact").limit(1).execute()
+        logger.info(f"✅ Services table found: {response.count} services")
+    except Exception as e:
+        logger.warning(f"⚠️ Services table not found or empty: {e}")
+        logger.warning("   Please run the database migration to create the services table")
+    
+    # ─── Check if market_prices table exists ─────────────────────
+    try:
+        response = supabase.table("market_prices").select("count", count="exact").limit(1).execute()
+        logger.info(f"✅ Market prices table found: {response.count} records")
+    except Exception as e:
+        logger.warning(f"⚠️ Market prices table not found: {e}")
+        logger.warning("   Please run the database migration to create the market_prices table")
+    
+    logger.info("=" * 60)
+    logger.info("✅ Application is ready to serve requests")
+    logger.info("=" * 60)
     
     yield
     
-    # Shutdown
-    logger.info("Shutting down Auto-D Kenya API...")
+    logger.info(f"🛑 Shutting down {settings.PROJECT_NAME}...")
 
-# ─── APP CREATION ─────────────────────────────────────────────
 
+# ─── Initialize FastAPI App ────────────────────────────────────────
 app = FastAPI(
-    title="Auto-D Kenya API",
-    description="Vehicle scraper and valuation API for the Kenyan car market",
-    version="1.0.0",
+    title=settings.PROJECT_NAME,
+    description=settings.SWAGGER_DESCRIPTION,
+    version=settings.API_VERSION,
+    docs_url=settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
+    redoc_url=settings.API_REDOC_URL if settings.ENABLE_DOCS else None,
+    openapi_url=settings.API_OPENAPI_URL if settings.ENABLE_DOCS else None,
+    contact={
+        "name": settings.SWAGGER_CONTACT_NAME,
+        "email": settings.SWAGGER_CONTACT_EMAIL,
+    },
+    license_info={
+        "name": settings.SWAGGER_LICENSE_NAME,
+    },
     lifespan=lifespan,
 )
 
-# ─── MIDDLEWARE ───────────────────────────────────────────────
 
-app.add_middleware(LoggingMiddleware)
+# ─── CORS Configuration ────────────────────────────────────────────
+cors_origins = settings.BACKEND_CORS_ORIGINS
 
-# CORS
+logger.info(f"🔒 Configuring CORS with origins: {cors_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=settings.CORS_MAX_AGE,
 )
 
-# ─── HEALTH ENDPOINTS ────────────────────────────────────────
+logger.info("✅ CORS configured successfully")
 
+
+# ─── Exception Handlers ────────────────────────────────────────────
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors"""
+    logger.warning(f"Validation error: {exc.errors()}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "status": "error",
+            "message": "Validation error",
+            "errors": exc.errors(),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle general exceptions"""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "status": "error",
+            "message": "An unexpected error occurred",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+
+# ─── Include Routers ───────────────────────────────────────────────
+api_prefix = getattr(settings, "API_V1_PREFIX", "/api/v1")
+
+app.include_router(auth_router, prefix=f"{api_prefix}/auth", tags=["Authentication"])
+app.include_router(vehicles_router, prefix=f"{api_prefix}/vehicles", tags=["Vehicles"])
+app.include_router(valuation_router, prefix=f"{api_prefix}/valuation", tags=["Valuation"])
+app.include_router(mileage_router, prefix=f"{api_prefix}/mileage", tags=["Mileage"])
+app.include_router(running_cost_router, prefix=f"{api_prefix}/running-cost", tags=["Running Cost"])
+app.include_router(ownership_router, prefix=f"{api_prefix}/ownership", tags=["Ownership"])
+app.include_router(fuel_router, prefix=f"{api_prefix}/fuel", tags=["Fuel"])
+app.include_router(admin_router, prefix=f"{api_prefix}/admin", tags=["Admin"])
+app.include_router(reports_router, prefix=f"{api_prefix}/reports", tags=["Reports"])
+
+# ─── NEW: Include Price Alignment Router ──────────────────────────
+if PRICE_ALIGNMENT_LOADED and price_alignment_router is not None:
+    try:
+        app.include_router(
+            price_alignment_router,
+            prefix=f"{api_prefix}/price",
+            tags=["Price Alignment"]
+        )
+        logger.info("✅ Price Alignment router registered successfully")
+        logger.info("   Endpoints: /price/align, /price/analyze, /price/history, /price/trend")
+    except Exception as e:
+        logger.error(f"❌ Failed to register Price Alignment router: {e}")
+else:
+    logger.warning("⚠️ Price Alignment router not loaded - price endpoints will be unavailable")
+
+# ─── NEW: Include Market Router ────────────────────────────────────
+if MARKET_ROUTER_LOADED and market_router is not None:
+    try:
+        app.include_router(
+            market_router,
+            prefix=f"{api_prefix}/market",
+            tags=["Market Data"]
+        )
+        logger.info("✅ Market router registered successfully")
+        logger.info("   Endpoints: /market/scrape, /market/insights, /market/location/factors")
+    except Exception as e:
+        logger.error(f"❌ Failed to register Market router: {e}")
+else:
+    logger.warning("⚠️ Market router not loaded - market data endpoints will be unavailable")
+
+# ─── Include Market Scraper Router ───────────────────────────────
+if SCRAPER_ROUTER_LOADED and scraper_router is not None:
+    try:
+        app.include_router(
+            scraper_router,
+            prefix=f"{api_prefix}/scraper",
+            tags=["Market Scraper"]
+        )
+
+        logger.info("✅ Market Scraper router registered successfully")
+        logger.info("   Endpoints:")
+        logger.info("      POST /scraper/run")
+        logger.info("      POST /scraper/autochek")
+        logger.info("      POST /scraper/jiji")
+        logger.info("      POST /scraper/carapi")
+        logger.info("      GET  /scraper/status")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to register Market Scraper router: {e}")
+
+else:
+    logger.warning("⚠️ Market Scraper router not loaded")
+
+# ─── Include M-Pesa router ────────────────────────────────────────
+if MPESA_ROUTER_LOADED and mpesa_router is not None:
+    try:
+        app.include_router(
+            mpesa_router,
+            prefix=f"{api_prefix}/mpesa",
+            tags=["M-Pesa"]
+        )
+        logger.info("✅ M-Pesa router registered successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to register M-Pesa router: {e}")
+else:
+    logger.warning("⚠️ M-Pesa router not loaded - payment endpoints will be unavailable")
+
+logger.info("✅ All routers registered")
+logger.info(f"📚 API Documentation available at {settings.API_DOCS_URL}")
+
+
+# ─── Health Check Endpoints ──────────────────────────────────────
+@app.get("/health")
 @app.get("/api/health")
 async def health_check():
-    """
-    Health check endpoint.
-    """
-    service = app.state.scraper_service
-    result = await service.health_check()
+    """Health check endpoint - Supports both /health and /api/health"""
+    supabase_status = "connected"
+    try:
+        response = supabase.table("vehicle_makes").select("count", count="exact").limit(1).execute()
+    except Exception as e:
+        supabase_status = f"error: {str(e)}"
+        logger.error(f"Supabase health check failed: {e}")
     
-    if result.get("success") and result.get("data", {}).get("status") == "healthy":
-        return JSONResponse(
-            status_code=200,
-            content=result
-        )
-    else:
-        return JSONResponse(
-            status_code=503,
-            content=result
-        )
-
-@app.get("/api/status")
-async def get_status():
-    """
-    Get the current status of the scraper system.
-    """
-    service = app.state.scraper_service
-    return await service.get_status()
-
-# ─── SOURCE ENDPOINTS ─────────────────────────────────────────
-
-@app.get("/api/sources")
-async def get_sources():
-    """
-    Get all available scraper sources.
-    """
-    service = app.state.scraper_service
-    result = await service.get_sources()
+    mpesa_configured = all([
+        getattr(settings, "MPESA_CONSUMER_KEY", ""),
+        getattr(settings, "MPESA_CONSUMER_SECRET", ""),
+        getattr(settings, "MPESA_PASSKEY", "")
+    ])
+    
+    # Check if services exist
+    services_exist = False
+    try:
+        response = supabase.table("services").select("count", count="exact").limit(1).execute()
+        services_exist = response.count > 0 if hasattr(response, 'count') else True
+    except Exception:
+        pass
+    
+    # Check if market_prices exist
+    market_prices_exist = False
+    try:
+        response = supabase.table("market_prices").select("count", count="exact").limit(1).execute()
+        market_prices_exist = response.count > 0 if hasattr(response, 'count') else True
+    except Exception:
+        pass
     
     return {
-        "sources": result.get("sources", []),
-        "count": result.get("count", 0)
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "supabase": supabase_status,
+        "mpesa": "configured" if mpesa_configured else "not_configured",
+        "mpesa_router_loaded": MPESA_ROUTER_LOADED,
+        "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
+        "services_table": "exists" if services_exist else "not_found",
+        "market_prices_table": "exists" if market_prices_exist else "not_found",
+        "price_alignment_loaded": PRICE_ALIGNMENT_LOADED,
+        "market_router_loaded": MARKET_ROUTER_LOADED,
+        "scraper_loaded": SCRAPER_ROUTER_LOADED,
+        "environment": getattr(settings, "ENVIRONMENT", "production"),
+        "version": getattr(settings, "API_VERSION", "4.0.0"),
+        "docs_enabled": settings.ENABLE_DOCS,
+        "docs_url": settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
+        "data_sources": ["Jiji", "Cheki", "Autochek", "BeepBeep", "PigiaMe"] if PRICE_ALIGNMENT_LOADED else []
     }
 
-@app.post("/api/sources")
-async def create_source(request: SourceUpdateRequest):
-    """
-    Create a new scraper source.
-    """
-    try:
-        supabase = get_supabase()
-        
-        data = {"name": request.name}
-        if request.active is not None:
-            data["active"] = request.active
-        if request.config is not None:
-            data["config"] = request.config
-        
-        response = (
-            supabase.table("market_sources")
-            .insert(data)
-            .execute()
-        )
-        
-        if not response.data:
-            raise HTTPException(status_code=400, detail="Failed to create source")
-        
-        return {
-            "success": True,
-            "source": response.data[0]
-        }
-        
-    except Exception as e:
-        logger.exception("Failed to create source")
-        raise HTTPException(status_code=500, detail=str(e))
 
-@app.patch("/api/sources/{source_id}")
-async def update_source(source_id: int, request: SourceUpdateRequest):
-    """
-    Update an existing scraper source.
-    """
-    try:
-        supabase = get_supabase()
-        
-        data = {}
-        if request.active is not None:
-            data["active"] = request.active
-        if request.config is not None:
-            data["config"] = request.config
-        
-        if not data:
-            raise HTTPException(status_code=400, detail="No fields to update")
-        
-        response = (
-            supabase.table("market_sources")
-            .update(data)
-            .eq("id", source_id)
-            .execute()
-        )
-        
-        if not response.data:
-            raise HTTPException(status_code=404, detail="Source not found")
-        
-        return {
-            "success": True,
-            "source": response.data[0]
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Failed to update source")
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/ready")
+@app.get("/api/ready")
+async def readiness_check():
+    """Readiness check endpoint"""
+    return {
+        "status": "ready",
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
-# ─── SCRAPER ENDPOINTS ────────────────────────────────────────
 
-@app.post("/api/scraper/run")
-async def run_scraper(request: ScraperRunRequest, background_tasks: BackgroundTasks):
-    """
-    Run the scraper for a specific source or all sources.
-    """
-    try:
-        service = app.state.scraper_service
-        
-        # Validate source
-        valid_sources = service.worker.get_sources()
-        if request.source != "all" and request.source not in valid_sources:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid source. Available sources: {', '.join(valid_sources)}"
-            )
-        
-        if request.source == "all":
-            # Run all scrapers
-            logger.info("Running all scrapers")
-            result = await service.worker.run_all(
-                pages=request.pages,
-                limit_per_page=request.limit_per_page
-            )
-            return {
-                "success": True,
-                "source": "all",
-                "result": result
-            }
-        else:
-            # Run a single scraper
-            job_id = await service.start_scraper(
-                source=request.source,
-                pages=request.pages,
-                limit_per_page=request.limit_per_page
-            )
-            
-            # Run in background
-            background_tasks.add_task(
-                service.run_scraper_background,
-                job_id=job_id,
-                source=request.source,
-                pages=request.pages,
-                limit_per_page=request.limit_per_page
-            )
-            
-            return {
-                "success": True,
-                "job_id": job_id,
-                "source": request.source,
-                "status": "pending",
-                "message": f"Scraper job {job_id} started for {request.source}"
-            }
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Failed to run scraper")
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/live")
+@app.get("/api/live")
+async def liveness_check():
+    """Liveness check endpoint"""
+    return {
+        "status": "alive",
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
-@app.get("/api/scraper/jobs")
-async def get_job_history(
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0)
-):
-    """
-    Get scraper job history with pagination.
-    """
-    try:
-        service = app.state.scraper_service
-        return await service.get_job_history(limit=limit, offset=offset)
-        
-    except Exception as e:
-        logger.exception("Failed to get job history")
-        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/scraper/jobs/{job_id}")
-async def get_job_status(job_id: int):
-    """
-    Get the status of a specific scraper job.
-    """
-    try:
-        service = app.state.scraper_service
-        job = await service.get_job_status(job_id)
-        
-        if "error" in job:
-            raise HTTPException(status_code=404, detail=job["error"])
-        
-        return job
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to get job {job_id} status")
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/ping")
+async def ping():
+    """Simple ping endpoint for testing connectivity"""
+    return {
+        "pong": datetime.utcnow().isoformat(),
+        "status": "alive"
+    }
 
-@app.delete("/api/scraper/jobs/{job_id}")
-async def cancel_job(job_id: int):
-    """
-    Cancel a pending or running scraper job.
-    """
-    try:
-        service = app.state.scraper_service
-        job = await service.get_job_status(job_id)
-        
-        if "error" in job:
-            raise HTTPException(status_code=404, detail=job["error"])
-        
-        # Only pending or running jobs can be cancelled
-        if job.get("status") not in ["pending", "running"]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot cancel job with status: {job.get('status')}"
-            )
-        
-        # Update job status
-        supabase = get_supabase()
-        response = (
-            supabase.table("scraper_jobs")
-            .update({
-                "status": "cancelled",
-                "completed_at": datetime.now(timezone.utc).isoformat()
-            })
-            .eq("id", job_id)
-            .execute()
-        )
-        
-        return {
-            "success": True,
-            "job_id": job_id,
-            "status": "cancelled",
-            "message": f"Job {job_id} cancelled successfully"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to cancel job {job_id}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ─── SETTINGS ENDPOINTS ───────────────────────────────────────
-
-@app.get("/api/settings")
-async def get_settings():
-    """
-    Get all engine settings.
-    """
-    try:
-        supabase = get_supabase()
-        response = (
-            supabase.table("engine_settings")
-            .select("*")
-            .execute()
-        )
-        
-        return {
-            "settings": response.data or []
-        }
-        
-    except Exception as e:
-        logger.exception("Failed to get settings")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/settings/{key}")
-async def get_setting(key: str):
-    """
-    Get a specific engine setting.
-    """
-    try:
-        supabase = get_supabase()
-        response = (
-            supabase.table("engine_settings")
-            .select("*")
-            .eq("key", key)
-            .execute()
-        )
-        
-        if not response.data:
-            raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
-        
-        return response.data[0]
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to get setting '{key}'")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/settings")
-async def create_setting(request: SettingsUpdateRequest):
-    """
-    Create a new engine setting.
-    """
-    try:
-        supabase = get_supabase()
-        
-        response = (
-            supabase.table("engine_settings")
-            .insert({
-                "key": request.key,
-                "value": request.value
-            })
-            .execute()
-        )
-        
-        if not response.data:
-            raise HTTPException(status_code=400, detail="Failed to create setting")
-        
-        return {
-            "success": True,
-            "setting": response.data[0]
-        }
-        
-    except Exception as e:
-        logger.exception("Failed to create setting")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.patch("/api/settings/{key}")
-async def update_setting(key: str, request: SettingsUpdateRequest):
-    """
-    Update an existing engine setting.
-    """
-    try:
-        supabase = get_supabase()
-        
-        response = (
-            supabase.table("engine_settings")
-            .update({"value": request.value})
-            .eq("key", key)
-            .execute()
-        )
-        
-        if not response.data:
-            raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
-        
-        return {
-            "success": True,
-            "setting": response.data[0]
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to update setting '{key}'")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ─── LISTINGS ENDPOINTS ───────────────────────────────────────
-
-@app.get("/api/listings")
-async def get_listings(
-    source: Optional[str] = None,
-    make: Optional[str] = None,
-    model: Optional[str] = None,
-    min_price: Optional[float] = None,
-    max_price: Optional[float] = None,
-    min_year: Optional[int] = None,
-    max_year: Optional[int] = None,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0)
-):
-    """
-    Get vehicle listings with filters.
-    """
-    try:
-        supabase = get_supabase()
-        
-        # Start building the query
-        query = supabase.table("market_listings").select("*")
-        
-        # Apply filters
-        if source:
-            # Get source ID first
-            source_response = (
-                supabase.table("market_sources")
-                .select("id")
-                .eq("name", source)
-                .execute()
-            )
-            if source_response.data:
-                query = query.eq("source_id", source_response.data[0]["id"])
-        
-        if make:
-            query = query.ilike("make", f"%{make}%")
-        if model:
-            query = query.ilike("model", f"%{model}%")
-        if min_price is not None:
-            query = query.gte("price", min_price)
-        if max_price is not None:
-            query = query.lte("price", max_price)
-        if min_year is not None:
-            query = query.gte("year", min_year)
-        if max_year is not None:
-            query = query.lte("year", max_year)
-        
-        # Get total count
-        count_response = query.execute()
-        total = len(count_response.data) if count_response.data else 0
-        
-        # Apply pagination
-        query = query.range(offset, offset + limit - 1)
-        query = query.order("created_at", desc=True)
-        
-        response = query.execute()
-        
-        return {
-            "listings": response.data or [],
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "has_more": (offset + limit) < total
-        }
-        
-    except Exception as e:
-        logger.exception("Failed to get listings")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/listings/{listing_id}")
-async def get_listing(listing_id: str):
-    """
-    Get a specific listing by ID.
-    """
-    try:
-        supabase = get_supabase()
-        response = (
-            supabase.table("market_listings")
-            .select("*")
-            .eq("listing_id", listing_id)
-            .execute()
-        )
-        
-        if not response.data:
-            raise HTTPException(status_code=404, detail="Listing not found")
-        
-        return response.data[0]
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to get listing {listing_id}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ─── ROOT ──────────────────────────────────────────────────────
 
 @app.get("/")
 async def root():
-    """
-    Root endpoint - API information.
-    """
+    """Root endpoint with API information"""
+    mpesa_configured = all([
+        getattr(settings, "MPESA_CONSUMER_KEY", ""),
+        getattr(settings, "MPESA_CONSUMER_SECRET", ""),
+        getattr(settings, "MPESA_PASSKEY", "")
+    ])
+    
     return {
-        "name": "Auto-D Kenya API",
-        "version": "1.0.0",
-        "description": "Vehicle scraper and valuation API",
-        "endpoints": {
-            "health": "/api/health",
-            "status": "/api/status",
-            "sources": "/api/sources",
-            "scraper": "/api/scraper/run",
-            "jobs": "/api/scraper/jobs",
-            "settings": "/api/settings",
-            "listings": "/api/listings"
+        "name": getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
+        "version": getattr(settings, "API_VERSION", "4.0.0"),
+        "environment": getattr(settings, "ENVIRONMENT", "production"),
+        "status": "operational",
+        "timestamp": datetime.utcnow().isoformat(),
+        "documentation": settings.API_DOCS_URL if settings.ENABLE_DOCS else "disabled",
+        "api_prefix": getattr(settings, "API_V1_PREFIX", "/api/v1"),
+        "data_sources": ["Jiji", "Cheki", "Autochek", "BeepBeep", "PigiaMe"] if PRICE_ALIGNMENT_LOADED else [],
+        "features": {
+            "mpesa": getattr(settings, "ENABLE_MPESA", True),
+            "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
+            "mpesa_configured": mpesa_configured,
+            "mpesa_router_loaded": MPESA_ROUTER_LOADED,
+            "price_alignment": PRICE_ALIGNMENT_LOADED,
+            "market_data": MARKET_ROUTER_LOADED,
+            "market_scraper": SCRAPER_ROUTER_LOADED,
+            "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
+            "docs": settings.ENABLE_DOCS
         },
-        "documentation": "/docs",
-        "redoc": "/redoc"
+        "endpoints": {
+            "auth": f"{api_prefix}/auth",
+            "vehicles": f"{api_prefix}/vehicles",
+            "valuation": f"{api_prefix}/valuation",
+            "mileage": f"{api_prefix}/mileage",
+            "ownership": f"{api_prefix}/ownership",
+            "running_cost": f"{api_prefix}/running-cost",
+            "price_align": f"{api_prefix}/price/align" if PRICE_ALIGNMENT_LOADED else "unavailable",
+            "price_analyze": f"{api_prefix}/price/analyze" if PRICE_ALIGNMENT_LOADED else "unavailable",
+            "price_history": f"{api_prefix}/price/history" if PRICE_ALIGNMENT_LOADED else "unavailable",
+            "market_insights": f"{api_prefix}/market/insights" if MARKET_ROUTER_LOADED else "unavailable",
+            "scrape": f"{api_prefix}/market/scrape" if MARKET_ROUTER_LOADED else "unavailable",
+            "location_factors": f"{api_prefix}/market/location/factors" if MARKET_ROUTER_LOADED else "unavailable",
+            "scraper_run": f"{api_prefix}/scraper/run" if SCRAPER_ROUTER_LOADED else "unavailable",
+            "scraper_status": f"{api_prefix}/scraper/status" if SCRAPER_ROUTER_LOADED else "unavailable"
+        }
     }
 
-# ─── ERROR HANDLING ───────────────────────────────────────────
 
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
-    """
-    Custom HTTP exception handler.
-    """
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": exc.detail,
-            "status_code": exc.status_code,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-    )
+@app.get("/info")
+async def info():
+    """Get application information"""
+    mpesa_configured = all([
+        getattr(settings, "MPESA_CONSUMER_KEY", ""),
+        getattr(settings, "MPESA_CONSUMER_SECRET", ""),
+        getattr(settings, "MPESA_PASSKEY", "")
+    ])
+    
+    return {
+        "name": getattr(settings, "PROJECT_NAME", "Auto-D Kenya API"),
+        "version": getattr(settings, "API_VERSION", "4.0.0"),
+        "environment": getattr(settings, "ENVIRONMENT", "production"),
+        "docs_enabled": settings.ENABLE_DOCS,
+        "docs_url": settings.API_DOCS_URL if settings.ENABLE_DOCS else None,
+        "data_sources": ["Jiji", "Cheki", "Autochek", "BeepBeep", "PigiaMe"] if PRICE_ALIGNMENT_LOADED else [],
+        "features": {
+            "mpesa": getattr(settings, "ENABLE_MPESA", True),
+            "mpesa_shortcode": getattr(settings, "MPESA_SHORTCODE", "4095377"),
+            "mpesa_environment": getattr(settings, "MPESA_ENV", "sandbox"),
+            "mpesa_configured": mpesa_configured,
+            "mpesa_router_loaded": MPESA_ROUTER_LOADED,
+            "price_alignment": PRICE_ALIGNMENT_LOADED,
+            "market_data": MARKET_ROUTER_LOADED,
+            "market_scraper": SCRAPER_ROUTER_LOADED,
+            "google_auth": getattr(settings, "ENABLE_GOOGLE_AUTH", True),
+            "analytics": getattr(settings, "ENABLE_ANALYTICS", True),
+            "caching": getattr(settings, "ENABLE_CACHING", True),
+            "email_notifications": getattr(settings, "ENABLE_EMAIL_NOTIFICATIONS", True),
+        },
+        "supabase": {
+            "url": getattr(settings, "SUPABASE_URL", ""),
+            "connected": True
+        },
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
-@app.exception_handler(Exception)
-async def general_exception_handler(request, exc):
-    """
-    General exception handler.
-    """
-    logger.exception("Unhandled exception")
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": "Internal server error",
-            "status_code": 500,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-    )
 
-# ─── RUN SERVER ──────────────────────────────────────────────
-
+# ─── Main Entry Point ─────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    
     port = int(os.getenv("PORT", 8000))
+    debug = getattr(settings, "DEBUG", False)
     host = os.getenv("HOST", "0.0.0.0")
     
+    logger.info("=" * 60)
+    logger.info(f"🚀 Starting server on {host}:{port}")
+    logger.info(f"🐛 Debug mode: {debug}")
+    logger.info(f"📱 M-Pesa Shortcode: {getattr(settings, 'MPESA_SHORTCODE', '4095377')}")
+    logger.info(f"📱 M-Pesa Router Loaded: {MPESA_ROUTER_LOADED}")
+    logger.info(f"📊 Price Alignment Loaded: {PRICE_ALIGNMENT_LOADED}")
+    logger.info(f"📊 Market Router Loaded: {MARKET_ROUTER_LOADED}")
+    logger.info(f"📊 Market Scraper Loaded: {SCRAPER_ROUTER_LOADED}")
+    logger.info(f"📡 API Base URL: {getattr(settings, 'API_BASE_URL', 'http://localhost:' + str(port))}")
+    logger.info(f"📚 Docs enabled: {settings.ENABLE_DOCS}")
+    if settings.ENABLE_DOCS:
+        logger.info(f"📚 Docs URL: {settings.API_DOCS_URL}")
+    logger.info("=" * 60)
+    
     uvicorn.run(
-        "main:app",
+        "app.main:app",
         host=host,
         port=port,
-        reload=os.getenv("DEBUG", "false").lower() == "true",
-        log_level=os.getenv("LOG_LEVEL", "info")
+        reload=debug,
+        log_level="debug" if debug else "info",
+        access_log=True,
     )
