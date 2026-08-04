@@ -207,8 +207,16 @@ class AdminPayment(Schema):
     completed_at: Optional[datetime] = Field(None, description="Completion timestamp")
 
 
-class AdminUserDetail(AdminUser):
+class AdminUserDetail(Schema):
     """Detailed admin user with payments."""
+    id: UUID = Field(..., description="User ID")
+    email: EmailStr = Field(..., description="User email")
+    full_name: str = Field(..., description="User full name")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    last_sign_in_at: Optional[datetime] = Field(None, description="Last sign-in timestamp")
+    confirmed_at: Optional[datetime] = Field(None, description="Confirmation timestamp")
+    phone: Optional[str] = Field(None, description="Phone number")
+    services: List[AdminUserService] = Field(default_factory=list, description="User services")
     app_metadata: Metadata = Field(default_factory=dict, description="App metadata")
     user_metadata: Metadata = Field(default_factory=dict, description="User metadata")
     payments: List[AdminPayment] = Field(default_factory=list, description="User payments")
@@ -241,7 +249,7 @@ class AdminVehiclesResponse(Pagination):
     vehicles: List[AdminVehicle] = Field(..., description="List of vehicles")
 
 
-class AdminServiceSchema(Schema):
+class AdminServiceItem(Schema):
     """Admin service item."""
     id: UUID = Field(..., description="Service ID")
     code: ServiceCode = Field(..., description="Service code")
@@ -259,7 +267,7 @@ class AdminServiceSchema(Schema):
 
 class AdminServicesResponse(Schema):
     """Admin services response."""
-    services: List[AdminServiceSchema] = Field(..., description="List of services")
+    services: List[AdminServiceItem] = Field(..., description="List of services")
     total: NonNegativeInt = Field(..., description="Total services")
 
 
@@ -323,7 +331,7 @@ class ServicePriceItem(Schema):
 class ServicePricesResponse(Schema):
     """Service prices response."""
     prices: Dict[ServiceCode, ServicePriceItem] = Field(..., description="Service prices by code")
-    services: List[AdminServiceSchema] = Field(..., description="Full service list")
+    services: List[AdminServiceItem] = Field(..., description="Full service list")
     total: NonNegativeInt = Field(..., description="Total services")
 
 
@@ -337,7 +345,7 @@ class UserServiceItem(Schema):
     status: UserServiceStatus = Field(..., description="Service status")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last updated timestamp")
-    service: Optional[AdminServiceSchema] = Field(None, description="Service details")
+    service: Optional[AdminServiceItem] = Field(None, description="Service details")
 
 
 class UserServicesResponse(Schema):
@@ -351,7 +359,7 @@ class UserServicesResponse(Schema):
 
 class ServiceResponse(SuccessResponse):
     """Generic service response."""
-    service: AdminServiceSchema = Field(..., description="Service data")
+    service: AdminServiceItem = Field(..., description="Service data")
 
 
 # ─── DELETE RESPONSE SCHEMAS ────────────────────────────────────
@@ -404,6 +412,12 @@ class PaginatedResponse(Schema):
 
 # ─── FORWARD REFERENCES ──────────────────────────────────────────
 
-# Resolve forward references
+# Resolve forward references - using model_rebuild for all models that might have circular refs
 AdminUserDetail.model_rebuild()
 AdminUserDetailResponse.model_rebuild()
+AdminUsersResponse.model_rebuild()
+AdminPaymentsResponse.model_rebuild()
+AdminVehiclesResponse.model_rebuild()
+AdminServicesResponse.model_rebuild()
+UserServicesResponse.model_rebuild()
+ServiceResponse.model_rebuild()
