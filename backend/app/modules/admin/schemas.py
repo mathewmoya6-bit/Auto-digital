@@ -3,7 +3,7 @@
 # ================================================================
 # TYPE: MODULE - Admin Pydantic schemas
 
-from typing import Any, Literal
+from typing import Any, Literal, Optional, ForwardRef
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -98,20 +98,6 @@ class AdminUserService(BaseModel):
     status: USER_SERVICE_STATUS = Field(..., description="Service status")
 
 
-class AdminUser(BaseModel):
-    """Admin user item."""
-    model_config = ConfigDict(from_attributes=True)
-    
-    id: str = Field(..., description="User ID")
-    email: str = Field(..., description="User email")
-    full_name: str = Field(..., description="User full name")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    last_sign_in_at: datetime | None = Field(None, description="Last sign-in timestamp")
-    confirmed_at: datetime | None = Field(None, description="Confirmation timestamp")
-    phone: str | None = Field(None, description="Phone number")
-    services: list[AdminUserService] = Field(default_factory=list, description="User services")
-
-
 class AdminPayment(BaseModel):
     """Admin payment item."""
     model_config = ConfigDict(from_attributes=True)
@@ -131,6 +117,20 @@ class AdminPayment(BaseModel):
     completed_at: datetime | None = Field(None, description="Completion timestamp")
 
 
+class AdminUser(BaseModel):
+    """Admin user item."""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: str = Field(..., description="User ID")
+    email: str = Field(..., description="User email")
+    full_name: str = Field(..., description="User full name")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    last_sign_in_at: datetime | None = Field(None, description="Last sign-in timestamp")
+    confirmed_at: datetime | None = Field(None, description="Confirmation timestamp")
+    phone: str | None = Field(None, description="Phone number")
+    services: list[AdminUserService] = Field(default_factory=list, description="User services")
+
+
 class AdminUserDetail(AdminUser):
     """Detailed admin user with payments."""
     model_config = ConfigDict(from_attributes=True)
@@ -138,6 +138,10 @@ class AdminUserDetail(AdminUser):
     app_metadata: dict[str, Any] = Field(default_factory=dict, description="App metadata")
     user_metadata: dict[str, Any] = Field(default_factory=dict, description="User metadata")
     payments: list[AdminPayment] = Field(default_factory=list, description="User payments")
+
+
+# Fix the forward reference issue with model_rebuild
+AdminUserDetail.model_rebuild()
 
 
 class AdminUsersResponse(BaseModel):
@@ -398,3 +402,9 @@ class AdminUserDetailResponse(BaseModel):
     
     success: bool = Field(True, description="Success status")
     data: AdminUserDetail = Field(..., description="User details")
+
+
+# ─── BACKWARD COMPATIBILITY ALIASES ─────────────────────────────
+
+# Alias for backward compatibility
+AdminUserItem = AdminUser
