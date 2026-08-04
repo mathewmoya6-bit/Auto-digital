@@ -16,19 +16,68 @@ from pydantic import BaseModel, Field
 # ================================================================
 
 class RunningCostRequest(BaseModel):
-    """Running cost calculation request."""
+    """Running cost calculation request.
+
+    NOTE: field names/defaults here are intentionally kept in sync with
+    what app/modules/running_cost/service.py reads off `request`. Several
+    fields were previously missing entirely (year, distance, trip_type,
+    years) and were being accessed directly with no getattr fallback —
+    that raised AttributeError on every real call. A couple more
+    (fuel_price, down_payment) existed under different names
+    (fuel_price_per_liter, down_payment_percent) so service.py's
+    getattr(..., default) calls silently ignored whatever the caller
+    sent and always used the hardcoded default instead. If you rename
+    anything here, update service.py's attribute access to match (or
+    vice versa) — don't let the two drift again.
+    """
 
     variant_id: int = Field(..., gt=0, description="Vehicle variant database ID")
+
+    # --- Previously missing; accessed directly in service.py with no
+    # fallback, so every calculation raised AttributeError. ---
+    year: int = Field(..., ge=1900, description="Vehicle model year")
+    distance: float = Field(..., gt=0, description="Trip distance in KM")
+    trip_type: str = Field("mixed", description="urban | highway | mixed | offroad")
+    years: int = Field(5, ge=1, le=20, description="Number of years for the cost projection")
+
+    # --- Renamed to match service.py's getattr(request, 'fuel_price', ...)
+    # and getattr(request, 'down_payment', ...) — the old names
+    # (fuel_price_per_liter, down_payment_percent) were never actually
+    # read by the service. ---
+    fuel_price: Optional[float] = Field(None, ge=0, description="Fuel price per liter (KES)")
+    down_payment: float = Field(0.2, ge=0, le=1, description="Down payment as a fraction of price")
+
+    fuel_type: Optional[str] = Field(None, description="Fuel type override")
     annual_mileage: int = Field(20000, ge=0, description="Annual mileage in KM")
-    fuel_price_per_liter: Optional[float] = Field(None, ge=0, description="Fuel price per liter")
-    fuel_type: Optional[str] = Field(None, description="Fuel type")
-    insurance_rate: Optional[float] = Field(None, ge=0, le=1, description="Insurance rate as percentage")
-    service_cost_per_km: Optional[float] = Field(None, ge=0, description="Service cost per KM")
     ownership_years: int = Field(5, ge=1, description="Number of years of ownership")
+
+    # --- Driving factor inputs (service.py reads these via getattr with
+    # matching defaults, so these were technically safe before — made
+    # explicit here for documentation/OpenAPI purposes). ---
+    driving_style: str = Field("normal", description="economical | normal | aggressive")
+    usage_type: str = Field("private", description="private | commercial | fleet | taxi")
+    condition: str = Field("good", description="excellent | good | fair | poor")
+    location: str = Field("urban", description="urban | suburban | rural | remote")
+
+    # --- Inclusion flags ---
+    include_insurance: bool = Field(True, description="Include insurance cost")
+    include_tyres: bool = Field(True, description="Include tyre cost")
+    include_maintenance: bool = Field(True, description="Include maintenance/service cost")
     include_depreciation: bool = Field(True, description="Include depreciation")
     include_financing: bool = Field(False, description="Include financing costs")
-    interest_rate: Optional[float] = Field(None, ge=0, le=1, description="Financing interest rate")
-    down_payment_percent: Optional[float] = Field(None, ge=0, le=1, description="Down payment percentage")
+
+    insurance_type: str = Field("comprehensive", description="comprehensive | third_party")
+    insurance_rate: Optional[float] = Field(None, ge=0, le=1, description="Insurance rate override")
+    service_cost_per_km: Optional[float] = Field(None, ge=0, description="Service cost per KM override")
+
+    # --- Financing inputs ---
+    financed: bool = Field(False, description="Whether the vehicle is financed")
+    # Default changed from None -> 14.0: service.py does
+    # `getattr(request, 'interest_rate', 14.0) / 100`. Since this field
+    # already existed on the model, getattr returned the *field's* value
+    # (None) rather than falling back to 14.0, and `None / 100` crashed.
+    interest_rate: float = Field(14.0, ge=0, le=100, description="Annual interest rate, percent (e.g. 14.0 = 14%)")
+    loan_term: int = Field(48, ge=1, description="Loan term in months")
 
 
 class RunningCostProjectionRequest(BaseModel):
