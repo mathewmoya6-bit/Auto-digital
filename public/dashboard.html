@@ -341,6 +341,17 @@
             to { opacity: 1; transform: scale(1); }
         }
         
+        /* Loading placeholder for auth check */
+        .auth-checking {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 20px;
+            color: #94a3b8;
+            font-size: 14px;
+        }
+        
         @media (max-width: 768px) {
             body { padding: 12px; }
             .card { padding: 16px; }
@@ -382,52 +393,59 @@
         <a href="/admin.html" class="admin-btn" target="_blank"><i class="fas fa-cog"></i> Admin Dashboard</a>
     </div>
 
-    <!-- SERVICES -->
-    <div class="card">
-        <div class="card-header">
-            <div class="card-title">
-                🚀 Services
-            </div>
-        </div>
-
-        <div class="service-tabs" id="serviceTabs">
-            <span class="loading" style="padding:8px 16px;"><span class="spinner"></span> Loading services...</span>
-        </div>
-
-        <div id="serviceDetail">
-            <span class="loading"><span class="spinner"></span> Select a service</span>
-        </div>
+    <!-- AUTH CHECKING PLACEHOLDER -->
+    <div id="authLoading" class="auth-checking">
+        <span class="spinner"></span> Checking authentication...
     </div>
 
-    <!-- PAYMENT -->
-    <div class="card">
-        <div class="card-header">
-            <div class="card-title">📱 M-Pesa Payment <span class="badge">Secure</span></div>
-        </div>
-        <div class="payment-form">
-            <div class="form-group">
-                <label><i class="fas fa-phone"></i> Phone Number</label>
-                <input id="phone" type="tel" placeholder="07XXXXXXXX or 01XXXXXXXX" />
-                <small>Enter the phone number registered with M-Pesa</small>
+    <!-- SERVICES - Hidden until auth confirmed -->
+    <div id="dashboardContent" style="display:none;">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">
+                    🚀 Services
+                </div>
             </div>
-            <button id="payBtn" class="btn btn-primary" disabled style="width:100%;justify-content:center;font-size:16px;padding:14px;">
-                <i class="fas fa-lock"></i> Select a service first
-            </button>
-            <div style="margin-top:16px;">
-                <div class="status-box" id="statusBox">Waiting for payment...</div>
-            </div>
-        </div>
-    </div>
 
-    <!-- HISTORY -->
-    <div class="card">
-        <div class="card-header">
-            <div class="card-title">📜 Payment History <span class="badge">Recent</span></div>
-            <button class="btn btn-sm btn-outline" id="refreshHistoryBtn">
-                <i class="fas fa-sync-alt"></i> Refresh
-            </button>
+            <div class="service-tabs" id="serviceTabs">
+                <span class="loading" style="padding:8px 16px;"><span class="spinner"></span> Loading services...</span>
+            </div>
+
+            <div id="serviceDetail">
+                <span class="loading"><span class="spinner"></span> Select a service</span>
+            </div>
         </div>
-        <div id="payments"><span class="loading"><span class="spinner"></span> Loading...</span></div>
+
+        <!-- PAYMENT -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">📱 M-Pesa Payment <span class="badge">Secure</span></div>
+            </div>
+            <div class="payment-form">
+                <div class="form-group">
+                    <label><i class="fas fa-phone"></i> Phone Number</label>
+                    <input id="phone" type="tel" placeholder="07XXXXXXXX or 01XXXXXXXX" />
+                    <small>Enter the phone number registered with M-Pesa</small>
+                </div>
+                <button id="payBtn" class="btn btn-primary" disabled style="width:100%;justify-content:center;font-size:16px;padding:14px;">
+                    <i class="fas fa-lock"></i> Select a service first
+                </button>
+                <div style="margin-top:16px;">
+                    <div class="status-box" id="statusBox">Waiting for payment...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- HISTORY -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">📜 Payment History <span class="badge">Recent</span></div>
+                <button class="btn btn-sm btn-outline" id="refreshHistoryBtn">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+            <div id="payments"><span class="loading"><span class="spinner"></span> Loading...</span></div>
+        </div>
     </div>
 
 </div>
@@ -463,7 +481,9 @@
     let serviceAccess = {};
     let allServices = [];
     let paymentInterval = null;
-    const MAX_PAYMENT_ATTEMPTS = 24; // 2 minutes at 5s intervals
+    const MAX_PAYMENT_ATTEMPTS = 24;
+    let authCheckComplete = false;
+    let redirectTimeout = null;
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const serviceTabsEl = document.getElementById('serviceTabs');
@@ -477,22 +497,21 @@
     const redirectOverlay = document.getElementById('redirectOverlay');
     const countdownEl = document.getElementById('countdown');
     const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
+    const authLoading = document.getElementById('authLoading');
+    const dashboardContent = document.getElementById('dashboardContent');
 
     // ─── PHONE NUMBER NORMALIZATION ────────────────────────────
     function normalizePhoneNumber(phone) {
         const cleaned = phone.replace(/\D/g, '');
 
-        // 07XXXXXXXX or 01XXXXXXXX
         if (/^(07|01)\d{8}$/.test(cleaned)) {
             return '254' + cleaned.substring(1);
         }
 
-        // 7XXXXXXXX or 1XXXXXXXX (explicitly)
         if (/^(7|1)\d{8}$/.test(cleaned)) {
             return '254' + cleaned;
         }
 
-        // 2547XXXXXXXX or 2541XXXXXXXX
         if (/^254[71]\d{8}$/.test(cleaned)) {
             return cleaned;
         }
@@ -547,65 +566,82 @@
         if (!supabaseClient && typeof supabase !== 'undefined') {
             const { createClient } = supabase;
             supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-                auth: { autoRefreshToken: true, persistSession: true }
+                auth: { 
+                    autoRefreshToken: true, 
+                    persistSession: true,
+                    detectSessionInUrl: true
+                }
             });
             console.log('✅ Supabase initialized');
             
+            // ─── FIX 1 & 3: PROPER AUTH STATE HANDLING ──────────
             supabaseClient.auth.onAuthStateChange(async (event, session) => {
-                console.log('🔐 Auth state changed:', event);
+                console.log('🔐 Auth state changed:', event, session ? 'has session' : 'no session');
                 
-                if (session) {
-                    currentUser = session.user;
-                    isAuthenticated = true;
-                    console.log('✅ User authenticated:', currentUser.email);
-                    
-                    await fetchUserServices(session.user.id);
-                    renderAuth(session.user);
-                    renderTabs(allServices);
-                    loadHistory();
-                    
-                } else {
-                    // ─── FIX 4: CLEAR STALE STATE ON LOGOUT ──────
+                // ─── FIX 3: ONLY CLEAR ON SIGNED_OUT ─────────────
+                if (event === 'SIGNED_OUT') {
+                    console.log('👋 User signed out');
+                    currentUser = null;
+                    isAuthenticated = false;
                     serviceAccess = {};
                     selectedServiceCode = null;
                     selectedServiceId = null;
                     allServices = [];
-                    currentUser = null;
-                    isAuthenticated = false;
                     renderAuth(null);
+                    // Hide dashboard, show loading
+                    dashboardContent.style.display = 'none';
+                    authLoading.style.display = 'flex';
+                    return;
+                }
+                
+                // ─── FIX 1: HANDLE INITIAL_SESSION ──────────────
+                if (event === 'INITIAL_SESSION') {
+                    console.log('🔄 Initial session check...');
+                    if (session) {
+                        console.log('✅ Initial session found');
+                        currentUser = session.user;
+                        isAuthenticated = true;
+                        await loadDashboard(session.user);
+                    } else {
+                        console.log('⏳ No initial session, waiting for auth...');
+                        // Don't redirect - wait for SIGNED_IN or keep showing loading
+                    }
+                    return;
+                }
+                
+                // ─── FIX 1: HANDLE SIGNED_IN ─────────────────────
+                if (event === 'SIGNED_IN' && session) {
+                    console.log('✅ User signed in');
+                    currentUser = session.user;
+                    isAuthenticated = true;
+                    await loadDashboard(session.user);
+                    return;
+                }
+                
+                // ─── FIX 1: HANDLE TOKEN_REFRESHED ──────────────
+                if (event === 'TOKEN_REFRESHED' && session) {
+                    console.log('🔄 Token refreshed');
+                    // Keep current user, just update session
+                    return;
                 }
             });
         }
         return supabaseClient;
     }
 
-    // ─── GET CURRENT USER WITH SESSION RECOVERY ──────────────
+    // ─── FIX 2: REMOVED refreshSession() ──────────────────────
+    // getCurrentUser now only uses getSession()
     async function getCurrentUser() {
         try {
             const client = initSupabase();
             if (!client) return null;
 
-            // First try existing session
-            let { data: { session } } = await client.auth.getSession();
-
-            // ─── FIX 7: ONLY REFRESH IF NO SESSION ──────────────
-            if (!session) {
-                console.log('🔄 No session found, attempting refresh...');
-                const { data, error } = await client.auth.refreshSession();
-
-                if (!error && data.session) {
-                    session = data.session;
-                    console.log('✅ Session recovered via refresh');
-                }
-            }
+            const { data: { session } } = await client.auth.getSession();
 
             if (session?.user) {
                 currentUser = session.user;
                 isAuthenticated = true;
-
                 console.log('✅ Logged in:', currentUser.email);
-                console.log('🔑 Token:', session.access_token.substring(0, 30) + '...');
-
                 return currentUser;
             }
 
@@ -649,7 +685,7 @@
         }
     }
 
-    // ─── FIX 4: LOGOUT CLEANS UP STATE ─────────────────────────
+    // ─── LOGOUT ──────────────────────────────────────────────────
     async function logout() {
         try {
             // Clear state
@@ -658,7 +694,6 @@
             selectedServiceId = null;
             allServices = [];
             
-            // Clear any payment interval
             if (paymentInterval) {
                 clearInterval(paymentInterval);
                 paymentInterval = null;
@@ -670,8 +705,13 @@
             isAuthenticated = false;
             currentUser = null;
             renderAuth(null);
+            dashboardContent.style.display = 'none';
+            authLoading.style.display = 'flex';
             showToast('Logged out', 'info');
-            window.location.replace('/');
+            // Redirect after a moment
+            setTimeout(() => {
+                window.location.replace('/');
+            }, 500);
         } catch (e) { showToast('Logout error', 'error'); }
     }
 
@@ -807,15 +847,10 @@
             `;
         });
 
-        // ─── FIX 1: REPLACE INNERHTML NOT CLONE ────────────────
         serviceTabsEl.innerHTML = html;
-
-        // ─── FIX 1 & 2: USE DIRECT EVENT LISTENER ──────────────
-        // Remove any existing listener by using a new one
         serviceTabsEl.onclick = function(e) {
             const btn = e.target.closest('.service-tab');
             if (!btn) return;
-            // ─── FIX 2: USE window.selectService ────────────────
             window.selectService(btn.dataset.service);
         };
 
@@ -927,7 +962,7 @@
         }, 1000);
     };
 
-    // ─── FIX 8: REFRESH WITH HISTORY ────────────────────────────
+    // ─── REFRESH ─────────────────────────────────────────────────
     window.refresh = async function() {
         await fetchServices();
         if (currentUser) {
@@ -938,7 +973,7 @@
         showToast('🔄 Dashboard refreshed', 'info');
     };
 
-    // ─── PAYMENT WITH PROPER SESSION HANDLING ──────────────────
+    // ─── PAYMENT ─────────────────────────────────────────────────
     async function initiatePayment() {
         if (payBtn.disabled) return;
 
@@ -1004,7 +1039,6 @@
             };
             
             console.log('📤 Payment request:', requestBody);
-            console.log('🔑 Token:', token.substring(0, 30) + '...');
 
             const res = await fetch(`${API_BASE}/mpesa/stkpush`, {
                 method: 'POST',
@@ -1015,7 +1049,6 @@
                 body: JSON.stringify(requestBody)
             });
 
-            // ─── FIX 6: BETTER ERROR HANDLING ──────────────────
             const text = await res.text();
             let data;
             try {
@@ -1032,7 +1065,6 @@
             setStatus('✅ M-PESA prompt sent to your phone', 'success');
             showToast('📱 Check your phone for M-PESA prompt', 'success');
 
-            // ─── FIX 3: CLEAR EXISTING INTERVAL ────────────────
             if (paymentInterval) {
                 clearInterval(paymentInterval);
                 paymentInterval = null;
@@ -1075,7 +1107,6 @@
                         paymentInterval = null;
                         setStatus('❌ Payment failed or timed out. Try again.', 'error');
                         showToast('❌ Payment failed', 'error');
-                        // Button restored in finally
                     }
                     attempts++;
                 } catch (e) {
@@ -1088,7 +1119,6 @@
             setStatus(`❌ ${errorMsg}`, 'error');
             showToast(`❌ Payment error: ${errorMsg}`, 'error');
         } finally {
-            // ─── FIX 10: ALWAYS RESTORE BUTTON ──────────────────
             if (!serviceAccess[selectedServiceCode]) {
                 payBtn.disabled = false;
                 updatePayBtn();
@@ -1136,41 +1166,73 @@
         }
     }
 
-    // ─── INIT ──────────────────────────────────────────────────
-    async function init() {
-        const user = await getCurrentUser();
-        renderAuth(user);
+    // ─── FIX 1: LOAD DASHBOARD ──────────────────────────────────
+    async function loadDashboard(user) {
+        console.log('📊 Loading dashboard for user:', user.email);
         
-        if (!user) {
-            console.log('🔴 No authenticated user, redirecting to login...');
-            window.location.replace('/');
-            return;
-        }
+        // Hide loading, show dashboard
+        authLoading.style.display = 'none';
+        dashboardContent.style.display = 'block';
+        
+        // Render auth
+        renderAuth(user);
 
+        // Check admin
         const isAdmin = user.user_metadata?.role === 'admin' || user.user_metadata?.is_admin;
         adminLink.style.display = isAdmin ? 'block' : 'none';
 
+        // Load data
         await fetchServices();
         await fetchUserServices(user.id);
         renderTabs(allServices);
         loadHistory();
         setStatus('✅ Ready', 'success');
-
-        // ─── EVENT LISTENERS ──────────────────────────────────
-        payBtn.addEventListener('click', initiatePayment);
-        refreshHistoryBtn.addEventListener('click', loadHistory);
-
-        // ─── FIX 11: CLEANUP ON PAGE UNLOAD ──────────────────
-        window.addEventListener('beforeunload', () => {
-            redirectOverlay.classList.remove('show');
-            if (paymentInterval) {
-                clearInterval(paymentInterval);
-                paymentInterval = null;
-            }
-        });
+        
+        authCheckComplete = true;
     }
 
-    // ─── EXPOSE ──────────────────────────────────────────────
+    // ─── FIX 1: INIT WITH PROPER AUTH WAITING ──────────────────
+    async function init() {
+        console.log('🚀 Dashboard initializing...');
+        
+        const client = initSupabase();
+        if (!client) {
+            console.error('❌ Failed to initialize Supabase');
+            return;
+        }
+
+        // Check if we already have a session
+        const { data: { session } } = await client.auth.getSession();
+        
+        if (session?.user) {
+            console.log('✅ Session found on init');
+            currentUser = session.user;
+            isAuthenticated = true;
+            await loadDashboard(session.user);
+            return;
+        }
+
+        // No session - show loading and wait for auth state change
+        console.log('⏳ No session found, waiting for authentication...');
+        authLoading.style.display = 'flex';
+        dashboardContent.style.display = 'none';
+        
+        // ─── FIX 1: DON'T REDIRECT IMMEDIATELY ──────────────────
+        // The auth state listener will handle SIGNED_IN or SIGNED_OUT
+        // Set a safety timeout - if no auth after 5 seconds, redirect to login
+        if (redirectTimeout) {
+            clearTimeout(redirectTimeout);
+        }
+        
+        redirectTimeout = setTimeout(() => {
+            if (!authCheckComplete && !currentUser) {
+                console.log('⏰ Auth timeout - redirecting to login');
+                window.location.replace('/');
+            }
+        }, 5000);
+    }
+
+    // ─── EXPOSE ──────────────────────────────────────────────────
     window.__AUTOD = {
         logout,
         selectService: window.selectService,
@@ -1183,7 +1245,21 @@
         redirectToServicePage,
     };
 
+    // ─── EVENT LISTENERS ──────────────────────────────────────
     document.addEventListener('DOMContentLoaded', init);
+    
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+        redirectOverlay.classList.remove('show');
+        if (paymentInterval) {
+            clearInterval(paymentInterval);
+            paymentInterval = null;
+        }
+        if (redirectTimeout) {
+            clearTimeout(redirectTimeout);
+            redirectTimeout = null;
+        }
+    });
 
 })();
 </script>
