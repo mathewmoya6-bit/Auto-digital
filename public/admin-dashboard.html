@@ -4811,7 +4811,7 @@
 
 
 
-            // ─── UPDATED: isAdmin using joined roles (FIXED) ──────────
+            // ─── UPDATED: isAdmin with robust error handling ──────────
 
             async function isAdmin(userId) {
 
@@ -4819,25 +4819,27 @@
 
                 const client = getSupabaseClient();
 
-                if (!client || !uid) return false;
+                
+
+                if (!client || !uid) {
+
+                    console.warn('⚠️ isAdmin: No client or uid');
+
+                    return false;
+
+                }
 
 
 
                 try {
 
-                    // Query user_profiles with joined role name
+                    // Step 1: Get the user's profile with role_id
 
-                    const { data: profile, error } = await client
+                    const { data: profile, error: profileError } = await client
 
                         .from('user_profiles')
 
-                        .select(`
-
-                            role_id,
-
-                            roles(name)
-
-                        `)
+                        .select('role_id')
 
                         .eq('user_id', uid)
 
@@ -4845,9 +4847,9 @@
 
 
 
-                    if (error || !profile) {
+                    if (profileError || !profile) {
 
-                        console.warn('⚠️ User profile not found for uid:', uid, error);
+                        console.warn('⚠️ User profile not found:', profileError?.message || 'No profile data');
 
                         return false;
 
@@ -4855,17 +4857,43 @@
 
 
 
-                    // FIX: roles is returned as an array, so we need to access the first element
+                    if (!profile.role_id) {
 
-                    const role = profile.roles?.[0]?.name;
+                        console.warn('⚠️ User has no role_id assigned:', uid);
+
+                        return false;
+
+                    }
 
 
 
-                    // Only "Administrator" or "Super Administrator" are allowed
+                    // Step 2: Get the role name using the role_id
 
-                    if (!role) {
+                    const { data: role, error: roleError } = await client
 
-                        console.warn('⚠️ No role name found for uid:', uid);
+                        .from('roles')
+
+                        .select('name')
+
+                        .eq('id', profile.role_id)
+
+                        .single();
+
+
+
+                    if (roleError || !role) {
+
+                        console.warn('⚠️ Role not found for role_id:', profile.role_id, roleError?.message);
+
+                        return false;
+
+                    }
+
+
+
+                    if (!role.name) {
+
+                        console.warn('⚠️ Role has no name field:', profile.role_id);
 
                         return false;
 
@@ -4875,19 +4903,25 @@
 
                     const allowedRoles = ['Administrator', 'Super Administrator'];
 
-                    const isAllowed = allowedRoles.includes(role);
+                    const isAllowed = allowedRoles.includes(role.name);
 
 
 
                     if (!isAllowed) {
 
-                        console.warn(`⛔ User ${uid} has role "${role}" — not authorized`);
+                        console.warn(`⛔ User ${uid} has role "${role.name}" — not authorized`);
+
+                    } else {
+
+                        console.log(`✅ User ${uid} has role "${role.name}" — authorized`);
 
                     }
 
 
 
                     return isAllowed;
+
+
 
                 } catch (error) {
 
