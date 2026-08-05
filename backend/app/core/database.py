@@ -25,18 +25,26 @@ _supabase: Optional[Client] = None
 
 def create_supabase_client() -> Client:
     """
-    Create a new Supabase client.
+    Create the singleton backend Supabase client.
+
+    The backend uses the Service Role key so trusted operations
+    (payments, callbacks, service activation, admin tasks, etc.)
+    bypass Row Level Security (RLS).
     """
 
     if not settings.SUPABASE_URL:
         raise RuntimeError("SUPABASE_URL is not configured.")
 
-    if not settings.SUPABASE_KEY:
-        raise RuntimeError("SUPABASE_KEY is not configured.")
+    if not settings.SUPABASE_SERVICE_ROLE_KEY:
+        raise RuntimeError(
+            "SUPABASE_SERVICE_ROLE_KEY is not configured."
+        )
+
+    logger.info("Initializing Supabase Service Role client...")
 
     return create_client(
         settings.SUPABASE_URL,
-        settings.SUPABASE_KEY,
+        settings.SUPABASE_SERVICE_ROLE_KEY,
     )
 
 
@@ -52,7 +60,6 @@ def get_supabase() -> Client:
     global _supabase
 
     if _supabase is None:
-        logger.info("Initializing Supabase client...")
         _supabase = create_supabase_client()
 
     return _supabase
@@ -70,10 +77,12 @@ async def init_db() -> None:
     client = get_supabase()
 
     try:
-        client.table("services") \
-            .select("id") \
-            .limit(1) \
+        (
+            client.table("services")
+            .select("id")
+            .limit(1)
             .execute()
+        )
 
         logger.info("Database connection verified.")
 
@@ -108,11 +117,13 @@ def database_health() -> bool:
     """
 
     try:
-        get_supabase() \
-            .table("services") \
-            .select("id") \
-            .limit(1) \
+        (
+            get_supabase()
+            .table("services")
+            .select("id")
+            .limit(1)
             .execute()
+        )
 
         return True
 
@@ -126,8 +137,8 @@ def database_health() -> bool:
 # =============================================================================
 
 __all__ = [
-    "get_supabase",
     "create_supabase_client",
+    "get_supabase",
     "init_db",
     "close_db",
     "database_health",
