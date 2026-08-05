@@ -1687,7 +1687,7 @@
 
                     <label>Email</label>
 
-                    <input type="email" id="adminEmail" placeholder="admin@autod.com" />
+                    <input type="email" id="adminEmail" placeholder="admin@autod.com" autocomplete="email" />
 
                 </div>
 
@@ -1695,7 +1695,7 @@
 
                     <label>Password</label>
 
-                    <input type="password" id="adminPassword" placeholder="Enter password" />
+                    <input type="password" id="adminPassword" placeholder="Enter password" autocomplete="current-password" />
 
                 </div>
 
@@ -2415,12 +2415,6 @@
 
         // AUTO-D KENYA - ADMIN DASHBOARD (WITH LIVE SYNC)
 
-        // Service pricing now reads/writes the SAME `services` table
-
-        // that dashboard.html and the FastAPI /mpesa/stkpush endpoint use,
-
-        // so admin price/status edits actually reach the customer dashboard.
-
         // ═══════════════════════════════════════════════════════════════
 
 
@@ -2521,6 +2515,10 @@
 
                         console.log('✅ Supabase client initialized');
 
+                        // Expose to window for debugging
+
+                        window.supabase = supabaseClient;
+
                     }
 
                     return supabaseClient;
@@ -2542,6 +2540,142 @@
                 if (!supabaseClient) return initSupabase();
 
                 return supabaseClient;
+
+            }
+
+
+
+            // ─── UPDATED: isAdmin with both role and role_id support ──
+
+            async function isAdmin(user) {
+
+                if (!user) {
+
+                    console.warn('⚠️ isAdmin: No user provided');
+
+                    return false;
+
+                }
+
+
+
+                const client = getSupabaseClient();
+
+                if (!client) {
+
+                    console.warn('⚠️ isAdmin: No Supabase client');
+
+                    return false;
+
+                }
+
+
+
+                try {
+
+                    // Get profile with both role and role_id
+
+                    const { data: profile, error } = await client
+
+                        .from('user_profiles')
+
+                        .select('role, role_id')
+
+                        .eq('user_id', user.id)
+
+                        .maybeSingle();
+
+
+
+                    if (error || !profile) {
+
+                        console.error('⚠️ Profile not found for user:', user.id, error);
+
+                        return false;
+
+                    }
+
+
+
+                    // Fast path - check role string directly
+
+                    if (profile.role && 
+
+                        ['admin', 'administrator', 'super admin', 'super_admin']
+
+                        .includes(profile.role.toLowerCase())) {
+
+                        console.log('✅ User authorized via role string:', profile.role);
+
+                        return true;
+
+                    }
+
+
+
+                    // Check via role_id
+
+                    if (!profile.role_id) {
+
+                        console.warn('⚠️ No role_id found for user:', user.id);
+
+                        return false;
+
+                    }
+
+
+
+                    const { data: role, error: roleError } = await client
+
+                        .from('roles')
+
+                        .select('code, name')
+
+                        .eq('id', profile.role_id)
+
+                        .maybeSingle();
+
+
+
+                    if (roleError || !role) {
+
+                        console.error('⚠️ Role not found for role_id:', profile.role_id, roleError);
+
+                        return false;
+
+                    }
+
+
+
+                    const code = role.code ? role.code.toLowerCase() : '';
+
+                    const isAllowed = code === 'admin' || code === 'super_admin';
+
+
+
+                    if (isAllowed) {
+
+                        console.log('✅ User authorized via role_id:', role.code);
+
+                    } else {
+
+                        console.warn(`⛔ User ${user.id} has role "${role.code}" — not authorized`);
+
+                    }
+
+
+
+                    return isAllowed;
+
+
+
+                } catch (error) {
+
+                    console.error('❌ isAdmin query error:', error);
+
+                    return false;
+
+                }
 
             }
 
@@ -2621,8 +2755,6 @@
 
                 try {
 
-                    // Close existing channel
-
                     if (supabaseChannel) {
 
                         supabaseChannel.fuelChannel?.unsubscribe();
@@ -2641,59 +2773,41 @@
 
 
 
-                    // Subscribe to fuel_prices changes
-
                     const fuelChannel = client
 
                         .channel('fuel_prices_changes')
 
-                        .on(
+                        .on('postgres_changes', {
 
-                            'postgres_changes',
+                            event: 'INSERT',
 
-                            {
+                            schema: 'public',
 
-                                event: 'INSERT',
+                            table: 'fuel_prices'
 
-                                schema: 'public',
+                        }, (payload) => {
 
-                                table: 'fuel_prices'
+                            console.log('⛽ Fuel price update received:', payload);
 
-                            },
+                            handleFuelPriceUpdate(payload);
 
-                            (payload) => {
+                        })
 
-                                console.log('⛽ Fuel price update received:', payload);
+                        .on('postgres_changes', {
 
-                                handleFuelPriceUpdate(payload);
+                            event: 'UPDATE',
 
-                            }
+                            schema: 'public',
 
-                        )
+                            table: 'fuel_prices'
 
-                        .on(
+                        }, (payload) => {
 
-                            'postgres_changes',
+                            console.log('⛽ Fuel price update received:', payload);
 
-                            {
+                            handleFuelPriceUpdate(payload);
 
-                                event: 'UPDATE',
-
-                                schema: 'public',
-
-                                table: 'fuel_prices'
-
-                            },
-
-                            (payload) => {
-
-                                console.log('⛽ Fuel price update received:', payload);
-
-                                handleFuelPriceUpdate(payload);
-
-                            }
-
-                        )
+                        })
 
                         .subscribe((status) => {
 
@@ -2719,83 +2833,57 @@
 
 
 
-                    // Subscribe to services changes (the SAME table dashboard.html reads)
-
                     const serviceChannel = client
 
                         .channel('services_changes')
 
-                        .on(
+                        .on('postgres_changes', {
 
-                            'postgres_changes',
+                            event: 'INSERT',
 
-                            {
+                            schema: 'public',
 
-                                event: 'INSERT',
+                            table: 'services'
 
-                                schema: 'public',
+                        }, (payload) => {
 
-                                table: 'services'
+                            console.log('💳 Service update received:', payload);
 
-                            },
+                            handleServicePriceUpdate(payload);
 
-                            (payload) => {
+                        })
 
-                                console.log('💳 Service update received:', payload);
+                        .on('postgres_changes', {
 
-                                handleServicePriceUpdate(payload);
+                            event: 'UPDATE',
 
-                            }
+                            schema: 'public',
 
-                        )
+                            table: 'services'
 
-                        .on(
+                        }, (payload) => {
 
-                            'postgres_changes',
+                            console.log('💳 Service update received:', payload);
 
-                            {
+                            handleServicePriceUpdate(payload);
 
-                                event: 'UPDATE',
+                        })
 
-                                schema: 'public',
+                        .on('postgres_changes', {
 
-                                table: 'services'
+                            event: 'DELETE',
 
-                            },
+                            schema: 'public',
 
-                            (payload) => {
+                            table: 'services'
 
-                                console.log('💳 Service update received:', payload);
+                        }, (payload) => {
 
-                                handleServicePriceUpdate(payload);
+                            console.log('💳 Service deleted:', payload);
 
-                            }
+                            fetchServicePrices();
 
-                        )
-
-                        .on(
-
-                            'postgres_changes',
-
-                            {
-
-                                event: 'DELETE',
-
-                                schema: 'public',
-
-                                table: 'services'
-
-                            },
-
-                            (payload) => {
-
-                                console.log('💳 Service deleted:', payload);
-
-                                fetchServicePrices();
-
-                            }
-
-                        )
+                        })
 
                         .subscribe((status) => {
 
@@ -2815,53 +2903,43 @@
 
 
 
-                    // Also listen for admin_logs for activity feed
-
                     const logChannel = client
 
                         .channel('admin_logs_changes')
 
-                        .on(
+                        .on('postgres_changes', {
 
-                            'postgres_changes',
+                            event: 'INSERT',
 
-                            {
+                            schema: 'public',
 
-                                event: 'INSERT',
+                            table: 'admin_logs'
 
-                                schema: 'public',
+                        }, (payload) => {
 
-                                table: 'admin_logs'
+                            console.log('📋 New log entry:', payload);
 
-                            },
+                            if (payload.new) {
 
-                            (payload) => {
+                                activityLogs.unshift({
 
-                                console.log('📋 New log entry:', payload);
+                                    action: payload.new.action || 'System update',
 
-                                if (payload.new) {
+                                    user: payload.new.username || 'system',
 
-                                    activityLogs.unshift({
+                                    time: new Date(payload.new.created_at).toLocaleTimeString(),
 
-                                        action: payload.new.action || 'System update',
+                                    timestamp: payload.new.created_at
 
-                                        user: payload.new.username || 'system',
+                                });
 
-                                        time: new Date(payload.new.created_at).toLocaleTimeString(),
+                                if (activityLogs.length > 50) activityLogs.pop();
 
-                                        timestamp: payload.new.created_at
-
-                                    });
-
-                                    if (activityLogs.length > 50) activityLogs.pop();
-
-                                    renderLogs();
-
-                                }
+                                renderLogs();
 
                             }
 
-                        )
+                        })
 
                         .subscribe();
 
@@ -2875,8 +2953,6 @@
 
                     console.error('❌ Realtime setup error:', error);
 
-                    // Retry after 10 seconds
-
                     setTimeout(setupRealtimeSubscriptions, 10000);
 
                 }
@@ -2889,15 +2965,11 @@
 
             function handleFuelPriceUpdate(payload) {
 
-                // Get the updated fuel price data
-
                 const newData = payload.new;
 
                 if (!newData) return;
 
 
-
-                // Fetch the fuel type name
 
                 querySupabase('fuel_types', 'name', { id: newData.fuel_type_id })
 
@@ -2906,8 +2978,6 @@
                         if (result.success && result.data && result.data.length > 0) {
 
                             const fuelName = result.data[0].name.toLowerCase();
-
-                            // Update the UI for this fuel type
 
                             updateFuelPriceInUI(fuelName, newData.price_per_unit, newData.effective_from);
 
@@ -2942,8 +3012,6 @@
                 if (priceEl) {
 
                     priceEl.textContent = price.toFixed(2);
-
-                    // Animate the change
 
                     priceEl.parentElement.parentElement.classList.add('updated');
 
@@ -2989,8 +3057,6 @@
 
 
 
-            // ─── Handle Service Updates (from `services` table, live) ────
-
             function handleServicePriceUpdate(payload) {
 
                 const newData = payload.new;
@@ -3006,8 +3072,6 @@
                 const name = newData.name || code.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
 
-
-                // Update the UI for this service
 
                 updateServicePriceInUI(code, price, name);
 
@@ -3155,7 +3219,7 @@
 
 
 
-            // ─── Service Functions (services table — shared with dashboard.html) ──
+            // ─── Service Functions ─────────────────────────────────────
 
             async function getServices() {
 
@@ -3209,13 +3273,9 @@
 
 
 
-                    // Supabase RLS gotcha: if a policy blocks the UPDATE, no error is
-
-                    // thrown — it just returns 0 rows. Treat that as a failure.
-
                     if (!data || data.length === 0) {
 
-                        throw new Error('Update was blocked (0 rows affected) — this is almost always a missing RLS UPDATE policy on the "services" table for your admin role, not a code bug.');
+                        throw new Error('Update was blocked (0 rows affected)');
 
                     }
 
@@ -3271,7 +3331,7 @@
 
                     if (!data || data.length === 0) {
 
-                        throw new Error('Save was blocked (0 rows affected) — this is almost always a missing RLS INSERT/UPDATE policy on the "services" table for your admin role, not a code bug.');
+                        throw new Error('Save was blocked (0 rows affected)');
 
                     }
 
@@ -3551,7 +3611,7 @@
 
                     await addAdminLog(`💳 ${name} price updated to ${price}`, 'admin');
 
-                    showToast(`✅ ${name} price updated! Customers will see this on their next refresh.`, 'success');
+                    showToast(`✅ ${name} price updated!`, 'success');
 
                 } catch (error) {
 
@@ -3613,7 +3673,7 @@
 
                     if (!toggleData || toggleData.length === 0) {
 
-                        throw new Error('Toggle was blocked (0 rows affected) — likely a missing RLS UPDATE policy on the "services" table.');
+                        throw new Error('Toggle was blocked (0 rows affected)');
 
                     }
 
@@ -4811,130 +4871,6 @@
 
 
 
-            // ─── UPDATED: isAdmin with robust error handling ──────────
-
-            async function isAdmin(userId) {
-
-                const uid = userId || currentUser?.id;
-
-                const client = getSupabaseClient();
-
-                
-
-                if (!client || !uid) {
-
-                    console.warn('⚠️ isAdmin: No client or uid');
-
-                    return false;
-
-                }
-
-
-
-                try {
-
-                    // Step 1: Get the user's profile with role_id
-
-                    const { data: profile, error: profileError } = await client
-
-                        .from('user_profiles')
-
-                        .select('role_id')
-
-                        .eq('user_id', uid)
-
-                        .single();
-
-
-
-                    if (profileError || !profile) {
-
-                        console.warn('⚠️ User profile not found:', profileError?.message || 'No profile data');
-
-                        return false;
-
-                    }
-
-
-
-                    if (!profile.role_id) {
-
-                        console.warn('⚠️ User has no role_id assigned:', uid);
-
-                        return false;
-
-                    }
-
-
-
-                    // Step 2: Get the role name using the role_id
-
-                    const { data: role, error: roleError } = await client
-
-                        .from('roles')
-
-                        .select('name')
-
-                        .eq('id', profile.role_id)
-
-                        .single();
-
-
-
-                    if (roleError || !role) {
-
-                        console.warn('⚠️ Role not found for role_id:', profile.role_id, roleError?.message);
-
-                        return false;
-
-                    }
-
-
-
-                    if (!role.name) {
-
-                        console.warn('⚠️ Role has no name field:', profile.role_id);
-
-                        return false;
-
-                    }
-
-
-
-                    const allowedRoles = ['Administrator', 'Super Administrator'];
-
-                    const isAllowed = allowedRoles.includes(role.name);
-
-
-
-                    if (!isAllowed) {
-
-                        console.warn(`⛔ User ${uid} has role "${role.name}" — not authorized`);
-
-                    } else {
-
-                        console.log(`✅ User ${uid} has role "${role.name}" — authorized`);
-
-                    }
-
-
-
-                    return isAllowed;
-
-
-
-                } catch (error) {
-
-                    console.error('❌ isAdmin query error:', error);
-
-                    return false;
-
-                }
-
-            }
-
-
-
             // ─── Auth Functions ─────────────────────────────────────────
 
             async function getCurrentUser() {
@@ -5061,7 +4997,7 @@
 
                     if (user) {
 
-                        const admin = await isAdmin(user.id);
+                        const admin = await isAdmin(user);
 
                         if (!admin) {
 
@@ -5131,7 +5067,7 @@
 
 
 
-                    const admin = await isAdmin(result.user.id);
+                    const admin = await isAdmin(result.user);
 
                     if (!admin) {
 
@@ -5293,8 +5229,6 @@
 
                 ]);
 
-                // Setup realtime subscriptions after data loads
-
                 setupRealtimeSubscriptions();
 
                 showToast('✅ Dashboard loaded with live sync', 'success');
@@ -5376,10 +5310,6 @@
 
 
             // ─── SCRAPER MANAGEMENT ──────────────────────────────────────
-
-            // Sources: Autochek, Jiji, Cheki, BeepBeep (CarAPI removed)
-
-
 
             window.runScraper = async function() {
 
@@ -5737,7 +5667,7 @@
 
 
 
-            // ─── BACKEND API — AUTH TOKEN + GENERIC REQUEST HELPER ────────
+            // ─── BACKEND API ─────────────────────────────────────────────
 
             async function getAccessToken() {
 
@@ -5849,7 +5779,7 @@
 
 
 
-            // ─── BACKEND API — ALL ADMIN + HEALTH ENDPOINTS ────────────────
+            // ─── BACKEND API ENDPOINTS ────────────────────────────────
 
             const BACKEND_ENDPOINTS = [
 
@@ -6372,8 +6302,6 @@
                             stopBackgroundTimers();
 
                             showToast('👋 Session ended', 'info');
-
-                            // Clean up realtime subscriptions
 
                             if (supabaseChannel) {
 
