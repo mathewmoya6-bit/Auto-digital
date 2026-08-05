@@ -462,7 +462,6 @@
     let servicePrices = {};
     let serviceAccess = {};
     let allServices = [];
-    let paymentAttempts = 0;
     let paymentInterval = null;
     const MAX_PAYMENT_ATTEMPTS = 24; // 2 minutes at 5s intervals
 
@@ -483,14 +482,17 @@
     function normalizePhoneNumber(phone) {
         const cleaned = phone.replace(/\D/g, '');
 
+        // 07XXXXXXXX or 01XXXXXXXX
         if (/^(07|01)\d{8}$/.test(cleaned)) {
             return '254' + cleaned.substring(1);
         }
 
-        if (/^[71]\d{8}$/.test(cleaned)) {
+        // 7XXXXXXXX or 1XXXXXXXX (explicitly)
+        if (/^(7|1)\d{8}$/.test(cleaned)) {
             return '254' + cleaned;
         }
 
+        // 2547XXXXXXXX or 2541XXXXXXXX
         if (/^254[71]\d{8}$/.test(cleaned)) {
             return cleaned;
         }
@@ -513,7 +515,7 @@
                 countdownEl.textContent = countdown;
             } else {
                 clearInterval(interval);
-                window.location.href = page;
+                window.location.assign(page);
             }
         }, 1000);
     }
@@ -549,7 +551,6 @@
             });
             console.log('✅ Supabase initialized');
             
-            // ─── FIX 4: LISTEN FOR AUTH CHANGES ──────────────────
             supabaseClient.auth.onAuthStateChange(async (event, session) => {
                 console.log('🔐 Auth state changed:', event);
                 
@@ -564,6 +565,11 @@
                     loadHistory();
                     
                 } else {
+                    // ─── FIX 4: CLEAR STALE STATE ON LOGOUT ──────
+                    serviceAccess = {};
+                    selectedServiceCode = null;
+                    selectedServiceId = null;
+                    allServices = [];
                     currentUser = null;
                     isAuthenticated = false;
                     renderAuth(null);
@@ -573,7 +579,7 @@
         return supabaseClient;
     }
 
-    // ─── FIX 1: GET CURRENT USER WITH SESSION RECOVERY ──────────
+    // ─── GET CURRENT USER WITH SESSION RECOVERY ──────────────
     async function getCurrentUser() {
         try {
             const client = initSupabase();
@@ -582,7 +588,7 @@
             // First try existing session
             let { data: { session } } = await client.auth.getSession();
 
-            // If no session, try recovering it
+            // ─── FIX 7: ONLY REFRESH IF NO SESSION ──────────────
             if (!session) {
                 console.log('🔄 No session found, attempting refresh...');
                 const { data, error } = await client.auth.refreshSession();
@@ -638,21 +644,33 @@
                 </button>
             `;
             document.getElementById('loginBtn')?.addEventListener('click', () => {
-                window.location.href = '/';
+                window.location.assign('/');
             });
         }
     }
 
-    // ─── LOGOUT ──────────────────────────────────────────────────
+    // ─── FIX 4: LOGOUT CLEANS UP STATE ─────────────────────────
     async function logout() {
         try {
+            // Clear state
+            serviceAccess = {};
+            selectedServiceCode = null;
+            selectedServiceId = null;
+            allServices = [];
+            
+            // Clear any payment interval
+            if (paymentInterval) {
+                clearInterval(paymentInterval);
+                paymentInterval = null;
+            }
+            
             const client = initSupabase();
             if (client) await client.auth.signOut();
+            
             isAuthenticated = false;
             currentUser = null;
             renderAuth(null);
             showToast('Logged out', 'info');
-            // ─── FIX 5: REDIRECT TO LOGIN ────────────────────────
             window.location.replace('/');
         } catch (e) { showToast('Logout error', 'error'); }
     }
@@ -789,17 +807,17 @@
             `;
         });
 
+        // ─── FIX 1: REPLACE INNERHTML NOT CLONE ────────────────
         serviceTabsEl.innerHTML = html;
-        
-        // Use event delegation for tabs
-        const newTabsEl = serviceTabsEl.cloneNode(true);
-        serviceTabsEl.parentNode.replaceChild(newTabsEl, serviceTabsEl);
-        
-        newTabsEl.addEventListener('click', function(e) {
+
+        // ─── FIX 1 & 2: USE DIRECT EVENT LISTENER ──────────────
+        // Remove any existing listener by using a new one
+        serviceTabsEl.onclick = function(e) {
             const btn = e.target.closest('.service-tab');
             if (!btn) return;
-            selectService(btn.dataset.service);
-        });
+            // ─── FIX 2: USE window.selectService ────────────────
+            window.selectService(btn.dataset.service);
+        };
 
         const defaultService = selectedServiceCode || (services[0]?.code);
         if (defaultService) renderServiceDetail(defaultService);
@@ -909,15 +927,18 @@
         }, 1000);
     };
 
-    // ─── REFRESH ─────────────────────────────────────────────────
+    // ─── FIX 8: REFRESH WITH HISTORY ────────────────────────────
     window.refresh = async function() {
         await fetchServices();
-        if (currentUser) await fetchUserServices(currentUser.id);
+        if (currentUser) {
+            await fetchUserServices(currentUser.id);
+        }
         renderTabs(allServices);
-        showToast('🔄 Refreshed', 'info');
+        await loadHistory();
+        showToast('🔄 Dashboard refreshed', 'info');
     };
 
-    // ─── FIX 2 & 3: PAYMENT WITH PROPER SESSION HANDLING ──────
+    // ─── PAYMENT WITH PROPER SESSION HANDLING ──────────────────
     async function initiatePayment() {
         if (payBtn.disabled) return;
 
@@ -954,7 +975,6 @@
             return;
         }
 
-        // ─── FIX 2: GET FRESH SESSION ────────────────────────────
         const client = initSupabase();
         const { data: { session } } = await client.auth.getSession();
 
@@ -995,11 +1015,13 @@
                 body: JSON.stringify(requestBody)
             });
 
+            // ─── FIX 6: BETTER ERROR HANDLING ──────────────────
+            const text = await res.text();
             let data;
             try {
-                data = await res.json();
+                data = JSON.parse(text);
             } catch {
-                throw new Error('Server returned an invalid response.');
+                throw new Error(text || 'Invalid server response');
             }
 
             if (!res.ok) {
@@ -1009,6 +1031,12 @@
 
             setStatus('✅ M-PESA prompt sent to your phone', 'success');
             showToast('📱 Check your phone for M-PESA prompt', 'success');
+
+            // ─── FIX 3: CLEAR EXISTING INTERVAL ────────────────
+            if (paymentInterval) {
+                clearInterval(paymentInterval);
+                paymentInterval = null;
+            }
 
             let attempts = 0;
             paymentInterval = setInterval(async () => {
@@ -1047,8 +1075,7 @@
                         paymentInterval = null;
                         setStatus('❌ Payment failed or timed out. Try again.', 'error');
                         showToast('❌ Payment failed', 'error');
-                        payBtn.disabled = false;
-                        updatePayBtn();
+                        // Button restored in finally
                     }
                     attempts++;
                 } catch (e) {
@@ -1060,7 +1087,8 @@
             const errorMsg = e.message || 'Unknown error occurred';
             setStatus(`❌ ${errorMsg}`, 'error');
             showToast(`❌ Payment error: ${errorMsg}`, 'error');
-            // ─── FIX 3: RESTORE BUTTON IN CATCH ──────────────────
+        } finally {
+            // ─── FIX 10: ALWAYS RESTORE BUTTON ──────────────────
             if (!serviceAccess[selectedServiceCode]) {
                 payBtn.disabled = false;
                 updatePayBtn();
@@ -1108,12 +1136,11 @@
         }
     }
 
-    // ─── FIX 5: INIT WITH REDIRECT ON NO AUTH ──────────────────
+    // ─── INIT ──────────────────────────────────────────────────
     async function init() {
         const user = await getCurrentUser();
         renderAuth(user);
         
-        // ─── FIX 5: REDIRECT IF NOT AUTHENTICATED ──────────────
         if (!user) {
             console.log('🔴 No authenticated user, redirecting to login...');
             window.location.replace('/');
@@ -1133,8 +1160,13 @@
         payBtn.addEventListener('click', initiatePayment);
         refreshHistoryBtn.addEventListener('click', loadHistory);
 
+        // ─── FIX 11: CLEANUP ON PAGE UNLOAD ──────────────────
         window.addEventListener('beforeunload', () => {
             redirectOverlay.classList.remove('show');
+            if (paymentInterval) {
+                clearInterval(paymentInterval);
+                paymentInterval = null;
+            }
         });
     }
 
