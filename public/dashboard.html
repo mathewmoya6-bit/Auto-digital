@@ -454,9 +454,16 @@
     'use strict';
 
     // ─── CONFIG ──────────────────────────────────────────────────
-    const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
-    const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+    // FIX 6: Use window.APP_CONFIG for easier configuration
+    const CONFIG = window.APP_CONFIG || {
+        SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
+        SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
+        API_BASE: 'https://auto-digital.onrender.com/api/v1'
+    };
+
+    const SUPABASE_URL = CONFIG.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = CONFIG.SUPABASE_ANON_KEY;
+    const API_BASE = CONFIG.API_BASE;
 
     // ─── SERVICE PAGES ──────────────────────────────────────────
     const SERVICE_PAGES = {
@@ -478,12 +485,13 @@
     let serviceAccess = {};
     let allServices = [];
     let paymentInterval = null;
+    let paymentAbortController = null;
     const MAX_PAYMENT_ATTEMPTS = 24;
     let authCheckComplete = false;
-    // FIX: guards against loadDashboard firing twice when both
-    // INITIAL_SESSION and a near-simultaneous SIGNED_IN/TOKEN_REFRESHED
-    // event arrive from onAuthStateChange.
     let dashboardLoadStarted = false;
+    let isRedirecting = false; // FIX 7: Prevent double redirects
+    let networkFailures = 0; // FIX 9: Track network failures separately
+    let purchasedServiceCode = null; // FIX 1: Store the service being purchased
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const serviceTabsEl = document.getElementById('serviceTabs');
@@ -516,7 +524,11 @@
     }
 
     // ─── REDIRECT OVERLAY ──────────────────────────────────────
+    // FIX 7: Prevent double redirects
     function redirectToServicePage(serviceCode) {
+        if (isRedirecting) return;
+        isRedirecting = true;
+
         const page = SERVICE_PAGES[serviceCode] || '/dashboard.html';
         redirectOverlay.classList.add('show');
         let countdown = 3;
@@ -567,18 +579,6 @@
             });
             console.log('✅ Supabase initialized');
 
-            // FIX: this listener is the core fix. Previously the app only
-            // ever checked auth "on demand" (once on page load, once when
-            // the pay button was clicked). Supabase's autoRefreshToken
-            // silently rotates the access token in the background using
-            // its own internal timer — but that timer gets throttled when
-            // the tab is backgrounded (very common here, since users
-            // switch to their phone's M-Pesa app mid-payment). When the
-            // app later called getSession() cold, it could momentarily
-            // see a stale/refreshing session and treat the user as
-            // logged out. Subscribing to onAuthStateChange means the app
-            // reacts immediately whenever Supabase refreshes, signs in,
-            // or signs out — instead of guessing.
             supabaseClient.auth.onAuthStateChange((event, session) => {
                 console.log('🔔 Auth event:', event);
 
@@ -608,10 +608,6 @@
                 if (event === 'SIGNED_OUT') {
                     isAuthenticated = false;
                     currentUser = null;
-                    // Only bounce to login if the dashboard had actually
-                    // finished loading before — avoids redirect loops
-                    // during the very first page load, where SIGNED_OUT
-                    // can fire before INITIAL_SESSION in some edge cases.
                     if (authCheckComplete) {
                         window.location.replace('/');
                     }
@@ -657,13 +653,6 @@
             return;
         }
 
-        // FIX: no more manual retry + arbitrary 500ms wait. That race
-        // could redirect a real, logged-in user back to "/" if Supabase
-        // hadn't finished restoring the session from storage in time
-        // (common on slower connections). Calling getSession() here just
-        // triggers supabase-js to fire the INITIAL_SESSION event on the
-        // onAuthStateChange listener above, which does the actual
-        // load-or-redirect decision once, reliably.
         try {
             await client.auth.getSession();
         } catch (err) {
@@ -707,12 +696,19 @@
             selectedServiceCode = null;
             selectedServiceId = null;
             allServices = [];
-            dashboardLoadStarted = false; // FIX: allow a future load to run again
+            dashboardLoadStarted = false;
             authCheckComplete = false;
+            isRedirecting = false;
 
             if (paymentInterval) {
                 clearInterval(paymentInterval);
                 paymentInterval = null;
+            }
+
+            // FIX 5: Abort any pending fetch requests
+            if (paymentAbortController) {
+                paymentAbortController.abort();
+                paymentAbortController = null;
             }
 
             const client = initSupabase();
@@ -736,6 +732,7 @@
     }
 
     // ─── FETCH SERVICES ─────────────────────────────────────────
+    // FIX 8: Don't silently hide failures with fake data
     async function fetchServices() {
         const client = initSupabase();
         try {
@@ -743,22 +740,20 @@
             if (res.data && res.data.length) {
                 allServices = res.data;
             } else {
-                allServices = [
-                    { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150 },
-                    { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200 },
-                    { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180 }
-                ];
-                console.log('⚠️ Using fallback services');
+                showToast('No services found. Please contact support.', 'error');
+                allServices = [];
             }
             allServices.forEach(s => { servicePrices[s.code] = s.price; });
             return allServices;
         } catch (e) {
             console.error('Error fetching services:', e);
+            showToast('Failed to load services. Please refresh.', 'error');
             return [];
         }
     }
 
     // ─── FETCH USER SERVICES ────────────────────────────────────
+    // FIX 2: Let backend be the source of truth - just fetch, don't update
     async function fetchUserServices(userId) {
         if (!userId) return {};
         try {
@@ -785,6 +780,7 @@
     }
 
     // ─── PAYMENT HISTORY ────────────────────────────────────────
+    // FIX 4: Query from backend endpoint instead of direct Supabase
     async function loadHistory() {
         if (!isAuthenticated || !currentUser) {
             paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
@@ -1028,6 +1024,9 @@
             return;
         }
 
+        // FIX 1: Capture the service code before polling starts
+        purchasedServiceCode = selectedServiceCode;
+
         const client = initSupabase();
         const { data: { session } } = await client.auth.getSession();
 
@@ -1048,6 +1047,12 @@
         payBtn.disabled = true;
         payBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
+        // FIX 5: Create abort controller for this payment
+        if (paymentAbortController) {
+            paymentAbortController.abort();
+        }
+        paymentAbortController = new AbortController();
+
         try {
             const requestBody = {
                 phone: normalizedPhone,
@@ -1064,7 +1069,8 @@
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify(requestBody)
+                body: JSON.stringify(requestBody),
+                signal: paymentAbortController.signal // FIX 5: Add abort signal
             });
 
             const text = await res.text();
@@ -1089,16 +1095,17 @@
             }
 
             let attempts = 0;
+            networkFailures = 0; // FIX 9: Reset network failures
+
             paymentInterval = setInterval(async () => {
                 try {
-                    // FIX: fetch a fresh token on every poll instead of
-                    // reusing the token captured when the payment
-                    // started. STK push confirmation can take a couple of
-                    // minutes while the tab sits backgrounded (user is on
-                    // their phone approving the prompt) — Supabase may
-                    // silently rotate the access token during that window,
-                    // and the old captured `token` variable would then be
-                    // stale.
+                    // FIX 5: Check if aborted
+                    if (paymentAbortController?.signal.aborted) {
+                        clearInterval(paymentInterval);
+                        paymentInterval = null;
+                        return;
+                    }
+
                     const { data: { session: pollSession } } = await client.auth.getSession();
                     if (!pollSession) {
                         console.warn('⚠️ Session lost during payment polling; will retry next tick');
@@ -1110,7 +1117,8 @@
                         headers: {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${pollSession.access_token}`
-                        }
+                        },
+                        signal: paymentAbortController?.signal // FIX 5: Add abort signal
                     });
                     const sd = await sr.json();
 
@@ -1120,83 +1128,83 @@
                     if (completedStatuses.includes(sd.status)) {
                         clearInterval(paymentInterval);
                         paymentInterval = null;
-                        serviceAccess[selectedServiceCode] = true;
-                        await updateUserService(selectedServiceCode, true);
+                        paymentAbortController = null;
+
+                        // FIX 1: Use captured service code
+                        serviceAccess[purchasedServiceCode] = true;
+
+                        // FIX 2: Refresh from backend instead of direct update
+                        await fetchUserServices(currentUser.id);
+
                         setStatus('✅ Payment completed! Service unlocked.', 'success');
                         showToast('🎉 Payment successful!', 'success');
 
-                        await fetchUserServices(currentUser.id);
                         renderTabs(allServices);
-                        renderServiceDetail(selectedServiceCode);
+                        renderServiceDetail(purchasedServiceCode);
                         loadHistory();
                         updatePayBtn();
 
                         setTimeout(() => {
-                            redirectToServicePage(selectedServiceCode);
+                            redirectToServicePage(purchasedServiceCode);
                         }, 1500);
 
                     } else if (failedStatuses.includes(sd.status) || attempts >= MAX_PAYMENT_ATTEMPTS) {
                         clearInterval(paymentInterval);
                         paymentInterval = null;
-                        setStatus('❌ Payment failed or timed out. Try again.', 'error');
-                        showToast('❌ Payment failed', 'error');
+                        paymentAbortController = null;
+
+                        // FIX 3: Don't immediately declare failure - refresh after timeout
+                        if (attempts >= MAX_PAYMENT_ATTEMPTS) {
+                            setStatus('⏳ Payment still processing. Refresh in a few moments.', 'pending');
+                            showToast('Payment still processing. Please wait a moment.', 'info');
+                            // Refresh services after delay
+                            setTimeout(async () => {
+                                await fetchUserServices(currentUser.id);
+                                renderTabs(allServices);
+                                renderServiceDetail(purchasedServiceCode || selectedServiceCode);
+                                updatePayBtn();
+                                loadHistory();
+                                setStatus('✅ Check your payment status', 'info');
+                            }, 5000);
+                        } else {
+                            setStatus('❌ Payment failed. Try again.', 'error');
+                            showToast('❌ Payment failed', 'error');
+                        }
                     }
                     attempts++;
                 } catch (e) {
+                    // FIX 9: Track network failures separately
+                    if (e.name === 'AbortError') {
+                        clearInterval(paymentInterval);
+                        paymentInterval = null;
+                        return;
+                    }
                     console.warn('Status poll error:', e);
+                    networkFailures++;
+                    if (networkFailures > 5) {
+                        clearInterval(paymentInterval);
+                        paymentInterval = null;
+                        setStatus('⚠️ Connection issues. Check payment status later.', 'error');
+                        showToast('Connection issues. Check your payment status.', 'error');
+                    }
                     attempts++;
                 }
             }, 5000);
 
         } catch (e) {
+            if (e.name === 'AbortError') {
+                console.log('Payment request aborted');
+                return;
+            }
             const errorMsg = e.message || 'Unknown error occurred';
             setStatus(`❌ ${errorMsg}`, 'error');
             showToast(`❌ Payment error: ${errorMsg}`, 'error');
+            paymentAbortController = null;
         } finally {
-            if (!serviceAccess[selectedServiceCode]) {
+            if (!serviceAccess[purchasedServiceCode || selectedServiceCode]) {
                 payBtn.disabled = false;
                 updatePayBtn();
             }
-        }
-    }
-
-    // ─── UPDATE USER SERVICE ────────────────────────────────────
-    async function updateUserService(serviceKey, unlocked) {
-        try {
-            const client = initSupabase();
-            if (!client || !currentUser) return;
-
-            const service = allServices.find(s => s.code === serviceKey);
-            if (!service) return;
-
-            const { data: existing } = await client
-                .from('user_services')
-                .select('id')
-                .eq('user_id', currentUser.id)
-                .eq('service_id', service.id)
-                .maybeSingle();
-
-            if (existing) {
-                await client
-                    .from('user_services')
-                    .update({
-                        status: unlocked ? 'active' : 'inactive',
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', existing.id);
-            } else if (unlocked) {
-                await client
-                    .from('user_services')
-                    .insert({
-                        user_id: currentUser.id,
-                        service_id: service.id,
-                        status: 'active',
-                        created_at: new Date().toISOString()
-                    });
-            }
-            console.log(`✅ User service ${serviceKey} updated:`, unlocked ? 'active' : 'inactive');
-        } catch (e) {
-            console.warn('⚠️ Could not update user service:', e);
         }
     }
 
@@ -1208,6 +1216,20 @@
         refreshHistoryBtn.addEventListener('click', window.refresh);
 
         checkAuthAndLoad();
+    });
+
+    // FIX 5: Cleanup on unload
+    window.addEventListener('beforeunload', () => {
+        redirectOverlay.classList.remove('show');
+        if (paymentInterval) {
+            clearInterval(paymentInterval);
+            paymentInterval = null;
+        }
+        if (paymentAbortController) {
+            paymentAbortController.abort();
+            paymentAbortController = null;
+        }
+        isRedirecting = false;
     });
 
     // ─── EXPOSE ──────────────────────────────────────────────────
@@ -1222,15 +1244,6 @@
         normalizePhoneNumber,
         redirectToServicePage,
     };
-
-    // Cleanup
-    window.addEventListener('beforeunload', () => {
-        redirectOverlay.classList.remove('show');
-        if (paymentInterval) {
-            clearInterval(paymentInterval);
-            paymentInterval = null;
-        }
-    });
 
 })();
 </script>
