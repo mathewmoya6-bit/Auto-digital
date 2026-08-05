@@ -3,9 +3,13 @@
 # Auto-D Kenya - M-Pesa Service
 # ================================================================
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from decimal import Decimal
+from typing import Any, Dict, List, Optional, Union
+
+from supabase import create_client, Client
 
 from app.core.config import settings
 from app.core.exceptions import (
@@ -15,6 +19,7 @@ from app.core.exceptions import (
 )
 from app.core.security import mask_sensitive
 from app.modules.mpesa.stk_push import StkPushService
+from app.modules.mpesa.repository import MpesaRepository
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +27,120 @@ logger = logging.getLogger(__name__)
 class MpesaService:
     """M-Pesa payment service orchestrator."""
 
+    # Status constants
+    STATUS_PENDING = "pending"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+    STATUS_CANCELLED = "cancelled"
+    
+    # Access constants
+    ACCESS_ACTIVE = "active"
+    ACCESS_EXPIRED = "expired"
+    ACCESS_INACTIVE = "inactive"
+    
+    DEFAULT_ACCESS_DAYS = 365
+
     def __init__(self):
         """Initialize the M-Pesa service."""
-        self.supabase = settings.SUPABASE_CLIENT
+        # Initialize Supabase client
+        self.supabase: Client = create_client(
+            settings.SUPABASE_URL,
+            settings.SUPABASE_KEY
+        )
         self.stk_push = StkPushService() if settings.MPESA_ENABLED else None
+        self.repository = MpesaRepository()
         self._services_cache = None
         self._cache_time = None
         self._cache_ttl = 300  # 5 minutes
+
+    # ================================================================
+    # HELPERS
+    # ================================================================
+
+    async def _get_service_active_column(self) -> str:
+        """
+        Get the active column name for services.
+        """
+        return "active"
+
+    # ================================================================
+    # SERVICE LOOKUP
+    # ================================================================
+
+    async def _get_service(
+        self,
+        service_id: Union[int, str],
+    ) -> Dict[str, Any]:
+        """
+        Retrieve an active service by numeric ID or service code.
+
+        Raises:
+            NotFoundException
+            ValidationException
+        """
+
+        active_column = await self._get_service_active_column()
+
+        query = (
+            self.supabase
+            .table("services")
+            .select("*")
+            .eq(active_column, True)
+        )
+
+        if isinstance(service_id, int):
+            query = query.eq("id", service_id)
+
+        elif isinstance(service_id, str):
+
+            if service_id.isdigit():
+                query = query.eq("id", int(service_id))
+            else:
+                query = query.eq("code", service_id.lower())
+
+        response = query.maybe_single().execute()
+
+        if not response or not response.data:
+            raise NotFoundException(
+                f"Service '{service_id}' not found."
+            )
+
+        service = response.data
+
+        price = float(service.get("price") or 0)
+
+        if price <= 0:
+            raise ValidationException(
+                f"Invalid service price for '{service.get('name')}'."
+            )
+
+        return service
+
+    async def get_service_by_id(
+        self,
+        service_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Return service by numeric ID.
+        """
+
+        try:
+            return await self._get_service(service_id)
+        except Exception:
+            return None
+
+    async def get_service_by_code(
+        self,
+        service_code: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Return service by code.
+        """
+
+        try:
+            return await self._get_service(service_code)
+        except Exception:
+            return None
 
     # ================================================================
     # PAYMENT INITIATION
@@ -37,50 +149,48 @@ class MpesaService:
     async def initiate_payment(
         self,
         phone: str,
-        service_id: int,
-        description: Optional[str],
-        user_id: str,
+        service_id: Union[int, str],
+        description: Optional[str] = None,
+        user_id: Optional[str] = None,
         amount: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
-        Initiate an STK Push payment.
+        Initiate an M-Pesa STK Push.
 
-        Args:
-            phone: Customer phone number
-            service_id: ID of the service being purchased
-            description: Optional description
-            user_id: ID of the user making the payment
-            amount: Optional amount (overrides service price)
-
-        Returns:
-            Dict containing checkout_request_id and status
-
-        Raises:
-            ValidationException: If service not found or invalid
-            AppException: If payment initiation fails
+        The amount supplied by the client is ignored.
+        Billing always uses the price stored in the services table.
         """
-        # Validate phone number
-        if not phone or len(phone) < 10:
-            raise ValidationException("Valid phone number is required")
 
-        # Get service details
-        service = await self._get_service_by_id(service_id)
-        if not service:
-            raise NotFoundException(f"Service {service_id} not found")
+        service = await self._get_service(service_id)
 
-        # Determine amount
-        final_amount = amount or service.get("price", 0)
-        if final_amount <= 0:
-            raise ValidationException("Invalid payment amount")
+        db_amount = float(service["price"])
+
+        if amount is not None and amount != db_amount:
+            logger.warning(
+                "Ignoring client amount %.2f. Using database price %.2f.",
+                amount,
+                db_amount,
+            )
+
+        description = description or service["name"]
+
+        logger.info(
+            "Initiating payment | user=%s service=%s amount=%s phone=%s",
+            user_id,
+            service["code"],
+            db_amount,
+            mask_sensitive(phone),
+        )
 
         # Create payment record
         payment_data = {
             "user_id": user_id,
-            "service_id": service_id,
-            "amount": final_amount,
+            "service_id": service["id"],
+            "amount": db_amount,
             "currency": service.get("currency", "KES"),
-            "status": "pending",
-            "description": description or service.get("name", "Service payment"),
+            "status": self.STATUS_PENDING,
+            "description": description,
+            "phone": phone,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -100,28 +210,62 @@ class MpesaService:
             if not self.stk_push:
                 raise AppException("M-Pesa service is not configured")
 
-            stk_result = await self.stk_push.initiate_stk_push(
+            response = await self.stk_push.initiate_stk_push(
                 phone=phone,
-                amount=final_amount,
+                amount=db_amount,
                 account_reference=f"PAY-{payment_id}",
-                transaction_desc=payment_data["description"],
+                transaction_desc=description,
                 callback_url=settings.MPESA_CALLBACK_URL,
             )
+
+            if not response:
+                raise AppException("STK Push returned no response.")
+
+            checkout_request_id = response.get("checkout_request_id")
+
+            if not checkout_request_id:
+                raise AppException(
+                    response.get(
+                        "error",
+                        "CheckoutRequestID missing.",
+                    )
+                )
 
             # Update payment with checkout request ID
             await self.supabase.table("payments") \
                 .update({
-                    "checkout_request_id": stk_result["checkout_request_id"],
-                    "mpesa_response": stk_result,
+                    "checkout_request_id": checkout_request_id,
+                    "mpesa_response": response,
                 }) \
                 .eq("id", payment_id) \
                 .execute()
 
+            logger.info(
+                "STK Push sent successfully | checkout=%s",
+                mask_sensitive(checkout_request_id),
+            )
+
             return {
-                "checkout_request_id": stk_result["checkout_request_id"],
+                "success": True,
+                "checkout_request_id": checkout_request_id,
                 "payment_id": payment_id,
-                "status": "pending",
-                "customer_message": stk_result.get("customer_message", "STK Push sent successfully."),
+                "merchant_request_id": response.get(
+                    "merchant_request_id"
+                ),
+                "customer_message": response.get(
+                    "customer_message",
+                    "STK Push sent successfully.",
+                ),
+                "status": response.get(
+                    "status",
+                    self.STATUS_PENDING,
+                ),
+                "response_code": response.get(
+                    "response_code"
+                ),
+                "response_description": response.get(
+                    "response_description"
+                ),
             }
 
         except Exception as e:
@@ -129,7 +273,258 @@ class MpesaService:
             raise AppException(f"Payment initiation failed: {str(e)}")
 
     # ================================================================
-    # CALLBACK HANDLING
+    # PAYMENT STATUS
+    # ================================================================
+
+    async def get_payment_status(
+        self,
+        checkout_request_id: str,
+        user_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Get payment status for a user.
+        """
+
+        payment = await self.repository.get_payment_by_checkout_id(
+            checkout_request_id
+        )
+
+        if not payment:
+            raise NotFoundException("Payment not found.")
+
+        if payment.get("user_id") != user_id:
+            raise NotFoundException("Payment not found.")
+
+        # If payment is still pending and STK Push is available, check with M-Pesa
+        if payment.get("status") == self.STATUS_PENDING and self.stk_push:
+            try:
+                stk_status = await self.stk_push.check_payment_status(
+                    checkout_request_id
+                )
+
+                # Update payment if status changed
+                if stk_status.get("status") != self.STATUS_PENDING:
+                    await self.supabase.table("payments") \
+                        .update({
+                            "status": stk_status.get("status"),
+                            "result_code": stk_status.get("result_code"),
+                            "result_desc": stk_status.get("result_desc"),
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }) \
+                        .eq("id", payment["id"]) \
+                        .execute()
+
+                    payment["status"] = stk_status.get("status")
+                    payment["result_desc"] = stk_status.get("result_desc")
+
+            except Exception as e:
+                logger.warning(f"Failed to check STK status: {e}")
+
+        return {
+            "checkout_request_id": checkout_request_id,
+            "status": payment.get("status"),
+            "amount": payment.get("amount"),
+            "phone": payment.get("phone"),
+            "receipt": payment.get("receipt_number"),
+            "created_at": payment.get("created_at"),
+            "updated_at": payment.get("updated_at"),
+        }
+
+    # ================================================================
+    # USER SERVICE LOOKUP
+    # ================================================================
+
+    async def _get_user_service(
+        self,
+        user_id: str,
+        service_id: int,
+    ) -> Optional[Dict[str, Any]]:
+
+        try:
+            result = (
+                self.supabase
+                .table("user_services")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("service_id", service_id)
+                .maybe_single()
+                .execute()
+            )
+
+            return result.data if result else None
+
+        except Exception:
+            logger.exception(
+                "Unable to load user service."
+            )
+            return None
+
+    # ================================================================
+    # MANUAL CONFIRMATION
+    # ================================================================
+
+    async def confirm_payment(
+        self,
+        checkout_request_id: str,
+        user_id: str,
+    ) -> Dict[str, Any]:
+
+        payment = await self.repository.get_payment_by_checkout_id(
+            checkout_request_id
+        )
+
+        if not payment:
+            raise NotFoundException("Payment not found.")
+
+        if payment.get("user_id") != user_id:
+            raise NotFoundException("Payment not found.")
+
+        if payment.get("status") != self.STATUS_COMPLETED:
+            raise AppException(
+                f"Payment status is '{payment.get('status')}'.",
+                status_code=409,
+            )
+
+        existing = await self._get_user_service(
+            payment["user_id"],
+            payment["service_id"],
+        )
+
+        if existing and existing.get("status") == self.ACCESS_ACTIVE:
+            return {
+                "status": self.STATUS_COMPLETED,
+                "message": "Service already active.",
+            }
+
+        await self._unlock_service_atomic(
+            user_id=payment["user_id"],
+            service_id=payment["service_id"],
+            payment_id=payment.get("id"),
+            expected_amount=payment.get("amount"),
+        )
+
+        return {
+            "status": self.STATUS_COMPLETED,
+            "message": "Service unlocked.",
+        }
+
+    # ================================================================
+    # ATOMIC SERVICE UNLOCK
+    # ================================================================
+
+    def _unlock_service_atomic_sync(
+        self,
+        supabase,
+        user_id: str,
+        service_id: int,
+        payment_id: Optional[str] = None,
+        expires_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+
+        now = datetime.now(timezone.utc)
+
+        expiry = expires_at or (
+            now + timedelta(days=self.DEFAULT_ACCESS_DAYS)
+        ).isoformat()
+
+        row = {
+            "user_id": user_id,
+            "service_id": service_id,
+            "status": self.ACCESS_ACTIVE,
+            "expires_at": expiry,
+            "updated_at": now.isoformat(),
+            "created_at": now.isoformat(),
+        }
+
+        if payment_id:
+            row["payment_id"] = payment_id
+
+        result = (
+            supabase
+            .table("user_services")
+            .upsert(
+                row,
+                on_conflict="user_id,service_id",
+            )
+            .execute()
+        )
+
+        if result and result.data:
+            return result.data[0]
+
+        return row
+
+    async def _unlock_service_atomic(
+        self,
+        user_id: str,
+        service_id: int,
+        payment_id: Optional[str] = None,
+        callback_amount: Optional[float] = None,
+        expected_amount: Optional[float] = None,
+        expires_at: Optional[str] = None,
+    ) -> None:
+
+        if (
+            callback_amount is not None
+            and expected_amount is not None
+        ):
+
+            callback_value = Decimal(
+                str(callback_amount)
+            ).quantize(
+                Decimal("0.01")
+            )
+
+            expected_value = Decimal(
+                str(expected_amount)
+            ).quantize(
+                Decimal("0.01")
+            )
+
+            if callback_value != expected_value:
+                raise ValidationException(
+                    "Callback amount does not match payment amount."
+                )
+
+        loop = asyncio.get_running_loop()
+
+        await loop.run_in_executor(
+            None,
+            self._unlock_service_atomic_sync,
+            self.supabase,
+            user_id,
+            service_id,
+            payment_id,
+            expires_at,
+        )
+
+        logger.info(
+            "Service unlocked | user=%s service=%s",
+            user_id,
+            service_id,
+        )
+
+    async def unlock_service(
+        self,
+        user_id: str,
+        service_id: int,
+        payment_id: Optional[str] = None,
+        callback_amount: Optional[float] = None,
+        expected_amount: Optional[float] = None,
+        expires_at: Optional[str] = None,
+    ) -> None:
+
+        await self._unlock_service_atomic(
+            user_id=user_id,
+            service_id=service_id,
+            payment_id=payment_id,
+            callback_amount=callback_amount,
+            expected_amount=expected_amount,
+            expires_at=expires_at,
+        )
+
+    # ================================================================
+    # CALLBACK PROCESSING
     # ================================================================
 
     async def handle_callback(
@@ -141,185 +536,218 @@ class MpesaService:
         amount: Optional[float] = None,
         phone: Optional[str] = None,
         transaction_date: Optional[str] = None,
-        callback_payload: Optional[Dict] = None,
-    ) -> None:
+        callback_payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """
-        Handle M-Pesa callback from Safaricom.
+        Process Safaricom callback.
 
-        Args:
-            checkout_request_id: M-Pesa checkout request ID
-            result_code: Result code (0 = success)
-            result_desc: Result description
-            receipt: M-Pesa receipt number
-            amount: Transaction amount
-            phone: Customer phone number
-            transaction_date: Transaction date
-            callback_payload: Full callback payload
+        This is the ONLY place where purchased services
+        are unlocked.
         """
-        try:
-            # Find payment by checkout_request_id
-            payment_result = await self.supabase.table("payments") \
-                .select("*") \
-                .eq("checkout_request_id", checkout_request_id) \
-                .execute()
 
-            if not payment_result.data:
-                logger.warning(f"Payment not found: {checkout_request_id}")
-                return
+        payment = await self.repository.get_payment_by_checkout_id(
+            checkout_request_id
+        )
 
-            payment = payment_result.data[0]
-            payment_id = payment.get("id")
-            user_id = payment.get("user_id")
-            service_id = payment.get("service_id")
-
-            # Determine status
-            is_success = result_code == "0"
-            status = "completed" if is_success else "failed"
-
-            # Update payment record
-            update_data = {
-                "status": status,
-                "result_code": result_code,
-                "result_desc": result_desc,
-                "callback_payload": callback_payload,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+        if not payment:
+            logger.warning(
+                "Unknown checkout request %s",
+                checkout_request_id,
+            )
+            return {
+                "status": "not_found",
+                "message": "Payment not found.",
             }
 
-            if receipt:
-                update_data["receipt_number"] = receipt
-            if amount:
-                update_data["amount"] = amount
-            if phone:
-                update_data["phone"] = phone
-            if transaction_date:
-                update_data["transaction_date"] = transaction_date
+        # --------------------------------------------------------
+        # Validate phone
+        # --------------------------------------------------------
 
-            await self.supabase.table("payments") \
-                .update(update_data) \
-                .eq("id", payment_id) \
-                .execute()
+        if phone and payment.get("phone"):
+            callback_phone = self._normalize_phone(phone)
+            stored_phone = self._normalize_phone(
+                payment["phone"]
+            )
 
-            # If payment was successful, grant service access
-            if is_success and user_id and service_id:
-                await self._grant_service_access(
-                    user_id=user_id,
-                    service_id=service_id,
-                    payment_id=payment_id,
+            if callback_phone != stored_phone:
+                logger.error(
+                    "Phone mismatch callback=%s stored=%s",
+                    mask_sensitive(callback_phone),
+                    mask_sensitive(stored_phone),
                 )
 
-            logger.info(
-                f"Callback processed: {checkout_request_id} -> {status}"
+                return {
+                    "status": "rejected",
+                    "message": "Phone mismatch.",
+                }
+
+        # --------------------------------------------------------
+        # Validate amount
+        # --------------------------------------------------------
+
+        if amount is not None:
+            callback_amount = Decimal(
+                str(amount)
+            ).quantize(
+                Decimal("0.01")
             )
 
-        except Exception as e:
-            logger.exception(f"Callback processing failed: {e}")
-            # Re-raise to ensure the callback returns 200 OK
-            # The outer handler will log but not fail
-            raise
+            expected_amount = Decimal(
+                str(payment["amount"])
+            ).quantize(
+                Decimal("0.01")
+            )
+
+            if callback_amount != expected_amount:
+                logger.error(
+                    "Amount mismatch callback=%s expected=%s",
+                    callback_amount,
+                    expected_amount,
+                )
+
+                return {
+                    "status": "rejected",
+                    "message": "Amount mismatch.",
+                }
+
+        # --------------------------------------------------------
+        # Update payment
+        # --------------------------------------------------------
+
+        updated = await self.repository.update_payment_from_callback(
+            checkout_request_id=checkout_request_id,
+            result_code=result_code,
+            result_desc=result_desc,
+            receipt=receipt,
+            amount=amount,
+            phone=phone,
+            transaction_date=transaction_date,
+            callback_payload=callback_payload,
+        )
+
+        if updated is None or isinstance(updated, bool):
+            updated = await self.repository.get_payment_by_checkout_id(
+                checkout_request_id
+            )
+
+        if updated is None:
+            raise AppException(
+                "Unable to reload payment."
+            )
+
+        # --------------------------------------------------------
+        # Unlock purchased service
+        # --------------------------------------------------------
+
+        if (
+            str(result_code) == "0"
+            and updated.get("status") == self.STATUS_COMPLETED
+        ):
+
+            existing = await self._get_user_service(
+                updated["user_id"],
+                updated["service_id"],
+            )
+
+            if not existing or existing.get("status") != self.ACCESS_ACTIVE:
+
+                await self.unlock_service(
+                    user_id=updated["user_id"],
+                    service_id=updated["service_id"],
+                    payment_id=updated.get("id"),
+                    callback_amount=amount,
+                    expected_amount=updated["amount"],
+                )
+
+                logger.info(
+                    "Service unlocked for payment %s",
+                    checkout_request_id,
+                )
+
+        return {
+            "status": "updated",
+            "payment": updated,
+        }
+
+    def _normalize_phone(self, phone: str) -> str:
+        """Normalize phone number for comparison."""
+        if not phone:
+            return ""
+        cleaned = ''.join(filter(str.isdigit, phone))
+        if cleaned.startswith('0'):
+            cleaned = '254' + cleaned[1:]
+        elif cleaned.startswith('7'):
+            cleaned = '254' + cleaned
+        elif not cleaned.startswith('254'):
+            cleaned = '254' + cleaned
+        return cleaned
 
     # ================================================================
-    # SERVICE ACCESS MANAGEMENT
+    # SERVICE ACCESS
     # ================================================================
 
-    async def _grant_service_access(
+    async def check_service_access(
         self,
         user_id: str,
-        service_id: int,
-        payment_id: int,
-    ) -> None:
-        """
-        Grant a user access to a service after successful payment.
+        service_code: str,
+    ) -> Dict[str, Any]:
 
-        Args:
-            user_id: User ID
-            service_id: Service ID
-            payment_id: Payment ID
-        """
-        try:
-            # Check if access already exists
-            existing = await self.supabase.table("user_services") \
-                .select("*") \
-                .eq("user_id", user_id) \
-                .eq("service_id", service_id) \
-                .execute()
+        service = await self.get_service_by_code(
+            service_code
+        )
 
-            expires_at = datetime.now(timezone.utc) + timedelta(days=365)
+        if not service:
+            return {
+                "has_access": False,
+                "status": "service_not_found",
+            }
 
-            if existing.data:
-                # Update existing access
-                await self.supabase.table("user_services") \
-                    .update({
-                        "expires_at": expires_at.isoformat(),
-                        "payment_id": payment_id,
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    }) \
-                    .eq("id", existing.data[0]["id"]) \
-                    .execute()
-            else:
-                # Create new access record
-                await self.supabase.table("user_services") \
-                    .insert({
-                        "user_id": user_id,
-                        "service_id": service_id,
-                        "payment_id": payment_id,
-                        "expires_at": expires_at.isoformat(),
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                    }) \
-                    .execute()
-
-            logger.info(
-                f"Service access granted: user={user_id}, service={service_id}"
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to grant service access: {e}")
-            # Don't re-raise - the payment is already processed
+        return await self.check_service_access_by_id(
+            user_id,
+            service["id"],
+        )
 
     async def check_service_access_by_id(
         self,
         user_id: str,
         service_id: int,
     ) -> Dict[str, Any]:
-        """
-        Check if a user has access to a specific service.
 
-        Args:
-            user_id: User ID
-            service_id: Service ID
+        result = (
+            self.supabase
+            .table("user_services")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("service_id", service_id)
+            .maybe_single()
+            .execute()
+        )
 
-        Returns:
-            Dict with has_access, status, expires_at, and message
-        """
-        try:
-            # Get service first to check if it exists
-            service = await self._get_service_by_id(service_id)
-            if not service:
-                return {
-                    "has_access": False,
-                    "status": "error",
-                    "message": "Service not found",
-                }
+        return self._evaluate_service_access(
+            result.data if result else None
+        )
 
-            # Check access
-            result = await self.supabase.table("user_services") \
-                .select("*") \
-                .eq("user_id", user_id) \
-                .eq("service_id", service_id) \
-                .execute()
+    def _evaluate_service_access(
+        self,
+        access_record: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
 
-            if not result.data:
-                return {
-                    "has_access": False,
-                    "status": "no_access",
-                    "message": "No access to this service",
-                }
+        if not access_record:
+            return {
+                "has_access": False,
+                "status": "no_access",
+                "message": "No access to this service",
+            }
 
-            access = result.data[0]
-            expires_at = access.get("expires_at")
+        status = access_record.get("status")
+        expires_at = access_record.get("expires_at")
 
-            # Check if expired
-            if expires_at:
-                expires = datetime.fromisoformat(expires_at)
+        # Check if expired
+        if expires_at:
+            try:
+                expires = datetime.fromisoformat(
+                    expires_at.replace("Z", "+00:00")
+                )
                 if expires < datetime.now(timezone.utc):
                     return {
                         "has_access": False,
@@ -327,224 +755,127 @@ class MpesaService:
                         "expires_at": expires_at,
                         "message": "Access has expired",
                     }
+            except Exception:
+                pass
 
-            return {
-                "has_access": True,
-                "status": "active",
-                "expires_at": expires_at,
-                "message": "Access granted",
-            }
+        is_active = status == self.ACCESS_ACTIVE
 
-        except Exception as e:
-            logger.error(f"Failed to check service access: {e}")
-            return {
-                "has_access": False,
-                "status": "error",
-                "message": f"Failed to check access: {str(e)}",
-            }
+        return {
+            "has_access": is_active,
+            "status": status or "unknown",
+            "expires_at": expires_at,
+            "message": "Access granted" if is_active else "Access inactive",
+        }
 
     # ================================================================
-    # GET USER SERVICES
+    # USER SERVICES
     # ================================================================
 
-    async def get_user_services(self, user_id: str) -> Dict[str, bool]:
-        """
-        Get all services a user has access to.
-
-        Args:
-            user_id: User ID
-
-        Returns:
-            Dict mapping service_code -> has_access (bool)
-        """
-        try:
-            # Get all services the user has access to
-            result = await self.supabase.table("user_services") \
-                .select("services(code)") \
-                .eq("user_id", user_id) \
-                .execute()
-
-            services = {}
-            for item in result.data or []:
-                service = item.get("services", {})
-                code = service.get("code")
-                if code:
-                    services[code] = True
-
-            return services
-
-        except Exception as e:
-            logger.error(f"Failed to get user services: {e}")
-            return {}
-
-    async def get_user_payments(self, user_id: str) -> List[Dict[str, Any]]:
-        """
-        Get a user's payment history.
-
-        Args:
-            user_id: User ID
-
-        Returns:
-            List of payment records
-        """
-        try:
-            result = await self.supabase.table("payments") \
-                .select("*") \
-                .eq("user_id", user_id) \
-                .order("created_at", desc=True) \
-                .execute()
-
-            return result.data or []
-
-        except Exception as e:
-            logger.error(f"Failed to get user payments: {e}")
-            return []
-
-    # ================================================================
-    # GET PAYMENT STATUS
-    # ================================================================
-
-    async def get_payment_status(
+    async def get_user_services(
         self,
-        checkout_request_id: str,
         user_id: str,
-    ) -> Dict[str, Any]:
-        """
-        Get the status of a payment.
+    ) -> Dict[str, bool]:
 
-        Args:
-            checkout_request_id: M-Pesa checkout request ID
-            user_id: User ID (for authorization)
+        services = {}
 
-        Returns:
-            Dict with payment status
+        response = (
+            self.supabase
+            .table("user_services")
+            .select(
+                "status,expires_at,services(code)"
+            )
+            .eq("user_id", user_id)
+            .execute()
+        )
 
-        Raises:
-            NotFoundException: If payment not found
-            AppException: If user not authorized
-        """
-        try:
-            result = await self.supabase.table("payments") \
-                .select("*") \
-                .eq("checkout_request_id", checkout_request_id) \
-                .execute()
+        now = datetime.now(timezone.utc)
 
-            if not result.data:
-                raise NotFoundException("Payment not found")
+        if response.data:
+            for row in response.data:
+                service = row.get("services") or {}
+                code = service.get("code")
 
-            payment = result.data[0]
+                if not code:
+                    continue
 
-            # Check authorization
-            if payment.get("user_id") != user_id:
-                raise AppException("Not authorized to view this payment")
+                active = row.get("status") == self.ACCESS_ACTIVE
+                expires = row.get("expires_at")
 
-            # If payment is still pending and STK Push is available, check with M-Pesa
-            if payment.get("status") == "pending" and self.stk_push:
-                try:
-                    stk_status = await self.stk_push.check_payment_status(
-                        checkout_request_id
-                    )
+                if expires:
+                    try:
+                        expiry = datetime.fromisoformat(
+                            expires.replace("Z", "+00:00")
+                        )
+                        active = active and expiry > now
+                    except Exception:
+                        pass
 
-                    # Update payment if status changed
-                    if stk_status.get("status") != "pending":
-                        await self.supabase.table("payments") \
-                            .update({
-                                "status": stk_status.get("status"),
-                                "result_code": stk_status.get("result_code"),
-                                "result_desc": stk_status.get("result_desc"),
-                                "updated_at": datetime.now(timezone.utc).isoformat(),
-                            }) \
-                            .eq("id", payment["id"]) \
-                            .execute()
+                services[code] = active
 
-                        payment["status"] = stk_status.get("status")
-                        payment["result_desc"] = stk_status.get("result_desc")
+        return services
 
-                except Exception as e:
-                    logger.warning(f"Failed to check STK status: {e}")
+    async def get_user_payments(
+        self,
+        user_id: str,
+    ) -> List[Dict[str, Any]]:
 
-            # Get service details
-            service = await self._get_service_by_id(payment.get("service_id"))
-
-            return {
-                "status": payment.get("status", "unknown"),
-                "message": payment.get("result_desc", "Payment in progress"),
-                "amount": payment.get("amount", 0),
-                "currency": payment.get("currency", "KES"),
-                "service": service.get("name") if service else None,
-                "receipt_number": payment.get("receipt_number"),
-                "created_at": payment.get("created_at"),
-                "completed_at": payment.get("updated_at"),
-            }
-
-        except Exception as e:
-            if isinstance(e, (NotFoundException, AppException)):
-                raise
-            logger.error(f"Failed to get payment status: {e}")
-            raise AppException(f"Failed to get payment status: {str(e)}")
+        return await self.repository.get_user_payments(
+            user_id
+        )
 
     # ================================================================
     # AVAILABLE SERVICES
     # ================================================================
 
-    async def get_available_services(self) -> List[Dict[str, Any]]:
-        """
-        Get all available services.
+    async def get_available_services(
+        self,
+    ) -> List[Dict[str, Any]]:
 
-        Returns:
-            List of service records
-        """
+        active = await self._get_service_active_column()
+
+        # Check cache
+        if self._services_cache and self._cache_time:
+            if (datetime.now(timezone.utc) - self._cache_time).seconds < self._cache_ttl:
+                return self._services_cache
+
         try:
-            # Check cache
-            if self._services_cache and self._cache_time:
-                if (datetime.now(timezone.utc) - self._cache_time).seconds < self._cache_ttl:
-                    return self._services_cache
-
-            result = await self.supabase.table("services") \
-                .select("*") \
-                .eq("active", True) \
-                .order("display_order") \
+            response = (
+                self.supabase
+                .table("services")
+                .select("*")
+                .eq(active, True)
+                .order("display_order")
                 .execute()
-
-            services = result.data or []
-
-            # Update cache
-            self._services_cache = services
-            self._cache_time = datetime.now(timezone.utc)
-
-            return services
-
-        except Exception as e:
-            logger.error(f"Failed to get available services: {e}")
-            return []
-
-    async def _get_service_by_id(self, service_id: int) -> Optional[Dict[str, Any]]:
-        """
-        Get a service by ID.
-
-        Args:
-            service_id: Service ID
-
-        Returns:
-            Service record or None
-        """
-        try:
-            # Try cache first
-            if self._services_cache:
-                for service in self._services_cache:
-                    if service.get("id") == service_id:
-                        return service
-
-            result = await self.supabase.table("services") \
-                .select("*") \
-                .eq("id", service_id) \
+            )
+        except Exception:
+            response = (
+                self.supabase
+                .table("services")
+                .select("*")
+                .eq(active, True)
+                .order("id")
                 .execute()
+            )
 
-            return result.data[0] if result.data else None
+        services = response.data or []
 
-        except Exception as e:
-            logger.error(f"Failed to get service by ID: {e}")
-            return None
+        # Update cache
+        self._services_cache = services
+        self._cache_time = datetime.now(timezone.utc)
+
+        return services
+
+    # ================================================================
+    # CLEANUP
+    # ================================================================
+
+    async def cleanup_stale_payments(
+        self,
+    ) -> int:
+
+        if self.stk_push:
+            return await self.stk_push.cleanup_stale_payments()
+        return 0
 
     # ================================================================
     # HEALTH CHECK
@@ -553,10 +884,8 @@ class MpesaService:
     async def health_check(self) -> Dict[str, Any]:
         """
         Perform a health check.
-
-        Returns:
-            Dict with health status
         """
+
         status = {
             "database": False,
             "stk_push": False,
