@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class AuthService:
-    """Authentication service."""
+    """Authentication service using Supabase Auth."""
     
     def __init__(self):
         self.supabase = get_supabase()
@@ -28,12 +28,13 @@ class AuthService:
             password: User password
             
         Returns:
-            dict: Access token, refresh token, and user info
+            dict: Supabase session tokens and user info
             
         Raises:
             UnauthorizedException: If credentials are invalid
         """
         try:
+            # Use Supabase's built-in authentication
             response = self.supabase.auth.sign_in_with_password({
                 "email": email,
                 "password": password
@@ -44,6 +45,8 @@ class AuthService:
 
             logger.info(f"User logged in: {response.user.email} (ID: {response.user.id})")
 
+            # Return the Supabase session tokens directly
+            # DO NOT create custom JWT - use Supabase tokens
             return {
                 "access_token": response.session.access_token,
                 "refresh_token": response.session.refresh_token,
@@ -137,7 +140,7 @@ class AuthService:
         Refresh an expired access token.
         
         Args:
-            refresh_token: The refresh token
+            refresh_token: The refresh token from Supabase
             
         Returns:
             dict: New access token and session info
@@ -146,7 +149,11 @@ class AuthService:
             UnauthorizedException: If refresh token is invalid
         """
         try:
-            response = self.supabase.auth.refresh_session(refresh_token)
+            # Refresh the session using Supabase
+            # Note: The SDK method may vary by version
+            response = self.supabase.auth.refresh_session(
+                refresh_token=refresh_token
+            )
 
             if not response.user or not response.session:
                 raise UnauthorizedException("Invalid refresh token")
@@ -170,6 +177,9 @@ class AuthService:
         """
         Log out a user by invalidating their session.
         
+        Note: Supabase doesn't have a direct logout API for tokens.
+        The client should discard the token on their side.
+        
         Args:
             access_token: The access token to invalidate
             
@@ -177,15 +187,8 @@ class AuthService:
             dict: Logout confirmation
         """
         try:
-            # Note: Supabase doesn't have a direct logout API for tokens
-            # The client should discard the token on their side
-            # We'll log the logout attempt
             logger.info(f"User logged out (token: {access_token[:20]}...)")
-
-            return {
-                "message": "Logged out successfully",
-            }
-
+            return {"message": "Logged out successfully"}
         except Exception as e:
             logger.exception("Logout failed")
             raise UnauthorizedException("Logout failed")
@@ -228,10 +231,10 @@ class AuthService:
     
     async def get_current_user(self, token: str) -> dict:
         """
-        Get current user from access token.
+        Get current user from Supabase access token.
         
         Args:
-            token: Access token from Supabase Auth
+            token: Supabase access token
             
         Returns:
             dict: User information from profile
@@ -241,6 +244,7 @@ class AuthService:
         """
         try:
             # Verify the token with Supabase Auth
+            # This validates the Supabase JWT
             auth_response = self.supabase.auth.get_user(token)
 
             if not auth_response or not auth_response.user:
