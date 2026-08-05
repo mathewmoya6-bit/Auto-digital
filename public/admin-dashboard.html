@@ -748,6 +748,99 @@
         .scraper-log .log-entry.info { color: var(--text-secondary); }
         .scraper-log .log-time { color: var(--text-muted); font-size: 10px; }
 
+        /* ─── Data Table (Admin / Reports / Notifications lists) ──────── */
+        .table-wrap { max-height: 260px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+        .table-wrap::-webkit-scrollbar { width: 4px; }
+        .table-wrap::-webkit-scrollbar-track { background: transparent; }
+        .table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .data-table th {
+            position: sticky; top: 0;
+            background: var(--surface-2);
+            color: var(--text-muted);
+            text-align: left;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .data-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+            vertical-align: middle;
+        }
+        .data-table tr:last-child td { border-bottom: none; }
+        .data-table tr:hover td { background: rgba(234,179,8,0.04); }
+        .table-empty { padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px; }
+        .row-btn {
+            padding: 3px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface-2);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 11px;
+            font-family: var(--font-body);
+        }
+        .row-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .row-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+        /* ─── Pill tabs (Market Insights) ──────────────────────────── */
+        .pill-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+        .pill-tab {
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            background: var(--surface-2);
+            color: var(--text-muted);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: var(--font-body);
+        }
+        .pill-tab.active { border-color: var(--primary); color: var(--primary); background: rgba(234,179,8,0.08); }
+        .pill-panel { display: none; }
+        .pill-panel.active { display: block; }
+
+        /* ─── Mini forms (Notifications / TCO / Mileage) ───────────── */
+        .mini-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+        .mini-form.single-col { grid-template-columns: 1fr; }
+        @media (max-width: 600px) { .mini-form { grid-template-columns: 1fr; } }
+        .mini-form label {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-bottom: 4px;
+        }
+        .mini-form input, .mini-form select, .mini-form textarea {
+            width: 100%;
+            padding: 8px 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 13px;
+            font-family: var(--font-body);
+        }
+        .mini-form input:focus, .mini-form select:focus, .mini-form textarea:focus { outline: none; border-color: var(--primary); }
+        .mini-form .full-width { grid-column: 1 / -1; }
+        .result-box {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 10px;
+        }
+        .result-box .result-line { display: flex; justify-content: space-between; padding: 4px 0; }
+        .result-box .result-line .val { color: var(--text); font-weight: 600; font-family: var(--font-heading); }
+
         /* ─── Utilities ─────────────────────────────────────────────── */
         .hidden { display: none !important; }
         .flex { display: flex; align-items: center; }
@@ -1039,6 +1132,193 @@
                 </div>
             </div>
 
+            <!-- Admin: Users & Payments -->
+            <div class="admin-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>👥 Platform Users</h3>
+                        <span class="badge badge-info" id="adminUsersStatus">● Loading</span>
+                    </div>
+                    <div class="table-wrap"><table class="data-table">
+                        <thead><tr><th>Name</th><th>Email</th><th>Type</th><th></th></tr></thead>
+                        <tbody id="adminUsersBody"><tr><td colspan="4" class="table-empty">Loading users...</td></tr></tbody>
+                    </table></div>
+                    <div class="action-bar" style="margin-top:12px;">
+                        <button class="action-btn success" onclick="fetchAdminUsers()" style="width:100%;justify-content:center;">🔄 Refresh Users</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>💵 Payments &amp; Revenue</h3>
+                        <span class="badge badge-info" id="adminRevenueStatus">● Loading</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+                        <div class="stat-card" style="padding:12px;">
+                            <div class="stat-value" id="adminTotalRevenue" style="font-size:18px;">KES 0</div>
+                            <div class="stat-label" style="font-size:11px;">Total Revenue</div>
+                        </div>
+                        <div class="stat-card" style="padding:12px;">
+                            <div class="stat-value" id="adminSystemStatus" style="font-size:18px;">—</div>
+                            <div class="stat-label" style="font-size:11px;">System Status</div>
+                        </div>
+                    </div>
+                    <div class="table-wrap"><table class="data-table">
+                        <thead><tr><th>Service</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
+                        <tbody id="adminPaymentsBody"><tr><td colspan="4" class="table-empty">Loading payments...</td></tr></tbody>
+                    </table></div>
+                    <div class="action-bar" style="margin-top:12px;">
+                        <button class="action-btn success" onclick="fetchAdminRevenue()" style="width:100%;justify-content:center;">🔄 Refresh Payments</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Market Insights & Reports -->
+            <div class="admin-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>📈 Market Insights</h3>
+                        <span class="badge badge-info" id="marketStatus">● Loading</span>
+                    </div>
+                    <div class="pill-tabs">
+                        <button class="pill-tab active" data-market-tab="insights" onclick="switchMarketTab('insights')">Insights</button>
+                        <button class="pill-tab" data-market-tab="prices" onclick="switchMarketTab('prices')">Prices</button>
+                        <button class="pill-tab" data-market-tab="trends" onclick="switchMarketTab('trends')">Trends</button>
+                        <button class="pill-tab" data-market-tab="sources" onclick="switchMarketTab('sources')">Sources</button>
+                    </div>
+                    <div class="pill-panel active" id="marketPanel-insights"><div class="table-empty">Loading insights...</div></div>
+                    <div class="pill-panel" id="marketPanel-prices"><div class="table-empty">Loading prices...</div></div>
+                    <div class="pill-panel" id="marketPanel-trends"><div class="table-empty">Loading trends...</div></div>
+                    <div class="pill-panel" id="marketPanel-sources"><div class="table-empty">Loading sources...</div></div>
+                    <div class="action-bar" style="margin-top:12px;">
+                        <button class="action-btn success" onclick="fetchAllMarketData()" style="width:100%;justify-content:center;">🔄 Refresh Market Data</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>📄 Reports</h3>
+                        <span class="badge badge-info" id="reportsStatus">● Loading</span>
+                    </div>
+                    <div class="table-wrap"><table class="data-table">
+                        <thead><tr><th>Type</th><th>Vehicle</th><th>Created</th><th></th></tr></thead>
+                        <tbody id="reportsBody"><tr><td colspan="4" class="table-empty">Loading reports...</td></tr></tbody>
+                    </table></div>
+                    <div class="action-bar" style="margin-top:12px;">
+                        <button class="action-btn success" onclick="fetchReportHistory()" style="width:100%;justify-content:center;">🔄 Refresh Reports</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notifications & Ownership/Mileage -->
+            <div class="admin-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>📣 Notifications</h3>
+                        <span class="badge badge-info" id="notifStatus">● Ready</span>
+                    </div>
+                    <div class="mini-form">
+                        <div>
+                            <label>Recipient</label>
+                            <input type="text" id="notifRecipient" placeholder="email@example.com or 2547XXXXXXXX" />
+                        </div>
+                        <div>
+                            <label>Channel</label>
+                            <select id="notifChannel">
+                                <option value="email">✉️ Email</option>
+                                <option value="sms">📱 SMS</option>
+                            </select>
+                        </div>
+                        <div class="full-width" id="notifSubjectWrap">
+                            <label>Subject</label>
+                            <input type="text" id="notifSubject" placeholder="Subject (email only)" />
+                        </div>
+                        <div class="full-width">
+                            <label>Message</label>
+                            <textarea id="notifMessage" rows="3" placeholder="Message body..."></textarea>
+                        </div>
+                    </div>
+                    <div class="action-bar" style="margin-top:0;">
+                        <button class="action-btn success" onclick="sendNotification()" style="width:100%;justify-content:center;">🚀 Send Notification</button>
+                    </div>
+                    <div style="margin-top:16px;">
+                        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">📋 Recent Notifications</div>
+                        <div class="table-wrap"><table class="data-table">
+                            <thead><tr><th>To</th><th>Channel</th><th>Status</th></tr></thead>
+                            <tbody id="notifHistoryBody"><tr><td colspan="3" class="table-empty">Loading history...</td></tr></tbody>
+                        </table></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>🧮 Ownership &amp; Mileage</h3>
+                        <span class="badge badge-info">Tools</span>
+                    </div>
+                    <div class="pill-tabs">
+                        <button class="pill-tab active" data-tool-tab="tco" onclick="switchToolTab('tco')">TCO Calculator</button>
+                        <button class="pill-tab" data-tool-tab="mileage" onclick="switchToolTab('mileage')">Mileage Lookup</button>
+                    </div>
+
+                    <div class="pill-panel active" id="toolPanel-tco">
+                        <div class="mini-form">
+                            <div>
+                                <label>Vehicle Price (KES)</label>
+                                <input type="number" id="tcoPrice" placeholder="e.g. 1500000" />
+                            </div>
+                            <div>
+                                <label>Fuel Type</label>
+                                <select id="tcoFuelType">
+                                    <option value="petrol">Petrol</option>
+                                    <option value="diesel">Diesel</option>
+                                    <option value="electric">Electric</option>
+                                    <option value="hybrid">Hybrid</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Vehicle Condition</label>
+                                <select id="tcoCondition">
+                                    <option value="new">New</option>
+                                    <option value="used">Used</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Purchase Type</label>
+                                <select id="tcoPurchaseType">
+                                    <option value="cash">Cash</option>
+                                    <option value="loan">Loan</option>
+                                    <option value="lease">Lease</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Annual Mileage (km)</label>
+                                <input type="number" id="tcoAnnualMileage" placeholder="e.g. 20000" />
+                            </div>
+                            <div>
+                                <label>Ownership Years</label>
+                                <input type="number" id="tcoYears" placeholder="e.g. 5" />
+                            </div>
+                        </div>
+                        <button class="action-btn success" onclick="calculateTCO()" style="width:100%;justify-content:center;">🧮 Calculate TCO</button>
+                        <div class="result-box hidden" id="tcoResult"></div>
+                    </div>
+
+                    <div class="pill-panel" id="toolPanel-mileage">
+                        <div class="mini-form single-col">
+                            <div>
+                                <label>Vehicle ID</label>
+                                <input type="text" id="mileageVehicleId" placeholder="Vehicle UUID" />
+                            </div>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                            <button class="action-btn success" onclick="lookupMileage()" style="justify-content:center;">📍 Latest &amp; Analytics</button>
+                            <button class="action-btn" onclick="lookupServiceDue()" style="justify-content:center;">🔧 Service Check</button>
+                        </div>
+                        <div class="result-box hidden" id="mileageResult"></div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Activity Log -->
             <div class="card" style="margin-bottom:28px;">
                 <div class="card-header">
@@ -1146,6 +1426,7 @@
             
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
             const HEALTH_CHECK_URL = 'https://auto-digital.onrender.com/health';
+            const TOKEN_KEY = 'access_token';
 
             // ─── STATE ──────────────────────────────────────────────────
             let supabaseClient = null;
@@ -1581,6 +1862,58 @@
                     return { success: true };
                 } catch (error) {
                     console.error('❌ Delete service error:', error);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            // ─── FastAPI: shared fetch helper + auth ────────────────────
+            // Every FastAPI endpoint below goes through this so the bearer
+            // token, JSON parsing, and error shape are handled in one place.
+            function getApiToken() {
+                return localStorage.getItem(TOKEN_KEY) || '';
+            }
+
+            async function apiFetch(path, { method = 'GET', body = null, auth = true } = {}) {
+                const headers = { 'Accept': 'application/json' };
+                if (body !== null) headers['Content-Type'] = 'application/json';
+                const token = getApiToken();
+                if (auth && token) headers['Authorization'] = `Bearer ${token}`;
+
+                const response = await fetch(`${API_BASE}${path}`, {
+                    method,
+                    headers,
+                    body: body !== null ? JSON.stringify(body) : undefined
+                });
+
+                let data = null;
+                try { data = await response.json(); } catch (e) { /* empty/non-JSON body */ }
+
+                if (!response.ok) {
+                    const message = data?.message || data?.detail || `HTTP ${response.status}`;
+                    throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
+                }
+                return data;
+            }
+
+            // Logs in against the FastAPI backend (separate from Supabase auth)
+            // so admin-only endpoints (Admin, Reports, Notifications, etc.)
+            // have a bearer token to send. Non-fatal if it fails — those
+            // sections just show a "reconnect" state instead of blocking login.
+            async function apiLogin(email, password) {
+                try {
+                    const data = await apiFetch('/login', {
+                        method: 'POST',
+                        body: { email, password },
+                        auth: false
+                    });
+                    const token = data?.access_token || data?.data?.access_token || data?.token;
+                    if (token) {
+                        localStorage.setItem(TOKEN_KEY, token);
+                        return { success: true };
+                    }
+                    return { success: false, error: 'No access_token in response' };
+                } catch (error) {
+                    console.warn('⚠️ FastAPI login error (admin-only sections will be limited):', error.message);
                     return { success: false, error: error.message };
                 }
             }
@@ -2468,6 +2801,13 @@
                         throw new Error('Unauthorized: Admin access required');
                     }
 
+                    // Also get a FastAPI bearer token for the Admin/Reports/
+                    // Notifications/Market/Ownership endpoints below.
+                    const apiAuth = await apiLogin(email, password);
+                    if (!apiAuth.success) {
+                        showToast('⚠️ Signed in, but FastAPI admin endpoints are unavailable: ' + apiAuth.error, 'warning');
+                    }
+
                     isLoggedIn = true;
                     loginError.classList.remove('show');
                     loginScreen.classList.add('hidden');
@@ -2495,6 +2835,7 @@
             // ─── Logout ──────────────────────────────────────────────────
             logoutBtn.addEventListener('click', async function() {
                 await signOut();
+                localStorage.removeItem(TOKEN_KEY);
                 isLoggedIn = false;
                 dashboardScreen.classList.add('hidden');
                 loginScreen.classList.remove('hidden');
@@ -2540,7 +2881,12 @@
                     window.fetchEngineSettings(),
                     fetchLogs(),
                     getScraperSources(),
-                    checkHealth(true)
+                    checkHealth(true),
+                    window.fetchAdminUsers(),
+                    window.fetchAdminRevenue(),
+                    window.fetchAllMarketData(),
+                    window.fetchReportHistory(),
+                    window.fetchNotificationHistory()
                 ]);
                 // Setup realtime subscriptions after data loads
                 setupRealtimeSubscriptions();
@@ -2587,7 +2933,7 @@
             // Sources: Autochek, Jiji, Cheki, BeepBeep (CarAPI removed)
 
             window.runScraper = async function() {
-                const token = localStorage.getItem('access_token') || '';
+                const token = getApiToken();
                 const btn = document.querySelector('button[onclick="runScraper()"]');
                 const originalText = btn.textContent;
                 
@@ -2629,7 +2975,7 @@
             };
 
             window.scrapeSource = async function(source) {
-                const token = localStorage.getItem('access_token') || '';
+                const token = getApiToken();
                 const btn = document.querySelector(`button[onclick="scrapeSource('${source}')"]`);
                 const originalText = btn.textContent;
                 
@@ -2668,7 +3014,7 @@
             };
 
             window.getScraperStatus = async function() {
-                const token = localStorage.getItem('access_token') || '';
+                const token = getApiToken();
                 
                 try {
                     const response = await fetch(`${API_BASE}/scraper/status`, {
@@ -2705,7 +3051,7 @@
             };
 
             window.getScraperSources = async function() {
-                const token = localStorage.getItem('access_token') || '';
+                const token = getApiToken();
                 
                 try {
                     const response = await fetch(`${API_BASE}/scraper/sources`, {
@@ -2764,6 +3110,316 @@
                 showToast('🧹 Scraper log cleared', 'info');
             };
 
+            // ─── ADMIN: Users ────────────────────────────────────────────
+            window.fetchAdminUsers = async function() {
+                const badge = document.getElementById('adminUsersStatus');
+                const body = document.getElementById('adminUsersBody');
+                try {
+                    const data = await apiFetch('/admin/users');
+                    const users = data?.data || data?.users || (Array.isArray(data) ? data : []) || [];
+                    if (!users.length) {
+                        body.innerHTML = '<tr><td colspan="4" class="table-empty">No users found</td></tr>';
+                    } else {
+                        body.innerHTML = users.map(u => `
+                            <tr>
+                                <td>${escapeHtml(u.full_name || u.name || '—')}</td>
+                                <td>${escapeHtml(u.email || '—')}</td>
+                                <td>${escapeHtml(u.account_type || u.role || 'user')}</td>
+                                <td><button class="row-btn danger" onclick="window.deleteAdminUser('${u.id}')">🗑️</button></td>
+                            </tr>
+                        `).join('');
+                    }
+                    badge.textContent = '● Connected';
+                    badge.className = 'badge badge-success';
+                } catch (error) {
+                    console.warn('⚠️ Admin users fetch error:', error.message);
+                    body.innerHTML = `<tr><td colspan="4" class="table-empty">Could not load users: ${escapeHtml(error.message)}</td></tr>`;
+                    badge.textContent = '● Offline';
+                    badge.className = 'badge badge-danger';
+                }
+            };
+
+            window.deleteAdminUser = async function(userId) {
+                if (!confirm('Delete this user? This cannot be undone.')) return;
+                try {
+                    await apiFetch(`/admin/users/${userId}`, { method: 'DELETE' });
+                    await addAdminLog(`🗑️ User ${userId} deleted (via admin API)`, 'admin');
+                    showToast('✅ User deleted', 'success');
+                    await window.fetchAdminUsers();
+                } catch (error) {
+                    showToast(`❌ Failed to delete user: ${error.message}`, 'error');
+                }
+            };
+
+            // ─── ADMIN: Payments & Revenue ──────────────────────────────
+            window.fetchAdminRevenue = async function() {
+                const badge = document.getElementById('adminRevenueStatus');
+                const body = document.getElementById('adminPaymentsBody');
+                try {
+                    const [paymentsData, revenueData, statusData] = await Promise.allSettled([
+                        apiFetch('/admin/payments'),
+                        apiFetch('/admin/revenue'),
+                        apiFetch('/admin/status')
+                    ]);
+
+                    if (paymentsData.status === 'fulfilled') {
+                        const payments = paymentsData.value?.data || paymentsData.value?.payments || [];
+                        body.innerHTML = payments.length
+                            ? payments.slice(0, 20).map(p => `
+                                <tr>
+                                    <td>${escapeHtml(p.service || p.service_code || '—')}</td>
+                                    <td>KES ${Number(p.amount || 0).toLocaleString()}</td>
+                                    <td>${escapeHtml(p.status || '—')}</td>
+                                    <td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}</td>
+                                </tr>
+                            `).join('')
+                            : '<tr><td colspan="4" class="table-empty">No payments found</td></tr>';
+                    } else {
+                        body.innerHTML = `<tr><td colspan="4" class="table-empty">Could not load payments</td></tr>`;
+                    }
+
+                    if (revenueData.status === 'fulfilled') {
+                        const total = revenueData.value?.data?.total_revenue ?? revenueData.value?.total_revenue ?? 0;
+                        document.getElementById('adminTotalRevenue').textContent = 'KES ' + Number(total).toLocaleString();
+                    }
+
+                    if (statusData.status === 'fulfilled') {
+                        const status = statusData.value?.data?.status || statusData.value?.status || 'unknown';
+                        document.getElementById('adminSystemStatus').textContent = status;
+                    }
+
+                    badge.textContent = '● Connected';
+                    badge.className = 'badge badge-success';
+                } catch (error) {
+                    console.warn('⚠️ Admin revenue fetch error:', error.message);
+                    badge.textContent = '● Offline';
+                    badge.className = 'badge badge-danger';
+                }
+            };
+
+            // ─── MARKET: Insights / Prices / Trends / Sources ───────────
+            window.switchMarketTab = function(tab) {
+                document.querySelectorAll('.pill-tab[data-market-tab]').forEach(el => el.classList.toggle('active', el.dataset.marketTab === tab));
+                document.querySelectorAll('[id^="marketPanel-"]').forEach(el => el.classList.toggle('active', el.id === `marketPanel-${tab}`));
+            };
+
+            function renderKeyValueList(obj) {
+                if (!obj || typeof obj !== 'object') return '<div class="table-empty">No data</div>';
+                const entries = Array.isArray(obj) ? obj.map((v, i) => [i, v]) : Object.entries(obj);
+                if (!entries.length) return '<div class="table-empty">No data</div>';
+                return '<div class="table-wrap"><table class="data-table"><tbody>' + entries.map(([k, v]) => `
+                    <tr><td style="width:40%;color:var(--text-muted);">${escapeHtml(String(k))}</td><td>${escapeHtml(typeof v === 'object' ? JSON.stringify(v) : String(v))}</td></tr>
+                `).join('') + '</tbody></table></div>';
+            }
+
+            window.fetchAllMarketData = async function() {
+                const badge = document.getElementById('marketStatus');
+                const results = await Promise.allSettled([
+                    apiFetch('/insights', { auth: false }),
+                    apiFetch('/prices', { auth: false }),
+                    apiFetch('/trends', { auth: false }),
+                    apiFetch('/sources/status', { auth: false })
+                ]);
+                const [insights, prices, trends, sources] = results;
+
+                document.getElementById('marketPanel-insights').innerHTML = insights.status === 'fulfilled'
+                    ? renderKeyValueList(insights.value?.data || insights.value) : '<div class="table-empty">Could not load insights</div>';
+                document.getElementById('marketPanel-prices').innerHTML = prices.status === 'fulfilled'
+                    ? renderKeyValueList(prices.value?.data || prices.value) : '<div class="table-empty">Could not load prices</div>';
+                document.getElementById('marketPanel-trends').innerHTML = trends.status === 'fulfilled'
+                    ? renderKeyValueList(trends.value?.data || trends.value) : '<div class="table-empty">Could not load trends</div>';
+                document.getElementById('marketPanel-sources').innerHTML = sources.status === 'fulfilled'
+                    ? renderKeyValueList(sources.value?.data || sources.value) : '<div class="table-empty">Could not load source status</div>';
+
+                const anyOk = results.some(r => r.status === 'fulfilled');
+                badge.textContent = anyOk ? '● Connected' : '● Offline';
+                badge.className = anyOk ? 'badge badge-success' : 'badge badge-danger';
+            };
+
+            // ─── REPORTS ─────────────────────────────────────────────────
+            window.fetchReportHistory = async function() {
+                const badge = document.getElementById('reportsStatus');
+                const body = document.getElementById('reportsBody');
+                try {
+                    const data = await apiFetch('/reports/history');
+                    const reports = data?.data || data?.reports || [];
+                    body.innerHTML = reports.length
+                        ? reports.map(r => `
+                            <tr>
+                                <td>${escapeHtml(r.report_type || r.type || '—')}</td>
+                                <td>${escapeHtml(r.vehicle_id || r.vehicle || '—')}</td>
+                                <td>${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td>
+                                <td>
+                                    <button class="row-btn" onclick="window.downloadReport('${r.id}')">⬇️</button>
+                                    <button class="row-btn danger" onclick="window.deleteReport('${r.id}')">🗑️</button>
+                                </td>
+                            </tr>
+                        `).join('')
+                        : '<tr><td colspan="4" class="table-empty">No reports generated yet</td></tr>';
+                    badge.textContent = '● Connected';
+                    badge.className = 'badge badge-success';
+                } catch (error) {
+                    console.warn('⚠️ Reports fetch error:', error.message);
+                    body.innerHTML = `<tr><td colspan="4" class="table-empty">Could not load reports: ${escapeHtml(error.message)}</td></tr>`;
+                    badge.textContent = '● Offline';
+                    badge.className = 'badge badge-danger';
+                }
+            };
+
+            window.downloadReport = function(reportId) {
+                const token = getApiToken();
+                const url = `${API_BASE}/reports/download/${reportId}` + (token ? `?token=${encodeURIComponent(token)}` : '');
+                window.open(url, '_blank');
+            };
+
+            window.deleteReport = async function(reportId) {
+                if (!confirm('Delete this report? This cannot be undone.')) return;
+                try {
+                    await apiFetch(`/reports/${reportId}`, { method: 'DELETE' });
+                    showToast('✅ Report deleted', 'success');
+                    await addAdminLog(`🗑️ Report ${reportId} deleted`, 'admin');
+                    await window.fetchReportHistory();
+                } catch (error) {
+                    showToast(`❌ Failed to delete report: ${error.message}`, 'error');
+                }
+            };
+
+            // ─── NOTIFICATIONS ───────────────────────────────────────────
+            document.getElementById('notifChannel').addEventListener('change', function() {
+                document.getElementById('notifSubjectWrap').style.display = this.value === 'email' ? '' : 'none';
+            });
+
+            window.sendNotification = async function() {
+                const recipient = document.getElementById('notifRecipient').value.trim();
+                const channel = document.getElementById('notifChannel').value;
+                const subject = document.getElementById('notifSubject').value.trim();
+                const message = document.getElementById('notifMessage').value.trim();
+
+                if (!recipient || !message) {
+                    showToast('❌ Recipient and message are required', 'error');
+                    return;
+                }
+
+                try {
+                    if (channel === 'email') {
+                        await apiFetch('/notifications/email', {
+                            method: 'POST',
+                            body: { to: recipient, subject: subject || 'Auto-D Kenya', message }
+                        });
+                    } else {
+                        await apiFetch('/notifications/sms', {
+                            method: 'POST',
+                            body: { to: recipient, message }
+                        });
+                    }
+                    showToast(`✅ ${channel === 'email' ? 'Email' : 'SMS'} sent to ${recipient}`, 'success');
+                    await addAdminLog(`📣 ${channel.toUpperCase()} sent to ${recipient}`, 'admin');
+                    document.getElementById('notifMessage').value = '';
+                    await window.fetchNotificationHistory();
+                } catch (error) {
+                    showToast(`❌ Failed to send ${channel}: ${error.message}`, 'error');
+                }
+            };
+
+            window.fetchNotificationHistory = async function() {
+                const body = document.getElementById('notifHistoryBody');
+                try {
+                    const data = await apiFetch('/notifications/history');
+                    const history = data?.data || data?.history || [];
+                    body.innerHTML = history.length
+                        ? history.slice(0, 15).map(h => `
+                            <tr>
+                                <td>${escapeHtml(h.to || h.recipient || '—')}</td>
+                                <td>${escapeHtml(h.channel || h.type || '—')}</td>
+                                <td>${escapeHtml(h.status || '—')}</td>
+                            </tr>
+                        `).join('')
+                        : '<tr><td colspan="3" class="table-empty">No notifications sent yet</td></tr>';
+                } catch (error) {
+                    console.warn('⚠️ Notification history error:', error.message);
+                    body.innerHTML = `<tr><td colspan="3" class="table-empty">Could not load history</td></tr>`;
+                }
+            };
+
+            // ─── OWNERSHIP: TCO Calculator ───────────────────────────────
+            window.switchToolTab = function(tab) {
+                document.querySelectorAll('.pill-tab[data-tool-tab]').forEach(el => el.classList.toggle('active', el.dataset.toolTab === tab));
+                document.querySelectorAll('[id^="toolPanel-"]').forEach(el => el.classList.toggle('active', el.id === `toolPanel-${tab}`));
+            };
+
+            window.calculateTCO = async function() {
+                const resultBox = document.getElementById('tcoResult');
+                const price = parseFloat(document.getElementById('tcoPrice').value);
+                const fuel_type = document.getElementById('tcoFuelType').value;
+                const vehicle_condition = document.getElementById('tcoCondition').value;
+                const purchase_type = document.getElementById('tcoPurchaseType').value;
+                const annual_mileage = parseFloat(document.getElementById('tcoAnnualMileage').value) || 20000;
+                const ownership_years = parseFloat(document.getElementById('tcoYears').value) || 5;
+
+                if (isNaN(price) || price <= 0) {
+                    showToast('❌ Enter a valid vehicle price', 'error');
+                    return;
+                }
+
+                try {
+                    const data = await apiFetch('/ownership/calculate-public', {
+                        method: 'POST',
+                        auth: false,
+                        body: { price, fuel_type, vehicle_condition, purchase_type, annual_mileage, ownership_years }
+                    });
+                    const result = data?.data || data;
+                    resultBox.classList.remove('hidden');
+                    resultBox.innerHTML = renderKeyValueList(result).replace('data-table', 'data-table');
+                    showToast('✅ TCO calculated', 'success');
+                } catch (error) {
+                    resultBox.classList.remove('hidden');
+                    resultBox.innerHTML = `<div class="table-empty">Could not calculate TCO: ${escapeHtml(error.message)}</div>`;
+                    showToast(`❌ TCO calculation failed: ${error.message}`, 'error');
+                }
+            };
+
+            // ─── MILEAGE ─────────────────────────────────────────────────
+            window.lookupMileage = async function() {
+                const resultBox = document.getElementById('mileageResult');
+                const vehicleId = document.getElementById('mileageVehicleId').value.trim();
+                if (!vehicleId) {
+                    showToast('❌ Enter a vehicle ID', 'error');
+                    return;
+                }
+                try {
+                    const [latest, analytics] = await Promise.allSettled([
+                        apiFetch(`/mileage/vehicles/${vehicleId}/latest`),
+                        apiFetch(`/mileage/vehicles/${vehicleId}/analytics`)
+                    ]);
+                    resultBox.classList.remove('hidden');
+                    let html = '<div style="font-weight:600;margin-bottom:6px;color:var(--text);">Latest Mileage</div>';
+                    html += latest.status === 'fulfilled' ? renderKeyValueList(latest.value?.data || latest.value) : '<div class="table-empty">No latest mileage record</div>';
+                    html += '<div style="font-weight:600;margin:10px 0 6px;color:var(--text);">Analytics</div>';
+                    html += analytics.status === 'fulfilled' ? renderKeyValueList(analytics.value?.data || analytics.value) : '<div class="table-empty">No analytics available</div>';
+                    resultBox.innerHTML = html;
+                } catch (error) {
+                    resultBox.classList.remove('hidden');
+                    resultBox.innerHTML = `<div class="table-empty">Lookup failed: ${escapeHtml(error.message)}</div>`;
+                }
+            };
+
+            window.lookupServiceDue = async function() {
+                const resultBox = document.getElementById('mileageResult');
+                const vehicleId = document.getElementById('mileageVehicleId').value.trim();
+                if (!vehicleId) {
+                    showToast('❌ Enter a vehicle ID', 'error');
+                    return;
+                }
+                try {
+                    const data = await apiFetch(`/mileage/vehicles/${vehicleId}/service-check`);
+                    resultBox.classList.remove('hidden');
+                    resultBox.innerHTML = '<div style="font-weight:600;margin-bottom:6px;color:var(--text);">Service Check</div>' + renderKeyValueList(data?.data || data);
+                } catch (error) {
+                    resultBox.classList.remove('hidden');
+                    resultBox.innerHTML = `<div class="table-empty">Service check failed: ${escapeHtml(error.message)}</div>`;
+                }
+            };
+
             // ─── Other Functions ────────────────────────────────────────
             window.refreshLogs = function() {
                 fetchLogs();
@@ -2790,7 +3446,12 @@
                         window.fetchEngineSettings(),
                         fetchLogs(),
                         getScraperStatus(),
-                        checkHealth(true)
+                        checkHealth(true),
+                        window.fetchAdminUsers(),
+                        window.fetchAdminRevenue(),
+                        window.fetchAllMarketData(),
+                        window.fetchReportHistory(),
+                        window.fetchNotificationHistory()
                     ]);
                     await addAdminLog('🔄 All data synced successfully', 'admin');
                     showToast('✅ All data synced!', 'success');
