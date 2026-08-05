@@ -307,7 +307,7 @@
             text-decoration: none;
         }
         .admin-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(168,85,247,0.3); }
-        
+
         .redirect-overlay {
             display: none;
             position: fixed;
@@ -340,18 +340,17 @@
             from { opacity: 0; transform: scale(0.9); }
             to { opacity: 1; transform: scale(1); }
         }
-        
-        /* Loading placeholder for auth check */
+
         .auth-checking {
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 12px;
-            padding: 20px;
+            padding: 40px 20px;
             color: #94a3b8;
             font-size: 14px;
         }
-        
+
         @media (max-width: 768px) {
             body { padding: 12px; }
             .card { padding: 16px; }
@@ -398,7 +397,7 @@
         <span class="spinner"></span> Checking authentication...
     </div>
 
-    <!-- SERVICES - Hidden until auth confirmed -->
+    <!-- DASHBOARD CONTENT -->
     <div id="dashboardContent" style="display:none;">
         <div class="card">
             <div class="card-header">
@@ -416,7 +415,6 @@
             </div>
         </div>
 
-        <!-- PAYMENT -->
         <div class="card">
             <div class="card-header">
                 <div class="card-title">📱 M-Pesa Payment <span class="badge">Secure</span></div>
@@ -436,7 +434,6 @@
             </div>
         </div>
 
-        <!-- HISTORY -->
         <div class="card">
             <div class="card-header">
                 <div class="card-title">📜 Payment History <span class="badge">Recent</span></div>
@@ -483,7 +480,6 @@
     let paymentInterval = null;
     const MAX_PAYMENT_ATTEMPTS = 24;
     let authCheckComplete = false;
-    let redirectTimeout = null;
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const serviceTabsEl = document.getElementById('serviceTabs');
@@ -503,31 +499,24 @@
     // ─── PHONE NUMBER NORMALIZATION ────────────────────────────
     function normalizePhoneNumber(phone) {
         const cleaned = phone.replace(/\D/g, '');
-
         if (/^(07|01)\d{8}$/.test(cleaned)) {
             return '254' + cleaned.substring(1);
         }
-
         if (/^(7|1)\d{8}$/.test(cleaned)) {
             return '254' + cleaned;
         }
-
         if (/^254[71]\d{8}$/.test(cleaned)) {
             return cleaned;
         }
-
         return null;
     }
 
     // ─── REDIRECT OVERLAY ──────────────────────────────────────
     function redirectToServicePage(serviceCode) {
         const page = SERVICE_PAGES[serviceCode] || '/dashboard.html';
-        console.log(`🚀 Redirecting to ${page} for service ${serviceCode}`);
-        
         redirectOverlay.classList.add('show');
         let countdown = 3;
         countdownEl.textContent = countdown;
-        
         const interval = setInterval(() => {
             countdown--;
             if (countdown > 0) {
@@ -557,8 +546,8 @@
     }
 
     // ─── FORMAT PRICE ──────────────────────────────────────────
-    function formatPrice(p) { 
-        return p != null ? `KSh ${Number(p).toLocaleString()}` : '—'; 
+    function formatPrice(p) {
+        return p != null ? `KSh ${Number(p).toLocaleString()}` : '—';
     }
 
     // ─── SUPABASE INIT ──────────────────────────────────────────
@@ -566,94 +555,103 @@
         if (!supabaseClient && typeof supabase !== 'undefined') {
             const { createClient } = supabase;
             supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-                auth: { 
-                    autoRefreshToken: true, 
+                auth: {
+                    autoRefreshToken: true,
                     persistSession: true,
                     detectSessionInUrl: true
                 }
             });
             console.log('✅ Supabase initialized');
-            
-            // ─── FIX 1 & 3: PROPER AUTH STATE HANDLING ──────────
-            supabaseClient.auth.onAuthStateChange(async (event, session) => {
-                console.log('🔐 Auth state changed:', event, session ? 'has session' : 'no session');
-                
-                // ─── FIX 3: ONLY CLEAR ON SIGNED_OUT ─────────────
-                if (event === 'SIGNED_OUT') {
-                    console.log('👋 User signed out');
-                    currentUser = null;
-                    isAuthenticated = false;
-                    serviceAccess = {};
-                    selectedServiceCode = null;
-                    selectedServiceId = null;
-                    allServices = [];
-                    renderAuth(null);
-                    // Hide dashboard, show loading
-                    dashboardContent.style.display = 'none';
-                    authLoading.style.display = 'flex';
-                    return;
-                }
-                
-                // ─── FIX 1: HANDLE INITIAL_SESSION ──────────────
-                if (event === 'INITIAL_SESSION') {
-                    console.log('🔄 Initial session check...');
-                    if (session) {
-                        console.log('✅ Initial session found');
-                        currentUser = session.user;
-                        isAuthenticated = true;
-                        await loadDashboard(session.user);
-                    } else {
-                        console.log('⏳ No initial session, waiting for auth...');
-                        // Don't redirect - wait for SIGNED_IN or keep showing loading
-                    }
-                    return;
-                }
-                
-                // ─── FIX 1: HANDLE SIGNED_IN ─────────────────────
-                if (event === 'SIGNED_IN' && session) {
-                    console.log('✅ User signed in');
+        }
+        return supabaseClient;
+    }
+
+    // ─── LOAD DASHBOARD ─────────────────────────────────────────
+    async function loadDashboard(user) {
+        console.log('📊 Loading dashboard for user:', user.email);
+
+        authLoading.style.display = 'none';
+        dashboardContent.style.display = 'block';
+
+        renderAuth(user);
+
+        const isAdmin = user.user_metadata?.role === 'admin' || user.user_metadata?.is_admin;
+        adminLink.style.display = isAdmin ? 'block' : 'none';
+
+        await fetchServices();
+        await fetchUserServices(user.id);
+        renderTabs(allServices);
+        loadHistory();
+        setStatus('✅ Ready', 'success');
+
+        authCheckComplete = true;
+    }
+
+    // ─── CHECK AUTH AND LOAD ────────────────────────────────────
+    async function checkAuthAndLoad() {
+        console.log('🔐 Checking authentication...');
+
+        const client = initSupabase();
+        if (!client) {
+            console.error('❌ Failed to initialize Supabase');
+            authLoading.innerHTML = '<span style="color:#ef4444;">❌ Failed to connect to authentication service</span>';
+            return;
+        }
+
+        try {
+            // Get session directly
+            const { data: { session }, error } = await client.auth.getSession();
+
+            if (error) {
+                console.error('❌ Session error:', error);
+                throw error;
+            }
+
+            if (session?.user) {
+                console.log('✅ Session found for user:', session.user.email);
+                currentUser = session.user;
+                isAuthenticated = true;
+                await loadDashboard(session.user);
+                return;
+            }
+
+            // No session - try to get from storage
+            console.log('⏳ No active session, checking storage...');
+
+            // Wait a moment for Supabase to restore from storage
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            const { data: { session: retrySession } } = await client.auth.getSession();
+
+            if (retrySession?.user) {
+                console.log('✅ Session restored from storage');
+                currentUser = retrySession.user;
+                isAuthenticated = true;
+                await loadDashboard(retrySession.user);
+                return;
+            }
+
+            // Still no session - redirect to login
+            console.log('🔴 No session found, redirecting to login');
+            window.location.replace('/');
+
+        } catch (err) {
+            console.error('❌ Auth check error:', err);
+            // Try one more time with a delay
+            try {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                const { data: { session } } = await client.auth.getSession();
+                if (session?.user) {
+                    console.log('✅ Session recovered after retry');
                     currentUser = session.user;
                     isAuthenticated = true;
                     await loadDashboard(session.user);
                     return;
                 }
-                
-                // ─── FIX 1: HANDLE TOKEN_REFRESHED ──────────────
-                if (event === 'TOKEN_REFRESHED' && session) {
-                    console.log('🔄 Token refreshed');
-                    // Keep current user, just update session
-                    return;
-                }
-            });
-        }
-        return supabaseClient;
-    }
-
-    // ─── FIX 2: REMOVED refreshSession() ──────────────────────
-    // getCurrentUser now only uses getSession()
-    async function getCurrentUser() {
-        try {
-            const client = initSupabase();
-            if (!client) return null;
-
-            const { data: { session } } = await client.auth.getSession();
-
-            if (session?.user) {
-                currentUser = session.user;
-                isAuthenticated = true;
-                console.log('✅ Logged in:', currentUser.email);
-                return currentUser;
+            } catch (retryErr) {
+                console.error('❌ Retry failed:', retryErr);
             }
-
-            currentUser = null;
-            isAuthenticated = false;
-            return null;
-
-        } catch (err) {
-            console.error('❌ getCurrentUser error:', err);
-            currentUser = null;
-            isAuthenticated = false;
-            return null;
+            window.location.replace('/');
         }
     }
 
@@ -688,31 +686,34 @@
     // ─── LOGOUT ──────────────────────────────────────────────────
     async function logout() {
         try {
-            // Clear state
             serviceAccess = {};
             selectedServiceCode = null;
             selectedServiceId = null;
             allServices = [];
-            
+
             if (paymentInterval) {
                 clearInterval(paymentInterval);
                 paymentInterval = null;
             }
-            
+
             const client = initSupabase();
             if (client) await client.auth.signOut();
-            
+
             isAuthenticated = false;
             currentUser = null;
             renderAuth(null);
             dashboardContent.style.display = 'none';
             authLoading.style.display = 'flex';
+            authLoading.innerHTML = '<span class="spinner"></span> Logging out...';
             showToast('Logged out', 'info');
-            // Redirect after a moment
+
             setTimeout(() => {
                 window.location.replace('/');
             }, 500);
-        } catch (e) { showToast('Logout error', 'error'); }
+        } catch (e) {
+            showToast('Logout error', 'error');
+            window.location.replace('/');
+        }
     }
 
     // ─── FETCH SERVICES ─────────────────────────────────────────
@@ -722,7 +723,6 @@
             const res = await client.from('services').select('*').eq('active', true).order('display_order');
             if (res.data && res.data.length) {
                 allServices = res.data;
-                console.log('✅ Services loaded:', allServices.map(s => `${s.code} (ID: ${s.id})`).join(', '));
             } else {
                 allServices = [
                     { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150 },
@@ -758,7 +758,6 @@
                 });
             }
             serviceAccess = access;
-            console.log('✅ User services:', Object.keys(access));
             return access;
         } catch (e) {
             console.warn('⚠️ Could not fetch user services:', e);
@@ -836,7 +835,7 @@
             }
 
             html += `
-                <button class="service-tab ${isActive ? 'active' : ''}" 
+                <button class="service-tab ${isActive ? 'active' : ''}"
                         data-service="${service.code}">
                     <span>${service.name}</span>
                     <span class="price-tag">${formatPrice(service.price)}</span>
@@ -864,11 +863,11 @@
         selectedServiceCode = code;
         const service = allServices.find(s => s.code === code);
         selectedServiceId = service?.id || null;
-        
+
         document.querySelectorAll('.service-tab').forEach(el => {
             el.classList.toggle('active', el.dataset.service === code);
         });
-        
+
         renderServiceDetail(code);
         updatePayBtn();
     };
@@ -956,7 +955,7 @@
         }
         setStatus(`⏳ Running ${code}...`, 'pending');
         showToast(`🚀 Running ${code}...`, 'info');
-        
+
         setTimeout(() => {
             redirectToServicePage(code);
         }, 1000);
@@ -1037,7 +1036,7 @@
                 service_id: serviceId,
                 user_id: userId
             };
-            
+
             console.log('📤 Payment request:', requestBody);
 
             const res = await fetch(`${API_BASE}/mpesa/stkpush`, {
@@ -1080,10 +1079,10 @@
                         }
                     });
                     const sd = await sr.json();
-                    
+
                     const completedStatuses = ['completed', 'paid', 'success'];
                     const failedStatuses = ['failed', 'cancelled', 'expired'];
-                    
+
                     if (completedStatuses.includes(sd.status)) {
                         clearInterval(paymentInterval);
                         paymentInterval = null;
@@ -1091,17 +1090,17 @@
                         await updateUserService(selectedServiceCode, true);
                         setStatus('✅ Payment completed! Service unlocked.', 'success');
                         showToast('🎉 Payment successful!', 'success');
-                        
+
                         await fetchUserServices(currentUser.id);
                         renderTabs(allServices);
                         renderServiceDetail(selectedServiceCode);
                         loadHistory();
                         updatePayBtn();
-                        
+
                         setTimeout(() => {
                             redirectToServicePage(selectedServiceCode);
                         }, 1500);
-                        
+
                     } else if (failedStatuses.includes(sd.status) || attempts >= MAX_PAYMENT_ATTEMPTS) {
                         clearInterval(paymentInterval);
                         paymentInterval = null;
@@ -1166,71 +1165,17 @@
         }
     }
 
-    // ─── FIX 1: LOAD DASHBOARD ──────────────────────────────────
-    async function loadDashboard(user) {
-        console.log('📊 Loading dashboard for user:', user.email);
-        
-        // Hide loading, show dashboard
-        authLoading.style.display = 'none';
-        dashboardContent.style.display = 'block';
-        
-        // Render auth
-        renderAuth(user);
+    // ─── INIT ──────────────────────────────────────────────────
+    // ─── FIX: SIMPLE DIRECT AUTH CHECK ─────────────────────────
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('🚀 Dashboard loading...');
 
-        // Check admin
-        const isAdmin = user.user_metadata?.role === 'admin' || user.user_metadata?.is_admin;
-        adminLink.style.display = isAdmin ? 'block' : 'none';
+        // FIX: these two buttons previously had no click handlers wired up
+        payBtn.addEventListener('click', initiatePayment);
+        refreshHistoryBtn.addEventListener('click', window.refresh);
 
-        // Load data
-        await fetchServices();
-        await fetchUserServices(user.id);
-        renderTabs(allServices);
-        loadHistory();
-        setStatus('✅ Ready', 'success');
-        
-        authCheckComplete = true;
-    }
-
-    // ─── FIX 1: INIT WITH PROPER AUTH WAITING ──────────────────
-    async function init() {
-        console.log('🚀 Dashboard initializing...');
-        
-        const client = initSupabase();
-        if (!client) {
-            console.error('❌ Failed to initialize Supabase');
-            return;
-        }
-
-        // Check if we already have a session
-        const { data: { session } } = await client.auth.getSession();
-        
-        if (session?.user) {
-            console.log('✅ Session found on init');
-            currentUser = session.user;
-            isAuthenticated = true;
-            await loadDashboard(session.user);
-            return;
-        }
-
-        // No session - show loading and wait for auth state change
-        console.log('⏳ No session found, waiting for authentication...');
-        authLoading.style.display = 'flex';
-        dashboardContent.style.display = 'none';
-        
-        // ─── FIX 1: DON'T REDIRECT IMMEDIATELY ──────────────────
-        // The auth state listener will handle SIGNED_IN or SIGNED_OUT
-        // Set a safety timeout - if no auth after 5 seconds, redirect to login
-        if (redirectTimeout) {
-            clearTimeout(redirectTimeout);
-        }
-        
-        redirectTimeout = setTimeout(() => {
-            if (!authCheckComplete && !currentUser) {
-                console.log('⏰ Auth timeout - redirecting to login');
-                window.location.replace('/');
-            }
-        }, 5000);
-    }
+        checkAuthAndLoad();
+    });
 
     // ─── EXPOSE ──────────────────────────────────────────────────
     window.__AUTOD = {
@@ -1245,19 +1190,12 @@
         redirectToServicePage,
     };
 
-    // ─── EVENT LISTENERS ──────────────────────────────────────
-    document.addEventListener('DOMContentLoaded', init);
-    
-    // Cleanup on page unload
+    // Cleanup
     window.addEventListener('beforeunload', () => {
         redirectOverlay.classList.remove('show');
         if (paymentInterval) {
             clearInterval(paymentInterval);
             paymentInterval = null;
-        }
-        if (redirectTimeout) {
-            clearTimeout(redirectTimeout);
-            redirectTimeout = null;
         }
     });
 
