@@ -391,7 +391,7 @@
 
         <!-- Forgot password (signin only) -->
         <div class="forgot-password" id="forgotPassword">
-            <a href="#" onclick="showToast('Password reset link sent to your email', 'info')">Forgot password?</a>
+            <a href="#" onclick="handleForgotPassword(event)">Forgot password?</a>
         </div>
 
         <div class="divider">or continue with</div>
@@ -572,47 +572,184 @@
             document.querySelectorAll('.error-text').forEach(el => el.classList.remove('show'));
         };
 
-        // ─── API HELPER ────────────────────────────────────────────
+        // ─── FIX 1: GET FRESH SESSION ──────────────────────────────
+        async function getValidSession() {
+            if (!supabaseClient) initSupabase();
+            if (!supabaseClient) return null;
+
+            try {
+                // Always get fresh session from Supabase
+                const { data: { session }, error } = await supabaseClient.auth.getSession();
+
+                if (error || !session) {
+                    // Try refreshing
+                    const { data: refreshData, error: refreshError } = await supabaseClient.auth.refreshSession();
+                    if (!refreshError && refreshData.session) {
+                        return refreshData.session;
+                    }
+                    return null;
+                }
+
+                return session;
+            } catch (e) {
+                console.error('Session error:', e);
+                return null;
+            }
+        }
+
+        // ─── FIX 2: REFRESH SESSION AUTOMATICALLY ──────────────────
+        async function refreshSession() {
+            if (!supabaseClient) initSupabase();
+            if (!supabaseClient) return null;
+
+            try {
+                const { data, error } = await supabaseClient.auth.refreshSession();
+                if (!error && data.session) {
+                    return data.session;
+                }
+                return null;
+            } catch (e) {
+                console.error('Refresh failed:', e);
+                return null;
+            }
+        }
+
+        // ─── FIX 3: CLEAR INVALID SESSIONS ──────────────────────────
+        async function clearInvalidSession() {
+            try {
+                if (supabaseClient) {
+                    await supabaseClient.auth.signOut();
+                }
+                localStorage.clear();
+                sessionStorage.clear();
+                // Clear cookies that might contain session data
+                document.cookie.split(';').forEach(c => {
+                    document.cookie = c.replace(/^ +/, '').replace(/=.*/, '=;expires=' + new Date().toUTCString() + ';path=/');
+                });
+            } catch (e) {
+                console.warn('Clear session error:', e);
+            }
+        }
+
+        // ─── FIX 4: API HELPER WITH SESSION HANDLING ────────────────
         async function apiCall(endpoint, options = {}) {
+            // Get fresh session
+            let session = await getValidSession();
+
+            if (!session) {
+                // Try to refresh
+                session = await refreshSession();
+            }
+
+            if (!session) {
+                // No valid session - redirect to login
+                await clearInvalidSession();
+                window.location.href = '/login.html';
+                throw new Error('Session expired. Please log in again.');
+            }
+
+            const token = session.access_token;
+
             const url = `${API_BASE}${endpoint}`;
             const headers = {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
+                'Authorization': `Bearer ${token}`,
                 ...options.headers
             };
 
-            if (supabaseClient) {
-                const { data: { session } } = await supabaseClient.auth.getSession();
-                if (session?.access_token) {
-                    headers['Authorization'] = `Bearer ${session.access_token}`;
-                }
-            }
-
-            const response = await fetch(url, {
-                ...options,
-                headers,
-                credentials: 'include'
-            });
-
-            if (!response.ok) {
-                let errorMessage;
-                try {
-                    const errorData = await response.json();
-                    errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
-                } catch {
-                    errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-                }
-                throw new Error(errorMessage);
-            }
-
-            const text = await response.text();
-            if (!text) return { status: 'ok' };
             try {
-                return JSON.parse(text);
-            } catch {
-                return { status: 'ok', raw: text };
+                const response = await fetch(url, {
+                    ...options,
+                    headers,
+                    credentials: 'include'
+                });
+
+                // ─── FIX 4: HANDLE 401 EXPIRED SESSION ────────────────
+                if (response.status === 401) {
+                    // Try to refresh once more
+                    const newSession = await refreshSession();
+                    if (newSession) {
+                        // Retry with new token
+                        const retryHeaders = {
+                            ...headers,
+                            'Authorization': `Bearer ${newSession.access_token}`
+                        };
+                        const retryResponse = await fetch(url, {
+                            ...options,
+                            headers: retryHeaders,
+                            credentials: 'include'
+                        });
+                        if (retryResponse.ok) {
+                            const text = await retryResponse.text();
+                            if (!text) return { status: 'ok' };
+                            try { return JSON.parse(text); } catch { return { status: 'ok', raw: text }; }
+                        }
+                    }
+
+                    // Session truly expired - clear everything and redirect
+                    await clearInvalidSession();
+                    window.location.href = '/login.html';
+                    throw new Error('Session expired. Please log in again.');
+                }
+
+                if (!response.ok) {
+                    let errorMessage;
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
+                    } catch {
+                        errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                    }
+                    throw new Error(errorMessage);
+                }
+
+                const text = await response.text();
+                if (!text) return { status: 'ok' };
+                try {
+                    return JSON.parse(text);
+                } catch {
+                    return { status: 'ok', raw: text };
+                }
+
+            } catch (error) {
+                if (error.message.includes('expired') || error.message.includes('session')) {
+                    await clearInvalidSession();
+                    window.location.href = '/login.html';
+                }
+                throw error;
             }
         }
+
+        // ─── FORGOT PASSWORD ──────────────────────────────────────────
+        window.handleForgotPassword = async function(event) {
+            event.preventDefault();
+            
+            const email = emailInput.value.trim();
+            if (!email || !email.includes('@')) {
+                showToast('Please enter your email address first.', 'warning');
+                emailInput.focus();
+                return;
+            }
+
+            if (!supabaseClient) initSupabase();
+            if (!supabaseClient) {
+                showToast('Authentication service unavailable', 'error');
+                return;
+            }
+
+            try {
+                const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+                    redirectTo: window.location.origin + '/reset-password.html'
+                });
+
+                if (error) throw error;
+                showToast('📧 Password reset link sent to your email!', 'success');
+            } catch (error) {
+                console.error('Reset error:', error);
+                showToast('❌ ' + (error.message || 'Failed to send reset link'), 'error');
+            }
+        };
 
         // ─── AUTH HANDLER ──────────────────────────────────────────────
         window.handleAuth = async function(event) {
@@ -668,6 +805,9 @@
             authBtn.innerHTML = '<span class="loading-spinner"></span> Processing...';
 
             try {
+                // ─── FIX 3: CLEAR ANY EXISTING SESSION FIRST ─────────
+                await clearInvalidSession();
+
                 if (isSignupMode) {
                     // ─── SIGN UP ──────────────────────────────────────
                     const { data, error } = await supabaseClient.auth.signUp({
@@ -723,7 +863,13 @@
                     if (error) throw error;
 
                     if (data.session) {
+                        // Store user info
                         localStorage.setItem('auto_d_user', JSON.stringify(data.user));
+
+                        // ─── FIX 1: SESSION IS ALREADY MANAGED BY SUPABASE ──
+                        // No need to manually store tokens - Supabase handles it
+                        // Just redirect
+
                         showToast('✅ Welcome back, ' + (data.user.user_metadata?.full_name || data.user.email) + '!', 'success');
                         setTimeout(() => {
                             window.location.href = DASHBOARD_URL;
@@ -742,6 +888,9 @@
                     setTimeout(() => switchMode(), 1500);
                 } else if (error.message.includes('Email not confirmed')) {
                     showToast('Please confirm your email before signing in.', 'warning');
+                } else if (error.message.includes('session') && error.message.includes('does not exist')) {
+                    showToast('Session expired. Please try again.', 'warning');
+                    await clearInvalidSession();
                 } else {
                     showToast(`❌ ${error.message || 'Authentication failed. Please try again.'}`, 'error');
                 }
@@ -764,18 +913,21 @@
                 }
             }
 
-            showToast(`Redirecting to ${provider}...`, 'info');
+            // Clear any existing session first
+            clearInvalidSession().then(() => {
+                showToast(`Redirecting to ${provider}...`, 'info');
 
-            const redirectUrl = window.location.origin + DASHBOARD_URL;
+                const redirectUrl = window.location.origin + DASHBOARD_URL;
 
-            supabaseClient.auth.signInWithOAuth({
-                provider: provider,
-                options: {
-                    redirectTo: redirectUrl
-                }
-            }).catch(error => {
-                console.error('Social login error:', error);
-                showToast(`Failed to sign in with ${provider}`, 'error');
+                supabaseClient.auth.signInWithOAuth({
+                    provider: provider,
+                    options: {
+                        redirectTo: redirectUrl
+                    }
+                }).catch(error => {
+                    console.error('Social login error:', error);
+                    showToast(`Failed to sign in with ${provider}`, 'error');
+                });
             });
         };
 
@@ -785,7 +937,7 @@
             if (!supabaseClient) return;
 
             try {
-                const { data: { session } } = await supabaseClient.auth.getSession();
+                const session = await getValidSession();
                 if (session?.user) {
                     // Already logged in - redirect to dashboard
                     window.location.href = DASHBOARD_URL;
@@ -822,8 +974,10 @@
                 supabase: supabaseClient,
                 isSignupMode: () => isSignupMode,
                 switchMode,
-                showToast
-            };
+                showToast,
+                getValidSession,
+                refreshSession,
+                clearInvalidSession            };
         }
 
         if (document.readyState === 'loading') {
