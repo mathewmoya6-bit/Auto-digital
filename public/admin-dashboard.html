@@ -113,6 +113,11 @@
             transition: border-color 0.2s;
         }
         .login-card .form-group input:focus { outline: none; border-color: var(--primary); }
+        .login-card .form-group .hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
         .login-btn {
             width: 100%;
             padding: 14px;
@@ -128,7 +133,17 @@
         }
         .login-btn:hover { background: var(--primary-hover); transform: translateY(-2px); box-shadow: 0 8px 30px rgba(234,179,8,0.2); }
         .login-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-        .login-error { color: var(--danger); font-size: 13px; margin-top: 12px; text-align: center; display: none; }
+        .login-error { 
+            color: var(--danger); 
+            font-size: 13px; 
+            margin-top: 12px; 
+            text-align: center; 
+            display: none;
+            background: rgba(239,68,68,0.1);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(239,68,68,0.2);
+        }
         .login-error.show { display: block; }
 
         /* ─── Header ────────────────────────────────────────────────── */
@@ -840,14 +855,15 @@
         <div class="login-card">
             <div class="logo">Auto-D <span>Admin</span></div>
             <p class="sub">🔐 Secure Dashboard Access</p>
-            <form id="loginForm">
+            <form id="loginForm" novalidate>
                 <div class="form-group">
                     <label>Email</label>
-                    <input type="email" id="adminEmail" placeholder="admin@autod.com" />
+                    <input type="email" id="adminEmail" placeholder="admin@autod.com" required />
                 </div>
                 <div class="form-group">
                     <label>Password</label>
-                    <input type="password" id="adminPassword" placeholder="Enter password" />
+                    <input type="password" id="adminPassword" placeholder="Enter password (min 8 characters)" required minlength="8" />
+                    <div class="hint">Password must be at least 8 characters</div>
                 </div>
                 <button type="submit" class="login-btn" id="loginBtn">🔓 Login to Dashboard</button>
                 <div class="login-error" id="loginError">Invalid credentials or unauthorized access</div>
@@ -1390,6 +1406,31 @@
                 return localStorage.getItem(TOKEN_KEY) || '';
             }
 
+            function getErrorMessage(error) {
+                if (!error) return 'Unknown error occurred';
+                if (typeof error === 'string') return error;
+                
+                // Handle Pydantic validation errors
+                if (Array.isArray(error)) {
+                    const messages = error.map(e => {
+                        const field = e.loc?.join('.') || e.field || 'unknown';
+                        const msg = e.msg || e.message || 'Invalid value';
+                        return `${field}: ${msg}`;
+                    });
+                    return messages.join('; ');
+                }
+                
+                if (error.message) return error.message;
+                if (error.detail) {
+                    if (Array.isArray(error.detail)) {
+                        return getErrorMessage(error.detail);
+                    }
+                    return error.detail;
+                }
+                
+                return JSON.stringify(error);
+            }
+
             async function apiFetch(path, { method = 'GET', body = null, auth = true } = {}) {
                 const headers = { 'Accept': 'application/json' };
                 if (body !== null) headers['Content-Type'] = 'application/json';
@@ -1406,8 +1447,8 @@
                 try { data = await response.json(); } catch (e) { /* empty/non-JSON body */ }
 
                 if (!response.ok) {
-                    const message = data?.message || data?.detail || `HTTP ${response.status}`;
-                    throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
+                    const message = getErrorMessage(data);
+                    throw new Error(message || `HTTP ${response.status}`);
                 }
                 return data;
             }
@@ -1426,8 +1467,8 @@
                     }
                     return { success: false, error: 'No access_token in response' };
                 } catch (error) {
-                    console.warn('⚠️ API login error:', error.message);
-                    return { success: false, error: error.message };
+                    console.warn('⚠️ API login error:', error);
+                    return { success: false, error: error.message || 'Login failed' };
                 }
             }
 
@@ -1750,7 +1791,7 @@
                 btn.disabled = true;
 
                 try {
-                    const data = await apiFetch(`/admin/services/${code}/price`, {
+                    await apiFetch(`/admin/services/${code}/price`, {
                         method: 'PATCH',
                         body: { price }
                     });
@@ -2503,11 +2544,20 @@
             // ─── Login ──────────────────────────────────────────────────
             loginForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
+                
                 const email = document.getElementById('adminEmail').value.trim();
                 const password = document.getElementById('adminPassword').value.trim();
 
+                // Client-side validation
+                if (password.length < 8) {
+                    loginError.classList.add('show');
+                    loginError.textContent = 'Password must be at least 8 characters';
+                    return;
+                }
+
                 loginBtn.disabled = true;
                 loginBtn.textContent = '⏳ Logging in...';
+                loginError.classList.remove('show');
 
                 try {
                     const result = await apiLogin(email, password);
@@ -2524,7 +2574,6 @@
                     }
 
                     isLoggedIn = true;
-                    loginError.classList.remove('show');
                     loginScreen.classList.add('hidden');
                     dashboardScreen.classList.remove('hidden');
                     
