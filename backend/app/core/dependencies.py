@@ -96,11 +96,29 @@ async def get_current_user(
         raise
 
     except Exception as e:
-        logger.exception("Authentication failed")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid authentication: {str(e)}",
-        )
+        # Catch all authentication errors including:
+        # - Session from session_id claim in JWT does not exist
+        # - Invalid token
+        # - Expired token
+        logger.exception(f"Authentication failed: {str(e)}")
+        
+        # Check for specific Supabase error messages
+        error_message = str(e).lower()
+        if "session" in error_message and "does not exist" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please log in again.",
+            )
+        elif "expired" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token expired. Please refresh or log in again.",
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication. Please log in again.",
+            )
 
 
 # ================================================================
