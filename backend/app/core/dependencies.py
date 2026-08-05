@@ -4,10 +4,8 @@
 # ================================================================
 
 import logging
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -31,8 +29,10 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> Dict[str, Any]:
     """
-    Validate JWT token and return the authenticated user.
-    Uses Supabase Auth for token verification.
+    Validate Supabase JWT token and return the authenticated user.
+    
+    Uses Supabase Auth's get_user() which validates the token
+    and returns the user from Supabase's internal auth system.
     """
     if credentials is None:
         raise HTTPException(
@@ -51,6 +51,7 @@ async def get_current_user(
 
     try:
         # Verify the access token with Supabase Auth
+        # This validates the token and returns the user
         auth_response = supabase.auth.get_user(token)
 
         if not auth_response or not auth_response.user:
@@ -72,12 +73,13 @@ async def get_current_user(
             )
 
             if profile and profile.data:
+                logger.debug(f"Found profile for user: {user.id}")
                 return profile.data
 
         except Exception:
             logger.exception("Failed to load profile")
 
-        # Fallback to auth user info
+        # Fallback to auth user info if no profile exists
         return {
             "id": user.id,
             "user_id": user.id,
@@ -372,117 +374,6 @@ async def get_rate_limiter() -> Dict[str, Any]:
 
 
 # ================================================================
-# TOKENS
-# ================================================================
-
-def create_access_token(
-    data: dict,
-    expires_delta: Optional[timedelta] = None,
-) -> str:
-    """
-    Create JWT access token.
-    """
-    payload = data.copy()
-
-    expire = (
-        datetime.utcnow()
-        + (
-            expires_delta
-            or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-        )
-    )
-
-    payload.update(
-        {
-            "exp": expire,
-            "iat": datetime.utcnow(),
-            "type": "access",
-        }
-    )
-
-    jwt_secret = settings.get_jwt_secret()
-
-    if not jwt_secret:
-        raise RuntimeError("JWT secret not configured")
-
-    return jwt.encode(
-        payload,
-        jwt_secret,
-        algorithm=settings.ALGORITHM,
-    )
-
-
-def create_refresh_token(
-    data: dict,
-    expires_delta: Optional[timedelta] = None,
-) -> str:
-    """
-    Create JWT refresh token.
-    """
-    payload = data.copy()
-
-    expire = (
-        datetime.utcnow()
-        + (
-            expires_delta
-            or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-        )
-    )
-
-    payload.update(
-        {
-            "exp": expire,
-            "iat": datetime.utcnow(),
-            "type": "refresh",
-        }
-    )
-
-    jwt_secret = settings.get_jwt_secret()
-
-    if not jwt_secret:
-        raise RuntimeError("JWT secret not configured")
-
-    return jwt.encode(
-        payload,
-        jwt_secret,
-        algorithm=settings.ALGORITHM,
-    )
-
-
-def verify_token(token: str) -> Dict[str, Any]:
-    """
-    Verify and decode JWT token.
-    """
-    jwt_secret = settings.get_jwt_secret()
-
-    if not jwt_secret:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="JWT secret not configured",
-        )
-
-    try:
-        return jwt.decode(
-            token,
-            jwt_secret,
-            algorithms=[settings.ALGORITHM],
-            options={"verify_aud": False},
-        )
-
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token expired",
-        )
-
-    except jwt.InvalidTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication",
-        )
-
-
-# ================================================================
 # EXPORTS
 # ================================================================
 
@@ -503,7 +394,4 @@ __all__ = [
     "get_search_params",
     "get_filter_params",
     "get_rate_limiter",
-    "create_access_token",
-    "create_refresh_token",
-    "verify_token",
 ]
