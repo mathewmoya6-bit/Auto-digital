@@ -1,9 +1,12 @@
+# app/core/config.py
+# ================================================================
 # Auto-D Kenya - Configuration Settings
 # ================================================================
 
 import json
 import secrets
-from typing import List, Union, Optional
+from datetime import timedelta
+from typing import List, Optional, Union
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,8 +14,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     """
-    Application configuration.
-    Values are loaded from environment variables.
+    Global application settings.
+
+    Values are loaded from environment variables and .env.
     """
 
     model_config = SettingsConfigDict(
@@ -27,40 +31,59 @@ class Settings(BaseSettings):
     # ============================================================
 
     PROJECT_NAME: str = "Auto-D Kenya API"
-    VERSION: str = "1.0.0"
+
+    VERSION: str = "2.0.0"
+
     DESCRIPTION: str = (
-        "Vehicle cost analysis and valuation system for Kenya"
+        "Vehicle Valuation, Ownership Verification, "
+        "Mileage Verification and Running Cost Platform"
     )
 
     API_V1_PREFIX: str = "/api/v1"
 
-    API_BASE_URL: str = (
-        "https://auto-digital.onrender.com"
-    )
+    API_BASE_URL: str = "https://auto-digital.onrender.com"
 
     ENVIRONMENT: str = "production"
-    DEBUG: bool = False
-    PORT: int = 10000
 
+    DEBUG: bool = False
+
+    PORT: int = 10000
 
     # ============================================================
     # SUPABASE
     # ============================================================
 
     SUPABASE_URL: str = ""
-    SUPABASE_KEY: str = ""
-    SUPABASE_JWT_SECRET: str = ""
 
+    SUPABASE_KEY: str = ""
+
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
+
+    SUPABASE_JWT_SECRET: str = ""
 
     # ============================================================
     # SECURITY
     # ============================================================
 
     SECRET_KEY: Optional[str] = None
+
     ALGORITHM: str = "HS256"
+
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
+    PASSWORD_MIN_LENGTH: int = 8
+
+    # ============================================================
+    # API SECURITY
+    # ============================================================
+
+    PUBLIC_API_KEY: str = ""
+
+    INTERNAL_API_KEY: str = ""
+
+    API_REQUEST_TIMEOUT: int = 30
 
     # ============================================================
     # CORS
@@ -70,59 +93,92 @@ class Settings(BaseSettings):
         "https://auto-d.meipressgroup.com,"
         "https://auto-digital.onrender.com,"
         "http://localhost:3000,"
+        "http://localhost:5173,"
         "http://localhost:8000"
     )
 
     CORS_ALLOW_METHODS: str = (
-        "GET,POST,PUT,DELETE,OPTIONS,PATCH"
+        "GET,POST,PUT,DELETE,PATCH,OPTIONS"
     )
 
     CORS_ALLOW_HEADERS: str = (
-        "Authorization,Content-Type,Accept,Origin"
+        "Authorization,"
+        "Content-Type,"
+        "Accept,"
+        "Origin,"
+        "X-Requested-With"
     )
 
     CORS_ALLOW_CREDENTIALS: bool = True
 
-
     # ============================================================
-    # MPESA
+    # M-PESA CONFIGURATION
     # ============================================================
 
+    # Master switch
+    MPESA_ENABLED: bool = True
+
+    # Environment
+    MPESA_ENVIRONMENT: str = "production"
+
+    # API Credentials
     MPESA_CONSUMER_KEY: str = ""
     MPESA_CONSUMER_SECRET: str = ""
     MPESA_PASSKEY: str = ""
 
+    # Business Details
     MPESA_SHORTCODE: str = "4095377"
+    MPESA_TILL_NUMBER: str = ""
+    MPESA_INITIATOR_NAME: str = ""
+    MPESA_INITIATOR_PASSWORD: str = ""
 
-    MPESA_ENVIRONMENT: str = "production"
-
-    MPESA_BASE_URL: str = (
-        "https://api.safaricom.co.ke"
-    )
+    # API URLs
+    MPESA_BASE_URL: str = "https://api.safaricom.co.ke"
 
     MPESA_CALLBACK_URL: str = (
         "https://auto-digital.onrender.com"
         "/api/v1/mpesa/callback"
     )
 
-    # ─── M-Pesa Callback Secret ──────────────────────────────────
+    MPESA_RESULT_URL: str = ""
+
+    MPESA_QUEUE_TIMEOUT_URL: str = ""
+
     MPESA_CALLBACK_SECRET: str = ""
-    
-    # ─── M-Pesa Timeouts ─────────────────────────────────────────
-    MPESA_TIMEOUT: int = 30
-    MPESA_STK_TIMEOUT: int = 60
-    
-    # ─── M-Pesa API Version ──────────────────────────────────────
+
     MPESA_API_VERSION: str = "v1"
 
+    # Timeouts
+    MPESA_TIMEOUT: int = 30
+    MPESA_STK_TIMEOUT: int = 60
+    MPESA_ACCESS_TOKEN_CACHE_MINUTES: int = 50
+
+    # Payment Behaviour
+    PAYMENT_EXPIRY_MINUTES: int = 30
+
+    SERVICE_ACCESS_DAYS: int = 365
+
+    # Retry Settings
+    MPESA_MAX_RETRIES: int = 3
+    MPESA_RETRY_DELAY_SECONDS: int = 5
+
+    # ============================================================
+    # RATE LIMITING
+    # ============================================================
+
+    RATE_LIMIT_REQUESTS: int = 5
+
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
 
     # ============================================================
     # DEFAULT VEHICLE VALUES
     # ============================================================
 
     DEFAULT_FUEL_PRICE_PETROL: float = 214.03
+
     DEFAULT_FUEL_PRICE_DIESEL: float = 222.86
-    DEFAULT_FUEL_PRICE_ELECTRIC: float = 30.0
+
+    DEFAULT_FUEL_PRICE_ELECTRIC: float = 30.00
 
     DEFAULT_ANNUAL_MILEAGE: int = 20000
 
@@ -130,77 +186,137 @@ class Settings(BaseSettings):
 
     DEFAULT_INSURANCE_RATE: float = 0.045
 
+    # ============================================================
+    # VALUATION SETTINGS
+    # ============================================================
+
+    DEFAULT_MARKET_VARIANCE: float = 0.05
+
+    DEFAULT_MAX_VEHICLE_AGE: int = 30
+
+    DEFAULT_MINIMUM_VALUE: float = 50000.0
+
+    # ============================================================
+    # SCRAPER SETTINGS
+    # ============================================================
+
+    SCRAPER_ENABLED: bool = True
+
+    SCRAPER_TIMEOUT: int = 30
+
+    SCRAPER_MAX_CONCURRENT: int = 5
+
+    SCRAPER_USER_AGENT: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 "
+        "(KHTML, like Gecko) "
+        "Chrome/137.0 Safari/537.36"
+    )
 
     # ============================================================
     # LOGGING
     # ============================================================
 
     LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
+    LOG_FORMAT: str = (
+        "%(asctime)s - %(name)s - "
+        "%(levelname)s - %(message)s"
+    )
+
+    LOG_REQUESTS: bool = True
+
+    LOG_SQL: bool = False
 
     # ============================================================
-    # DOCUMENTATION
+    # API DOCUMENTATION
     # ============================================================
 
     ENABLE_DOCS: bool = True
-    API_DOCS_URL: str = "/docs"
-    API_REDOC_URL: str = "/redoc"
-    API_OPENAPI_URL: str = "/openapi.json"
 
+    API_DOCS_URL: str = "/docs"
+
+    API_REDOC_URL: str = "/redoc"
+
+    API_OPENAPI_URL: str = "/openapi.json"
 
     # ============================================================
     # VALIDATION
     # ============================================================
 
     @model_validator(mode="after")
-    def validate_security(self):
-        """Validate required security settings."""
-        
-        # ─── Validate Supabase credentials ──────────────────────
-        if not self.SUPABASE_KEY and self.ENVIRONMENT == "production":
-            raise ValueError(
-                "SUPABASE_KEY environment variable missing"
-            )
-        
-        if not self.SUPABASE_URL and self.ENVIRONMENT == "production":
-            raise ValueError(
-                "SUPABASE_URL environment variable missing"
-            )
-        
-        # ─── Use SUPABASE_JWT_SECRET as fallback for SECRET_KEY ──
+    def validate_settings(self):
+        """
+        Validate configuration after loading from the environment.
+        """
+
+        # --------------------------------------------------------
+        # Supabase
+        # --------------------------------------------------------
+        if self.ENVIRONMENT.lower() == "production":
+            if not self.SUPABASE_URL:
+                raise ValueError("SUPABASE_URL environment variable is required.")
+
+            if not self.SUPABASE_KEY:
+                raise ValueError("SUPABASE_KEY environment variable is required.")
+
+        # --------------------------------------------------------
+        # JWT Secret
+        # --------------------------------------------------------
         if not self.SECRET_KEY:
             if self.SUPABASE_JWT_SECRET:
                 self.SECRET_KEY = self.SUPABASE_JWT_SECRET
-                print("✅ Using SUPABASE_JWT_SECRET as SECRET_KEY")
-            elif self.ENVIRONMENT == "production":
+            elif self.ENVIRONMENT.lower() == "production":
                 raise ValueError(
-                    "Neither SECRET_KEY nor SUPABASE_JWT_SECRET is set"
+                    "SECRET_KEY or SUPABASE_JWT_SECRET must be configured."
                 )
             else:
-                # Generate a temporary key for development
                 self.SECRET_KEY = secrets.token_urlsafe(32)
-                print("⚠️  WARNING: Generated temporary SECRET_KEY for development")
-        
-        # ─── M-Pesa validation (warning only) ────────────────────
-        if self.ENVIRONMENT == "production":
-            if not self.MPESA_CONSUMER_KEY or not self.MPESA_CONSUMER_SECRET:
-                print("⚠️  WARNING: M-Pesa credentials not fully configured")
-            
-            if not self.MPESA_CALLBACK_SECRET:
-                print("⚠️  WARNING: MPESA_CALLBACK_SECRET not set - using default")
-                # Generate a default secret
-                self.MPESA_CALLBACK_SECRET = secrets.token_urlsafe(32)
+
+        # --------------------------------------------------------
+        # Callback Secret
+        # --------------------------------------------------------
+        if not self.MPESA_CALLBACK_SECRET:
+            self.MPESA_CALLBACK_SECRET = secrets.token_urlsafe(32)
+
+        # --------------------------------------------------------
+        # Normalize Environment
+        # --------------------------------------------------------
+        self.ENVIRONMENT = self.ENVIRONMENT.lower()
+        self.MPESA_ENVIRONMENT = self.MPESA_ENVIRONMENT.lower()
 
         return self
-
 
     # ============================================================
     # HELPERS
     # ============================================================
 
+    @property
+    def mpesa_configured(self) -> bool:
+        """
+        Returns True if the minimum configuration required to use
+        M-Pesa exists.
+        """
+        return (
+            self.MPESA_ENABLED
+            and bool(self.MPESA_CONSUMER_KEY)
+            and bool(self.MPESA_CONSUMER_SECRET)
+            and bool(self.MPESA_PASSKEY)
+            and bool(self.MPESA_SHORTCODE)
+        )
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT == "production"
+
+    @property
+    def is_development(self) -> bool:
+        return self.ENVIRONMENT == "development"
+
     def get_cors_origins(self) -> List[str]:
-        """Parse CORS origins from string or list."""
+        """
+        Parse CORS origins whether supplied as JSON or comma-separated text.
+        """
         origins = self.BACKEND_CORS_ORIGINS
 
         if isinstance(origins, list):
@@ -214,36 +330,79 @@ class Settings(BaseSettings):
             pass
 
         return [
-            item.strip()
-            for item in origins.split(",")
-            if item.strip()
+            origin.strip()
+            for origin in origins.split(",")
+            if origin.strip()
         ]
-
 
     def get_cors_methods(self) -> List[str]:
-        """Parse CORS methods from string."""
+        """
+        Parse CORS allowed methods.
+        """
         return [
-            x.strip()
-            for x in self.CORS_ALLOW_METHODS.split(",")
-            if x.strip()
+            method.strip()
+            for method in self.CORS_ALLOW_METHODS.split(",")
+            if method.strip()
         ]
-
 
     def get_cors_headers(self) -> List[str]:
-        """Parse CORS headers from string."""
+        """
+        Parse CORS allowed headers.
+        """
         return [
-            x.strip()
-            for x in self.CORS_ALLOW_HEADERS.split(",")
-            if x.strip()
+            header.strip()
+            for header in self.CORS_ALLOW_HEADERS.split(",")
+            if header.strip()
         ]
 
-
     def get_jwt_secret(self) -> str:
-        """Get the JWT secret to use."""
-        if self.SUPABASE_JWT_SECRET:
-            return self.SUPABASE_JWT_SECRET
-        return self.SECRET_KEY or ""
+        """
+        Returns the JWT signing secret.
+        """
+        return self.SECRET_KEY or self.SUPABASE_JWT_SECRET or ""
+
+    def get_mpesa_base_url(self) -> str:
+        """
+        Returns the appropriate Safaricom API endpoint.
+        """
+        if self.MPESA_ENVIRONMENT == "sandbox":
+            return "https://sandbox.safaricom.co.ke"
+
+        return "https://api.safaricom.co.ke"
+
+    def get_callback_url(self) -> str:
+        """
+        Returns the callback URL used for STK Push.
+        """
+        return self.MPESA_CALLBACK_URL.rstrip("/")
+
+    def get_service_access_expiry(self) -> timedelta:
+        """
+        Default service access duration after successful payment.
+        """
+        return timedelta(days=self.SERVICE_ACCESS_DAYS)
+
+    def get_payment_expiry_minutes(self) -> int:
+        """
+        Returns the payment expiry time in minutes.
+        """
+        return self.PAYMENT_EXPIRY_MINUTES
+
+    def get_mpesa_timeout(self) -> int:
+        """
+        Returns the M-Pesa API timeout in seconds.
+        """
+        return self.MPESA_TIMEOUT
+
+    def get_stk_timeout(self) -> int:
+        """
+        Returns the STK Push timeout in seconds.
+        """
+        return self.MPESA_STK_TIMEOUT
 
 
-# ─── Create settings instance ──────────────────────────────────────
+# ================================================================
+# SETTINGS INSTANCE
+# ================================================================
+
 settings = Settings()
