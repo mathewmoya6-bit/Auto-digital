@@ -9,9 +9,10 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
 
-from supabase import create_client, Client
+from supabase import Client
 
 from app.core.config import settings
+from app.core.database import get_supabase
 from app.core.exceptions import (
     AppException,
     NotFoundException,
@@ -42,12 +43,9 @@ class MpesaService:
 
     def __init__(self):
         """Initialize the M-Pesa service."""
-        # Initialize Supabase client
-        self.supabase: Client = create_client(
-            settings.SUPABASE_URL,
-            settings.SUPABASE_KEY
-        )
-        self.stk_push = StkPushService() if settings.MPESA_ENABLED else None
+        # Use singleton Supabase client from database module
+        self.supabase: Client = get_supabase()
+        self.stk_push = StkPushService() if settings.mpesa_configured else None
         self.repository = MpesaRepository()
         self._services_cache = None
         self._cache_time = None
@@ -195,10 +193,13 @@ class MpesaService:
         }
 
         try:
-            # Insert payment record
-            payment_result = await self.supabase.table("payments") \
-                .insert(payment_data) \
+            # Insert payment record (synchronous)
+            payment_result = (
+                self.supabase
+                .table("payments")
+                .insert(payment_data)
                 .execute()
+            )
 
             if not payment_result.data:
                 raise AppException("Failed to create payment record")
@@ -206,16 +207,16 @@ class MpesaService:
             payment = payment_result.data[0]
             payment_id = payment.get("id")
 
-            # Initiate STK Push
+            # Initiate STK Push (asynchronous)
             if not self.stk_push:
                 raise AppException("M-Pesa service is not configured")
 
-            response = await self.stk_push.initiate_stk_push(
+            response = await self.stk_push.initiate_push(
                 phone=phone,
                 amount=db_amount,
-                account_reference=f"PAY-{payment_id}",
-                transaction_desc=description,
-                callback_url=settings.MPESA_CALLBACK_URL,
+                description=description,
+                user_id=user_id,
+                service_id=service["id"],
             )
 
             if not response:
@@ -231,14 +232,17 @@ class MpesaService:
                     )
                 )
 
-            # Update payment with checkout request ID
-            await self.supabase.table("payments") \
+            # Update payment with checkout request ID (synchronous)
+            (
+                self.supabase
+                .table("payments")
                 .update({
                     "checkout_request_id": checkout_request_id,
                     "mpesa_response": response,
-                }) \
-                .eq("id", payment_id) \
+                })
+                .eq("id", payment_id)
                 .execute()
+            )
 
             logger.info(
                 "STK Push sent successfully | checkout=%s",
@@ -298,21 +302,24 @@ class MpesaService:
         # If payment is still pending and STK Push is available, check with M-Pesa
         if payment.get("status") == self.STATUS_PENDING and self.stk_push:
             try:
-                stk_status = await self.stk_push.check_payment_status(
+                stk_status = await self.stk_push.query_payment(
                     checkout_request_id
                 )
 
-                # Update payment if status changed
+                # Update payment if status changed (synchronous)
                 if stk_status.get("status") != self.STATUS_PENDING:
-                    await self.supabase.table("payments") \
+                    (
+                        self.supabase
+                        .table("payments")
                         .update({
                             "status": stk_status.get("status"),
                             "result_code": stk_status.get("result_code"),
                             "result_desc": stk_status.get("result_desc"),
                             "updated_at": datetime.now(timezone.utc).isoformat(),
-                        }) \
-                        .eq("id", payment["id"]) \
+                        })
+                        .eq("id", payment["id"])
                         .execute()
+                    )
 
                     payment["status"] = stk_status.get("status")
                     payment["result_desc"] = stk_status.get("result_desc")
