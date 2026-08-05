@@ -7,7 +7,6 @@ import logging
 from datetime import datetime
 
 from app.core.database import get_supabase
-from app.core.security import create_access_token, hash_password, verify_password
 from app.core.config import settings
 from app.core.exceptions import UnauthorizedException, ValidationException
 
@@ -22,7 +21,7 @@ class AuthService:
     
     async def login(self, email: str, password: str) -> dict:
         """
-        Authenticate user and return Supabase session.
+        Authenticate user using Supabase Auth and return the Supabase session.
         
         Args:
             email: User email
@@ -35,22 +34,16 @@ class AuthService:
             UnauthorizedException: If credentials are invalid
         """
         try:
-            # Use Supabase's built-in authentication
             response = self.supabase.auth.sign_in_with_password({
                 "email": email,
                 "password": password
             })
-            
-            if not response.user:
+
+            if not response.user or not response.session:
                 raise UnauthorizedException("Invalid credentials")
-            
-            # Log successful login
-            logger.info(
-                f"User logged in: {response.user.email} (ID: {response.user.id})"
-            )
-            
-            # Return the Supabase session tokens directly
-            # These are valid for supabase.auth.get_user()
+
+            logger.info(f"User logged in: {response.user.email} (ID: {response.user.id})")
+
             return {
                 "access_token": response.session.access_token,
                 "refresh_token": response.session.refresh_token,
@@ -61,9 +54,9 @@ class AuthService:
                 "email": response.user.email,
                 "user_metadata": response.user.user_metadata,
             }
-            
+
         except Exception as e:
-            logger.error(f"Login error: {str(e)}")
+            logger.exception("Login failed")
             raise UnauthorizedException("Invalid credentials")
     
     async def register(self, email: str, password: str, full_name: str = None) -> dict:
@@ -82,7 +75,6 @@ class AuthService:
             ValidationException: If registration fails
         """
         try:
-            # Use Supabase's built-in registration
             response = self.supabase.auth.sign_up({
                 "email": email,
                 "password": password,
@@ -93,14 +85,12 @@ class AuthService:
                     }
                 }
             })
-            
+
             if not response.user:
                 raise ValidationException("Registration failed")
-            
-            logger.info(
-                f"User registered: {response.user.email} (ID: {response.user.id})"
-            )
-            
+
+            logger.info(f"User registered: {response.user.email} (ID: {response.user.id})")
+
             # Create a profile record for the user
             try:
                 profile_data = {
@@ -111,15 +101,15 @@ class AuthService:
                     "is_active": True,
                     "created_at": datetime.utcnow().isoformat(),
                 }
-                
+
                 self.supabase.table("profiles").insert(profile_data).execute()
                 logger.info(f"Profile created for user: {response.user.id}")
-                
+
             except Exception as profile_error:
                 logger.warning(f"Profile creation failed: {profile_error}")
                 # Don't fail registration if profile creation fails
-            
-            # Return session if user was auto-confirmed, otherwise just user info
+
+            # Return session if user was auto-confirmed
             if response.session:
                 return {
                     "message": "User registered successfully",
@@ -137,9 +127,9 @@ class AuthService:
                     "email": response.user.email,
                     "requires_confirmation": True,
                 }
-            
+
         except Exception as e:
-            logger.error(f"Registration error: {str(e)}")
+            logger.exception("Registration failed")
             raise ValidationException(f"Registration failed: {str(e)}")
     
     async def refresh_token(self, refresh_token: str) -> dict:
@@ -157,12 +147,12 @@ class AuthService:
         """
         try:
             response = self.supabase.auth.refresh_session(refresh_token)
-            
-            if not response.user:
+
+            if not response.user or not response.session:
                 raise UnauthorizedException("Invalid refresh token")
-            
+
             logger.info(f"Token refreshed for user: {response.user.email}")
-            
+
             return {
                 "access_token": response.session.access_token,
                 "refresh_token": response.session.refresh_token,
@@ -171,9 +161,9 @@ class AuthService:
                 "expires_at": response.session.expires_at.isoformat() if response.session.expires_at else None,
                 "user_id": response.user.id,
             }
-            
+
         except Exception as e:
-            logger.error(f"Token refresh error: {str(e)}")
+            logger.exception("Token refresh failed")
             raise UnauthorizedException("Invalid refresh token")
     
     async def logout(self, access_token: str) -> dict:
@@ -187,79 +177,53 @@ class AuthService:
             dict: Logout confirmation
         """
         try:
-            # Supabase doesn't have a direct logout API for tokens
+            # Note: Supabase doesn't have a direct logout API for tokens
             # The client should discard the token on their side
             # We'll log the logout attempt
             logger.info(f"User logged out (token: {access_token[:20]}...)")
-            
+
             return {
                 "message": "Logged out successfully",
             }
-            
+
         except Exception as e:
-            logger.error(f"Logout error: {str(e)}")
+            logger.exception("Logout failed")
             raise UnauthorizedException("Logout failed")
     
     async def get_user(self, user_id: str) -> dict:
         """
-        Get user by ID from Supabase Auth.
+        Get user by ID from the profiles table.
         
         Args:
             user_id: User ID
             
         Returns:
-            dict: User information
+            dict: User information from profiles
             
         Raises:
             UnauthorizedException: If user not found
         """
         try:
-            # Supabase auth get_user requires an access token
-            # Since we're in a service context, we need to get the user differently
-            # Try to get from profiles table first
-            try:
-                response = (
-                    self.supabase
-                    .table("profiles")
-                    .select("*")
-                    .eq("user_id", user_id)
-                    .maybe_single()
-                    .execute()
-                )
-                
-                if response and response.data:
-                    return {
-                        "id": response.data.get("user_id"),
-                        "email": response.data.get("email"),
-                        "full_name": response.data.get("full_name"),
-                        "role": response.data.get("role", "user"),
-                        "is_active": response.data.get("is_active", True),
-                        "created_at": response.data.get("created_at"),
-                    }
-            except Exception:
-                pass
-            
-            # Fallback: try to get from auth (requires admin privileges)
-            # This may not work with anon key
-            try:
-                # Using admin API - may require service role key
-                admin_client = self.supabase.auth.admin
-                response = admin_client.get_user_by_id(user_id)
-                
-                if response and response.user:
-                    return {
-                        "id": response.user.id,
-                        "email": response.user.email,
-                        "full_name": response.user.user_metadata.get("full_name"),
-                        "created_at": response.user.created_at,
-                    }
-            except Exception:
-                pass
-            
-            raise UnauthorizedException("User not found")
-            
+            # Query the profiles table using user_id
+            response = (
+                self.supabase
+                .table("profiles")
+                .select("*")
+                .eq("user_id", user_id)
+                .maybe_single()
+                .execute()
+            )
+
+            if not response or not response.data:
+                logger.warning(f"User profile not found: {user_id}")
+                raise UnauthorizedException("User not found")
+
+            return response.data
+
+        except UnauthorizedException:
+            raise
         except Exception as e:
-            logger.error(f"Get user error: {str(e)}")
+            logger.exception(f"Get user error for {user_id}")
             raise UnauthorizedException("User not found")
     
     async def get_current_user(self, token: str) -> dict:
@@ -278,12 +242,12 @@ class AuthService:
         try:
             # Verify the token with Supabase Auth
             auth_response = self.supabase.auth.get_user(token)
-            
+
             if not auth_response or not auth_response.user:
                 raise UnauthorizedException("Invalid authentication")
-            
+
             user = auth_response.user
-            
+
             # Try to get profile from profiles table
             try:
                 profile_response = (
@@ -294,14 +258,15 @@ class AuthService:
                     .maybe_single()
                     .execute()
                 )
-                
+
                 logger.debug(f"Profile lookup for {user.id}: {profile_response.data}")
-                
+
                 if profile_response and profile_response.data:
                     return profile_response.data
+
             except Exception as e:
                 logger.warning(f"Profile lookup failed: {e}")
-            
+
             # Fallback to auth user info if no profile exists
             return {
                 "id": user.id,
@@ -311,7 +276,88 @@ class AuthService:
                 "role": user.app_metadata.get("role", "user") if user.app_metadata else "user",
                 "is_active": True,
             }
-            
+
         except Exception as e:
-            logger.error(f"Get current user error: {str(e)}")
+            logger.exception("Get current user failed")
             raise UnauthorizedException("Invalid authentication")
+    
+    async def get_user_by_email(self, email: str) -> dict:
+        """
+        Get user by email from the profiles table.
+        
+        Args:
+            email: User email
+            
+        Returns:
+            dict: User information from profiles
+            
+        Raises:
+            UnauthorizedException: If user not found
+        """
+        try:
+            response = (
+                self.supabase
+                .table("profiles")
+                .select("*")
+                .eq("email", email)
+                .maybe_single()
+                .execute()
+            )
+
+            if not response or not response.data:
+                logger.warning(f"User not found by email: {email}")
+                raise UnauthorizedException("User not found")
+
+            return response.data
+
+        except UnauthorizedException:
+            raise
+        except Exception as e:
+            logger.exception(f"Get user by email error: {email}")
+            raise UnauthorizedException("User not found")
+    
+    async def update_user_profile(self, user_id: str, update_data: dict) -> dict:
+        """
+        Update a user's profile.
+        
+        Args:
+            user_id: User ID
+            update_data: Data to update
+            
+        Returns:
+            dict: Updated profile
+            
+        Raises:
+            UnauthorizedException: If user not found
+            ValidationException: If update fails
+        """
+        try:
+            # Check if user exists
+            existing = await self.get_user(user_id)
+            
+            if not existing:
+                raise UnauthorizedException("User not found")
+
+            # Add updated_at timestamp
+            update_data["updated_at"] = datetime.utcnow().isoformat()
+
+            # Update the profile
+            response = (
+                self.supabase
+                .table("profiles")
+                .update(update_data)
+                .eq("user_id", user_id)
+                .execute()
+            )
+
+            if not response or not response.data:
+                raise ValidationException("Failed to update profile")
+
+            logger.info(f"Profile updated for user: {user_id}")
+            return response.data[0]
+
+        except (UnauthorizedException, ValidationException):
+            raise
+        except Exception as e:
+            logger.exception(f"Update profile error for {user_id}")
+            raise ValidationException(f"Failed to update profile: {str(e)}")
