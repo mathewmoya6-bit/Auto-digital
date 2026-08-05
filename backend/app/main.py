@@ -30,6 +30,20 @@ from app.modules.ownership.router import router as ownership_router
 
 logger = logging.getLogger(__name__)
 
+# Mileage router — imported defensively since it's newly added and
+# hasn't been verified in production yet. If it has a bad schema or
+# import error, the rest of the API keeps running instead of the
+# whole app crashing on startup (as happened with an earlier WIP
+# version of main.py that imported it unguarded).
+try:
+    from app.modules.mileage.router import router as mileage_router
+    MILEAGE_ROUTER_LOADED = True
+    logger.info("✅ Mileage router imported successfully")
+except Exception as e:
+    logger.error(f"❌ Mileage router failed to import: {e}")
+    mileage_router = None
+    MILEAGE_ROUTER_LOADED = False
+
 # ─── LIFESPAN MANAGER ────────────────────────────────────────────
 
 @asynccontextmanager
@@ -41,6 +55,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"API Base URL: {settings.API_BASE_URL}")
     logger.info(f"Port: {settings.PORT}")
+    logger.info(f"Mileage router loaded: {MILEAGE_ROUTER_LOADED}")
     logger.info("=" * 60)
 
     # Initialize logging
@@ -190,6 +205,17 @@ app.include_router(
     tags=["Ownership"]
 )
 
+# Mileage Routes (guarded — see import block above)
+if MILEAGE_ROUTER_LOADED and mileage_router is not None:
+    app.include_router(
+        mileage_router,
+        prefix=settings.API_V1_PREFIX,
+        tags=["Mileage"]
+    )
+    logger.info(f"✅ Mileage router registered at {settings.API_V1_PREFIX}/mileage")
+else:
+    logger.warning("⚠️ Mileage router not registered — check import error above")
+
 
 # ─── HTML PAGE REDIRECTS ────────────────────────────────────────
 # Prevent direct access to HTML pages - redirect to SPA root
@@ -254,7 +280,8 @@ async def health_check():
         "version": settings.VERSION,
         "service": settings.PROJECT_NAME,
         "timestamp": datetime.now(UTC).isoformat(),
-        "dependencies": {}
+        "dependencies": {},
+        "mileage_router_loaded": MILEAGE_ROUTER_LOADED,
     }
 
     # Check Supabase connection
@@ -329,6 +356,7 @@ async def root():
         "base_url": settings.API_BASE_URL,
         "docs_url": f"{settings.API_BASE_URL}/docs",
         "cors_origins": settings.get_cors_origins(),
+        "mileage_router_loaded": MILEAGE_ROUTER_LOADED,
     }
 
 
@@ -342,6 +370,7 @@ if __name__ == "__main__":
     logger.info(f"📡 API Base URL: {settings.API_BASE_URL}")
     logger.info(f"🔧 Environment: {settings.ENVIRONMENT}")
     logger.info(f"🔌 Port: {settings.PORT}")
+    logger.info(f"🛣️  Mileage router loaded: {MILEAGE_ROUTER_LOADED}")
     logger.info("=" * 60)
 
     uvicorn.run(
