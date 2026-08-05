@@ -1,74 +1,103 @@
 # app/modules/mpesa/router.py
-# Auto-D Kenya - M-Pesa Routes
 # ================================================================
-# TYPE: MODULE - M-Pesa API routes
+# Auto-D Kenya - M-Pesa API Router
+# ================================================================
 
 import logging
 import time
 from collections import defaultdict, deque
-from datetime import timezone, datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    status,
+)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.core.config import settings
-from app.core.dependencies import get_current_user, get_current_user_optional
-from app.core.exceptions import ValidationException, NotFoundException, AppException
+from app.core.dependencies import (
+    get_current_user,
+    get_current_user_optional,
+)
+from app.core.exceptions import (
+    AppException,
+    NotFoundException,
+    ValidationException,
+)
 from app.core.security import mask_sensitive
-from app.modules.mpesa.service import MpesaService
+
 from app.modules.mpesa.schemas import (
+    AvailableServicesResponse,
     MpesaPaymentRequest,
     MpesaPaymentResponse,
+    PaymentHistoryResponse,
     PaymentStatusResponse,
     ServiceAccessResponse,
     UserServicesResponse,
-    AvailableServicesResponse,
-    PaymentHistoryResponse,
     create_payment_response,
     create_service_access_response,
 )
 
+from app.modules.mpesa.service import MpesaService
+
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(tags=["M-Pesa"])
 
 
-# ─── SERVICE DEPENDENCY ──────────────────────────────────────────
-# One instance reused for the life of the process to preserve OAuth token cache
+# ================================================================
+# Singleton Service
+# ================================================================
 
-_mpesa_service_singleton = MpesaService()
+_mpesa_service = MpesaService()
 
 
 def get_mpesa_service() -> MpesaService:
-    return _mpesa_service_singleton
+    return _mpesa_service
 
 
-# ─── MINIMAL IN-MEMORY RATE LIMITER ─────────────────────────────
+# ================================================================
+# Simple Rate Limiter
+# ================================================================
 
 _rate_buckets: dict[str, deque] = defaultdict(deque)
 
 
-def _rate_limit(key: str, max_requests: int = 5, window_seconds: int = 60):
+def rate_limit(
+    key: str,
+    max_requests: int = 5,
+    window: int = 60,
+):
     now = time.monotonic()
     bucket = _rate_buckets[key]
-    while bucket and now - bucket[0] > window_seconds:
+
+    while bucket and now - bucket[0] > window:
         bucket.popleft()
+
     if len(bucket) >= max_requests:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many requests, slow down."
+            detail="Too many requests.",
         )
+
     bucket.append(now)
 
 
-def _client_ip(request: Request) -> str:
+def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+# ================================================================
+# Response Models
+# ================================================================
+
 class ServiceDetailResponse(BaseModel):
-    """Response model for GET /mpesa/services/{service_id}"""
     id: int
     code: Optional[str] = None
     name: Optional[str] = None
@@ -76,445 +105,608 @@ class ServiceDetailResponse(BaseModel):
     currency: Optional[str] = "KES"
     description: Optional[str] = None
     icon: Optional[str] = None
-    has_access: Optional[bool] = None
+    has_access: Optional[bool] = False
 
 
-# ─── EXCEPTION HANDLERS ─────────────────────────────────────────
+# ================================================================
+# Exception Converter
+# ================================================================
 
-def handle_api_error(e: Exception) -> HTTPException:
+def api_error(exc: Exception):
     """Convert domain exceptions to HTTP exceptions."""
-    if isinstance(e, ValidationException):
-        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    elif isinstance(e, NotFoundException):
-        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    elif isinstance(e, AppException):
-        return HTTPException(status_code=e.status_code, detail=str(e))
-    else:
-        logger.exception(f"Unexpected error: {str(e)}")
-        return HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+
+    if isinstance(exc, ValidationException):
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
         )
 
+    if isinstance(exc, NotFoundException):
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        )
 
-# ─── STK PUSH ──────────────────────────────────────────────────────
+    if isinstance(exc, AppException):
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=str(exc),
+        )
 
-@router.post("/mpesa/stkpush", response_model=MpesaPaymentResponse)
+    logger.exception(exc)
+
+    raise HTTPException(
+        status_code=500,
+        detail="Internal server error",
+    )
+
+
+# ================================================================
+# STK PUSH
+# ================================================================
+
+@router.post(
+    "/mpesa/stkpush",
+    response_model=MpesaPaymentResponse,
+)
 async def stk_push(
     request: MpesaPaymentRequest,
     current_user: dict = Depends(get_current_user),
-    mpesa_service: MpesaService = Depends(get_mpesa_service)
+    mpesa_service: MpesaService = Depends(get_mpesa_service),
 ):
     """
-    Initiate M-Pesa STK Push payment.
-
-    POST /api/v1/mpesa/stkpush
+    Initiate an STK Push payment.
 
     Requires authentication.
     """
-    _rate_limit(f"stkpush:{current_user.get('id')}", max_requests=5, window_seconds=60)
+    rate_limit(f"stk:{current_user['id']}")
 
     try:
-        # Fix: plain f-string log instead of extra= dict
         logger.info(
-            f"STK Push initiated | user={current_user.get('id')} "
+            f"STK Push | "
+            f"user={current_user['id']} "
             f"service={request.service_id} "
-            f"phone=***{request.phone[-4:] if request.phone else 'N/A'}"
+            f"phone=***{request.phone[-4:]}"
         )
 
-        # Fix: Removed request_id parameter (not used)
         result = await mpesa_service.initiate_payment(
             phone=request.phone,
             service_id=request.service_id,
             description=request.description,
-            user_id=current_user.get("id"),
-            amount=request.amount
+            user_id=current_user["id"],
+            amount=request.amount,
         )
 
         return create_payment_response(
             checkout_request_id=result["checkout_request_id"],
-            message=result.get("message", "STK push sent successfully"),
-            status=result.get("status", "pending")
+            message=result.get(
+                "customer_message",
+                "STK Push sent successfully.",
+            ),
+            status=result.get(
+                "status",
+                "pending",
+            ),
         )
 
-    except Exception as e:
-        raise handle_api_error(e)
+    except Exception as exc:
+        api_error(exc)
 
 
-@router.post("/mpesa/stkpush-public", response_model=MpesaPaymentResponse)
+# ================================================================
+# Public STK Push
+# ================================================================
+
+@router.post(
+    "/mpesa/stkpush-public",
+    response_model=MpesaPaymentResponse,
+)
 async def stk_push_public(
     request: MpesaPaymentRequest,
-    req: Request,
-    x_api_key: Optional[str] = Header(None),
-    mpesa_service: MpesaService = Depends(get_mpesa_service)
+    http_request: Request,
+    x_api_key: Optional[str] = Header(default=None),
+    mpesa_service: MpesaService = Depends(get_mpesa_service),
 ):
     """
-    Initiate M-Pesa STK Push payment (public endpoint).
+    Initiate an STK Push payment without authentication.
 
-    POST /api/v1/mpesa/stkpush-public
-
-    Protected by a shared API key.
+    Requires valid API key.
     """
-    if settings.PUBLIC_API_KEY and x_api_key != settings.PUBLIC_API_KEY:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+    if (
+        settings.PUBLIC_API_KEY
+        and x_api_key != settings.PUBLIC_API_KEY
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key",
+        )
 
-    _rate_limit(f"stkpush-public:{_client_ip(req)}", max_requests=5, window_seconds=60)
+    rate_limit(f"public:{client_ip(http_request)}")
 
     try:
-        # Fix: Removed request_id parameter (not used)
         result = await mpesa_service.initiate_payment(
             phone=request.phone,
             service_id=request.service_id,
             description=request.description,
             user_id=request.user_id,
-            amount=request.amount
+            amount=request.amount,
         )
 
         return create_payment_response(
             checkout_request_id=result["checkout_request_id"],
-            message=result.get("message", "STK push sent successfully"),
-            status=result.get("status", "pending")
+            message=result.get(
+                "customer_message",
+                "STK Push sent successfully.",
+            ),
+            status=result.get(
+                "status",
+                "pending",
+            ),
         )
 
-    except Exception as e:
-        raise handle_api_error(e)
+    except Exception as exc:
+        api_error(exc)
 
 
-# ─── PAYMENT STATUS ───────────────────────────────────────────────
+# ================================================================
+# Payment Status
+# ================================================================
 
-@router.get("/mpesa/status/{checkout_request_id}", response_model=PaymentStatusResponse)
+@router.get(
+    "/mpesa/status/{checkout_request_id}",
+    response_model=PaymentStatusResponse,
+)
 async def payment_status(
     checkout_request_id: str,
     current_user: dict = Depends(get_current_user),
-    mpesa_service: MpesaService = Depends(get_mpesa_service)
+    mpesa_service: MpesaService = Depends(get_mpesa_service),
 ):
     """
-    Get payment status.
-
-    GET /api/v1/mpesa/status/{checkout_request_id}
-
-    Requires authentication.
+    Check the status of a payment.
     """
     try:
-        result = await mpesa_service.get_payment_status(checkout_request_id, current_user.get("id"))
-        return result
+        return await mpesa_service.get_payment_status(
+            checkout_request_id,
+            current_user["id"],
+        )
 
-    except Exception as e:
-        raise handle_api_error(e)
-
-
-# ─── CONFIRM PAYMENT ──────────────────────────────────────────────
-# DELETED: confirm_payment endpoint removed as callback is now the only source of truth
+    except Exception as exc:
+        api_error(exc)
 
 
-# ─── CALLBACK ──────────────────────────────────────────────────────
+# ================================================================
+# CALLBACK
+# ================================================================
 
 @router.post("/mpesa/callback")
 async def mpesa_callback(
     request: Request,
-    mpesa_service: MpesaService = Depends(get_mpesa_service)
+    mpesa_service: MpesaService = Depends(get_mpesa_service),
 ):
     """
-    M-Pesa callback webhook.
+    Safaricom callback endpoint.
 
-    POST /api/v1/mpesa/callback
-
-    This is called by Safaricom when the payment is completed.
-    This is the ONLY place where services are unlocked.
-
-    Requires MPESA_CALLBACK_SECRET as query param or header.
+    Receives payment confirmation from M-Pesa.
     """
     if settings.MPESA_CALLBACK_SECRET:
-        provided_secret = request.headers.get("X-Callback-Secret") or request.query_params.get("secret")
-        if provided_secret != settings.MPESA_CALLBACK_SECRET:
-            logger.warning(f"Rejected callback with invalid/missing secret from {_client_ip(request)}")
-            return JSONResponse(status_code=200, content={"ResultCode": 0, "ResultDesc": "Accepted"})
-
-    try:
-        content_type = request.headers.get("content-type", "")
-        if "application/json" not in content_type:
-            logger.warning(f"Callback invalid content type: {content_type}")
-            return JSONResponse(status_code=200, content={"ResultCode": 0, "ResultDesc": "Accepted"})
-
-        body = await request.json()
-    except Exception:
-        logger.warning("Invalid/unparseable callback JSON")
-        return JSONResponse(status_code=200, content={"ResultCode": 0, "ResultDesc": "Accepted"})
-
-    if not body.get("Body", {}).get("stkCallback"):
-        logger.warning("Callback missing Body.stkCallback")
-        return JSONResponse(status_code=200, content={"ResultCode": 0, "ResultDesc": "Accepted"})
-
-    try:
-        checkout_id = body.get("Body", {}).get("stkCallback", {}).get("CheckoutRequestID")
-        result_code = body.get("Body", {}).get("stkCallback", {}).get("ResultCode")
-
-        logger.info(
-            f"Callback received | checkout_id={mask_sensitive(checkout_id)} "
-            f"result_code={result_code}"
+        secret = (
+            request.headers.get("X-Callback-Secret")
+            or request.query_params.get("secret")
         )
 
-        result = await mpesa_service.stk_push.process_callback(body)
+        if secret != settings.MPESA_CALLBACK_SECRET:
+            logger.warning(
+                "Rejected callback from %s",
+                client_ip(request),
+            )
 
-        if result and result.get("status") == "error":
-            logger.error(f"Callback processed with error | checkout_id={mask_sensitive(checkout_id)} result={result}")
-        else:
-            logger.info(f"Callback processed | checkout_id={mask_sensitive(checkout_id)} result={result}")
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "ResultCode": 0,
+                    "ResultDesc": "Accepted",
+                },
+            )
 
-        return JSONResponse(status_code=200, content={"ResultCode": 0, "ResultDesc": "Accepted"})
+    try:
+        body = await request.json()
+    except Exception:
+        logger.exception("Invalid callback payload")
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "ResultCode": 0,
+                "ResultDesc": "Accepted",
+            },
+        )
+
+    callback = body.get("Body", {}).get("stkCallback")
+
+    if callback is None:
+        logger.warning("Missing stkCallback")
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "ResultCode": 0,
+                "ResultDesc": "Accepted",
+            },
+        )
+
+    metadata = {}
+
+    for item in callback.get("CallbackMetadata", {}).get("Item", []):
+        metadata[item["Name"]] = item.get("Value")
+
+    try:
+        logger.info(
+            "Processing callback %s",
+            mask_sensitive(callback["CheckoutRequestID"]),
+        )
+
+        await mpesa_service.handle_callback(
+            checkout_request_id=callback["CheckoutRequestID"],
+            result_code=str(callback["ResultCode"]),
+            result_desc=callback.get("ResultDesc", ""),
+            receipt=metadata.get("MpesaReceiptNumber"),
+            amount=metadata.get("Amount"),
+            phone=str(metadata.get("PhoneNumber"))
+            if metadata.get("PhoneNumber")
+            else None,
+            transaction_date=str(metadata.get("TransactionDate"))
+            if metadata.get("TransactionDate")
+            else None,
+            callback_payload=body,
+        )
 
     except Exception:
         logger.exception("Callback processing failed")
-        return JSONResponse(status_code=200, content={"ResultCode": 0, "ResultDesc": "Accepted"})
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "ResultCode": 0,
+            "ResultDesc": "Accepted",
+        },
+    )
 
 
-# ─── SERVICE ACCESS ──────────────────────────────────────────────
+# ================================================================
+# SERVICE ACCESS
+# ================================================================
 
-@router.get("/mpesa/check-access/{service_id}", response_model=ServiceAccessResponse)
+@router.get(
+    "/mpesa/check-access/{service_id}",
+    response_model=ServiceAccessResponse,
+)
 async def check_service_access(
     service_id: int,
     current_user: dict = Depends(get_current_user),
-    mpesa_service: MpesaService = Depends(get_mpesa_service)
+    mpesa_service: MpesaService = Depends(get_mpesa_service),
 ):
     """
-    Check if user has access to a service.
-
-    GET /api/v1/mpesa/check-access/{service_id}
-
-    Requires authentication.
+    Check if the current user has access to a service.
     """
     try:
-        result = await mpesa_service.check_service_access(
-            user_id=current_user.get("id"),
-            service_id=service_id
+        result = await mpesa_service.check_service_access_by_id(
+            user_id=current_user["id"],
+            service_id=service_id,
         )
 
         return create_service_access_response(
             has_access=result["has_access"],
             status=result["status"],
             expires_at=result.get("expires_at"),
-            message=result.get("message", "")
+            message=result.get("message"),
         )
 
-    except Exception as e:
-        raise handle_api_error(e)
+    except Exception as exc:
+        api_error(exc)
 
 
-@router.get("/mpesa/user/services", response_model=UserServicesResponse)
+# ================================================================
+# USER SERVICES
+# ================================================================
+
+@router.get(
+    "/mpesa/user/services",
+    response_model=UserServicesResponse,
+)
 async def get_user_services(
     current_user: dict = Depends(get_current_user),
-    mpesa_service: MpesaService = Depends(get_mpesa_service)
+    mpesa_service: MpesaService = Depends(get_mpesa_service),
 ):
     """
-    Get all services a user has access to.
-
-    GET /api/v1/mpesa/user/services
-
-    Returns: { "services": { service_id: true/false } }
-
-    Requires authentication.
+    Get all services the user has access to.
     """
     try:
-        services = await mpesa_service.get_user_services(current_user.get("id"))
-        return {"services": services}
+        services = await mpesa_service.get_user_services(
+            current_user["id"]
+        )
 
-    except Exception as e:
-        raise handle_api_error(e)
+        return {
+            "services": services,
+        }
+
+    except Exception as exc:
+        api_error(exc)
 
 
 @router.get("/mpesa/user/services-list")
 async def get_user_services_list(
     current_user: dict = Depends(get_current_user),
-    mpesa_service: MpesaService = Depends(get_mpesa_service)
+    mpesa_service: MpesaService = Depends(get_mpesa_service),
 ):
     """
-    Get detailed list of user services with metadata.
-
-    GET /api/v1/mpesa/user/services-list
-
-    Requires authentication.
+    Get all available services with access status for the current user.
     """
     try:
-        user_service_map = await mpesa_service.get_user_services(current_user.get("id"))
-        all_services = await mpesa_service.get_available_services()
+        user_services = await mpesa_service.get_user_services(
+            current_user["id"]
+        )
 
-        result = []
-        for service in all_services:
-            service_id = service.get("id")
-            result.append({
-                "id": service_id,
-                "code": service.get("code"),
-                "name": service.get("name"),
-                "price": service.get("price"),
-                "currency": service.get("currency", "KES"),
-                "description": service.get("description"),
-                "icon": service.get("icon"),
-                "has_access": user_service_map.get(service_id, False)
-            })
+        services = await mpesa_service.get_available_services()
 
-        return {"services": result}
+        results = []
 
-    except Exception as e:
-        raise handle_api_error(e)
+        for service in services:
+            code = service.get("code")
+
+            results.append(
+                {
+                    "id": service.get("id"),
+                    "code": code,
+                    "name": service.get("name"),
+                    "price": service.get("price"),
+                    "currency": service.get(
+                        "currency",
+                        "KES",
+                    ),
+                    "description": service.get("description"),
+                    "icon": service.get("icon"),
+                    "has_access": user_services.get(
+                        code,
+                        False,
+                    ),
+                }
+            )
+
+        return {
+            "services": results,
+        }
+
+    except Exception as exc:
+        api_error(exc)
 
 
-# ─── PAYMENT HISTORY ──────────────────────────────────────────────
+# ================================================================
+# PAYMENT HISTORY
+# ================================================================
 
-@router.get("/mpesa/payments", response_model=PaymentHistoryResponse)
+@router.get(
+    "/mpesa/payments",
+    response_model=PaymentHistoryResponse,
+)
 async def get_payments(
     current_user: dict = Depends(get_current_user),
-    mpesa_service: MpesaService = Depends(get_mpesa_service)
+    mpesa_service: MpesaService = Depends(get_mpesa_service),
 ):
     """
-    Get user's payment history.
-
-    GET /api/v1/mpesa/payments
-
-    Requires authentication.
+    Get the current user's payment history.
     """
     try:
-        payments = await mpesa_service.get_user_payments(current_user.get("id"))
-        return {"payments": payments}
+        payments = await mpesa_service.get_user_payments(
+            current_user["id"]
+        )
 
-    except Exception as e:
-        raise handle_api_error(e)
+        return {
+            "payments": payments,
+        }
+
+    except Exception as exc:
+        api_error(exc)
 
 
-# ─── AVAILABLE SERVICES ──────────────────────────────────────────
+# ================================================================
+# AVAILABLE SERVICES
+# ================================================================
 
-@router.get("/mpesa/services", response_model=AvailableServicesResponse)
+@router.get(
+    "/mpesa/services",
+    response_model=AvailableServicesResponse,
+)
 async def get_services(
-    current_user: dict = Depends(get_current_user_optional),
-    mpesa_service: MpesaService = Depends(get_mpesa_service)
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+    mpesa_service: MpesaService = Depends(get_mpesa_service),
 ):
     """
     Get all available services.
 
-    GET /api/v1/mpesa/services
-
-    Optional authentication. If authenticated, includes access status.
+    If authenticated, includes access status for the current user.
     """
     try:
         services = await mpesa_service.get_available_services()
 
         if current_user:
-            user_id = current_user.get("id")
-            user_service_map = await mpesa_service.get_user_services(user_id)
+            user_services = await mpesa_service.get_user_services(
+                current_user["id"]
+            )
 
             for service in services:
-                service_id = service.get("id")
-                service["has_access"] = user_service_map.get(service_id, False)
+                code = service.get("code")
+                service["has_access"] = user_services.get(
+                    code,
+                    False,
+                )
 
-        return {"services": services}
+        return {
+            "services": services,
+        }
 
-    except Exception as e:
-        raise handle_api_error(e)
+    except Exception as exc:
+        api_error(exc)
 
 
-@router.get("/mpesa/services/{service_id}", response_model=ServiceDetailResponse)
+# ================================================================
+# SERVICE DETAILS
+# ================================================================
+
+@router.get(
+    "/mpesa/services/{service_id}",
+    response_model=ServiceDetailResponse,
+)
 async def get_service(
     service_id: int,
-    current_user: dict = Depends(get_current_user_optional),
-    mpesa_service: MpesaService = Depends(get_mpesa_service)
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+    mpesa_service: MpesaService = Depends(get_mpesa_service),
 ):
     """
-    Get a specific service by ID.
+    Get details for a specific service.
 
-    GET /api/v1/mpesa/services/{service_id}
+    If authenticated, includes access status for the current user.
     """
     try:
         services = await mpesa_service.get_available_services()
-        service = None
-        for s in services:
-            if s.get("id") == service_id:
-                service = s
-                break
 
-        if not service:
-            raise NotFoundException(f"Service with ID {service_id} not found")
+        service = next(
+            (
+                s
+                for s in services
+                if s.get("id") == service_id
+            ),
+            None,
+        )
+
+        if service is None:
+            raise NotFoundException(
+                f"Service {service_id} not found."
+            )
 
         if current_user:
-            user_id = current_user.get("id")
-            user_service_map = await mpesa_service.get_user_services(user_id)
-            service["has_access"] = user_service_map.get(service_id, False)
+            user_services = await mpesa_service.get_user_services(
+                current_user["id"]
+            )
+
+            service["has_access"] = user_services.get(
+                service.get("code"),
+                False,
+            )
 
         return service
 
-    except Exception as e:
-        raise handle_api_error(e)
+    except Exception as exc:
+        api_error(exc)
 
 
-# ─── HEALTH CHECK ──────────────────────────────────────────────────
+# ================================================================
+# HEALTH CHECK
+# ================================================================
 
 @router.get("/mpesa/health")
 async def health(
-    mpesa_service: MpesaService = Depends(get_mpesa_service)
+    mpesa_service: MpesaService = Depends(get_mpesa_service),
 ):
     """
-    Health check for M-Pesa service.
+    Health check for the M-Pesa module.
 
-    GET /api/v1/mpesa/health
+    Checks database connectivity and STK Push service availability.
     """
-    health_status = {
+    status_data = {
         "status": "healthy",
         "service": "mpesa",
-        "version": "1.0",
+        "version": "2.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "environment": settings.MPESA_ENVIRONMENT,
         "checks": {
-            "oauth": False,
-            "database": False
-        }
+            "database": False,
+            "stk_push": False,
+        },
     }
 
+    # Database check
     try:
-        health_status["checks"]["oauth"] = await mpesa_service.stk_push.health_check()
-        if not health_status["checks"]["oauth"]:
-            health_status["status"] = "degraded"
-    except Exception as e:
-        logger.warning(f"OAuth health check failed: {e}")
-        health_status["checks"]["oauth"] = False
-        health_status["status"] = "degraded"
+        mpesa_service.supabase.table("services") \
+            .select("id") \
+            .limit(1) \
+            .execute()
 
+        status_data["checks"]["database"] = True
+
+    except Exception as exc:
+        logger.exception(exc)
+        status_data["status"] = "degraded"
+
+    # STK Push check
     try:
-        supabase = mpesa_service.stk_push.supabase
-        supabase.table("services").select("id").limit(1).execute()
-        health_status["checks"]["database"] = True
-    except Exception as e:
-        logger.warning(f"Database health check failed: {e}")
-        health_status["checks"]["database"] = False
-        health_status["status"] = "degraded"
+        if mpesa_service.stk_push:
+            status_data["checks"]["stk_push"] = True
 
-    if not health_status["checks"]["oauth"] and not health_status["checks"]["database"]:
-        health_status["status"] = "unhealthy"
+    except Exception:
+        status_data["status"] = "degraded"
 
-    return health_status
+    if (
+        not status_data["checks"]["database"]
+        and
+        not status_data["checks"]["stk_push"]
+    ):
+        status_data["status"] = "unhealthy"
+
+    return status_data
 
 
-# ─── WEBHOOK TEST ──────────────────────────────────────────────────
+# ================================================================
+# WEBHOOK TEST
+# ================================================================
 
 @router.post("/mpesa/webhook-test")
 async def webhook_test(request: Request):
     """
-    Test webhook endpoint for debugging.
+    Debug endpoint for testing webhooks.
 
-    POST /api/v1/mpesa/webhook-test
-
-    Only available when DEBUG=True.
+    Enabled only in DEBUG mode.
     """
-    if not getattr(settings, "DEBUG", False):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    if not settings.DEBUG:
+        raise HTTPException(
+            status_code=404,
+            detail="Not Found",
+        )
 
     try:
-        body = await request.json()
+        payload = await request.json()
+
+        logger.info("Webhook test payload received.")
+
         return {
-            "status": "received",
-            "payload": body,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "success": True,
+            "timestamp": datetime.now(
+                timezone.utc
+            ).isoformat(),
+            "payload": payload,
         }
-    except Exception as e:
-        logger.exception("Webhook test failed")
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+
+    except Exception as exc:
+        logger.exception(exc)
+
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "message": str(exc),
+            },
+        )
+
+
+# ================================================================
+# ROOT
+# ================================================================
+
+@router.get("/mpesa")
+async def mpesa_root():
+    """
+    Root endpoint for the M-Pesa module.
+    """
+    return {
+        "service": "Auto-D Kenya M-Pesa API",
+        "status": "running",
+        "version": "2.0",
+    }
