@@ -275,7 +275,7 @@ async def payment_status(
 
 
 # ================================================================
-# CALLBACK
+# CALLBACK (FIXED - removed secret verification)
 # ================================================================
 
 @router.post("/mpesa/callback")
@@ -288,31 +288,10 @@ async def mpesa_callback(
 
     Receives payment confirmation from M-Pesa.
     """
-    if settings.MPESA_CALLBACK_SECRET:
-        secret = (
-            request.headers.get("X-Callback-Secret")
-            or request.query_params.get("secret")
-        )
-
-        if secret != settings.MPESA_CALLBACK_SECRET:
-            logger.warning(
-                "Rejected callback from %s",
-                client_ip(request),
-            )
-
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "ResultCode": 0,
-                    "ResultDesc": "Accepted",
-                },
-            )
-
     try:
         body = await request.json()
     except Exception:
         logger.exception("Invalid callback payload")
-
         return JSONResponse(
             status_code=200,
             content={
@@ -325,7 +304,6 @@ async def mpesa_callback(
 
     if callback is None:
         logger.warning("Missing stkCallback")
-
         return JSONResponse(
             status_code=200,
             content={
@@ -335,7 +313,6 @@ async def mpesa_callback(
         )
 
     metadata = {}
-
     for item in callback.get("CallbackMetadata", {}).get("Item", []):
         metadata[item["Name"]] = item.get("Value")
 
