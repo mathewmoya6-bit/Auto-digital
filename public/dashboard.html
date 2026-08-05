@@ -463,6 +463,7 @@
     let serviceAccess = {};
     let allServices = [];
     let paymentAttempts = 0;
+    let paymentInterval = null;
     const MAX_PAYMENT_ATTEMPTS = 24; // 2 minutes at 5s intervals
 
     // ─── DOM REFS ──────────────────────────────────────────────
@@ -478,21 +479,18 @@
     const countdownEl = document.getElementById('countdown');
     const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
 
-    // ─── FIX 1: PHONE NUMBER NORMALIZATION ────────────────────
+    // ─── PHONE NUMBER NORMALIZATION ────────────────────────────
     function normalizePhoneNumber(phone) {
         const cleaned = phone.replace(/\D/g, '');
 
-        // 07XXXXXXXX or 01XXXXXXXX
         if (/^(07|01)\d{8}$/.test(cleaned)) {
             return '254' + cleaned.substring(1);
         }
 
-        // 7XXXXXXXX or 1XXXXXXXX
         if (/^[71]\d{8}$/.test(cleaned)) {
             return '254' + cleaned;
         }
 
-        // 2547XXXXXXXX or 2541XXXXXXXX
         if (/^254[71]\d{8}$/.test(cleaned)) {
             return cleaned;
         }
@@ -519,11 +517,6 @@
             }
         }, 1000);
     }
-
-    // ─── FIX 11: CLEAN UP REDIRECT OVERLAY ON BACK ────────────
-    window.addEventListener('pageshow', () => {
-        redirectOverlay.classList.remove('show');
-    });
 
     // ─── TOAST ──────────────────────────────────────────────────
     function showToast(msg, type = 'info') {
@@ -555,32 +548,69 @@
                 auth: { autoRefreshToken: true, persistSession: true }
             });
             console.log('✅ Supabase initialized');
+            
+            // ─── FIX 4: LISTEN FOR AUTH CHANGES ──────────────────
+            supabaseClient.auth.onAuthStateChange(async (event, session) => {
+                console.log('🔐 Auth state changed:', event);
+                
+                if (session) {
+                    currentUser = session.user;
+                    isAuthenticated = true;
+                    console.log('✅ User authenticated:', currentUser.email);
+                    
+                    await fetchUserServices(session.user.id);
+                    renderAuth(session.user);
+                    renderTabs(allServices);
+                    loadHistory();
+                    
+                } else {
+                    currentUser = null;
+                    isAuthenticated = false;
+                    renderAuth(null);
+                }
+            });
         }
         return supabaseClient;
     }
 
-    // ─── FIX 8: AUTH - ONLY TRUST SUPABASE ─────────────────────
+    // ─── FIX 1: GET CURRENT USER WITH SESSION RECOVERY ──────────
     async function getCurrentUser() {
         try {
             const client = initSupabase();
             if (!client) return null;
-            
-            const { data: { session } } = await client.auth.getSession();
-            
+
+            // First try existing session
+            let { data: { session } } = await client.auth.getSession();
+
+            // If no session, try recovering it
+            if (!session) {
+                console.log('🔄 No session found, attempting refresh...');
+                const { data, error } = await client.auth.refreshSession();
+
+                if (!error && data.session) {
+                    session = data.session;
+                    console.log('✅ Session recovered via refresh');
+                }
+            }
+
             if (session?.user) {
                 currentUser = session.user;
                 isAuthenticated = true;
-                console.log('✅ User authenticated:', currentUser.email);
+
+                console.log('✅ Logged in:', currentUser.email);
+                console.log('🔑 Token:', session.access_token.substring(0, 30) + '...');
+
                 return currentUser;
             }
-            
-            isAuthenticated = false;
+
             currentUser = null;
+            isAuthenticated = false;
             return null;
-        } catch (e) {
-            console.error('Auth error:', e);
-            isAuthenticated = false;
+
+        } catch (err) {
+            console.error('❌ getCurrentUser error:', err);
             currentUser = null;
+            isAuthenticated = false;
             return null;
         }
     }
@@ -622,7 +652,8 @@
             currentUser = null;
             renderAuth(null);
             showToast('Logged out', 'info');
-            window.location.href = '/';
+            // ─── FIX 5: REDIRECT TO LOGIN ────────────────────────
+            window.location.replace('/');
         } catch (e) { showToast('Logout error', 'error'); }
     }
 
@@ -635,7 +666,6 @@
                 allServices = res.data;
                 console.log('✅ Services loaded:', allServices.map(s => `${s.code} (ID: ${s.id})`).join(', '));
             } else {
-                // Fallback services
                 allServices = [
                     { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150 },
                     { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200 },
@@ -678,7 +708,7 @@
         }
     }
 
-    // ─── FIX 9: PAYMENT HISTORY WITH SERVICE NAMES ─────────────
+    // ─── PAYMENT HISTORY ────────────────────────────────────────
     async function loadHistory() {
         if (!isAuthenticated || !currentUser) {
             paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
@@ -761,19 +791,16 @@
 
         serviceTabsEl.innerHTML = html;
         
-        // ─── FIX 13: USE EVENT DELEGATION ──────────────────────
-        // Remove any existing listeners by cloning
+        // Use event delegation for tabs
         const newTabsEl = serviceTabsEl.cloneNode(true);
         serviceTabsEl.parentNode.replaceChild(newTabsEl, serviceTabsEl);
         
-        // Re-attach event listener using delegation
         newTabsEl.addEventListener('click', function(e) {
             const btn = e.target.closest('.service-tab');
             if (!btn) return;
             selectService(btn.dataset.service);
         });
 
-        // Update reference
         const defaultService = selectedServiceCode || (services[0]?.code);
         if (defaultService) renderServiceDetail(defaultService);
         updatePayBtn();
@@ -785,7 +812,6 @@
         const service = allServices.find(s => s.code === code);
         selectedServiceId = service?.id || null;
         
-        // Update active tab
         document.querySelectorAll('.service-tab').forEach(el => {
             el.classList.toggle('active', el.dataset.service === code);
         });
@@ -831,7 +857,6 @@
             </div>
         `;
 
-        // ─── FIX 12: AVOID INLINE JAVASCRIPT ──────────────────
         const runBtn = serviceDetailEl.querySelector('.run-service-btn');
         if (runBtn) {
             runBtn.addEventListener('click', function() {
@@ -866,7 +891,7 @@
         showToast(`✅ ${service?.name} selected`, 'success');
     };
 
-    // ─── FIX 10: RUN SERVICE WITH REDIRECT ─────────────────────
+    // ─── RUN SERVICE ─────────────────────────────────────────────
     window.runService = function(code) {
         if (!isAuthenticated) {
             showToast('Please log in', 'error');
@@ -879,7 +904,6 @@
         setStatus(`⏳ Running ${code}...`, 'pending');
         showToast(`🚀 Running ${code}...`, 'info');
         
-        // Redirect to service page
         setTimeout(() => {
             redirectToServicePage(code);
         }, 1000);
@@ -893,9 +917,8 @@
         showToast('🔄 Refreshed', 'info');
     };
 
-    // ─── FIX 5 & 6: PAYMENT WITH PROPER BUTTON RESTORATION ────
+    // ─── FIX 2 & 3: PAYMENT WITH PROPER SESSION HANDLING ──────
     async function initiatePayment() {
-        // ─── FIX 5: PREVENT DOUBLE CLICKS ──────────────────────
         if (payBtn.disabled) return;
 
         if (!isAuthenticated) {
@@ -918,11 +941,7 @@
             return;
         }
 
-        // ─── FIX 1: PHONE NORMALIZATION ─────────────────────────
         const normalizedPhone = normalizePhoneNumber(phone);
-        console.log('📱 Original phone:', phone);
-        console.log('📱 Normalized phone:', normalizedPhone);
-
         if (!normalizedPhone) {
             setStatus('❌ Invalid phone number. Use 07XXXXXXXX or 01XXXXXXXX', 'error');
             showToast('Invalid phone format. Use 07XXXXXXXX or 01XXXXXXXX', 'error');
@@ -935,6 +954,20 @@
             return;
         }
 
+        // ─── FIX 2: GET FRESH SESSION ────────────────────────────
+        const client = initSupabase();
+        const { data: { session } } = await client.auth.getSession();
+
+        if (!session) {
+            showToast('Your login has expired. Please log in again.', 'error');
+            setStatus('❌ Login expired.', 'error');
+            payBtn.disabled = false;
+            updatePayBtn();
+            return;
+        }
+
+        const token = session.access_token;
+        const userId = session.user.id;
         const serviceId = service.id;
         const price = service.price;
 
@@ -943,11 +976,6 @@
         payBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
         try {
-            const client = initSupabase();
-            const { data: { session } } = await client.auth.getSession();
-            const token = session?.access_token;
-            const userId = session?.user?.id || currentUser?.id;
-            
             const requestBody = {
                 phone: normalizedPhone,
                 amount: Number(price),
@@ -956,14 +984,13 @@
             };
             
             console.log('📤 Payment request:', requestBody);
-            console.log('🔑 Token present:', token ? 'Yes' : 'No');
+            console.log('🔑 Token:', token.substring(0, 30) + '...');
 
-            // ─── FIX 7: BETTER FETCH ERROR HANDLING ────────────
             const res = await fetch(`${API_BASE}/mpesa/stkpush`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': token ? `Bearer ${token}` : ''
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify(requestBody)
             });
@@ -984,41 +1011,40 @@
             showToast('📱 Check your phone for M-PESA prompt', 'success');
 
             let attempts = 0;
-            const interval = setInterval(async () => {
+            paymentInterval = setInterval(async () => {
                 try {
                     const sr = await fetch(`${API_BASE}/mpesa/status/${data.checkout_request_id}`, {
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': token ? `Bearer ${token}` : ''
+                            'Authorization': `Bearer ${token}`
                         }
                     });
                     const sd = await sr.json();
                     
-                    // ─── FIX 16: SUPPORT ALL STATUS VALUES ──────
                     const completedStatuses = ['completed', 'paid', 'success'];
                     const failedStatuses = ['failed', 'cancelled', 'expired'];
                     
                     if (completedStatuses.includes(sd.status)) {
-                        clearInterval(interval);
+                        clearInterval(paymentInterval);
+                        paymentInterval = null;
                         serviceAccess[selectedServiceCode] = true;
                         await updateUserService(selectedServiceCode, true);
                         setStatus('✅ Payment completed! Service unlocked.', 'success');
                         showToast('🎉 Payment successful!', 'success');
                         
-                        // ─── FIX 14: SYNC UI WITH DATABASE ──────
                         await fetchUserServices(currentUser.id);
                         renderTabs(allServices);
                         renderServiceDetail(selectedServiceCode);
                         loadHistory();
                         updatePayBtn();
                         
-                        // Redirect to service page
                         setTimeout(() => {
                             redirectToServicePage(selectedServiceCode);
                         }, 1500);
                         
                     } else if (failedStatuses.includes(sd.status) || attempts >= MAX_PAYMENT_ATTEMPTS) {
-                        clearInterval(interval);
+                        clearInterval(paymentInterval);
+                        paymentInterval = null;
                         setStatus('❌ Payment failed or timed out. Try again.', 'error');
                         showToast('❌ Payment failed', 'error');
                         payBtn.disabled = false;
@@ -1034,7 +1060,11 @@
             const errorMsg = e.message || 'Unknown error occurred';
             setStatus(`❌ ${errorMsg}`, 'error');
             showToast(`❌ Payment error: ${errorMsg}`, 'error');
-            // ─── FIX 6: RESTORE BUTTON IN FINALLY ──────────────
+            // ─── FIX 3: RESTORE BUTTON IN CATCH ──────────────────
+            if (!serviceAccess[selectedServiceCode]) {
+                payBtn.disabled = false;
+                updatePayBtn();
+            }
         }
     }
 
@@ -1078,15 +1108,15 @@
         }
     }
 
-    // ─── INIT ──────────────────────────────────────────────────
+    // ─── FIX 5: INIT WITH REDIRECT ON NO AUTH ──────────────────
     async function init() {
         const user = await getCurrentUser();
         renderAuth(user);
         
+        // ─── FIX 5: REDIRECT IF NOT AUTHENTICATED ──────────────
         if (!user) {
-            serviceTabsEl.innerHTML = '<span class="loading">Please log in</span>';
-            serviceDetailEl.innerHTML = '<span class="loading">Please log in</span>';
-            paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
+            console.log('🔴 No authenticated user, redirecting to login...');
+            window.location.replace('/');
             return;
         }
 
@@ -1100,13 +1130,9 @@
         setStatus('✅ Ready', 'success');
 
         // ─── EVENT LISTENERS ──────────────────────────────────
-        // Payment button
         payBtn.addEventListener('click', initiatePayment);
-
-        // Refresh history button
         refreshHistoryBtn.addEventListener('click', loadHistory);
 
-        // ─── FIX 11: CLEAN UP REDIRECT OVERLAY ON BACK ──────
         window.addEventListener('beforeunload', () => {
             redirectOverlay.classList.remove('show');
         });
