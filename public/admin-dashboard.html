@@ -748,6 +748,58 @@
         .scraper-log .log-entry.info { color: var(--text-secondary); }
         .scraper-log .log-time { color: var(--text-muted); font-size: 10px; }
 
+        /* ─── API Endpoints Grid ────────────────────────────────────── */
+        .endpoints-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+            gap: 10px;
+        }
+        .endpoint-item {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            transition: border-color 0.3s, background 0.3s;
+        }
+        .endpoint-item.ok { border-color: rgba(34,197,94,0.35); }
+        .endpoint-item.fail { border-color: rgba(239,68,68,0.35); }
+        .endpoint-item .endpoint-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+        .endpoint-item .endpoint-name {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .endpoint-item .endpoint-path {
+            font-size: 10px;
+            color: var(--text-muted);
+            font-family: monospace;
+            word-break: break-all;
+        }
+        .endpoint-item .endpoint-meta {
+            font-size: 10px;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+        }
+        .endpoint-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .endpoint-dot.pending { background: var(--text-muted); }
+        .endpoint-dot.ok { background: var(--success); }
+        .endpoint-dot.fail { background: var(--danger); }
+        .endpoint-dot.checking { background: var(--blue); animation: pulse 1s ease-in-out infinite; }
+
         /* ─── Utilities ─────────────────────────────────────────────── */
         .hidden { display: none !important; }
         .flex { display: flex; align-items: center; }
@@ -1036,6 +1088,30 @@
                             🔄 Refresh Settings
                         </button>
                     </div>
+                </div>
+            </div>
+
+            <!-- Backend API Endpoints -->
+            <div class="card" style="margin-bottom:28px;">
+                <div class="card-header">
+                    <h3>🔌 Backend API Endpoints</h3>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <span class="live-sync-indicator" id="apiSyncIndicator" style="display:none;">
+                            <span class="pulse-dot"></span> Testing
+                        </span>
+                        <span class="badge badge-info" id="apiEndpointsSummary">Not tested yet</span>
+                    </div>
+                </div>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+                    Calls every read endpoint on <code id="apiBaseLabel"></code> directly (in addition to the direct
+                    Supabase connection used above), so you can confirm the FastAPI backend itself is healthy and
+                    reachable with your current session.
+                </p>
+                <div class="endpoints-grid" id="endpointsGrid"></div>
+                <div class="action-bar" style="margin-top:12px;">
+                    <button class="action-btn success" onclick="testAllBackendEndpoints()" style="width:100%;justify-content:center;">
+                        🔄 Test All Backend Endpoints
+                    </button>
                 </div>
             </div>
 
@@ -2540,7 +2616,8 @@
                     window.fetchEngineSettings(),
                     fetchLogs(),
                     getScraperSources(),
-                    checkHealth(true)
+                    checkHealth(true),
+                    window.testAllBackendEndpoints()
                 ]);
                 // Setup realtime subscriptions after data loads
                 setupRealtimeSubscriptions();
@@ -2587,7 +2664,7 @@
             // Sources: Autochek, Jiji, Cheki, BeepBeep (CarAPI removed)
 
             window.runScraper = async function() {
-                const token = localStorage.getItem('access_token') || '';
+                const token = await getAccessToken();
                 const btn = document.querySelector('button[onclick="runScraper()"]');
                 const originalText = btn.textContent;
                 
@@ -2629,7 +2706,7 @@
             };
 
             window.scrapeSource = async function(source) {
-                const token = localStorage.getItem('access_token') || '';
+                const token = await getAccessToken();
                 const btn = document.querySelector(`button[onclick="scrapeSource('${source}')"]`);
                 const originalText = btn.textContent;
                 
@@ -2668,7 +2745,7 @@
             };
 
             window.getScraperStatus = async function() {
-                const token = localStorage.getItem('access_token') || '';
+                const token = await getAccessToken();
                 
                 try {
                     const response = await fetch(`${API_BASE}/scraper/status`, {
@@ -2705,7 +2782,7 @@
             };
 
             window.getScraperSources = async function() {
-                const token = localStorage.getItem('access_token') || '';
+                const token = await getAccessToken();
                 
                 try {
                     const response = await fetch(`${API_BASE}/scraper/sources`, {
@@ -2764,6 +2841,184 @@
                 showToast('🧹 Scraper log cleared', 'info');
             };
 
+            // ─── BACKEND API — AUTH TOKEN + GENERIC REQUEST HELPER ────────
+            // Reads the live Supabase session token fresh each time (falls
+            // back to whatever was last stored), and also keeps it mirrored
+            // in localStorage under 'access_token' so it matches the key
+            // used by the customer-facing dashboard.html / instant-value.html
+            // pages elsewhere in Auto-D Kenya.
+            async function getAccessToken() {
+                try {
+                    const client = getSupabaseClient();
+                    if (client) {
+                        const { data, error } = await client.auth.getSession();
+                        if (!error && data?.session?.access_token) {
+                            localStorage.setItem('access_token', data.session.access_token);
+                            if (data.session.refresh_token) {
+                                localStorage.setItem('refresh_token', data.session.refresh_token);
+                            }
+                            return data.session.access_token;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Could not read Supabase session for API token:', e.message);
+                }
+                return localStorage.getItem('access_token') || '';
+            }
+
+            // Generic authenticated call to the FastAPI backend. Returns
+            // { success, status, data, error, ms } so callers/UI can show
+            // both the outcome and timing without duplicating try/catch.
+            async function apiRequest(path, options = {}) {
+                const start = performance.now();
+                try {
+                    const token = await getAccessToken();
+                    const headers = {
+                        'Accept': 'application/json',
+                        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+                        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                        ...(options.headers || {})
+                    };
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 15000);
+                    const response = await fetch(`${API_BASE}${path}`, {
+                        method: options.method || 'GET',
+                        headers,
+                        body: options.body,
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                    const ms = Math.round(performance.now() - start);
+
+                    let data = null;
+                    try { data = await response.json(); } catch (e) { /* non-JSON or empty body */ }
+
+                    if (!response.ok) {
+                        const message = (data && (data.message || data.detail)) || `HTTP ${response.status}`;
+                        return { success: false, status: response.status, data, error: message, ms };
+                    }
+                    return { success: true, status: response.status, data, error: null, ms };
+                } catch (error) {
+                    const ms = Math.round(performance.now() - start);
+                    const message = error.name === 'AbortError' ? 'Request timed out (15s)' : error.message;
+                    return { success: false, status: 0, data: null, error: message, ms };
+                }
+            }
+
+            // ─── BACKEND API — ALL ADMIN + HEALTH ENDPOINTS ────────────────
+            // Every read endpoint the FastAPI backend exposes for the admin
+            // area, called directly (not via Supabase) so this dashboard
+            // exercises the actual API surface, not just the database.
+            const BACKEND_ENDPOINTS = [
+                { key: 'root_health',   label: 'Root Health',      path: '/health', rawBase: true },
+                { key: 'admin_health',  label: 'Admin Health',     path: '/admin/health' },
+                { key: 'admin_status',  label: 'System Status',    path: '/admin/status' },
+                { key: 'admin_stats',   label: 'Admin Stats',      path: '/admin/stats' },
+                { key: 'admin_analytics', label: 'Analytics',      path: '/admin/analytics' },
+                { key: 'admin_revenue', label: 'Revenue Report',   path: '/admin/revenue' },
+                { key: 'admin_users',   label: 'Users',            path: '/admin/users' },
+                { key: 'admin_payments',label: 'Payments',         path: '/admin/payments' },
+                { key: 'admin_vehicles',label: 'Vehicles',         path: '/admin/vehicles' },
+                { key: 'admin_services',label: 'Services (API)',   path: '/admin/services' },
+                { key: 'admin_service_prices', label: 'Service Prices', path: '/admin/service-prices' },
+                { key: 'mpesa_health',  label: 'M-Pesa Health',    path: '/mpesa/health' },
+                { key: 'mpesa_services',label: 'M-Pesa Services',  path: '/mpesa/services' },
+                { key: 'scraper_health',label: 'Scraper Health',   path: '/scraper/health' },
+                { key: 'valuation_health', label: 'Valuation Health', path: '/valuation/health' },
+                { key: 'ownership_health', label: 'Ownership Health', path: '/ownership/health' },
+                { key: 'running_cost_health', label: 'Running Cost Health', path: '/running-cost/health' },
+                { key: 'ownership_fuel_types', label: 'Fuel Types (Ownership)', path: '/ownership/fuel-types' },
+                { key: 'ownership_defaults', label: 'Ownership Defaults', path: '/ownership/defaults' },
+            ];
+
+            let endpointResults = {};
+
+            function renderEndpointsGrid() {
+                const grid = document.getElementById('endpointsGrid');
+                if (!grid) return;
+                grid.innerHTML = BACKEND_ENDPOINTS.map(ep => {
+                    const r = endpointResults[ep.key];
+                    const state = !r ? 'pending' : (r.checking ? 'checking' : (r.success ? 'ok' : 'fail'));
+                    const itemClass = state === 'ok' ? 'ok' : (state === 'fail' ? 'fail' : '');
+                    const statusText = !r ? 'Not tested'
+                        : r.checking ? 'Testing…'
+                        : r.success ? `✅ ${r.status}`
+                        : `❌ ${r.error || r.status || 'error'}`;
+                    const msText = r && !r.checking ? `${r.ms}ms` : '';
+                    const fullPath = ep.rawBase ? ep.path : `${API_BASE}${ep.path}`;
+                    return `
+                        <div class="endpoint-item ${itemClass}" id="endpoint-${ep.key}">
+                            <div class="endpoint-top">
+                                <span class="endpoint-name">${escapeHtml(ep.label)}</span>
+                                <span class="endpoint-dot ${state}"></span>
+                            </div>
+                            <div class="endpoint-path">${escapeHtml(ep.rawBase ? ep.path : ep.path)}</div>
+                            <div class="endpoint-meta">
+                                <span>${escapeHtml(statusText)}</span>
+                                <span>${msText}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // Call every backend endpoint (in parallel) and update the grid
+            // + summary badge as each one resolves.
+            window.testAllBackendEndpoints = async function() {
+                const summaryBadge = document.getElementById('apiEndpointsSummary');
+                const syncIndicator = document.getElementById('apiSyncIndicator');
+                const apiBaseLabel = document.getElementById('apiBaseLabel');
+                if (apiBaseLabel) apiBaseLabel.textContent = API_BASE;
+                if (syncIndicator) syncIndicator.style.display = 'inline-flex';
+                if (summaryBadge) {
+                    summaryBadge.textContent = `Testing ${BACKEND_ENDPOINTS.length} endpoints…`;
+                    summaryBadge.className = 'badge badge-info';
+                }
+
+                // Mark all as "checking" first so the grid shows progress
+                BACKEND_ENDPOINTS.forEach(ep => {
+                    endpointResults[ep.key] = { checking: true };
+                });
+                renderEndpointsGrid();
+
+                const results = await Promise.all(BACKEND_ENDPOINTS.map(async (ep) => {
+                    if (ep.rawBase) {
+                        // Root-level health check (no /api/v1 prefix, no auth needed)
+                        const start = performance.now();
+                        try {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 15000);
+                            const response = await fetch(HEALTH_CHECK_URL, { signal: controller.signal });
+                            clearTimeout(timeoutId);
+                            const ms = Math.round(performance.now() - start);
+                            return { key: ep.key, success: response.ok, status: response.status, ms, error: response.ok ? null : `HTTP ${response.status}` };
+                        } catch (e) {
+                            return { key: ep.key, success: false, status: 0, ms: Math.round(performance.now() - start), error: e.message };
+                        }
+                    }
+                    const r = await apiRequest(ep.path);
+                    return { key: ep.key, ...r };
+                }));
+
+                let okCount = 0;
+                results.forEach(r => {
+                    endpointResults[r.key] = r;
+                    if (r.success) okCount++;
+                });
+
+                renderEndpointsGrid();
+
+                if (syncIndicator) syncIndicator.style.display = 'none';
+                if (summaryBadge) {
+                    const allOk = okCount === BACKEND_ENDPOINTS.length;
+                    const noneOk = okCount === 0;
+                    summaryBadge.textContent = `${okCount}/${BACKEND_ENDPOINTS.length} endpoints OK`;
+                    summaryBadge.className = `badge ${allOk ? 'badge-success' : noneOk ? 'badge-danger' : 'badge-warning'}`;
+                }
+
+                return { okCount, total: BACKEND_ENDPOINTS.length, results };
+            };
+
             // ─── Other Functions ────────────────────────────────────────
             window.refreshLogs = function() {
                 fetchLogs();
@@ -2790,7 +3045,8 @@
                         window.fetchEngineSettings(),
                         fetchLogs(),
                         getScraperStatus(),
-                        checkHealth(true)
+                        checkHealth(true),
+                        window.testAllBackendEndpoints()
                     ]);
                     await addAdminLog('🔄 All data synced successfully', 'admin');
                     showToast('✅ All data synced!', 'success');
@@ -2895,6 +3151,7 @@
                 console.log('🏥 Health Check:', HEALTH_CHECK_URL);
 
                 initSupabase();
+                renderEndpointsGrid();
 
                 const isAuth = await checkAuth();
                 
