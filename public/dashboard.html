@@ -480,6 +480,10 @@
     let paymentInterval = null;
     const MAX_PAYMENT_ATTEMPTS = 24;
     let authCheckComplete = false;
+    // FIX: guards against loadDashboard firing twice when both
+    // INITIAL_SESSION and a near-simultaneous SIGNED_IN/TOKEN_REFRESHED
+    // event arrive from onAuthStateChange.
+    let dashboardLoadStarted = false;
 
     // ─── DOM REFS ──────────────────────────────────────────────
     const serviceTabsEl = document.getElementById('serviceTabs');
@@ -562,12 +566,67 @@
                 }
             });
             console.log('✅ Supabase initialized');
+
+            // FIX: this listener is the core fix. Previously the app only
+            // ever checked auth "on demand" (once on page load, once when
+            // the pay button was clicked). Supabase's autoRefreshToken
+            // silently rotates the access token in the background using
+            // its own internal timer — but that timer gets throttled when
+            // the tab is backgrounded (very common here, since users
+            // switch to their phone's M-Pesa app mid-payment). When the
+            // app later called getSession() cold, it could momentarily
+            // see a stale/refreshing session and treat the user as
+            // logged out. Subscribing to onAuthStateChange means the app
+            // reacts immediately whenever Supabase refreshes, signs in,
+            // or signs out — instead of guessing.
+            supabaseClient.auth.onAuthStateChange((event, session) => {
+                console.log('🔔 Auth event:', event);
+
+                if (event === 'INITIAL_SESSION') {
+                    if (session?.user) {
+                        currentUser = session.user;
+                        isAuthenticated = true;
+                        loadDashboard(session.user);
+                    } else {
+                        console.log('🔴 No session on initial load, redirecting to login');
+                        window.location.replace('/');
+                    }
+                    return;
+                }
+
+                if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+                    if (session?.user) {
+                        currentUser = session.user;
+                        isAuthenticated = true;
+                        if (!dashboardLoadStarted) {
+                            loadDashboard(session.user);
+                        }
+                    }
+                    return;
+                }
+
+                if (event === 'SIGNED_OUT') {
+                    isAuthenticated = false;
+                    currentUser = null;
+                    // Only bounce to login if the dashboard had actually
+                    // finished loading before — avoids redirect loops
+                    // during the very first page load, where SIGNED_OUT
+                    // can fire before INITIAL_SESSION in some edge cases.
+                    if (authCheckComplete) {
+                        window.location.replace('/');
+                    }
+                    return;
+                }
+            });
         }
         return supabaseClient;
     }
 
     // ─── LOAD DASHBOARD ─────────────────────────────────────────
     async function loadDashboard(user) {
+        if (dashboardLoadStarted) return;
+        dashboardLoadStarted = true;
+
         console.log('📊 Loading dashboard for user:', user.email);
 
         authLoading.style.display = 'none';
@@ -598,60 +657,18 @@
             return;
         }
 
+        // FIX: no more manual retry + arbitrary 500ms wait. That race
+        // could redirect a real, logged-in user back to "/" if Supabase
+        // hadn't finished restoring the session from storage in time
+        // (common on slower connections). Calling getSession() here just
+        // triggers supabase-js to fire the INITIAL_SESSION event on the
+        // onAuthStateChange listener above, which does the actual
+        // load-or-redirect decision once, reliably.
         try {
-            // Get session directly
-            const { data: { session }, error } = await client.auth.getSession();
-
-            if (error) {
-                console.error('❌ Session error:', error);
-                throw error;
-            }
-
-            if (session?.user) {
-                console.log('✅ Session found for user:', session.user.email);
-                currentUser = session.user;
-                isAuthenticated = true;
-                await loadDashboard(session.user);
-                return;
-            }
-
-            // No session - try to get from storage
-            console.log('⏳ No active session, checking storage...');
-
-            // Wait a moment for Supabase to restore from storage
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            const { data: { session: retrySession } } = await client.auth.getSession();
-
-            if (retrySession?.user) {
-                console.log('✅ Session restored from storage');
-                currentUser = retrySession.user;
-                isAuthenticated = true;
-                await loadDashboard(retrySession.user);
-                return;
-            }
-
-            // Still no session - redirect to login
-            console.log('🔴 No session found, redirecting to login');
-            window.location.replace('/');
-
+            await client.auth.getSession();
         } catch (err) {
             console.error('❌ Auth check error:', err);
-            // Try one more time with a delay
-            try {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                const { data: { session } } = await client.auth.getSession();
-                if (session?.user) {
-                    console.log('✅ Session recovered after retry');
-                    currentUser = session.user;
-                    isAuthenticated = true;
-                    await loadDashboard(session.user);
-                    return;
-                }
-            } catch (retryErr) {
-                console.error('❌ Retry failed:', retryErr);
-            }
-            window.location.replace('/');
+            authLoading.innerHTML = '<span style="color:#ef4444;">❌ Failed to check authentication. Please refresh the page.</span>';
         }
     }
 
@@ -690,6 +707,8 @@
             selectedServiceCode = null;
             selectedServiceId = null;
             allServices = [];
+            dashboardLoadStarted = false; // FIX: allow a future load to run again
+            authCheckComplete = false;
 
             if (paymentInterval) {
                 clearInterval(paymentInterval);
@@ -1072,10 +1091,25 @@
             let attempts = 0;
             paymentInterval = setInterval(async () => {
                 try {
+                    // FIX: fetch a fresh token on every poll instead of
+                    // reusing the token captured when the payment
+                    // started. STK push confirmation can take a couple of
+                    // minutes while the tab sits backgrounded (user is on
+                    // their phone approving the prompt) — Supabase may
+                    // silently rotate the access token during that window,
+                    // and the old captured `token` variable would then be
+                    // stale.
+                    const { data: { session: pollSession } } = await client.auth.getSession();
+                    if (!pollSession) {
+                        console.warn('⚠️ Session lost during payment polling; will retry next tick');
+                        attempts++;
+                        return;
+                    }
+
                     const sr = await fetch(`${API_BASE}/mpesa/status/${data.checkout_request_id}`, {
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`
+                            'Authorization': `Bearer ${pollSession.access_token}`
                         }
                     });
                     const sd = await sr.json();
@@ -1110,6 +1144,7 @@
                     attempts++;
                 } catch (e) {
                     console.warn('Status poll error:', e);
+                    attempts++;
                 }
             }, 5000);
 
@@ -1166,11 +1201,9 @@
     }
 
     // ─── INIT ──────────────────────────────────────────────────
-    // ─── FIX: SIMPLE DIRECT AUTH CHECK ─────────────────────────
     document.addEventListener('DOMContentLoaded', function() {
         console.log('🚀 Dashboard loading...');
 
-        // FIX: these two buttons previously had no click handlers wired up
         payBtn.addEventListener('click', initiatePayment);
         refreshHistoryBtn.addEventListener('click', window.refresh);
 
