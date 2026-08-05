@@ -304,7 +304,6 @@
         .badge-danger { background: rgba(239,68,68,0.15); color: var(--danger); }
         .badge-info { background: rgba(59,130,246,0.15); color: var(--blue); }
 
-        /* Live sync indicator */
         .live-sync-indicator {
             display: flex;
             align-items: center;
@@ -2406,6 +2405,50 @@
                 }
             }
 
+            // ─── UPDATED: isAdmin using joined roles ───────────────────
+            async function isAdmin(userId) {
+                const uid = userId || currentUser?.id;
+                const client = getSupabaseClient();
+                if (!client || !uid) return false;
+
+                try {
+                    // Query user_profiles with joined role name
+                    const { data: profile, error } = await client
+                        .from('user_profiles')
+                        .select(`
+                            role_id,
+                            roles(name)
+                        `)
+                        .eq('user_id', uid)
+                        .single();
+
+                    if (error || !profile) {
+                        console.warn('⚠️ User profile not found for uid:', uid, error);
+                        return false;
+                    }
+
+                    const role = profile.roles?.name;
+
+                    // Only "Administrator" or "Super Administrator" are allowed
+                    if (!role) {
+                        console.warn('⚠️ No role name found for uid:', uid);
+                        return false;
+                    }
+
+                    const allowedRoles = ['Administrator', 'Super Administrator'];
+                    const isAllowed = allowedRoles.includes(role);
+
+                    if (!isAllowed) {
+                        console.warn(`⛔ User ${uid} has role "${role}" — not authorized`);
+                    }
+
+                    return isAllowed;
+                } catch (error) {
+                    console.error('❌ isAdmin query error:', error);
+                    return false;
+                }
+            }
+
             // ─── Auth Functions ─────────────────────────────────────────
             async function getCurrentUser() {
                 try {
@@ -2463,40 +2506,6 @@
                     console.error('❌ Sign out error:', error);
                     return { success: false, error: error.message };
                 }
-            }
-
-            async function isAdmin(userId) {
-                const uid = userId || currentUser?.id;
-                const client = getSupabaseClient();
-                if (!client || !uid) return false;
-
-                try {
-                    const { data, error } = await client
-                        .from('users')
-                        .select('account_type')
-                        .eq('auth_user_id', uid)
-                        .single();
-                    if (!error && data) {
-                        return data.account_type === 'admin' || data.account_type === 'staff' || data.account_type === 'super_admin';
-                    }
-                } catch (error) {
-                    console.warn('⚠️ Admin check via auth_user_id failed:', error.message);
-                }
-
-                try {
-                    const { data, error } = await client
-                        .from('users')
-                        .select('account_type')
-                        .eq('id', uid)
-                        .single();
-                    if (!error && data) {
-                        return data.account_type === 'admin' || data.account_type === 'staff' || data.account_type === 'super_admin';
-                    }
-                } catch (error) {
-                    console.warn('⚠️ Admin check via id failed:', error.message);
-                }
-
-                return false;
             }
 
             async function checkAuth() {
@@ -2842,11 +2851,6 @@
             };
 
             // ─── BACKEND API — AUTH TOKEN + GENERIC REQUEST HELPER ────────
-            // Reads the live Supabase session token fresh each time (falls
-            // back to whatever was last stored), and also keeps it mirrored
-            // in localStorage under 'access_token' so it matches the key
-            // used by the customer-facing dashboard.html / instant-value.html
-            // pages elsewhere in Auto-D Kenya.
             async function getAccessToken() {
                 try {
                     const client = getSupabaseClient();
@@ -2866,9 +2870,6 @@
                 return localStorage.getItem('access_token') || '';
             }
 
-            // Generic authenticated call to the FastAPI backend. Returns
-            // { success, status, data, error, ms } so callers/UI can show
-            // both the outcome and timing without duplicating try/catch.
             async function apiRequest(path, options = {}) {
                 const start = performance.now();
                 try {
@@ -2906,9 +2907,6 @@
             }
 
             // ─── BACKEND API — ALL ADMIN + HEALTH ENDPOINTS ────────────────
-            // Every read endpoint the FastAPI backend exposes for the admin
-            // area, called directly (not via Supabase) so this dashboard
-            // exercises the actual API surface, not just the database.
             const BACKEND_ENDPOINTS = [
                 { key: 'root_health',   label: 'Root Health',      path: '/health', rawBase: true },
                 { key: 'admin_health',  label: 'Admin Health',     path: '/admin/health' },
@@ -2962,8 +2960,6 @@
                 }).join('');
             }
 
-            // Call every backend endpoint (in parallel) and update the grid
-            // + summary badge as each one resolves.
             window.testAllBackendEndpoints = async function() {
                 const summaryBadge = document.getElementById('apiEndpointsSummary');
                 const syncIndicator = document.getElementById('apiSyncIndicator');
@@ -2975,7 +2971,6 @@
                     summaryBadge.className = 'badge badge-info';
                 }
 
-                // Mark all as "checking" first so the grid shows progress
                 BACKEND_ENDPOINTS.forEach(ep => {
                     endpointResults[ep.key] = { checking: true };
                 });
@@ -2983,7 +2978,6 @@
 
                 const results = await Promise.all(BACKEND_ENDPOINTS.map(async (ep) => {
                     if (ep.rawBase) {
-                        // Root-level health check (no /api/v1 prefix, no auth needed)
                         const start = performance.now();
                         try {
                             const controller = new AbortController();
