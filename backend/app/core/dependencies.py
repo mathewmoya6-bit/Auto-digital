@@ -28,60 +28,19 @@ security = HTTPBearer(auto_error=False)
 # ================================================================
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> Dict[str, Any]:
     """
     Validate JWT token and return the authenticated user.
+    Uses Supabase Auth for token verification.
     """
-
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required"
+            detail="Authentication required",
         )
 
     token = credentials.credentials
-
-    # Get JWT secret from settings
-    jwt_secret = settings.get_jwt_secret()
-    if not jwt_secret:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="JWT secret not configured"
-        )
-
-    try:
-        payload = jwt.decode(
-            token,
-            jwt_secret,
-            algorithms=[settings.ALGORITHM],
-            options={"verify_aud": False},
-        )
-
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token expired",
-        )
-
-    except jwt.InvalidTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication",
-        )
-
-    user_id = (
-        payload.get("sub")
-        or payload.get("user_id")
-        or payload.get("id")
-    )
-
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication",
-        )
-
     supabase = get_supabase()
 
     if supabase is None:
@@ -90,50 +49,56 @@ async def get_current_user(
             detail="Database unavailable",
         )
 
-    #
-    # Try auth.users first
-    #
     try:
-        response = (
-            supabase.table("users")
-            .select("*")
-            .eq("id", user_id)
-            .maybe_single()
-            .execute()
+        # Verify the access token with Supabase Auth
+        auth_response = supabase.auth.get_user(token)
+
+        if not auth_response or not auth_response.user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication",
+            )
+
+        user = auth_response.user
+
+        # Look up the user's profile using user_id
+        try:
+            profile = (
+                supabase.table("profiles")
+                .select("*")
+                .eq("user_id", user.id)
+                .maybe_single()
+                .execute()
+            )
+
+            if profile and profile.data:
+                return profile.data
+
+        except Exception:
+            logger.exception("Failed to load profile")
+
+        # Fallback to auth user info
+        return {
+            "id": user.id,
+            "user_id": user.id,
+            "email": user.email,
+            "role": (
+                user.app_metadata.get("role", "user")
+                if user.app_metadata
+                else "user"
+            ),
+            "is_active": True,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        logger.exception("Authentication failed")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid authentication: {str(e)}",
         )
-
-        if response and response.data:
-            return response.data
-
-    except Exception:
-        pass
-
-    #
-    # Fallback profile table
-    #
-    try:
-        response = (
-            supabase.table("profiles")
-            .select("*")
-            .eq("id", user_id)
-            .maybe_single()
-            .execute()
-        )
-
-        if response and response.data:
-            return response.data
-
-    except Exception:
-        pass
-
-    #
-    # Last resort - return minimal user from JWT
-    #
-    return {
-        "id": user_id,
-        "role": payload.get("role", "user"),
-        "email": payload.get("email"),
-    }
 
 
 # ================================================================
@@ -141,21 +106,17 @@ async def get_current_user(
 # ================================================================
 
 async def get_current_user_optional(
-    credentials: Optional[
-        HTTPAuthorizationCredentials
-    ] = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> Optional[Dict[str, Any]]:
     """
     Returns the authenticated user if a valid token is supplied.
     Otherwise returns None.
     """
-
     if credentials is None:
         return None
 
     try:
         return await get_current_user(credentials)
-
     except HTTPException:
         return None
 
@@ -165,12 +126,11 @@ async def get_current_user_optional(
 # ================================================================
 
 async def get_current_active_user(
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
     Returns the current user if their account is active.
     """
-
     if current_user.get("is_active") is False:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -185,12 +145,11 @@ async def get_current_active_user(
 # ================================================================
 
 async def get_current_admin(
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
     Returns the current user if they have admin privileges.
     """
-
     role = current_user.get("role", "user")
 
     if role not in {"admin", "super_admin"}:
@@ -207,12 +166,11 @@ async def get_current_admin(
 # ================================================================
 
 async def get_current_super_admin(
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
     Returns the current user if they have super admin privileges.
     """
-
     role = current_user.get("role", "user")
 
     if role != "super_admin":
@@ -268,7 +226,7 @@ def require_roles(roles: List[str]):
             return {"message": "Welcome admin"}
     """
     async def role_checker(
-        current_user: Dict[str, Any] = Depends(get_current_user)
+        current_user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
         user_role = current_user.get("role", "user")
 
@@ -295,7 +253,7 @@ def require_permission(permission: str):
             return {"message": "Access granted"}
     """
     async def permission_checker(
-        current_user: Dict[str, Any] = Depends(get_current_user)
+        current_user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
         permissions = current_user.get("permissions", [])
 
@@ -424,7 +382,6 @@ def create_access_token(
     """
     Create JWT access token.
     """
-
     payload = data.copy()
 
     expire = (
@@ -462,7 +419,6 @@ def create_refresh_token(
     """
     Create JWT refresh token.
     """
-
     payload = data.copy()
 
     expire = (
@@ -497,7 +453,6 @@ def verify_token(token: str) -> Dict[str, Any]:
     """
     Verify and decode JWT token.
     """
-
     jwt_secret = settings.get_jwt_secret()
 
     if not jwt_secret:
