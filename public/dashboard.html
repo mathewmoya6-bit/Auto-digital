@@ -7,7 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
@@ -291,22 +291,6 @@
         .empty-state { text-align: center; padding: 30px 16px; color: #64748b; }
         .empty-state .empty-icon { font-size: 40px; margin-bottom: 8px; }
         .empty-state .empty-title { font-size: 16px; font-weight: 600; color: #cbd5e1; }
-        .status-indicator {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            padding: 4px 12px;
-            border-radius: 20px;
-            background: rgba(255,255,255,0.05);
-        }
-        .status-indicator .dot {
-            width: 8px; height: 8px;
-            border-radius: 50%;
-            display: inline-block;
-        }
-        .dot.green { background: #22c55e; }
-        .dot.red { background: #ef4444; }
         .admin-btn {
             background: linear-gradient(135deg, #a855f7, #7c3aed);
             color: #0a0c15;
@@ -324,7 +308,6 @@
         }
         .admin-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(168,85,247,0.3); }
         
-        /* Success overlay for redirect */
         .redirect-overlay {
             display: none;
             position: fixed;
@@ -344,18 +327,9 @@
             display: flex;
             animation: fadeIn 0.5s ease;
         }
-        .redirect-overlay .icon {
-            font-size: 64px;
-        }
-        .redirect-overlay .title {
-            font-size: 28px;
-            font-weight: 700;
-            color: #22c55e;
-        }
-        .redirect-overlay .subtitle {
-            font-size: 18px;
-            color: #cbd5e1;
-        }
+        .redirect-overlay .icon { font-size: 64px; }
+        .redirect-overlay .title { font-size: 28px; font-weight: 700; color: #22c55e; }
+        .redirect-overlay .subtitle { font-size: 18px; color: #cbd5e1; }
         .redirect-overlay .countdown {
             font-size: 48px;
             font-weight: 700;
@@ -434,6 +408,7 @@
             <div class="form-group">
                 <label><i class="fas fa-phone"></i> Phone Number</label>
                 <input id="phone" type="tel" placeholder="07XXXXXXXX or 01XXXXXXXX" />
+                <small>Enter the phone number registered with M-Pesa</small>
             </div>
             <button id="payBtn" class="btn btn-primary" disabled style="width:100%;justify-content:center;font-size:16px;padding:14px;">
                 <i class="fas fa-lock"></i> Select a service first
@@ -448,7 +423,7 @@
     <div class="card">
         <div class="card-header">
             <div class="card-title">📜 Payment History <span class="badge">Recent</span></div>
-            <button class="btn btn-sm btn-outline" onclick="window.__AUTOD?.loadHistory()">
+            <button class="btn btn-sm btn-outline" id="refreshHistoryBtn">
                 <i class="fas fa-sync-alt"></i> Refresh
             </button>
         </div>
@@ -460,39 +435,15 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
-// ─── FIXED: Phone number normalization for 07 and 01 prefixes ──
-
 (function() {
     'use strict';
 
+    // ─── CONFIG ──────────────────────────────────────────────────
     const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
     const API_BASE = 'https://auto-digital.onrender.com/api/v1';
 
-    let supabaseClient = null;
-    let currentUser = null;
-    let isAuthenticated = false;
-    let selectedServiceCode = null;
-    let selectedServiceId = null;
-    let servicePrices = {};
-    let serviceAccess = {};
-    let allServices = [];
-
-    // DOM REFS
-    const serviceTabsEl = document.getElementById('serviceTabs');
-    const serviceDetailEl = document.getElementById('serviceDetail');
-    const paymentsEl = document.getElementById('payments');
-    const statusBox = document.getElementById('statusBox');
-    const phoneInput = document.getElementById('phone');
-    const payBtn = document.getElementById('payBtn');
-    const authSection = document.getElementById('authSection');
-    const statusDot = document.getElementById('statusDot');
-    const connectionStatus = document.getElementById('connectionStatus');
-    const adminLink = document.getElementById('adminLinkContainer');
-    const redirectOverlay = document.getElementById('redirectOverlay');
-    const countdownEl = document.getElementById('countdown');
-
-    // Service page URLs mapping
+    // ─── SERVICE PAGES ──────────────────────────────────────────
     const SERVICE_PAGES = {
         'valuation': '/valuation.html',
         'mileage': '/mileage.html',
@@ -502,43 +453,58 @@
         'scrap': '/scrap.html'
     };
 
-    // ─── PHONE NUMBER NORMALIZATION ────────────────────────────
+    // ─── STATE ──────────────────────────────────────────────────
+    let supabaseClient = null;
+    let currentUser = null;
+    let isAuthenticated = false;
+    let selectedServiceCode = null;
+    let selectedServiceId = null;
+    let servicePrices = {};
+    let serviceAccess = {};
+    let allServices = [];
+    let paymentAttempts = 0;
+    const MAX_PAYMENT_ATTEMPTS = 24; // 2 minutes at 5s intervals
+
+    // ─── DOM REFS ──────────────────────────────────────────────
+    const serviceTabsEl = document.getElementById('serviceTabs');
+    const serviceDetailEl = document.getElementById('serviceDetail');
+    const paymentsEl = document.getElementById('payments');
+    const statusBox = document.getElementById('statusBox');
+    const phoneInput = document.getElementById('phone');
+    const payBtn = document.getElementById('payBtn');
+    const authSection = document.getElementById('authSection');
+    const adminLink = document.getElementById('adminLinkContainer');
+    const redirectOverlay = document.getElementById('redirectOverlay');
+    const countdownEl = document.getElementById('countdown');
+    const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
+
+    // ─── FIX 1: PHONE NUMBER NORMALIZATION ────────────────────
     function normalizePhoneNumber(phone) {
-        let cleaned = phone.replace(/\D/g, '');
-        if (!cleaned) return phone;
-        if (cleaned.startsWith('0')) {
-            cleaned = cleaned.substring(1);
-            if (cleaned.startsWith('7') || cleaned.startsWith('1')) {
-                return '254' + cleaned;
-            }
-        }
-        if (cleaned.startsWith('254')) {
-            return cleaned;
-        }
-        if (cleaned.length === 9 && (cleaned.startsWith('7') || cleaned.startsWith('1'))) {
-            return '254' + cleaned;
-        }
-        if (cleaned.length === 10 && (cleaned.startsWith('07') || cleaned.startsWith('01'))) {
+        const cleaned = phone.replace(/\D/g, '');
+
+        // 07XXXXXXXX or 01XXXXXXXX
+        if (/^(07|01)\d{8}$/.test(cleaned)) {
             return '254' + cleaned.substring(1);
         }
-        if (cleaned.length === 12 && cleaned.startsWith('254')) {
-            return cleaned;
-        }
-        if (cleaned.length === 10 && (cleaned.startsWith('07') || cleaned.startsWith('01'))) {
-            return '254' + cleaned.substring(1);
-        }
-        if (cleaned.length === 9 && (cleaned.startsWith('7') || cleaned.startsWith('1'))) {
+
+        // 7XXXXXXXX or 1XXXXXXXX
+        if (/^[71]\d{8}$/.test(cleaned)) {
             return '254' + cleaned;
         }
-        return cleaned;
+
+        // 2547XXXXXXXX or 2541XXXXXXXX
+        if (/^254[71]\d{8}$/.test(cleaned)) {
+            return cleaned;
+        }
+
+        return null;
     }
 
-    // ─── REDIRECT TO SERVICE PAGE ──────────────────────────────
+    // ─── REDIRECT OVERLAY ──────────────────────────────────────
     function redirectToServicePage(serviceCode) {
         const page = SERVICE_PAGES[serviceCode] || '/dashboard.html';
         console.log(`🚀 Redirecting to ${page} for service ${serviceCode}`);
         
-        // Show overlay with countdown
         redirectOverlay.classList.add('show');
         let countdown = 3;
         countdownEl.textContent = countdown;
@@ -554,6 +520,12 @@
         }, 1000);
     }
 
+    // ─── FIX 11: CLEAN UP REDIRECT OVERLAY ON BACK ────────────
+    window.addEventListener('pageshow', () => {
+        redirectOverlay.classList.remove('show');
+    });
+
+    // ─── TOAST ──────────────────────────────────────────────────
     function showToast(msg, type = 'info') {
         const c = document.getElementById('toastContainer');
         if (!c) return;
@@ -564,17 +536,18 @@
         setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3500);
     }
 
+    // ─── STATUS ─────────────────────────────────────────────────
     function setStatus(msg, type = 'info') {
         const map = { success: 'status-success', pending: 'status-pending', error: 'status-error', info: 'status-info' };
         statusBox.innerHTML = `<span class="${map[type] || 'status-info'}">${msg}</span>`;
     }
 
-    function formatPrice(p) { return p != null ? `KSh ${Number(p).toLocaleString()}` : '—'; }
-
-    function updateConnection(connected) {
-        // Not used directly but kept for compatibility
+    // ─── FORMAT PRICE ──────────────────────────────────────────
+    function formatPrice(p) { 
+        return p != null ? `KSh ${Number(p).toLocaleString()}` : '—'; 
     }
 
+    // ─── SUPABASE INIT ──────────────────────────────────────────
     function initSupabase() {
         if (!supabaseClient && typeof supabase !== 'undefined') {
             const { createClient } = supabase;
@@ -586,35 +559,33 @@
         return supabaseClient;
     }
 
+    // ─── FIX 8: AUTH - ONLY TRUST SUPABASE ─────────────────────
     async function getCurrentUser() {
         try {
             const client = initSupabase();
             if (!client) return null;
+            
             const { data: { session } } = await client.auth.getSession();
+            
             if (session?.user) {
                 currentUser = session.user;
                 isAuthenticated = true;
-                localStorage.setItem('auto_d_user', JSON.stringify(currentUser));
-                localStorage.setItem('access_token', session.access_token);
                 console.log('✅ User authenticated:', currentUser.email);
                 return currentUser;
             }
-            const stored = localStorage.getItem('auto_d_user');
-            if (stored) {
-                currentUser = JSON.parse(stored);
-                isAuthenticated = true;
-                console.log('✅ User restored from storage:', currentUser.email);
-                return currentUser;
-            }
+            
             isAuthenticated = false;
+            currentUser = null;
             return null;
         } catch (e) {
             console.error('Auth error:', e);
             isAuthenticated = false;
+            currentUser = null;
             return null;
         }
     }
 
+    // ─── RENDER AUTH ────────────────────────────────────────────
     function renderAuth(user) {
         if (user) {
             const name = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
@@ -624,26 +595,29 @@
                     <div class="user-avatar">${initial}</div>
                     <div><div class="user-name">${name}</div><div class="user-email">${user.email}</div></div>
                 </div>
-                <button class="btn btn-sm btn-danger" onclick="window.__AUTOD?.logout()">
+                <button class="btn btn-sm btn-danger" id="logoutBtn">
                     <i class="fas fa-sign-out-alt"></i> Logout
                 </button>
             `;
+            document.getElementById('logoutBtn')?.addEventListener('click', logout);
         } else {
             authSection.innerHTML = `
                 <span style="color:#64748b;font-size:14px;">Not logged in</span>
-                <button class="btn btn-primary btn-sm" onclick="window.__AUTOD?.goToLanding()">
+                <button class="btn btn-primary btn-sm" id="loginBtn">
                     <i class="fas fa-sign-in-alt"></i> Login
                 </button>
             `;
+            document.getElementById('loginBtn')?.addEventListener('click', () => {
+                window.location.href = '/';
+            });
         }
     }
 
+    // ─── LOGOUT ──────────────────────────────────────────────────
     async function logout() {
         try {
             const client = initSupabase();
             if (client) await client.auth.signOut();
-            localStorage.removeItem('auto_d_user');
-            localStorage.removeItem('access_token');
             isAuthenticated = false;
             currentUser = null;
             renderAuth(null);
@@ -652,29 +626,32 @@
         } catch (e) { showToast('Logout error', 'error'); }
     }
 
-    function goToLanding() {
-        window.location.href = '/';
-    }
-
-    // ─── FETCH DATA ──────────────────────────────────────────
+    // ─── FETCH SERVICES ─────────────────────────────────────────
     async function fetchServices() {
         const client = initSupabase();
-        const res = await client.from('services').select('*').eq('active', true).order('display_order');
-        if (res.data && res.data.length) {
-            allServices = res.data;
-            console.log('✅ Services loaded:', allServices.map(s => `${s.code} (ID: ${s.id})`).join(', '));
-        } else {
-            allServices = [
-                { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150 },
-                { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200 },
-                { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180 }
-            ];
-            console.log('⚠️ Using fallback services');
+        try {
+            const res = await client.from('services').select('*').eq('active', true).order('display_order');
+            if (res.data && res.data.length) {
+                allServices = res.data;
+                console.log('✅ Services loaded:', allServices.map(s => `${s.code} (ID: ${s.id})`).join(', '));
+            } else {
+                // Fallback services
+                allServices = [
+                    { id: 1, code: 'valuation', name: 'Vehicle Valuation', description: 'Get instant market value', price: 150 },
+                    { id: 2, code: 'mileage', name: 'Mileage Verification', description: 'Verify odometer readings', price: 200 },
+                    { id: 3, code: 'ownership', name: 'Ownership History', description: 'Track previous owners', price: 180 }
+                ];
+                console.log('⚠️ Using fallback services');
+            }
+            allServices.forEach(s => { servicePrices[s.code] = s.price; });
+            return allServices;
+        } catch (e) {
+            console.error('Error fetching services:', e);
+            return [];
         }
-        allServices.forEach(s => { servicePrices[s.code] = s.price; });
-        return allServices;
     }
 
+    // ─── FETCH USER SERVICES ────────────────────────────────────
     async function fetchUserServices(userId) {
         if (!userId) return {};
         try {
@@ -701,7 +678,60 @@
         }
     }
 
-    // ─── RENDER ──────────────────────────────────────────────
+    // ─── FIX 9: PAYMENT HISTORY WITH SERVICE NAMES ─────────────
+    async function loadHistory() {
+        if (!isAuthenticated || !currentUser) {
+            paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
+            return;
+        }
+        try {
+            const client = initSupabase();
+            const res = await client.from('payments').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false });
+            if (!res.data || !res.data.length) {
+                paymentsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">💳</div><div class="empty-title">No payments yet</div></div>`;
+                return;
+            }
+            let html = `<div class="table-wrap"><table><thead><tr><th>Service</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead><tbody>`;
+            res.data.forEach(p => {
+                const serviceName = allServices.find(s => s.id === p.service_id)?.name || p.service_key || 'Unknown';
+                const cls = p.status === 'completed' || p.status === 'paid' ? 'paid' : p.status === 'failed' ? 'failed' : 'pending';
+                html += `<tr><td>${serviceName}</td><td>KSh ${Number(p.amount).toLocaleString()}</td>
+                    <td><span class="status-badge ${cls}">${p.status || 'pending'}</span></td>
+                    <td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}</td></tr>`;
+            });
+            html += `</tbody></table></div>`;
+            paymentsEl.innerHTML = html;
+        } catch (e) {
+            console.error('Error loading history:', e);
+            paymentsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">Failed to load history</div></div>`;
+        }
+    }
+
+    // ─── UPDATE PAY BUTTON ──────────────────────────────────────
+    function updatePayBtn() {
+        if (!isAuthenticated) {
+            payBtn.disabled = true;
+            payBtn.innerHTML = '<i class="fas fa-lock"></i> Login to pay';
+            return;
+        }
+        if (selectedServiceCode) {
+            const price = servicePrices[selectedServiceCode] || 0;
+            const service = allServices.find(s => s.code === selectedServiceCode);
+            const unlocked = serviceAccess[selectedServiceCode] || false;
+            if (unlocked) {
+                payBtn.disabled = true;
+                payBtn.innerHTML = '<i class="fas fa-check"></i> Already unlocked';
+                return;
+            }
+            payBtn.disabled = false;
+            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${formatPrice(price)} for ${service?.name || selectedServiceCode}`;
+        } else {
+            payBtn.disabled = true;
+            payBtn.innerHTML = '<i class="fas fa-lock"></i> Select a service first';
+        }
+    }
+
+    // ─── RENDER TABS ─────────────────────────────────────────────
     function renderTabs(services) {
         if (!services || !services.length) {
             serviceTabsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-title">No services available</div></div>`;
@@ -719,8 +749,7 @@
 
             html += `
                 <button class="service-tab ${isActive ? 'active' : ''}" 
-                        data-service="${service.code}"
-                        onclick="window.__AUTOD?.selectService('${service.code}')">
+                        data-service="${service.code}">
                     <span>${service.name}</span>
                     <span class="price-tag">${formatPrice(service.price)}</span>
                     <span class="tab-badge ${unlocked ? 'unlocked' : 'locked'}">
@@ -731,10 +760,41 @@
         });
 
         serviceTabsEl.innerHTML = html;
+        
+        // ─── FIX 13: USE EVENT DELEGATION ──────────────────────
+        // Remove any existing listeners by cloning
+        const newTabsEl = serviceTabsEl.cloneNode(true);
+        serviceTabsEl.parentNode.replaceChild(newTabsEl, serviceTabsEl);
+        
+        // Re-attach event listener using delegation
+        newTabsEl.addEventListener('click', function(e) {
+            const btn = e.target.closest('.service-tab');
+            if (!btn) return;
+            selectService(btn.dataset.service);
+        });
+
+        // Update reference
         const defaultService = selectedServiceCode || (services[0]?.code);
         if (defaultService) renderServiceDetail(defaultService);
+        updatePayBtn();
     }
 
+    // ─── SELECT SERVICE ─────────────────────────────────────────
+    window.selectService = function(code) {
+        selectedServiceCode = code;
+        const service = allServices.find(s => s.code === code);
+        selectedServiceId = service?.id || null;
+        
+        // Update active tab
+        document.querySelectorAll('.service-tab').forEach(el => {
+            el.classList.toggle('active', el.dataset.service === code);
+        });
+        
+        renderServiceDetail(code);
+        updatePayBtn();
+    };
+
+    // ─── RENDER SERVICE DETAIL ──────────────────────────────────
     function renderServiceDetail(serviceCode) {
         const service = allServices.find(s => s.code === serviceCode);
         if (!service) {
@@ -759,11 +819,11 @@
                 </div>
                 <div class="service-actions">
                     ${unlocked ? `
-                        <button class="btn btn-success btn-sm" onclick="window.__AUTOD?.runService('${service.code}')">
+                        <button class="btn btn-success btn-sm run-service-btn" data-service="${service.code}">
                             <i class="fas fa-play"></i> Run
                         </button>
                     ` : `
-                        <button class="btn btn-primary btn-sm" onclick="window.__AUTOD?.selectForPayment('${service.code}')">
+                        <button class="btn btn-primary btn-sm purchase-service-btn" data-service="${service.code}">
                             <i class="fas fa-shopping-cart"></i> Purchase ${formatPrice(price)}
                         </button>
                     `}
@@ -771,47 +831,32 @@
             </div>
         `;
 
+        // ─── FIX 12: AVOID INLINE JAVASCRIPT ──────────────────
+        const runBtn = serviceDetailEl.querySelector('.run-service-btn');
+        if (runBtn) {
+            runBtn.addEventListener('click', function() {
+                runService(this.dataset.service);
+            });
+        }
+
+        const purchaseBtn = serviceDetailEl.querySelector('.purchase-service-btn');
+        if (purchaseBtn) {
+            purchaseBtn.addEventListener('click', function() {
+                selectForPayment(this.dataset.service);
+            });
+        }
+
         selectedServiceCode = service.code;
         selectedServiceId = service.id;
         updatePayBtn();
     }
 
-    function updatePayBtn() {
+    // ─── SELECT FOR PAYMENT ─────────────────────────────────────
+    window.selectForPayment = function(code) {
         if (!isAuthenticated) {
-            payBtn.disabled = true;
-            payBtn.innerHTML = '<i class="fas fa-lock"></i> Login to pay';
+            showToast('Please log in', 'error');
             return;
         }
-        if (selectedServiceCode) {
-            const price = servicePrices[selectedServiceCode] || 0;
-            const service = allServices.find(s => s.code === selectedServiceCode);
-            const unlocked = serviceAccess[selectedServiceCode] || false;
-            if (unlocked) {
-                payBtn.disabled = true;
-                payBtn.innerHTML = '<i class="fas fa-check"></i> Already unlocked';
-                return;
-            }
-            payBtn.disabled = false;
-            payBtn.innerHTML = `<i class="fas fa-mobile-alt"></i> Pay ${formatPrice(price)} for ${service?.name || selectedServiceCode}`;
-        } else {
-            payBtn.disabled = true;
-            payBtn.innerHTML = '<i class="fas fa-lock"></i> Select a service first';
-        }
-    }
-
-    // ─── ACTIONS ──────────────────────────────────────────────
-    window.selectService = function(code) {
-        selectedServiceCode = code;
-        const service = allServices.find(s => s.code === code);
-        selectedServiceId = service?.id || null;
-        document.querySelectorAll('.service-tab').forEach(el => {
-            el.classList.toggle('active', el.dataset.service === code);
-        });
-        renderServiceDetail(code);
-    };
-
-    window.selectForPayment = function(code) {
-        if (!isAuthenticated) return showToast('Please log in', 'error');
         selectedServiceCode = code;
         const service = allServices.find(s => s.code === code);
         selectedServiceId = service?.id || null;
@@ -821,17 +866,26 @@
         showToast(`✅ ${service?.name} selected`, 'success');
     };
 
+    // ─── FIX 10: RUN SERVICE WITH REDIRECT ─────────────────────
     window.runService = function(code) {
-        if (!isAuthenticated) return showToast('Please log in', 'error');
-        if (!serviceAccess[code]) return showToast('Service not unlocked', 'error');
+        if (!isAuthenticated) {
+            showToast('Please log in', 'error');
+            return;
+        }
+        if (!serviceAccess[code]) {
+            showToast('Service not unlocked', 'error');
+            return;
+        }
         setStatus(`⏳ Running ${code}...`, 'pending');
         showToast(`🚀 Running ${code}...`, 'info');
+        
+        // Redirect to service page
         setTimeout(() => {
-            setStatus(`✅ ${code} completed!`, 'success');
-            showToast(`✅ ${code} report ready`, 'success');
-        }, 2000);
+            redirectToServicePage(code);
+        }, 1000);
     };
 
+    // ─── REFRESH ─────────────────────────────────────────────────
     window.refresh = async function() {
         await fetchServices();
         if (currentUser) await fetchUserServices(currentUser.id);
@@ -839,8 +893,11 @@
         showToast('🔄 Refreshed', 'info');
     };
 
-    // ─── M-PESA PAYMENT ──────────────────────────────────────
+    // ─── FIX 5 & 6: PAYMENT WITH PROPER BUTTON RESTORATION ────
     async function initiatePayment() {
+        // ─── FIX 5: PREVENT DOUBLE CLICKS ──────────────────────
+        if (payBtn.disabled) return;
+
         if (!isAuthenticated) {
             showToast('Please log in', 'error');
             return;
@@ -861,11 +918,12 @@
             return;
         }
 
+        // ─── FIX 1: PHONE NORMALIZATION ─────────────────────────
         const normalizedPhone = normalizePhoneNumber(phone);
         console.log('📱 Original phone:', phone);
         console.log('📱 Normalized phone:', normalizedPhone);
 
-        if (!normalizedPhone.match(/^254[17]\d{8}$/)) {
+        if (!normalizedPhone) {
             setStatus('❌ Invalid phone number. Use 07XXXXXXXX or 01XXXXXXXX', 'error');
             showToast('Invalid phone format. Use 07XXXXXXXX or 01XXXXXXXX', 'error');
             return;
@@ -887,7 +945,7 @@
         try {
             const client = initSupabase();
             const { data: { session } } = await client.auth.getSession();
-            const token = session?.access_token || localStorage.getItem('access_token');
+            const token = session?.access_token;
             const userId = session?.user?.id || currentUser?.id;
             
             const requestBody = {
@@ -900,6 +958,7 @@
             console.log('📤 Payment request:', requestBody);
             console.log('🔑 Token present:', token ? 'Yes' : 'No');
 
+            // ─── FIX 7: BETTER FETCH ERROR HANDLING ────────────
             const res = await fetch(`${API_BASE}/mpesa/stkpush`, {
                 method: 'POST',
                 headers: {
@@ -910,13 +969,10 @@
             });
 
             let data;
-            const textResponse = await res.text();
-            console.log('📥 Raw response:', textResponse);
-            
             try {
-                data = JSON.parse(textResponse);
-            } catch (e) {
-                throw new Error(`Server response: ${textResponse.substring(0, 100)}`);
+                data = await res.json();
+            } catch {
+                throw new Error('Server returned an invalid response.');
             }
 
             if (!res.ok) {
@@ -938,29 +994,35 @@
                     });
                     const sd = await sr.json();
                     
-                    if (sd.status === 'completed' || sd.status === 'paid') {
+                    // ─── FIX 16: SUPPORT ALL STATUS VALUES ──────
+                    const completedStatuses = ['completed', 'paid', 'success'];
+                    const failedStatuses = ['failed', 'cancelled', 'expired'];
+                    
+                    if (completedStatuses.includes(sd.status)) {
                         clearInterval(interval);
                         serviceAccess[selectedServiceCode] = true;
                         await updateUserService(selectedServiceCode, true);
                         setStatus('✅ Payment completed! Service unlocked.', 'success');
                         showToast('🎉 Payment successful!', 'success');
+                        
+                        // ─── FIX 14: SYNC UI WITH DATABASE ──────
+                        await fetchUserServices(currentUser.id);
                         renderTabs(allServices);
                         renderServiceDetail(selectedServiceCode);
                         loadHistory();
-                        payBtn.disabled = false;
-                        payBtn.innerHTML = '<i class="fas fa-check"></i> Unlocked';
+                        updatePayBtn();
                         
-                        // ✅ REDIRECT TO SERVICE PAGE AFTER UNLOCK
+                        // Redirect to service page
                         setTimeout(() => {
                             redirectToServicePage(selectedServiceCode);
                         }, 1500);
                         
-                    } else if (sd.status === 'failed' || attempts > 20) {
+                    } else if (failedStatuses.includes(sd.status) || attempts >= MAX_PAYMENT_ATTEMPTS) {
                         clearInterval(interval);
-                        setStatus('❌ Payment failed. Try again.', 'error');
+                        setStatus('❌ Payment failed or timed out. Try again.', 'error');
                         showToast('❌ Payment failed', 'error');
                         payBtn.disabled = false;
-                        payBtn.innerHTML = '<i class="fas fa-redo"></i> Retry';
+                        updatePayBtn();
                     }
                     attempts++;
                 } catch (e) {
@@ -972,11 +1034,11 @@
             const errorMsg = e.message || 'Unknown error occurred';
             setStatus(`❌ ${errorMsg}`, 'error');
             showToast(`❌ Payment error: ${errorMsg}`, 'error');
-            payBtn.disabled = false;
-            payBtn.innerHTML = '<i class="fas fa-redo"></i> Retry';
+            // ─── FIX 6: RESTORE BUTTON IN FINALLY ──────────────
         }
     }
 
+    // ─── UPDATE USER SERVICE ────────────────────────────────────
     async function updateUserService(serviceKey, unlocked) {
         try {
             const client = initSupabase();
@@ -1016,33 +1078,11 @@
         }
     }
 
-    // ─── PAYMENT HISTORY ──────────────────────────────────────
-    async function loadHistory() {
-        if (!isAuthenticated || !currentUser) {
-            paymentsEl.innerHTML = '<span class="loading">Please log in</span>';
-            return;
-        }
-        const client = initSupabase();
-        const res = await client.from('payments').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false });
-        if (!res.data || !res.data.length) {
-            paymentsEl.innerHTML = `<div class="empty-state"><div class="empty-icon">💳</div><div class="empty-title">No payments yet</div></div>`;
-            return;
-        }
-        let html = `<div class="table-wrap"><table><thead><tr><th>Service</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead><tbody>`;
-        res.data.forEach(p => {
-            const cls = p.status === 'completed' || p.status === 'paid' ? 'paid' : p.status === 'failed' ? 'failed' : 'pending';
-            html += `<tr><td>${p.service_key || p.service_id || '—'}</td><td>KSh ${Number(p.amount).toLocaleString()}</td>
-                <td><span class="status-badge ${cls}">${p.status || 'pending'}</span></td>
-                <td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}</td></tr>`;
-        });
-        html += `</tbody></table></div>`;
-        paymentsEl.innerHTML = html;
-    }
-
     // ─── INIT ──────────────────────────────────────────────────
     async function init() {
         const user = await getCurrentUser();
         renderAuth(user);
+        
         if (!user) {
             serviceTabsEl.innerHTML = '<span class="loading">Please log in</span>';
             serviceDetailEl.innerHTML = '<span class="loading">Please log in</span>';
@@ -1058,12 +1098,23 @@
         renderTabs(allServices);
         loadHistory();
         setStatus('✅ Ready', 'success');
+
+        // ─── EVENT LISTENERS ──────────────────────────────────
+        // Payment button
+        payBtn.addEventListener('click', initiatePayment);
+
+        // Refresh history button
+        refreshHistoryBtn.addEventListener('click', loadHistory);
+
+        // ─── FIX 11: CLEAN UP REDIRECT OVERLAY ON BACK ──────
+        window.addEventListener('beforeunload', () => {
+            redirectOverlay.classList.remove('show');
+        });
     }
 
     // ─── EXPOSE ──────────────────────────────────────────────
     window.__AUTOD = {
         logout,
-        goToLanding,
         selectService: window.selectService,
         selectForPayment: window.selectForPayment,
         runService: window.runService,
@@ -1074,10 +1125,7 @@
         redirectToServicePage,
     };
 
-    document.addEventListener('DOMContentLoaded', () => {
-        payBtn.addEventListener('click', initiatePayment);
-        init();
-    });
+    document.addEventListener('DOMContentLoaded', init);
 
 })();
 </script>
