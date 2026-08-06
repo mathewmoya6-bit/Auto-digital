@@ -111,31 +111,31 @@ class ValuationService:
         random_suffix = secrets.token_hex(4).upper()
         report_number = f"AUTO-VAL-{timestamp}-{random_suffix}"
         
-        # ─── BUILD RESPONSE WITH UPDATED STRUCTURE ──────────────────
+        # ─── BUILD RESPONSE MATCHING SCHEMA ──────────────────────────
         
         safe_result = {
             "report": {
+                "title": "AUTO-D Vehicle Valuation Report",
                 "report_number": report_number,
                 "generated_at": datetime.utcnow(),
-                "report_status": "completed",
-                "report_title": "AUTO-D Vehicle Valuation Report",
-                "report_description": (
+                "status": "completed",
+                "version": "1.0",
+                "description": (
                     f"Valuation report for "
                     f"{variant_data.get('make_name', '')} "
                     f"{variant_data.get('model_name', '')}"
                 ),
-                "expires_at": None,
             },
             
             "vehicle": {
                 "variant_id": variant_id,
                 "make": variant_data.get("make_name", ""),
                 "model": variant_data.get("model_name", ""),
-                "variant": variant_data.get("name", ""),
+                "variant_name": variant_data.get("name", ""),  # Changed from variant to variant_name
                 "year": year,
                 "fuel_type": variant_data.get("fuel_type_name"),
                 "transmission": variant_data.get("transmission_type_name"),
-                "engine_size": variant_data.get("engine_size_cc"),
+                "engine_size_cc": variant_data.get("engine_size_cc"),  # Changed from engine_size to engine_size_cc
                 "body_type": variant_data.get("body_type_name"),
             },
             
@@ -148,10 +148,10 @@ class ValuationService:
                     2,
                 ),
                 "currency": "KES",
-                "confidence_score": confidence_score,
+                "confidence_score": confidence_score,  # 0-100 percentage
                 "estimated_value_range": {
-                    "minimum": round(market_value * 0.95, 2),
-                    "maximum": round(market_value * 1.05, 2),
+                    "minimum": round(market_value * 0.95, 2),  # Changed from min to minimum
+                    "maximum": round(market_value * 1.05, 2),  # Changed from max to maximum
                 },
                 "sample_size": result.get("sample_size", 0),
             },
@@ -159,30 +159,28 @@ class ValuationService:
             "comparables": result.get("comparables", []),
             
             "analysis": {
-                "methodology": "AUTO-D AI valuation engine",
-                "data_points": result.get("sample_size", 0),
-                "key_factors": [
-                    "Vehicle age",
-                    "Mileage",
-                    "Condition",
-                    "Location",
-                    "Market data",
+                "valuation_methodology": [
+                    f"Vehicle age ({year})",
+                    f"Mileage ({mileage:,} km)",
+                    f"Vehicle condition ({condition.title()})",
+                    "Vehicle specifications",
+                    f"Location ({location.title()})",
+                    "Depreciation model",
+                    "Market comparables analysis"
                 ],
-                "market_trend": result.get("market_trend"),
-                "market_conditions": "Normal",
-                "recommendations": [
-                    "Professional inspection recommended."
-                ],
+                "adjustments": adjustments,
+                "engine_version": "AUTO-D AI Valuation Engine v1.2",
             },
             
-            "disclaimer": {
-                "text": (
-                    "This valuation is an estimate based on "
-                    "market data and should not be considered "
-                    "a certified appraisal."
-                ),
-                "type": "standard",
-            },
+            "disclaimer": (
+                "This valuation is generated using the AUTO-D vehicle valuation model. "
+                "It represents an indicative estimate based on vehicle specifications, "
+                "age, mileage, condition, depreciation modelling and regional factors. "
+                "It should not be interpreted as the current market asking price, "
+                "dealer retail price, trade-in value or guaranteed selling price. "
+                "Actual transaction values may vary depending on inspection results, "
+                "ownership history, maintenance records and prevailing market conditions."
+            ),
         }
         
         # Save to history if user is authenticated
