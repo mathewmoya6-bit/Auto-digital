@@ -1,31 +1,45 @@
 # app/modules/valuation/baseprice_engine.py
 # ================================================================
-# Auto-D Kenya - KRA CRSP-based Vehicle Base Price Engine
+# Auto-D Kenya - Vehicle Base Price Engine
 # ================================================================
 #
-# Resolves a vehicle (make/model/variant/year/engine) to a base
-# market value by:
-#   1. Fuzzy-matching against the KRA CRSP schedule stored in
-#      `vehicle_base_prices` (rapidfuzz).
-#   2. Computing vehicle age from year of manufacture.
-#   3. Looking up the applicable depreciation bracket from
-#      `depreciation_rates` (DB-driven, NOT hardcoded — rates
-#      must be verified against the official KRA gazette before
-#      being entered into that table).
-#   4. Applying: base_value = crsp_price * (1 - depreciation_rate)
+# `vehicle_base_prices` stores market-derived base prices PER
+# MAKE/MODEL/TRIM/YEAR (built from scraped market_listings, with
+# sample_size/confidence indicating data quality for that row).
 #
-# IMPORTANT: This module does NOT hardcode any depreciation
-# percentages. All age-bracket rates come from `depreciation_rates`
-# in the DB. If that table is empty or a bracket is missing for a
-# given vehicle age, this engine returns an explicit error rather
-# than guessing or defaulting to 0% depreciation — silently using
-# an unverified or missing rate would produce wrong valuations.
+# Resolution strategy:
+#   1. Fuzzy-match make/model/trim (rapidfuzz) to find the right
+#      vehicle family, using vehicle_makes/vehicle_models for
+#      canonical IDs where possible.
+#   2. If a row exists for the EXACT requested year with acceptable
+#      sample_size/confidence -> return it directly. Real scraped
+#      market data for that year already reflects true depreciation;
+#      no further math needed.
+#   3. If no reliable row exists for that year, find the nearest
+#      reliable anchor year for the same make/model/trim and
+#      EXTRAPOLATE forward or backward using depreciation_rates
+#      (joined via vehicle_models.category_id).
+#
+# ================================================================
+# ASSUMPTION FLAGGED FOR VERIFICATION:
+# depreciation_rates.year_1..year_6_plus are treated as DECLINING
+# BALANCE rates -- each year's percentage is lost from the value
+# REMAINING after the prior year, not from the original price.
+#   e.g. category with year_1=0.25, year_2=0.20:
+#     value_after_y1 = price * (1 - 0.25)
+#     value_after_y2 = value_after_y1 * (1 - 0.20)
+# This matches the standard shape of real vehicle depreciation
+# curves (steep first year, tapering off). If your actual intent
+# was straight-line-off-original instead, change
+# `_apply_depreciation_curve()` below -- it's isolated in one place.
+# Tables were empty when this was written, so this could not be
+# verified against existing data or other code. VERIFY BEFORE
+# TRUSTING PRODUCTION OUTPUT.
 # ================================================================
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from rapidfuzz import fuzz, process
 
@@ -33,231 +47,238 @@ from app.core.database import get_supabase
 
 logger = logging.getLogger(__name__)
 
-# Minimum fuzzy-match confidence (0-100) to accept a CRSP match
-# without flagging it as low-confidence.
 DEFAULT_MATCH_THRESHOLD = 72
+MIN_RELIABLE_SAMPLE_SIZE = 3
+MIN_RELIABLE_CONFIDENCE = 0.5
 
 
 @dataclass
 class BasePriceResult:
     matched: bool
-    crsp_price: Optional[int] = None
-    depreciated_value: Optional[int] = None
-    depreciation_rate: Optional[float] = None
-    vehicle_age_years: Optional[int] = None
+    base_price: Optional[float] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    method: Optional[str] = None  # "exact_year" | "extrapolated"
+    anchor_year: Optional[int] = None
+    depreciation_applied: Optional[float] = None
     match_confidence: Optional[float] = None
-    matched_record: Optional[Dict[str, Any]] = None
+    matched_vehicle: Optional[Dict[str, Any]] = None
     warning: Optional[str] = None
     error: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "matched": self.matched,
-            "crsp_price": self.crsp_price,
-            "depreciated_value": self.depreciated_value,
-            "depreciation_rate": self.depreciation_rate,
-            "vehicle_age_years": self.vehicle_age_years,
+            "base_price": self.base_price,
+            "min_price": self.min_price,
+            "max_price": self.max_price,
+            "method": self.method,
+            "anchor_year": self.anchor_year,
+            "depreciation_applied": self.depreciation_applied,
             "match_confidence": self.match_confidence,
-            "matched_record": self.matched_record,
+            "matched_vehicle": self.matched_vehicle,
             "warning": self.warning,
             "error": self.error,
         }
 
 
 class BasePriceEngine:
-    """
-    KRA CRSP-grounded base price + age-depreciation engine.
-    """
 
     def __init__(self, match_threshold: int = DEFAULT_MATCH_THRESHOLD):
         self.supabase = get_supabase()
         self.match_threshold = match_threshold
 
-        # In-memory caches, refreshed lazily
-        self._crsp_cache: Optional[List[Dict[str, Any]]] = None
-        self._depreciation_cache: Optional[List[Dict[str, Any]]] = None
+        self._price_rows_cache: Optional[List[Dict[str, Any]]] = None
+        self._depreciation_cache: Optional[Dict[int, Dict[str, float]]] = None
+        self._model_category_cache: Optional[Dict[int, int]] = None
 
     # ============================================================
     # CACHE LOADERS
     # ============================================================
 
-    def _load_crsp_catalog(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
-        """Load the full CRSP base price catalog into memory for fuzzy matching."""
-        if self._crsp_cache is not None and not force_refresh:
-            return self._crsp_cache
+    def refresh_caches(self):
+        self._load_price_rows(force_refresh=True)
+        self._load_depreciation_rates(force_refresh=True)
+        self._load_model_categories(force_refresh=True)
 
+    def _load_price_rows(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        if self._price_rows_cache is not None and not force_refresh:
+            return self._price_rows_cache
         try:
-            result = (
-                self.supabase
-                .table("vehicle_base_prices")
-                .select("*")
-                .execute()
-            )
-            self._crsp_cache = result.data or []
-            logger.info(f"Loaded {len(self._crsp_cache)} CRSP base price records")
+            result = self.supabase.table("vehicle_base_prices").select("*").execute()
+            self._price_rows_cache = result.data or []
+            logger.info(f"Loaded {len(self._price_rows_cache)} vehicle_base_prices rows")
         except Exception as e:
             logger.error(f"Failed to load vehicle_base_prices: {e}")
-            self._crsp_cache = []
+            self._price_rows_cache = []
+        return self._price_rows_cache
 
-        return self._crsp_cache
-
-    def _load_depreciation_brackets(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
-        """Load age-bracket depreciation rates into memory."""
+    def _load_depreciation_rates(self, force_refresh: bool = False) -> Dict[int, Dict[str, float]]:
+        """Returns {category_id: {"year_1": 0.25, "year_2": 0.20, ...}}"""
         if self._depreciation_cache is not None and not force_refresh:
             return self._depreciation_cache
+        try:
+            result = self.supabase.table("depreciation_rates").select("*").execute()
+            rows = result.data or []
+            self._depreciation_cache = {
+                row["category_id"]: {
+                    "year_1": row.get("year_1"),
+                    "year_2": row.get("year_2"),
+                    "year_3": row.get("year_3"),
+                    "year_4": row.get("year_4"),
+                    "year_5": row.get("year_5"),
+                    "year_6_plus": row.get("year_6_plus"),
+                }
+                for row in rows
+                if row.get("category_id") is not None
+            }
+            logger.info(f"Loaded depreciation rates for {len(self._depreciation_cache)} categories")
+        except Exception as e:
+            logger.error(f"Failed to load depreciation_rates: {e}")
+            self._depreciation_cache = {}
+        return self._depreciation_cache
 
+    def _load_model_categories(self, force_refresh: bool = False) -> Dict[int, int]:
+        """Returns {model_id: category_id} from vehicle_models."""
+        if self._model_category_cache is not None and not force_refresh:
+            return self._model_category_cache
         try:
             result = (
                 self.supabase
-                .table("depreciation_rates")
-                .select("*")
-                .order("age_min_years")
+                .table("vehicle_models")
+                .select("id, category_id")
                 .execute()
             )
-            self._depreciation_cache = result.data or []
-            logger.info(f"Loaded {len(self._depreciation_cache)} depreciation brackets")
+            self._model_category_cache = {
+                row["id"]: row["category_id"]
+                for row in (result.data or [])
+                if row.get("category_id") is not None
+            }
         except Exception as e:
-            logger.error(f"Failed to load depreciation_rates: {e}")
-            self._depreciation_cache = []
-
-        return self._depreciation_cache
-
-    def refresh_caches(self):
-        """Force-refresh both caches (call after admin edits rates/prices)."""
-        self._load_crsp_catalog(force_refresh=True)
-        self._load_depreciation_brackets(force_refresh=True)
+            logger.error(f"Failed to load vehicle_models categories: {e}")
+            self._model_category_cache = {}
+        return self._model_category_cache
 
     # ============================================================
-    # FUZZY MATCHING
+    # FUZZY MATCHING (vehicle family, not year-specific)
     # ============================================================
 
     @staticmethod
-    def _build_search_string(make: str, model: str, variant: Optional[str] = None) -> str:
+    def _search_string(make: str, model: str, trim: Optional[str] = None) -> str:
         parts = [make or "", model or ""]
-        if variant:
-            parts.append(variant)
+        if trim:
+            parts.append(trim)
         return " ".join(p.strip() for p in parts if p).strip()
 
-    @staticmethod
-    def _record_search_string(record: Dict[str, Any]) -> str:
-        parts = [
-            record.get("make") or "",
-            record.get("model") or "",
-            record.get("variant") or "",
-        ]
-        return " ".join(p.strip() for p in parts if p).strip()
-
-    def find_crsp_match(
+    def _find_family_rows(
         self,
         make: str,
         model: str,
-        variant: Optional[str] = None,
-        engine_size_cc: Optional[int] = None,
-        fuel_type: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        trim: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], float]:
         """
-        Fuzzy-match a vehicle against the CRSP catalog.
-
-        Strategy:
-          1. Narrow candidates by make (case-insensitive exact/contains)
-             where possible, to keep fuzzy matching precise and fast.
-          2. Fuzzy match on "make model variant" string using rapidfuzz.
-          3. If multiple close matches, prefer the one with matching
-             engine_size_cc / fuel_type as tie-breakers.
-
-        Returns the matched record with an added "_match_score" key,
-        or None if no candidate clears match_threshold.
+        Fuzzy-match make/model/trim and return ALL price rows belonging
+        to that matched vehicle family (across all years), plus the
+        match confidence score.
         """
-        catalog = self._load_crsp_catalog()
-        if not catalog:
-            return None
+        rows = self._load_price_rows()
+        if not rows:
+            return [], 0.0
 
         make_norm = (make or "").strip().lower()
 
-        # Narrow by make first when possible (cheap pre-filter)
-        candidates = [
-            r for r in catalog
-            if (r.get("make") or "").strip().lower() == make_norm
-        ]
-        if not candidates:
-            # Fall back to full catalog in case of make-name variance
-            candidates = catalog
+        # Group rows by (make, model, trim) family so we score each
+        # family once, not each individual year-row.
+        families: Dict[tuple, List[Dict[str, Any]]] = {}
+        for row in rows:
+            key = (
+                (row.get("make") or "").strip().lower(),
+                (row.get("model") or "").strip().lower(),
+                (row.get("trim") or "").strip().lower(),
+            )
+            families.setdefault(key, []).append(row)
 
-        search_str = self._build_search_string(make, model, variant)
+        # Prefer exact make match as a pre-filter when possible
+        candidate_keys = [k for k in families if k[0] == make_norm] or list(families.keys())
+
+        search_str = self._search_string(make, model, trim)
         choices = {
-            idx: self._record_search_string(r)
-            for idx, r in enumerate(candidates)
+            key: self._search_string(key[0], key[1], key[2])
+            for key in candidate_keys
         }
 
-        match = process.extractOne(
-            search_str,
-            choices,
-            scorer=fuzz.token_sort_ratio,
-        )
-
+        match = process.extractOne(search_str, choices, scorer=fuzz.token_sort_ratio)
         if not match:
-            return None
+            return [], 0.0
 
-        matched_str, score, idx = match
-
+        _, score, matched_key = match
         if score < self.match_threshold:
+            return [], score
+
+        return families[matched_key], score
+
+    # ============================================================
+    # DEPRECIATION CURVE
+    # ============================================================
+
+    def _get_category_id_for_row(self, row: Dict[str, Any]) -> Optional[int]:
+        model_id = row.get("model_id")
+        if not model_id:
             return None
+        return self._load_model_categories().get(model_id)
 
-        best_matches = [
-            (i, s) for i, (m, s, i) in
-            [(i, (m, s, i)) for i, m in choices.items()
-             for s in [fuzz.token_sort_ratio(search_str, m)]]
-            if s >= score - 5  # near-tied candidates
-        ]
-
-        chosen_idx = idx
-        if engine_size_cc and len(best_matches) > 1:
-            for i, _ in best_matches:
-                candidate_engine = candidates[i].get("engine_size_cc")
-                if candidate_engine and abs(candidate_engine - engine_size_cc) <= 100:
-                    chosen_idx = i
-                    break
-
-        record = dict(candidates[chosen_idx])
-        record["_match_score"] = score
-        return record
-
-    # ============================================================
-    # DEPRECIATION LOOKUP
-    # ============================================================
-
-    @staticmethod
-    def calculate_age_years(year_of_manufacture: int, as_of: Optional[datetime] = None) -> int:
-        """Vehicle age in whole years, matching KRA's calendar-year convention."""
-        as_of = as_of or datetime.now()
-        return max(0, as_of.year - year_of_manufacture)
-
-    def get_depreciation_rate(self, age_years: int) -> Optional[Dict[str, Any]]:
+    def _apply_depreciation_curve(
+        self,
+        anchor_price: float,
+        category_id: Optional[int],
+        years_forward: int,
+    ) -> Tuple[Optional[float], Optional[float]]:
         """
-        Find the depreciation bracket matching this vehicle age.
+        Extrapolate anchor_price forward by `years_forward` full years
+        using declining-balance depreciation for the given category.
 
-        Returns the matching row (with 'depreciation_rate' as a
-        decimal, e.g. 0.35) or None if no bracket covers this age —
-        callers MUST treat None as "cannot value this vehicle yet",
-        not as "0% depreciation".
+        Returns (extrapolated_price, cumulative_depreciation_fraction),
+        or (None, None) if rates aren't available for this category.
+
+        years_forward can be negative to APPRECIATE toward a newer
+        anchor year (inverse of the curve) -- used when the only
+        reliable anchor is OLDER than the requested year.
         """
-        brackets = self._load_depreciation_brackets()
+        if category_id is None:
+            return None, None
 
-        for bracket in brackets:
-            age_min = bracket.get("age_min_years")
-            age_max = bracket.get("age_max_years")
+        rates = self._load_depreciation_rates().get(category_id)
+        if not rates:
+            return None, None
 
-            if age_min is None:
-                continue
+        year_keys = ["year_1", "year_2", "year_3", "year_4", "year_5", "year_6_plus"]
 
-            # age_max = None means "this bracket and older" (e.g. 8+ years)
-            if age_max is None:
-                if age_years >= age_min:
-                    return bracket
-            elif age_min <= age_years <= age_max:
-                return bracket
+        def rate_for_year_index(n: int) -> Optional[float]:
+            # n is 1-indexed year of age
+            idx = min(n, 6) - 1
+            key = year_keys[idx]
+            return rates.get(key)
 
-        return None
+        value = anchor_price
+        steps = abs(years_forward)
+        direction = 1 if years_forward > 0 else -1
+
+        for step in range(1, steps + 1):
+            rate = rate_for_year_index(step)
+            if rate is None:
+                return None, None
+            if direction > 0:
+                # Aging forward: value loses `rate` fraction
+                value = value * (1 - rate)
+            else:
+                # Aging backward toward a newer year: invert the loss
+                # to recover the pre-depreciation value.
+                if rate >= 1:
+                    return None, None
+                value = value / (1 - rate)
+
+        cumulative_depreciation = 1 - (value / anchor_price) if anchor_price else None
+        return round(value), cumulative_depreciation
 
     # ============================================================
     # PUBLIC API
@@ -268,99 +289,148 @@ class BasePriceEngine:
         make: str,
         model: str,
         year: int,
-        variant: Optional[str] = None,
-        engine_size_cc: Optional[int] = None,
+        trim: Optional[str] = None,
+        engine_size: Optional[float] = None,
         fuel_type: Optional[str] = None,
-        as_of: Optional[datetime] = None,
     ) -> BasePriceResult:
-        """
-        Resolve base (post-depreciation) value for a vehicle.
-
-        This is the single entry point other services should call.
-        """
         if not make or not model or not year:
+            return BasePriceResult(matched=False, error="make, model, and year are required")
+
+        family_rows, match_score = self._find_family_rows(make, model, trim)
+
+        if not family_rows:
             return BasePriceResult(
                 matched=False,
-                error="make, model, and year are required",
+                match_confidence=match_score,
+                error=f"No base price data found for '{make} {model} {trim or ''}'".strip(),
             )
 
-        record = self.find_crsp_match(
-            make=make,
-            model=model,
-            variant=variant,
-            engine_size_cc=engine_size_cc,
-            fuel_type=fuel_type,
+        # Optional narrowing by engine_size/fuel_type when multiple trims matched
+        if engine_size:
+            engine_filtered = [
+                r for r in family_rows
+                if r.get("engine_size") and abs(float(r["engine_size"]) - engine_size) <= 0.2
+            ]
+            if engine_filtered:
+                family_rows = engine_filtered
+
+        if fuel_type:
+            fuel_filtered = [
+                r for r in family_rows
+                if (r.get("fuel_type") or "").strip().lower() == fuel_type.strip().lower()
+            ]
+            if fuel_filtered:
+                family_rows = fuel_filtered
+
+        # 1. Exact year match with reliable data
+        exact_rows = [r for r in family_rows if r.get("year") == year]
+        reliable_exact = [
+            r for r in exact_rows
+            if (r.get("sample_size") or 0) >= MIN_RELIABLE_SAMPLE_SIZE
+            and (r.get("confidence") or 0) >= MIN_RELIABLE_CONFIDENCE
+        ]
+
+        if reliable_exact:
+            row = max(reliable_exact, key=lambda r: r.get("confidence") or 0)
+            return BasePriceResult(
+                matched=True,
+                base_price=row.get("base_price"),
+                min_price=row.get("min_price"),
+                max_price=row.get("max_price"),
+                method="exact_year",
+                anchor_year=year,
+                match_confidence=match_score,
+                matched_vehicle=self._summarize_row(row),
+            )
+
+        # 2. No reliable exact-year row -> find nearest reliable anchor year
+        reliable_rows = [
+            r for r in family_rows
+            if r.get("year") and r.get("base_price")
+            and (r.get("sample_size") or 0) >= MIN_RELIABLE_SAMPLE_SIZE
+            and (r.get("confidence") or 0) >= MIN_RELIABLE_CONFIDENCE
+        ]
+
+        if not reliable_rows:
+            # Fall back to ANY row with a price, even low-confidence,
+            # rather than returning nothing -- but flag it clearly.
+            any_rows = [r for r in family_rows if r.get("year") and r.get("base_price")]
+            if not any_rows:
+                return BasePriceResult(
+                    matched=True,
+                    match_confidence=match_score,
+                    error="Matched vehicle family but no priced rows exist for it yet",
+                )
+            anchor = min(any_rows, key=lambda r: abs(r["year"] - year))
+            warning = (
+                f"No reliably-sampled data for this vehicle at all — using low-confidence "
+                f"anchor year {anchor['year']} (sample_size={anchor.get('sample_size')}, "
+                f"confidence={anchor.get('confidence')}). Treat this valuation with caution."
+            )
+        else:
+            anchor = min(reliable_rows, key=lambda r: abs(r["year"] - year))
+            warning = None
+
+        years_diff = year - anchor["year"]
+
+        if years_diff == 0:
+            return BasePriceResult(
+                matched=True,
+                base_price=anchor.get("base_price"),
+                min_price=anchor.get("min_price"),
+                max_price=anchor.get("max_price"),
+                method="exact_year",
+                anchor_year=anchor["year"],
+                match_confidence=match_score,
+                matched_vehicle=self._summarize_row(anchor),
+                warning=warning or "Low-confidence source data for this exact year.",
+            )
+
+        category_id = self._get_category_id_for_row(anchor)
+        extrapolated_price, cumulative_dep = self._apply_depreciation_curve(
+            anchor_price=float(anchor["base_price"]),
+            category_id=category_id,
+            years_forward=years_diff,
         )
 
-        if not record:
-            return BasePriceResult(
-                matched=False,
-                error=f"No CRSP match found for '{make} {model} {variant or ''}'".strip(),
-            )
-
-        crsp_price = record.get("crsp_price")
-        if not crsp_price:
+        if extrapolated_price is None:
             return BasePriceResult(
                 matched=True,
-                match_confidence=record.get("_match_score"),
-                matched_record=record,
-                error="Matched CRSP record has no price value",
-            )
-
-        age_years = self.calculate_age_years(year, as_of=as_of)
-        bracket = self.get_depreciation_rate(age_years)
-
-        if not bracket:
-            return BasePriceResult(
-                matched=True,
-                crsp_price=crsp_price,
-                vehicle_age_years=age_years,
-                match_confidence=record.get("_match_score"),
-                matched_record=record,
+                base_price=anchor.get("base_price"),
+                anchor_year=anchor["year"],
+                match_confidence=match_score,
+                matched_vehicle=self._summarize_row(anchor),
                 error=(
-                    f"No depreciation bracket configured for age={age_years} years. "
-                    f"depreciation_rates table needs a bracket covering this age — "
-                    f"verify against the current KRA gazette before adding it."
+                    f"No depreciation rates configured for this vehicle's category "
+                    f"(category_id={category_id}) — cannot extrapolate from anchor year "
+                    f"{anchor['year']} to requested year {year}."
                 ),
-            )
-
-        depreciation_rate = bracket.get("depreciation_rate")
-        if depreciation_rate is None:
-            return BasePriceResult(
-                matched=True,
-                crsp_price=crsp_price,
-                vehicle_age_years=age_years,
-                match_confidence=record.get("_match_score"),
-                matched_record=record,
-                error="Matched depreciation bracket has no rate value",
-            )
-
-        depreciated_value = round(crsp_price * (1 - depreciation_rate))
-
-        warning = None
-        match_score = record.get("_match_score", 0)
-        if match_score < 85:
-            warning = (
-                f"Low-confidence CRSP match ({match_score:.0f}%) — "
-                f"verify '{record.get('make')} {record.get('model')} "
-                f"{record.get('variant', '')}' is correct for the input vehicle."
             )
 
         return BasePriceResult(
             matched=True,
-            crsp_price=crsp_price,
-            depreciated_value=depreciated_value,
-            depreciation_rate=depreciation_rate,
-            vehicle_age_years=age_years,
+            base_price=extrapolated_price,
+            method="extrapolated",
+            anchor_year=anchor["year"],
+            depreciation_applied=cumulative_dep,
             match_confidence=match_score,
-            matched_record={
-                "id": record.get("id"),
-                "make": record.get("make"),
-                "model": record.get("model"),
-                "variant": record.get("variant"),
-                "engine_size_cc": record.get("engine_size_cc"),
-                "fuel_type": record.get("fuel_type"),
-                "source_year": record.get("source_year"),
-            },
-            warning=warning,
+            matched_vehicle=self._summarize_row(anchor),
+            warning=warning or (
+                f"Extrapolated from {anchor['year']} data — no direct market data for {year}."
+            ),
         )
+
+    @staticmethod
+    def _summarize_row(row: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id": row.get("id"),
+            "make": row.get("make"),
+            "model": row.get("model"),
+            "trim": row.get("trim"),
+            "year": row.get("year"),
+            "engine_size": row.get("engine_size"),
+            "fuel_type": row.get("fuel_type"),
+            "sample_size": row.get("sample_size"),
+            "confidence": row.get("confidence"),
+            "source": row.get("source"),
+        }
