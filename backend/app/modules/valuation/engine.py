@@ -34,6 +34,7 @@ class ValuationEngine:
 
     CONDITION_FACTORS = {
         "excellent": 1.05,
+        "very_good": 1.03,  # Added very_good
         "good": 1.00,
         "fair": 0.90,
         "poor": 0.75,
@@ -85,10 +86,10 @@ class ValuationEngine:
                 request.variant_id
             )
 
-
+            # FIXED: Use request.year instead of request.vehicle_year
             depreciation = self.calculate_depreciation(
                 base_price,
-                request.vehicle_year
+                request.year  # Was: request.vehicle_year
             )
 
 
@@ -107,7 +108,7 @@ class ValuationEngine:
                 )
             )
 
-            current_value *= mileage_adjustment["factor"]
+            current_value *= mileage_adjustment["factor_value"]
 
             adjustments.append(
                 mileage_adjustment
@@ -117,72 +118,72 @@ class ValuationEngine:
             # Condition adjustment
             condition_factor = (
                 self.CONDITION_FACTORS.get(
-                    request.condition,
-                    1
+                    request.condition.lower(),
+                    1.00
                 )
             )
 
+            condition_adjustment = current_value * (condition_factor - 1)
             current_value *= condition_factor
 
             adjustments.append({
                 "factor": "condition",
-                "adjustment": (
-                    current_value * 
-                    (condition_factor - 1)
-                ),
-                "percentage":
-                    (condition_factor - 1) * 100,
-                "reason":
-                    request.condition
+                "adjustment": round(condition_adjustment, 2),
+                "percentage": round((condition_factor - 1) * 100, 2),
+                "reason": f"Vehicle condition: {request.condition}"
             })
 
 
             # Accident adjustment
-
-            if request.accident_history:
-
-                current_value *= 0.85
+            if request.accident_history and request.accident_history != "none":
+                accident_factor = 0.85 if request.accident_history == "minor" else 0.70 if request.accident_history == "major" else 0.55
+                accident_adjustment = current_value * (accident_factor - 1)
+                current_value *= accident_factor
 
                 adjustments.append({
-
                     "factor": "accident_history",
-
-                    "adjustment":
-                        -(current_value * 0.15),
-
-                    "percentage": -15,
-
-                    "reason":
-                        "Previous accident history"
-
+                    "adjustment": round(accident_adjustment, 2),
+                    "percentage": round((accident_factor - 1) * 100, 2),
+                    "reason": f"Accident history: {request.accident_history}"
                 })
 
 
             # Location adjustment
-
             location_factor = (
                 self.LOCATION_FACTORS.get(
-                    request.location,
+                    request.location.lower(),
                     0.95
                 )
             )
 
+            location_adjustment = current_value * (location_factor - 1)
             current_value *= location_factor
+
+            adjustments.append({
+                "factor": "location",
+                "adjustment": round(location_adjustment, 2),
+                "percentage": round((location_factor - 1) * 100, 2),
+                "reason": f"Location: {request.location}"
+            })
 
 
             # Fuel adjustment
-
             if request.fuel_type:
-
                 fuel_factor = (
                     self.FUEL_FACTORS.get(
-                        request.fuel_type,
-                        1
+                        request.fuel_type.lower(),
+                        1.00
                     )
                 )
-
+                fuel_adjustment = current_value * (fuel_factor - 1)
                 current_value *= fuel_factor
 
+                adjustments.append({
+                    "factor": "fuel_type",
+                    "adjustment": round(fuel_adjustment, 2),
+                    "percentage": round((fuel_factor - 1) * 100, 2),
+                    "reason": f"Fuel type: {request.fuel_type}"
+                })
 
 
             # Ensure realistic minimum
@@ -267,80 +268,90 @@ class ValuationEngine:
         variant_id: int
     ) -> Optional[Dict[str, Any]]:
 
-        result = (
-            self.supabase
-            .table("vehicle_variants")
-            .select(
-                """
-                id,
-                name,
-                vehicle_models(
+        try:
+            # Try vehicle_variants table first
+            result = (
+                self.supabase
+                .table("vehicle_variants")
+                .select(
+                    """
+                    id,
                     name,
-                    vehicle_makes(name)
-                ),
-                fuel_type,
-                engine_size,
-                transmission,
-                body_type
-                """
-            )
-            .eq(
-                "id",
-                variant_id
-            )
-            .single()
-            .execute()
-        )
-
-
-        if not result.data:
-            return None
-
-
-        data = result.data
-
-
-        return {
-
-            "variant_id":
-                data["id"],
-
-            "make":
-                data["vehicle_models"]
-                ["vehicle_makes"]
-                ["name"],
-
-            "model":
-                data["vehicle_models"]
-                ["name"],
-
-            "variant":
-                data["name"],
-
-            "year":
-                datetime.now().year,
-
-            "fuel_type":
-                data.get(
-                    "fuel_type"
-                ),
-
-            "transmission":
-                data.get(
-                    "transmission"
-                ),
-
-            "engine_size":
-                data.get(
-                    "engine_size"
-                ),
-
-            "body_type":
-                data.get(
-                    "body_type"
+                    vehicle_models(
+                        name,
+                        vehicle_makes(name)
+                    ),
+                    fuel_type,
+                    engine_size,
+                    transmission,
+                    body_type
+                    """
                 )
+                .eq(
+                    "id",
+                    variant_id
+                )
+                .single()
+                .execute()
+            )
 
-        }
+
+            if result.data:
+                data = result.data
+                return {
+                    "variant_id": data["id"],
+                    "make": data["vehicle_models"]["vehicle_makes"]["name"],
+                    "model": data["vehicle_models"]["name"],
+                    "variant": data["name"],
+                    "year": datetime.now().year,
+                    "fuel_type": data.get("fuel_type"),
+                    "transmission": data.get("transmission"),
+                    "engine_size": data.get("engine_size"),
+                    "body_type": data.get("body_type")
+                }
+
+        except Exception as e:
+            logger.warning(f"Error fetching from vehicle_variants: {str(e)}")
+
+        # Fallback: Try vehicle_master_specs view
+        try:
+            result = (
+                self.supabase
+                .table("vehicle_master_specs")
+                .select(
+                    """
+                    variant_id,
+                    make_name,
+                    model_name,
+                    variant_name,
+                    fuel_type_name,
+                    transmission_type_name,
+                    engine_size_cc,
+                    body_type_name
+                    """
+                )
+                .eq("variant_id", variant_id)
+                .execute()
+            )
+
+            if result.data:
+                data = result.data[0]
+                return {
+                    "variant_id": data.get("variant_id"),
+                    "make": data.get("make_name", "Unknown"),
+                    "model": data.get("model_name", "Unknown"),
+                    "variant": data.get("variant_name", "Unknown"),
+                    "year": datetime.now().year,
+                    "fuel_type": data.get("fuel_type_name"),
+                    "transmission": data.get("transmission_type_name"),
+                    "engine_size": data.get("engine_size_cc"),
+                    "body_type": data.get("body_type_name")
+                }
+
+        except Exception as e:
+            logger.warning(f"Error fetching from vehicle_master_specs: {str(e)}")
+
+        return None
 
 
 
@@ -525,7 +536,7 @@ class ValuationEngine:
                 "mileage",
 
             "adjustment":
-                0,
+                round(-(mileage * reduction), 2) if mileage > 0 else 0,
 
             "percentage":
                 -(reduction * 100),
@@ -549,8 +560,8 @@ class ValuationEngine:
         score = 70
 
 
-        if request.mileage:
-            score += 10
+        if request.mileage > 0:
+            score += 5
 
         if vehicle:
             score += 10
@@ -558,8 +569,8 @@ class ValuationEngine:
         if request.service_history:
             score += 5
 
-        if request.accident_history:
-            score -= 15
+        if request.accident_history and request.accident_history != "none":
+            score -= 20 if request.accident_history == "major" else 10
 
 
         return max(
@@ -575,9 +586,45 @@ class ValuationEngine:
     ):
 
         if confidence >= 85:
-            return "High confidence valuation"
+            return "High confidence valuation based on complete data"
 
         if confidence >= 70:
-            return "Good market estimate"
+            return "Good market estimate with reasonable data availability"
 
-        return "Limited data available; verify with inspection"
+        return "Limited data available; professional inspection recommended"
+
+
+
+    # ============================================================
+    # BULK VALUATION
+    # ============================================================
+
+    async def calculate_bulk(
+        self,
+        requests: list
+    ) -> list:
+
+        results = []
+
+        for req in requests:
+
+            try:
+
+                result = await self.calculate(
+                    req
+                )
+
+                results.append(result)
+
+            except Exception as e:
+
+                results.append({
+
+                    "error": str(e),
+
+                    "variant_id":
+                        req.variant_id
+
+                })
+
+        return results
