@@ -34,11 +34,12 @@ class ScraperWorker:
         self.MIN_DEACTIVATION_PERCENTAGE = 0.70  # 70% of existing listings must be found
         self.MIN_DEACTIVATION_ABSOLUTE = 50  # At least 50 listings must be found
 
+        # FIX 1: Store scraper CLASSES, not instances
         self.scrapers = {
-            "jiji": JijiScraper(),
-            "cheki": ChekiScraper(),
-            "autochek": AutochekScraper(),
-            "beepbeep": BeepBeepScraper(),
+            "jiji": JijiScraper,
+            "cheki": ChekiScraper,
+            "autochek": AutochekScraper,
+            "beepbeep": BeepBeepScraper,
         }
 
         # Cache source IDs to avoid repeated queries
@@ -364,19 +365,25 @@ class ScraperWorker:
     ) -> Optional[Dict[str, Any]]:
         """Prepare listing for upsert with first_seen preservation via DB trigger"""
         
-        # Validate listing_id
-        listing_id = listing.get("listing_id")
+        # FIX 9: Support multiple ID field names
+        listing_id = (
+            listing.get("listing_id")
+            or listing.get("id")
+            or listing.get("uuid")
+            or listing.get("slug")
+        )
+        
         if not listing_id:
-            logger.debug(f"Missing listing_id in listing: {listing}")
+            logger.warning(f"Missing listing_id in listing: {listing}")
             return None
 
         # Use semaphore to limit concurrent vehicle lookups
         async with self.lookup_semaphore:
             try:
-                # Resolve vehicle with timeout protection
+                # FIX 4: Increase timeout for vehicle lookup
                 vehicle = await asyncio.wait_for(
                     self.lookup.resolve(listing, create_missing=False),
-                    timeout=5.0
+                    timeout=15.0  # Was 5.0 - increased to 15 seconds
                 )
             except asyncio.TimeoutError:
                 logger.debug(f"Vehicle lookup timeout for {listing_id}")
@@ -385,12 +392,16 @@ class ScraperWorker:
                 logger.debug(f"Vehicle lookup failed for {listing_id}: {e}")
                 vehicle = {}
 
+        # FIX 6: Fallback to listing values if vehicle lookup returns nothing
+        make = vehicle.get("make") or listing.get("make")
+        model = vehicle.get("model") or listing.get("model")
+        
         # Clean string fields properly (None stays None)
         title = self._clean_string_field(listing.get("title"), 500)
         url = self._clean_string_field(listing.get("url"))
         seller_name = self._clean_string_field(listing.get("seller_name"), 200)
 
-        # Build payload with first_seen (trigger will preserve it on updates)
+        # Build payload
         payload = {
             "source_id": source_id,
             "listing_id": listing_id,
@@ -398,8 +409,8 @@ class ScraperWorker:
             "url": url,
             "price": self._clean_price(listing.get("price")),
             "currency": self._clean_string_field(listing.get("currency", "KES"), 10) or "KES",
-            "make": vehicle.get("make"),
-            "model": vehicle.get("model"),
+            "make": make,
+            "model": model,
             "make_id": vehicle.get("make_id"),
             "model_id": vehicle.get("model_id"),
             "year": self._clean_year(listing.get("year")),
@@ -413,9 +424,12 @@ class ScraperWorker:
             "seller_type": self._clean_string_field(listing.get("seller_type"), 50),
             "condition": self._clean_string_field(listing.get("condition"), 50),
             "active": True,
-            "first_seen": run_started.isoformat(),  # Trigger will preserve on updates
+            "first_seen": run_started.isoformat(),
             "last_seen": batch_timestamp,
         }
+        
+        # FIX 7: Remove None values to avoid constraint violations
+        payload = {k: v for k, v in payload.items() if v is not None}
         
         return payload
 
@@ -430,10 +444,20 @@ class ScraperWorker:
     ) -> int:
         """Process a batch of listings with parallel vehicle lookups"""
         
+        # FIX 3: Skip listings without IDs
+        valid_listings = [
+            x for x in listings 
+            if x.get("listing_id") or x.get("id") or x.get("uuid") or x.get("slug")
+        ]
+        
+        if not valid_listings:
+            logger.warning(f"Batch had {len(listings)} listings, but none had valid IDs")
+            return 0
+        
         # Parallel vehicle lookups with semaphore
         save_tasks = [
             self.save_listing(source_id, listing, run_started, batch_timestamp) 
-            for listing in listings
+            for listing in valid_listings
         ]
         results = await asyncio.gather(*save_tasks, return_exceptions=True)
         
@@ -488,12 +512,12 @@ class ScraperWorker:
     ):
         """Binary search to isolate bad records when batch upsert fails"""
         if len(payloads) == 1:
-            # Single record - try it
+            # FIX 8: Upsert expects a list, not a dict
             try:
                 (
                     self.supabase
                     .table("market_listings")
-                    .upsert(payloads[0], on_conflict="source_id,listing_id")
+                    .upsert([payloads[0]], on_conflict="source_id,listing_id")
                     .execute()
                 )
                 stats["listings_saved"] += 1
@@ -839,9 +863,16 @@ class ScraperWorker:
                 "run_id": None,
             }
         
-        scraper = self.scrapers.get(source)
-        if not scraper:
+        # FIX 11: Check if source IDs are loaded
+        if not self.source_ids:
+            raise RuntimeError("market_sources table is empty - cannot run scraper")
+        
+        # FIX 1: Instantiate fresh scraper each run
+        scraper_class = self.scrapers.get(source)
+        if not scraper_class:
             raise ValueError(f"Unknown scraper: {source}")
+        
+        scraper = scraper_class()  # Fresh instance each run
 
         source_id = self._get_source_id(source)
         if not source_id:
@@ -901,7 +932,32 @@ class ScraperWorker:
                     )
                     scrape_duration = (datetime.now(timezone.utc) - scrape_start).total_seconds()
                     
-                    listings = result.get("listings", [])
+                    # FIX 2: Validate scraper output
+                    if not isinstance(result, dict):
+                        raise RuntimeError(
+                            f"{source} scraper returned {type(result)} instead of dict"
+                        )
+                    
+                    if "listings" not in result:
+                        raise RuntimeError(
+                            f"{source} scraper returned no listings key"
+                        )
+                    
+                    listings = result["listings"]
+                    
+                    if not isinstance(listings, list):
+                        raise RuntimeError(
+                            f"{source} listings is not a list (got {type(listings)})"
+                        )
+                    
+                    # FIX 10: Log every scrape result
+                    logger.info(f"[{source}] Scraper returned {len(listings)} listings")
+                    
+                    if listings:
+                        logger.info(f"[{source}] First listing: {listings[0]}")
+                    else:
+                        logger.warning(f"[{source}] Scraper returned zero listings - check CSS selectors")
+                    
                     stats["listings_found"] = len(listings)
                     
                     logger.info(
