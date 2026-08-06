@@ -156,7 +156,7 @@ class BeepBeepScraper(BaseScraper):
         for url in urls_to_try:
             try:
                 logger.info(f"Testing URL: {url}")
-                soup = await self._fetch_page(url)
+                soup = await self.fetch_soup(url)
                 if soup is not None:
                     # Check if we got actual content
                     body_text = soup.get_text(strip=True)
@@ -210,7 +210,7 @@ class BeepBeepScraper(BaseScraper):
         for url in pagination_formats:
             try:
                 logger.debug(f"Trying pagination URL: {url}")
-                soup = await self._fetch_page(url)
+                soup = await self.fetch_soup(url)
                 if soup is not None:
                     # Check if we got actual content with listings
                     if self._has_listings(soup):
@@ -310,7 +310,7 @@ class BeepBeepScraper(BaseScraper):
     ) -> Optional[Dict[str, Any]]:
 
         try:
-            soup = await self._fetch_page(url)
+            soup = await self.fetch_soup(url)
 
             if soup is None:
                 return None
@@ -388,7 +388,7 @@ class BeepBeepScraper(BaseScraper):
         # Try h1 first
         title_tag = soup.find("h1")
         if title_tag:
-            title = self._clean_text(title_tag.get_text())
+            title = self.clean_text(title_tag.get_text())
             if title and len(title) > 2:
                 return title
 
@@ -397,14 +397,14 @@ class BeepBeepScraper(BaseScraper):
         if meta_title:
             content = meta_title.get("content")
             if content:
-                title = self._clean_text(content)
+                title = self.clean_text(content)
                 if title:
                     return title
 
         # Try title tag
         title_tag = soup.find("title")
         if title_tag:
-            title = self._clean_text(title_tag.get_text())
+            title = self.clean_text(title_tag.get_text())
             # Remove site name and separators
             for separator in ["|", "-", "–", "—"]:
                 if separator in title:
@@ -541,7 +541,7 @@ class BeepBeepScraper(BaseScraper):
                 price_element = soup.select_one(selector)
                 if price_element:
                     price_text = price_element.get_text(strip=True)
-                    price = self._parse_price(price_text)
+                    price = self.parse_price(price_text)
                     if price:
                         return price
             except Exception:
@@ -609,11 +609,11 @@ class BeepBeepScraper(BaseScraper):
 
             # Extract mileage
             if details["mileage"] is None:
-                details["mileage"] = self._parse_mileage(section_text)
+                details["mileage"] = self.parse_mileage(section_text)
 
             # Extract engine size
             if details["engine_size"] is None:
-                details["engine_size"] = self._parse_engine_size(section_text)
+                details["engine_size"] = self.parse_engine_size(section_text)
 
             # Extract fuel type
             if details["fuel_type"] is None:
@@ -642,11 +642,11 @@ class BeepBeepScraper(BaseScraper):
 
         # If details not found in sections, try entire page text
         if details["year"] is None:
-            details["year"] = self._parse_year(page_text)
+            details["year"] = self.parse_year(page_text)
         if details["mileage"] is None:
-            details["mileage"] = self._parse_mileage(page_text)
+            details["mileage"] = self.parse_mileage(page_text)
         if details["engine_size"] is None:
-            details["engine_size"] = self._parse_engine_size(page_text)
+            details["engine_size"] = self.parse_engine_size(page_text)
 
         return details
 
@@ -680,7 +680,7 @@ class BeepBeepScraper(BaseScraper):
             try:
                 location_element = soup.select_one(selector)
                 if location_element:
-                    location = self._clean_text(location_element.get_text())
+                    location = self.clean_text(location_element.get_text())
                     if location and len(location) > 2:
                         # Check if it looks like a location
                         kenyan_cities = ["nairobi", "mombasa", "kisumu", "nakuru", 
@@ -702,7 +702,7 @@ class BeepBeepScraper(BaseScraper):
         for pattern in location_patterns:
             match = re.search(pattern, page_text, re.IGNORECASE)
             if match:
-                location = self._clean_text(match.group(1))
+                location = self.clean_text(match.group(1))
                 if location and len(location) > 2:
                     return location
 
@@ -739,7 +739,7 @@ class BeepBeepScraper(BaseScraper):
             try:
                 seller_element = soup.select_one(selector)
                 if seller_element:
-                    name = self._clean_text(seller_element.get_text())
+                    name = self.clean_text(seller_element.get_text())
                     if name and len(name) > 2:
                         seller_name = name
                         break
@@ -798,55 +798,3 @@ class BeepBeepScraper(BaseScraper):
 
         # Default to Used
         return "Used"
-
-    # ============================================================
-    # OVERRIDE: PARSE YEAR
-    # ============================================================
-
-    def _parse_year(
-        self,
-        text: str,
-    ) -> Optional[int]:
-        """
-        Parse year from BeepBeep listing text.
-        """
-        return super()._parse_year(text)
-
-    # ============================================================
-    # OVERRIDE: PARSE MILEAGE
-    # ============================================================
-
-    def _parse_mileage(
-        self,
-        text: str,
-    ) -> Optional[int]:
-        """
-        Parse mileage from BeepBeep listing text.
-        """
-        return super()._parse_mileage(text)
-
-    # ============================================================
-    # OVERRIDE: PARSE ENGINE SIZE
-    # ============================================================
-
-    def _parse_engine_size(
-        self,
-        text: str,
-    ) -> Optional[float]:
-        """
-        Parse engine size from BeepBeep listing text.
-        """
-        return super()._parse_engine_size(text)
-
-    # ============================================================
-    # OVERRIDE: PARSE PRICE
-    # ============================================================
-
-    def _parse_price(
-        self,
-        text: str,
-    ) -> Optional[float]:
-        """
-        Parse price from BeepBeep listing text.
-        """
-        return super()._parse_price(text)
