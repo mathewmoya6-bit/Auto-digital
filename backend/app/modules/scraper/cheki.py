@@ -9,7 +9,7 @@ import random
 import re
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Set
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
@@ -40,18 +40,8 @@ class ChekiScraper(BaseScraper):
         ]
 
     # ============================================================
-    # RUN METHOD (Called by worker)
+    # RUN METHOD REMOVED - Inherited from BaseScraper
     # ============================================================
-
-    async def run(
-        self,
-        pages: int = 3,
-        limit_per_page: int = 20,
-    ) -> Dict[str, Any]:
-        """
-        Run the scraper - entry point for worker.
-        """
-        return await self.scrape(pages, limit_per_page)
 
     # ============================================================
     # MAIN SCRAPER
@@ -65,79 +55,84 @@ class ChekiScraper(BaseScraper):
 
         listings = []
         
-        # Find a working URL first
-        working_url = await self._find_working_url()
-        if not working_url:
-            logger.error("No working URL found for Cheki")
-            return {
-                "status": "error",
-                "source": self.source_name,
-                "listings": [],
-                "listings_found": 0,
-                "listings_saved": 0,
-                "error": "No working URL found",
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            }
+        try:
+            # Find a working URL first
+            working_url = await self._find_working_url()
+            if not working_url:
+                logger.error("No working URL found for Cheki")
+                return {
+                    "status": "error",
+                    "source": self.source_name,
+                    "listings": [],
+                    "listings_found": 0,
+                    "listings_saved": 0,
+                    "error": "No working URL found",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
 
-        for page in range(1, pages + 1):
-
-            logger.info(
-                "Cheki: scraping page %d using URL: %s",
-                page,
-                working_url
-            )
-
-            try:
-                # Try different pagination formats
-                soup = await self._fetch_page_with_pagination(working_url, page)
-
-                if soup is None:
-                    logger.warning(
-                        "Unable to fetch Cheki page %d",
-                        page,
-                    )
-                    continue
-
-                # Extract URLs using the fixed method
-                urls = self._extract_listing_urls(soup)
+            for page in range(1, pages + 1):
 
                 logger.info(
-                    "Found %d listings on Cheki page %d",
-                    len(urls),
+                    "Cheki: scraping page %d using URL: %s",
                     page,
+                    working_url
                 )
 
-                for url in urls[:limit_per_page]:
+                try:
+                    # Try different pagination formats
+                    soup = await self._fetch_page_with_pagination(working_url, page)
 
-                    listing = await self._parse_listing(url)
+                    if soup is None:
+                        logger.warning(
+                            "Unable to fetch Cheki page %d",
+                            page,
+                        )
+                        continue
 
-                    if listing and listing.get("listing_id"):
-                        listings.append(listing)
+                    # Extract URLs
+                    urls = self._extract_listing_urls(soup)
 
-                    await asyncio.sleep(
-                        random.uniform(0.3, 0.8)
+                    logger.info(
+                        "Found %d listings on Cheki page %d",
+                        len(urls),
+                        page,
                     )
 
-                await asyncio.sleep(
-                    random.uniform(1, 2)
-                )
+                    for url in urls[:limit_per_page]:
 
-            except Exception:
-                logger.exception(
-                    "Cheki page %d failed",
-                    page,
-                )
+                        listing = await self._parse_listing(url)
 
-        return {
-            "status": "success",
-            "source": self.source_name,
-            "listings": listings,
-            "listings_found": len(listings),
-            "listings_saved": 0,
-            "completed_at": datetime.now(
-                timezone.utc
-            ).isoformat(),
-        }
+                        if listing and listing.get("listing_id"):
+                            listings.append(listing)
+
+                        await asyncio.sleep(
+                            random.uniform(0.3, 0.8)
+                        )
+
+                    await asyncio.sleep(
+                        random.uniform(1, 2)
+                    )
+
+                except Exception:
+                    logger.exception(
+                        "Cheki page %d failed",
+                        page,
+                    )
+
+            return {
+                "status": "success",
+                "source": self.source_name,
+                "listings": listings,
+                "listings_found": len(listings),
+                "listings_saved": 0,
+                "completed_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
+            }
+            
+        finally:
+            # Clean up HTTP client
+            await self.close()
 
     # ============================================================
     # FIND WORKING URL
@@ -152,7 +147,7 @@ class ChekiScraper(BaseScraper):
         for url in urls_to_try:
             try:
                 logger.info(f"Testing URL: {url}")
-                soup = await self._fetch_page(url)
+                soup = await self.fetch_soup(url)
                 if soup is not None:
                     # Check if we got actual content
                     body_text = soup.get_text(strip=True)
@@ -206,7 +201,7 @@ class ChekiScraper(BaseScraper):
         for url in pagination_formats:
             try:
                 logger.debug(f"Trying pagination URL: {url}")
-                soup = await self._fetch_page(url)
+                soup = await self.fetch_soup(url)
                 if soup is not None:
                     # Check if we got actual content with listings
                     if self._has_listings(soup):
@@ -226,7 +221,6 @@ class ChekiScraper(BaseScraper):
     ) -> List[str]:
         """
         Extract listing URLs from the Cheki page.
-        FIXED: Replaces the missing _extract_urls method.
         """
         urls: Set[str] = set()
 
@@ -257,7 +251,7 @@ class ChekiScraper(BaseScraper):
                 for element in elements:
                     href = element.get("href")
                     if href:
-                        url = urljoin(self.base_url, href)
+                        url = self.absolute_url(href)  # Use BaseScraper method
                         if self._is_valid_listing_url(url):
                             urls.add(url)
             except Exception:
@@ -268,7 +262,7 @@ class ChekiScraper(BaseScraper):
             for link in soup.find_all("a", href=True):
                 href = link["href"]
                 if href:
-                    url = urljoin(self.base_url, href)
+                    url = self.absolute_url(href)
                     if self._is_valid_listing_url(url):
                         urls.add(url)
 
@@ -312,13 +306,12 @@ class ChekiScraper(BaseScraper):
     ) -> Optional[Dict[str, Any]]:
 
         try:
-
-            soup = await self._fetch_page(url)
+            soup = await self.fetch_soup(url)  # FIXED: use fetch_soup
 
             if soup is None:
                 return None
 
-            # Extract title
+            # Extract title using BaseScraper method
             title = self._extract_title(soup)
 
             if not title:
@@ -337,13 +330,13 @@ class ChekiScraper(BaseScraper):
             # Extract make and model
             make, model = self._extract_make_model(title)
 
-            # Extract price
+            # Extract price - FIXED: returns int
             price = self._extract_price(soup, page_text)
 
-            # Extract vehicle details
+            # Extract vehicle details using BaseScraper methods
             details = self._extract_vehicle_details(soup, page_text)
 
-            # Extract location
+            # Extract location using BaseScraper method
             location = self._extract_location(soup, page_text)
 
             # Extract seller info
@@ -393,7 +386,7 @@ class ChekiScraper(BaseScraper):
         # Try h1 first
         h1 = soup.find("h1")
         if h1:
-            title = self._clean_text(h1.get_text())
+            title = self.clean_text(h1.get_text())  # FIXED: use clean_text
             if title and len(title) > 2:
                 return title
 
@@ -402,14 +395,14 @@ class ChekiScraper(BaseScraper):
         if meta_title:
             content = meta_title.get("content")
             if content:
-                title = self._clean_text(content)
+                title = self.clean_text(content)
                 if title:
                     return title
 
         # Try title tag
         title_tag = soup.find("title")
         if title_tag:
-            title = self._clean_text(title_tag.get_text())
+            title = self.clean_text(title_tag.get_text())
             # Remove site name and separators
             for separator in ["|", "-", "–", "—", "::"]:
                 if separator in title:
@@ -476,7 +469,7 @@ class ChekiScraper(BaseScraper):
         self,
         soup: BeautifulSoup,
         page_text: str
-    ) -> Optional[float]:
+    ) -> Optional[int]:  # FIXED: returns int, not float
         """
         Extract price from the page.
         """
@@ -505,9 +498,9 @@ class ChekiScraper(BaseScraper):
                 price_element = soup.select_one(selector)
                 if price_element:
                     price_text = price_element.get_text(strip=True)
-                    price = self._parse_price(price_text)
+                    price = self.parse_price(price_text)  # FIXED: use parse_price
                     if price:
-                        return price
+                        return int(price)
             except Exception:
                 continue
 
@@ -521,8 +514,8 @@ class ChekiScraper(BaseScraper):
             r'Price:\s*([\d,]+\.?\d*)\s*KES',
             r'([\d,]+\.?\d*)\s*KSh',
             r'([\d,]+\.?\d*)\s*KES',
-            r'KSh\s*([\d,]+\.?\d*)\s*/=',  # Cheki often uses /=
-            r'([\d,]+\.?\d*)\s*/=',  # Cheki often uses /=
+            r'KSh\s*([\d,]+\.?\d*)\s*/=',
+            r'([\d,]+\.?\d*)\s*/=',
             r'KSh\.?\s*([\d,]+\.?\d*)',
         ]
 
@@ -531,7 +524,7 @@ class ChekiScraper(BaseScraper):
             if match:
                 price_str = match.group(1).replace(',', '').replace(' ', '')
                 try:
-                    return float(price_str)
+                    return int(float(price_str))  # FIXED: return int
                 except ValueError:
                     continue
 
@@ -551,7 +544,7 @@ class ChekiScraper(BaseScraper):
         if not title:
             return "", ""
 
-        # Common makes in Kenya (organized by length for better matching)
+        # Common makes in Kenya
         makes = [
             "Land Rover", "Range Rover", "Mercedes-Benz", "Mercedes",
             "Toyota", "Nissan", "Honda", "Subaru", "Mazda",
@@ -566,20 +559,15 @@ class ChekiScraper(BaseScraper):
 
         title_lower = title.lower()
         
-        # Try to find make in title
         for make in makes:
             if make.lower() in title_lower:
-                # Extract model (text after make)
                 parts = title.split()
                 for i, part in enumerate(parts):
                     if part.lower() == make.lower() or part.lower() in make.lower():
-                        # Get next part as model
                         if i + 1 < len(parts):
                             model = parts[i + 1]
-                            # Clean model (remove special characters)
                             model = ''.join(c for c in model if c.isalnum() or c.isspace())
                             if model and len(model) > 1:
-                                # Check if model is not a common word
                                 common_words = ["for", "with", "in", "at", "from", "on", "the"]
                                 if model.lower() not in common_words:
                                     return make, model
@@ -642,21 +630,19 @@ class ChekiScraper(BaseScraper):
         """
         text_lower = text.lower()
 
-        # Extract year
+        # Extract year - FIXED: use parse_year
         if details["year"] is None:
-            year_match = re.search(r'(\d{4})', text)
-            if year_match:
-                year = int(year_match.group(1))
-                if 1980 <= year <= datetime.now().year + 1:
-                    details["year"] = year
+            details["year"] = self.parse_year(text)
 
-        # Extract mileage
+        # Extract mileage - FIXED: use parse_mileage
         if details["mileage"] is None:
-            details["mileage"] = self._parse_mileage(text)
+            details["mileage"] = self.parse_mileage(text)
 
-        # Extract engine size
+        # Extract engine size - FIXED: use parse_engine_size
         if details["engine_size"] is None:
-            details["engine_size"] = self._parse_engine_size(text)
+            engine = self.parse_engine_size(text)
+            if engine:
+                details["engine_size"] = engine
 
         # Extract fuel type
         if details["fuel_type"] is None:
@@ -714,9 +700,8 @@ class ChekiScraper(BaseScraper):
             try:
                 location_element = soup.select_one(selector)
                 if location_element:
-                    location = self._clean_text(location_element.get_text())
+                    location = self.clean_text(location_element.get_text())  # FIXED: use clean_text
                     if location and len(location) > 2:
-                        # Check if it looks like a location
                         kenyan_cities = ["nairobi", "mombasa", "kisumu", "nakuru", 
                                        "eldoret", "thika", "malindi", "kitale", 
                                        "garissa", "meru", "nyeri", "nanyuki"]
@@ -738,11 +723,10 @@ class ChekiScraper(BaseScraper):
         for pattern in location_patterns:
             match = re.search(pattern, page_text, re.IGNORECASE)
             if match:
-                location = self._clean_text(match.group(1))
+                location = self.clean_text(match.group(1))
                 if location and len(location) > 2:
                     return location
 
-        # Default to Kenya
         return "Kenya"
 
     # ============================================================
@@ -760,7 +744,6 @@ class ChekiScraper(BaseScraper):
         seller_name = "Cheki"
         seller_type = "Dealer"
 
-        # Try to find seller name
         seller_selectors = [
             ".seller-name",
             ".dealer-name",
@@ -777,14 +760,13 @@ class ChekiScraper(BaseScraper):
             try:
                 seller_element = soup.select_one(selector)
                 if seller_element:
-                    name = self._clean_text(seller_element.get_text())
+                    name = self.clean_text(seller_element.get_text())
                     if name and len(name) > 2:
                         seller_name = name
                         break
             except Exception:
                 continue
 
-        # Determine seller type
         page_text_lower = page_text.lower()
         if "dealer" in page_text_lower or "dealership" in page_text_lower or "company" in page_text_lower:
             seller_type = "Dealer"
@@ -809,7 +791,6 @@ class ChekiScraper(BaseScraper):
         """
         page_text_lower = page_text.lower()
 
-        # Check condition indicators
         if "brand new" in page_text_lower or "new car" in page_text_lower or "never used" in page_text_lower:
             return "New"
         elif "certified pre-owned" in page_text_lower or "certified used" in page_text_lower or "cpo" in page_text_lower:
@@ -817,7 +798,6 @@ class ChekiScraper(BaseScraper):
         elif "used car" in page_text_lower or "pre-owned" in page_text_lower or "second hand" in page_text_lower:
             return "Used"
 
-        # Check meta data
         meta_condition = soup.find("meta", {"name": "condition"})
         if meta_condition:
             content = meta_condition.get("content", "").lower()
@@ -826,7 +806,6 @@ class ChekiScraper(BaseScraper):
             if "used" in content or "pre-owned" in content:
                 return "Used"
 
-        # Check for condition labels
         condition_selectors = [
             ".condition",
             ".vehicle-condition",
@@ -838,7 +817,7 @@ class ChekiScraper(BaseScraper):
             try:
                 condition_element = soup.select_one(selector)
                 if condition_element:
-                    condition = self._clean_text(condition_element.get_text()).lower()
+                    condition = self.clean_text(condition_element.get_text()).lower()
                     if "new" in condition:
                         return "New"
                     if "used" in condition or "pre-owned" in condition:
@@ -848,57 +827,4 @@ class ChekiScraper(BaseScraper):
             except Exception:
                 continue
 
-        # Default to Used
         return "Used"
-
-    # ============================================================
-    # OVERRIDE: PARSE YEAR
-    # ============================================================
-
-    def _parse_year(
-        self,
-        text: str,
-    ) -> Optional[int]:
-        """
-        Parse year from Cheki listing text.
-        """
-        return super()._parse_year(text)
-
-    # ============================================================
-    # OVERRIDE: PARSE MILEAGE
-    # ============================================================
-
-    def _parse_mileage(
-        self,
-        text: str,
-    ) -> Optional[int]:
-        """
-        Parse mileage from Cheki listing text.
-        """
-        return super()._parse_mileage(text)
-
-    # ============================================================
-    # OVERRIDE: PARSE ENGINE SIZE
-    # ============================================================
-
-    def _parse_engine_size(
-        self,
-        text: str,
-    ) -> Optional[float]:
-        """
-        Parse engine size from Cheki listing text.
-        """
-        return super()._parse_engine_size(text)
-
-    # ============================================================
-    # OVERRIDE: PARSE PRICE
-    # ============================================================
-
-    def _parse_price(
-        self,
-        text: str,
-    ) -> Optional[float]:
-        """
-        Parse price from Cheki listing text.
-        """
-        return super()._parse_price(text)
