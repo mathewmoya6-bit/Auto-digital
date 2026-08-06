@@ -220,34 +220,81 @@ class BaseScraper(ABC):
             return None
 
     # ==========================================================
-    # VEHICLE HELPERS
+    # VEHICLE HELPERS - UPDATED
     # ==========================================================
 
     @staticmethod
     def parse_price(
         text: Optional[str],
     ) -> Optional[int]:
+        """
+        Parse price from text.
+        
+        Handles:
+        - KES 1,250,000
+        - KSh 1,250,000
+        - 1,250,000
+        - 1250000
+        - KES 1.25M
+        """
         if not text:
             return None
 
+        # Remove currency symbols and common separators
         cleaned = (
-            text.replace("KSh", "")
-            .replace("KES", "")
+            text.replace("KES", "")
+            .replace("KSh", "")
             .replace("Ksh", "")
+            .replace("KSH", "")
+            .replace("ksh", "")
+            .replace("ksh", "")
             .replace(",", "")
+            .replace(" ", "")
+            .strip()
         )
 
-        match = re.search(r"\d{3,}", cleaned)
+        # Handle "M" (millions) format: 1.25M → 1250000
+        if "M" in cleaned.upper():
+            cleaned = cleaned.upper().replace("M", "")
+            try:
+                return int(float(cleaned) * 1000000)
+            except (ValueError, TypeError):
+                pass
+
+        # Handle "K" (thousands) format: 1.25K → 1250
+        if "K" in cleaned.upper():
+            cleaned = cleaned.upper().replace("K", "")
+            try:
+                return int(float(cleaned) * 1000)
+            except (ValueError, TypeError):
+                pass
+
+        # Extract the first number found
+        match = re.search(
+            r"\d+(?:\.\d+)?",
+            cleaned,
+        )
 
         if not match:
             return None
 
-        return int(match.group())
+        try:
+            return int(float(match.group()))
+        except (ValueError, TypeError):
+            return None
 
     @staticmethod
     def parse_year(
         text: Optional[str],
     ) -> Optional[int]:
+        """
+        Parse year from text.
+        
+        Handles:
+        - 2024
+        - 2024/2025
+        - Model Year 2024
+        """
         if not text:
             return None
 
@@ -262,46 +309,167 @@ class BaseScraper(ABC):
     def parse_mileage(
         text: Optional[str],
     ) -> Optional[int]:
+        """
+        Parse mileage from text.
+        
+        Handles:
+        - 50,000 km
+        - 50000km
+        - 50,000 KM
+        - 50000 KM
+        - 50,000 kms
+        """
         if not text:
             return None
 
-        match = re.search(
-            r"([\d,]+)\s*(km|kms|kilometers?)",
+        # Remove common patterns
+        cleaned = re.sub(
+            r"(km|kms|kilometers?|miles)",
+            "",
             text,
-            re.IGNORECASE,
+            flags=re.IGNORECASE,
+        )
+
+        # Remove commas and spaces
+        cleaned = cleaned.replace(",", "").replace(" ", "")
+
+        # Extract number
+        match = re.search(
+            r"(\d+)",
+            cleaned,
         )
 
         if not match:
             return None
 
-        return int(match.group(1).replace(",", ""))
+        try:
+            return int(match.group(1))
+        except (ValueError, TypeError):
+            return None
 
     @staticmethod
     def parse_engine_size(
         text: Optional[str],
     ) -> Optional[float]:
+        """
+        Parse engine size from text.
+        
+        Handles:
+        - 1.5L → 1.5
+        - 1500cc → 1.5
+        - 2.0 litre → 2.0
+        - 1800 cc → 1.8
+        """
         if not text:
             return None
 
-        match = re.search(
-            r"(\d\.\d)\s*(L|litre|liter)",
+        # Remove common patterns
+        cleaned = re.sub(
+            r"(L|litre|liter|litres|liters|cc)",
+            "",
             text,
-            re.IGNORECASE,
+            flags=re.IGNORECASE,
+        )
+
+        # Remove spaces and commas
+        cleaned = cleaned.replace(",", "").replace(" ", "")
+
+        # Try to match decimal format (X.X)
+        match = re.search(
+            r"(\d+\.\d+)",
+            cleaned,
         )
 
         if match:
-            return float(match.group(1))
+            try:
+                return float(match.group(1))
+            except (ValueError, TypeError):
+                pass
 
+        # Try to match integer format (XXXX)
         match = re.search(
-            r"(\d{3,4})\s*cc",
-            text,
-            re.IGNORECASE,
+            r"(\d{3,4})",
+            cleaned,
         )
 
         if match:
-            return round(
-                int(match.group(1)) / 1000,
-                1,
-            )
+            try:
+                cc = int(match.group(1))
+                # If it's 3-4 digits, assume it's in cc
+                if cc >= 1000:
+                    return cc / 1000.0
+                else:
+                    return float(cc)
+            except (ValueError, TypeError):
+                pass
 
         return None
+
+    # ==========================================================
+    # COMPATIBILITY HELPERS (ADDED)
+    # ==========================================================
+
+    async def _fetch_page(
+        self,
+        url: str,
+        params: Optional[dict] = None,
+    ) -> Optional[BeautifulSoup]:
+        """
+        Compatibility wrapper used by all marketplace scrapers.
+        Returns BeautifulSoup or None on failure.
+        """
+        try:
+            return await self.fetch_soup(
+                url=url,
+                params=params,
+            )
+        except Exception as e:
+            logger.debug(
+                "[%s] Failed to fetch %s (%s)",
+                self.source_name,
+                url,
+                e,
+            )
+            return None
+
+    async def _rate_limit(self):
+        """
+        Apply rate limiting between requests.
+        """
+        await asyncio.sleep(random.uniform(*self.REQUEST_DELAY))
+
+    def _clean_text(self, value: Optional[str]) -> str:
+        """Clean text (compatibility wrapper)."""
+        return self.clean_text(value)
+
+    def _absolute_url(self, url: str) -> str:
+        """Make URL absolute (compatibility wrapper)."""
+        return self.absolute_url(url)
+
+    def _parse_price(self, text: Optional[str]) -> Optional[int]:
+        """Parse price (compatibility wrapper)."""
+        return self.parse_price(text)
+
+    def _parse_year(self, text: Optional[str]) -> Optional[int]:
+        """Parse year (compatibility wrapper)."""
+        return self.parse_year(text)
+
+    def _parse_mileage(self, text: Optional[str]) -> Optional[int]:
+        """Parse mileage (compatibility wrapper)."""
+        return self.parse_mileage(text)
+
+    def _parse_engine_size(self, text: Optional[str]) -> Optional[float]:
+        """Parse engine size (compatibility wrapper)."""
+        return self.parse_engine_size(text)
+
+    # ==========================================================
+    # CONTEXT MANAGER SUPPORT (RECOMMENDED)
+    # ==========================================================
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit - cleanup."""
+        await self.close()
