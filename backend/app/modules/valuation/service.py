@@ -22,7 +22,7 @@ class ValuationService:
     
     Handles:
     - Vehicle valuation calculation
-    - Vehicle data retrieval (with fallbacks)
+    - Vehicle data retrieval from vehicle_master_specs
     - Report generation
     - History management
     - Statistics
@@ -106,29 +106,66 @@ class ValuationService:
         
         logger.info(f"Valuation request: variant_id={variant_id}, year={year}, mileage={mileage}, condition={condition}")
         
-        # ─── GET VEHICLE DATA ────────────────────────────────────────────
+        # ─── GET VEHICLE DATA FROM vehicle_master_specs ─────────────────
         
-        vehicle_data = await self._get_vehicle_data(variant_id)
+        try:
+            variant_response = (
+                self.supabase
+                .table("vehicle_master_specs")
+                .select("*")
+                .eq("variant_id", variant_id)
+                .limit(1)
+                .execute()
+            )
+            
+            if not variant_response.data:
+                raise NotFoundException(f"Vehicle variant {variant_id} not found in vehicle_master_specs")
+            
+            variant_data = variant_response.data[0]
+            logger.info(f"Found vehicle in vehicle_master_specs: {variant_data.get('make_name')} {variant_data.get('model_name')}")
+            
+        except NotFoundException:
+            raise
+        except Exception as e:
+            logger.error(f"Error fetching variant {variant_id}: {str(e)}")
+            raise NotFoundException(f"Failed to fetch variant: {str(e)}")
         
-        if not vehicle_data:
-            logger.warning(f"Vehicle variant {variant_id} not found, using fallback data")
-            vehicle_data = self._create_fallback_vehicle_data(variant_id, year, fuel_type, transmission)
+        # ─── BUILD VEHICLE OBJECT ───────────────────────────────────────
+        
+        vehicle = {
+            "variant_id": variant_id,
+            "make": variant_data.get("make_name"),
+            "model": variant_data.get("model_name"),
+            "variant_name": variant_data.get("variant_name"),
+            "year": year,
+            "fuel_type": variant_data.get("fuel_type_name"),
+            "transmission": variant_data.get("transmission_type_name"),
+            "engine_size_cc": variant_data.get("engine_size_cc"),
+            "body_type": variant_data.get("body_type_name"),
+        }
         
         # Override with provided values if available
         if fuel_type:
-            vehicle_data["fuel_type"] = fuel_type
+            vehicle["fuel_type"] = fuel_type
         if transmission:
-            vehicle_data["transmission"] = transmission
+            vehicle["transmission"] = transmission
         
-        logger.info(f"Vehicle data: {vehicle_data.get('make')} {vehicle_data.get('model')} ({vehicle_data.get('variant')})")
+        logger.info(f"Vehicle: {vehicle['make']} {vehicle['model']} ({vehicle['variant_name']})")
         
         # ─── GET BASE PRICE ──────────────────────────────────────────────
         
-        base_price = await self._get_base_price(variant_id)
+        # Try to get base price from vehicle_master_specs
+        base_price = 0
+        for field in ["estimated_value", "market_value", "price"]:
+            if variant_data.get(field):
+                value = float(variant_data[field])
+                if value > 0:
+                    base_price = value
+                    break
         
         if base_price <= 0:
             logger.warning(f"No base price found for variant {variant_id}, using fallback")
-            base_price = self._estimate_base_price(vehicle_data, year)
+            base_price = self._estimate_base_price(vehicle, year)
         
         logger.info(f"Base price: KES {base_price:,.2f}")
         
@@ -155,8 +192,8 @@ class ValuationService:
             "condition": condition,
             "accident_history": accident_history,
             "location": location,
-            "fuel_type": vehicle_data.get("fuel_type"),
-            "transmission": vehicle_data.get("transmission"),
+            "fuel_type": vehicle.get("fuel_type"),
+            "transmission": vehicle.get("transmission"),
             "service_history": service_history,
             "ownership_count": ownership_count
         }
@@ -166,17 +203,19 @@ class ValuationService:
         # ─── CALCULATE VALUATION ─────────────────────────────────────────
         
         try:
-            valuation_result = await self.engine.calculate(request_obj)
+            result = await self.engine.calculate(request_obj)
             logger.info("Valuation calculation completed successfully")
         except Exception as e:
             logger.error(f"Engine calculation failed: {str(e)}")
             # Return fallback valuation
-            valuation_result = self._create_fallback_valuation(variant_id, year, mileage, vehicle_data)
+            result = self._create_fallback_valuation(vehicle, year, mileage, base_price)
         
-        # ─── ENSURE VEHICLE DATA IN RESULT ──────────────────────────────
+        # ─── FIX CONFIDENCE SCORE ───────────────────────────────────────
         
-        if "vehicle" not in valuation_result or not valuation_result["vehicle"]:
-            valuation_result["vehicle"] = vehicle_data
+        confidence_score = result.get("confidence_score", 50)
+        # If confidence_score is <= 1, it's likely a decimal (0-1) that needs converting to percentage
+        if confidence_score <= 1:
+            confidence_score = confidence_score * 100
         
         # ─── GENERATE REPORT NUMBER ──────────────────────────────────────
         
@@ -193,25 +232,47 @@ class ValuationService:
                 "generated_at": datetime.utcnow(),
                 "status": "completed",
                 "version": "1.0",
-                "description": (
-                    f"Valuation report for "
-                    f"{valuation_result['vehicle'].get('make', 'Unknown')} "
-                    f"{valuation_result['vehicle'].get('model', 'Unknown')} "
-                    f"({year})"
-                ),
+                "description": f"{vehicle['make']} {vehicle['model']} valuation",
             },
-            "vehicle": self._format_vehicle_data(valuation_result["vehicle"]),
-            "valuation": self._format_valuation_data(valuation_result),
-            "comparables": valuation_result.get("comparables", []),
-            "analysis": self._format_analysis_data(valuation_result),
+            "vehicle": {
+                "variant_id": variant_id,
+                "make": vehicle.get("make"),
+                "model": vehicle.get("model"),
+                "variant_name": vehicle.get("variant_name"),
+                "year": year,
+                "fuel_type": vehicle.get("fuel_type"),
+                "transmission": vehicle.get("transmission"),
+                "engine_size_cc": vehicle.get("engine_size_cc"),
+                "body_type": vehicle.get("body_type"),
+            },
+            "valuation": {
+                "estimated_vehicle_value": round(result.get("market_value", 0), 2),
+                "retail_value": round(result.get("retail_value", result.get("market_value", 0) * 1.08), 2),
+                "trade_value": round(result.get("trade_value", result.get("market_value", 0) * 0.85), 2),
+                "dealer_value": round(result.get("dealer_value", result.get("market_value", 0) * 0.95), 2),
+                "currency": "KES",
+                "confidence_score": int(confidence_score),
+                "estimated_value_range": {
+                    "minimum": round(result.get("market_value", 0) * 0.90, 2),
+                    "maximum": round(result.get("market_value", 0) * 1.10, 2),
+                },
+                "sample_size": result.get("sample_size", 0),
+            },
+            "comparables": result.get("comparables", []),
+            "analysis": {
+                "valuation_methodology": [
+                    "Vehicle age",
+                    "Mileage",
+                    "Vehicle condition",
+                    "Market comparison",
+                    "Depreciation model",
+                ],
+                "adjustments": result.get("adjustments", {}),
+                "engine_version": "AUTO-D AI Valuation Engine v1.2",
+            },
             "disclaimer": (
-                "This valuation is generated using the AUTO-D vehicle valuation model. "
-                "It represents an indicative estimate based on vehicle specifications, "
-                "age, mileage, condition, depreciation modelling and regional factors. "
-                "It should not be interpreted as the current market asking price, "
-                "dealer retail price, trade-in value or guaranteed selling price. "
-                "Actual transaction values may vary depending on inspection results, "
-                "ownership history, maintenance records and prevailing market conditions."
+                "This valuation is generated using the AUTO-D vehicle valuation "
+                "engine and should be treated as an indicative market estimate."
             )
         }
         
@@ -222,6 +283,8 @@ class ValuationService:
                 user_id=user_id,
                 variant_id=variant_id,
                 report_number=report_number,
+                make=vehicle.get("make"),
+                model=vehicle.get("model"),
                 market_value=response["valuation"]["estimated_vehicle_value"],
                 retail_value=response["valuation"]["retail_value"],
                 trade_value=response["valuation"]["trade_value"],
@@ -237,192 +300,16 @@ class ValuationService:
         return response
     
     # ================================================================
-    # VEHICLE DATA RETRIEVAL
+    # BASE PRICE ESTIMATION
     # ================================================================
     
-    async def _get_vehicle_data(self, variant_id: int) -> Optional[Dict[str, Any]]:
-        """
-        Get vehicle data from database with fallbacks.
-        
-        Tries:
-        1. vehicle_master_specs view
-        2. vehicle_variants table with joins
-        """
-        try:
-            # Try vehicle_master_specs first
-            result = (
-                self.supabase
-                .table("vehicle_master_specs")
-                .select("*")
-                .eq("variant_id", variant_id)
-                .execute()
-            )
-            
-            if result.data:
-                data = result.data[0]
-                logger.info(f"Found vehicle in vehicle_master_specs")
-                return {
-                    "variant_id": data.get("variant_id", variant_id),
-                    "make": data.get("make_name", "Unknown"),
-                    "model": data.get("model_name", "Unknown"),
-                    "variant": data.get("variant_name", "Unknown"),
-                    "fuel_type": data.get("fuel_type_name"),
-                    "transmission": data.get("transmission_type_name"),
-                    "engine_size": data.get("engine_size_cc"),
-                    "body_type": data.get("body_type_name"),
-                    "seats": data.get("seats"),
-                    "doors": data.get("doors"),
-                    "drive_type": data.get("drive_type_name"),
-                }
-                
-        except Exception as e:
-            logger.warning(f"Error fetching from vehicle_master_specs: {str(e)}")
-        
-        try:
-            # Fallback to vehicle_variants with joins
-            result = (
-                self.supabase
-                .table("vehicle_variants")
-                .select("""
-                    id,
-                    name,
-                    vehicle_models(
-                        id,
-                        name,
-                        vehicle_makes(
-                            id,
-                            name
-                        )
-                    ),
-                    fuel_type_name,
-                    transmission_type_name,
-                    engine_size_cc,
-                    body_type_name,
-                    seats,
-                    doors,
-                    drive_type_name
-                """)
-                .eq("id", variant_id)
-                .execute()
-            )
-            
-            if result.data:
-                data = result.data[0]
-                logger.info(f"Found vehicle in vehicle_variants")
-                return {
-                    "variant_id": data.get("id", variant_id),
-                    "make": data.get("vehicle_models", {}).get("vehicle_makes", {}).get("name", "Unknown"),
-                    "model": data.get("vehicle_models", {}).get("name", "Unknown"),
-                    "variant": data.get("name", "Unknown"),
-                    "fuel_type": data.get("fuel_type_name"),
-                    "transmission": data.get("transmission_type_name"),
-                    "engine_size": data.get("engine_size_cc"),
-                    "body_type": data.get("body_type_name"),
-                    "seats": data.get("seats"),
-                    "doors": data.get("doors"),
-                    "drive_type": data.get("drive_type_name"),
-                }
-                
-        except Exception as e:
-            logger.warning(f"Error fetching from vehicle_variants: {str(e)}")
-        
-        logger.warning(f"Vehicle variant {variant_id} not found in any table")
-        return None
-    
-    def _create_fallback_vehicle_data(
-        self,
-        variant_id: int,
-        year: int,
-        fuel_type: Optional[str] = None,
-        transmission: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Create fallback vehicle data when database lookup fails."""
-        return {
-            "variant_id": variant_id,
-            "make": "Unknown",
-            "model": "Unknown",
-            "variant": "Unknown",
-            "year": year,
-            "fuel_type": fuel_type or "petrol",
-            "transmission": transmission or "automatic",
-            "engine_size": 2000,
-            "body_type": "SUV",
-            "seats": 5,
-            "doors": 4,
-            "drive_type": "4x4"
-        }
-    
-    # ================================================================
-    # BASE PRICE RETRIEVAL
-    # ================================================================
-    
-    async def _get_base_price(self, variant_id: int) -> float:
-        """
-        Get base price from database with fallbacks.
-        
-        Tries multiple tables and fields.
-        """
-        # Try vehicle_master_specs first
-        try:
-            result = (
-                self.supabase
-                .table("vehicle_master_specs")
-                .select("estimated_value, market_value, price")
-                .eq("variant_id", variant_id)
-                .execute()
-            )
-            
-            if result.data:
-                data = result.data[0]
-                for field in ["estimated_value", "market_value", "price"]:
-                    if data.get(field):
-                        value = float(data[field])
-                        if value > 0:
-                            logger.info(f"Found base price from vehicle_master_specs.{field}: {value}")
-                            return value
-        except Exception as e:
-            logger.warning(f"Error getting price from vehicle_master_specs: {str(e)}")
-        
-        # Try other tables
-        tables = [
-            "vehicle_market_values",
-            "market_prices",
-            "vehicle_variants"
-        ]
-        
-        for table in tables:
-            try:
-                result = (
-                    self.supabase
-                    .table(table)
-                    .select("*")
-                    .eq("variant_id", variant_id)
-                    .limit(1)
-                    .execute()
-                )
-                
-                if result.data:
-                    row = result.data[0]
-                    for field in ["market_value", "average_price", "price", "base_price", "estimated_value"]:
-                        if row.get(field):
-                            value = float(row[field])
-                            if value > 0:
-                                logger.info(f"Found base price from {table}.{field}: {value}")
-                                return value
-            except Exception as e:
-                logger.warning(f"Error getting price from {table}: {str(e)}")
-                continue
-        
-        logger.warning(f"No base price found for variant {variant_id}")
-        return 0.0
-    
-    def _estimate_base_price(self, vehicle_data: Dict[str, Any], year: int) -> float:
+    def _estimate_base_price(self, vehicle: Dict[str, Any], year: int) -> float:
         """
         Estimate base price when no price is found in database.
         Uses vehicle make/model to estimate.
         """
-        make = (vehicle_data.get("make") or "").lower()
-        model = (vehicle_data.get("model") or "").lower()
+        make = (vehicle.get("make") or "").lower()
+        model = (vehicle.get("model") or "").lower()
         
         # Default prices by segment (Kenya market)
         if "toyota" in make:
@@ -454,71 +341,19 @@ class ValuationService:
             return 2500000.0
     
     # ================================================================
-    # DATA FORMATTING
-    # ================================================================
-    
-    def _format_vehicle_data(self, vehicle: Dict[str, Any]) -> Dict[str, Any]:
-        """Format vehicle data for response."""
-        return {
-            "variant_id": vehicle.get("variant_id"),
-            "make": vehicle.get("make", "Unknown"),
-            "model": vehicle.get("model", "Unknown"),
-            "variant_name": vehicle.get("variant", vehicle.get("variant_name", "Unknown")),
-            "year": vehicle.get("year", datetime.now().year),
-            "fuel_type": vehicle.get("fuel_type"),
-            "transmission": vehicle.get("transmission"),
-            "engine_size_cc": vehicle.get("engine_size", vehicle.get("engine_size_cc")),
-            "body_type": vehicle.get("body_type"),
-        }
-    
-    def _format_valuation_data(self, result: Dict[str, Any]) -> Dict[str, Any]:
-        """Format valuation data for response."""
-        market_value = result.get("market_value", 0)
-        
-        return {
-            "estimated_vehicle_value": round(market_value, 2),
-            "retail_value": round(result.get("retail_value", market_value * 1.08), 2),
-            "trade_value": round(result.get("trade_value", market_value * 0.85), 2),
-            "dealer_value": round(result.get("dealer_value", market_value * 0.95), 2),
-            "currency": "KES",
-            "confidence_score": result.get("confidence_score", 50),
-            "estimated_value_range": {
-                "minimum": round(market_value * 0.90, 2),
-                "maximum": round(market_value * 1.10, 2),
-            },
-            "sample_size": result.get("sample_size", 0),
-        }
-    
-    def _format_analysis_data(self, result: Dict[str, Any]) -> Dict[str, Any]:
-        """Format analysis data for response."""
-        return {
-            "valuation_methodology": [
-                "Vehicle age analysis",
-                "Mileage adjustment",
-                "Condition assessment",
-                "Location adjustment",
-                "Market comparables analysis",
-                "Depreciation modelling"
-            ],
-            "adjustments": result.get("adjustments", {}),
-            "engine_version": "AUTO-D AI Valuation Engine v1.2",
-        }
-    
-    # ================================================================
     # FALLBACK VALUATION
     # ================================================================
     
     def _create_fallback_valuation(
         self,
-        variant_id: int,
+        vehicle: Dict[str, Any],
         year: int,
         mileage: int,
-        vehicle_data: Dict[str, Any]
+        base_price: float
     ) -> Dict[str, Any]:
         """Create a fallback valuation when the engine fails."""
-        logger.info(f"Creating fallback valuation for variant {variant_id}")
+        logger.info("Creating fallback valuation")
         
-        base_price = self._estimate_base_price(vehicle_data, year)
         current_year = datetime.now().year
         age = max(0, current_year - year)
         depreciation_rate = min(0.85, age * 0.05)
@@ -530,7 +365,7 @@ class ValuationService:
             current_value = current_value * (1 - mileage_penalty)
         
         return {
-            "vehicle": vehicle_data,
+            "vehicle": vehicle,
             "market_value": round(current_value, 2),
             "retail_value": round(current_value * 1.08, 2),
             "trade_value": round(current_value * 0.85, 2),
@@ -556,6 +391,8 @@ class ValuationService:
         user_id: str,
         variant_id: int,
         report_number: str,
+        make: str,
+        model: str,
         market_value: float,
         retail_value: float,
         trade_value: float,
@@ -571,11 +408,13 @@ class ValuationService:
             history_data = {
                 "user_id": user_id,
                 "variant_id": variant_id,
+                "report_number": report_number,
+                "make": make,
+                "model": model,
                 "market_value": market_value,
                 "retail_value": retail_value,
                 "trade_value": trade_value,
                 "confidence_score": confidence_score,
-                "report_number": report_number,
                 "year": year,
                 "mileage": mileage,
                 "location": location,
@@ -586,14 +425,14 @@ class ValuationService:
             
             # Try to save with all fields
             try:
-                self.supabase.table("valuation_reports").insert(history_data).execute()
+                self.supabase.table("valuation_history").insert(history_data).execute()
                 logger.info(f"Valuation history saved for user {user_id}")
             except Exception as e:
                 # Try without optional columns if they don't exist
                 if "accident_history" in str(e) or "location" in str(e) or "report_number" in str(e):
                     safe_history = {k: v for k, v in history_data.items() 
                                   if k not in ["accident_history", "location", "report_number"]}
-                    self.supabase.table("valuation_reports").insert(safe_history).execute()
+                    self.supabase.table("valuation_history").insert(safe_history).execute()
                     logger.info(f"Valuation history saved (without optional fields) for user {user_id}")
                 else:
                     raise
@@ -618,7 +457,7 @@ class ValuationService:
         try:
             response = (
                 self.supabase
-                .table("valuation_reports")
+                .table("valuation_history")
                 .select("*")
                 .eq("user_id", user_id)
                 .order("created_at", desc=True)
@@ -647,7 +486,7 @@ class ValuationService:
         try:
             response = (
                 self.supabase
-                .table("valuation_reports")
+                .table("valuation_history")
                 .select("*")
                 .eq("id", report_id)
                 .eq("user_id", user_id)
@@ -676,7 +515,7 @@ class ValuationService:
         try:
             response = (
                 self.supabase
-                .table("valuation_reports")
+                .table("valuation_history")
                 .select("*")
                 .eq("report_number", report_number)
                 .eq("user_id", user_id)
@@ -784,7 +623,7 @@ class ValuationService:
         """
         try:
             # Check database connection
-            self.supabase.table("vehicle_variants").select("id").limit(1).execute()
+            self.supabase.table("vehicle_master_specs").select("variant_id").limit(1).execute()
             db_status = "healthy"
         except Exception as e:
             logger.error(f"Database health check failed: {str(e)}")
