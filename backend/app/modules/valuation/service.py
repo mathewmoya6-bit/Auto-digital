@@ -61,19 +61,37 @@ class ValuationService:
         # Normalize location
         location = location.lower() if location else "nairobi"
         
-        # Get variant data
+        # Get variant data - FIXED: Better error handling
         try:
+            # Try to get variant from vehicle_variants table
             variant_response = self.supabase.table("vehicle_variants").select("*").eq("id", variant_id).execute()
             
-            if not variant_response.data:
-                raise NotFoundException(f"Variant with ID {variant_id} not found")
+            if not variant_response.data or len(variant_response.data) == 0:
+                logger.error(f"Variant with ID {variant_id} not found in vehicle_variants table")
+                
+                # Try vehicle_master_specs view as fallback
+                try:
+                    variant_response = self.supabase.table("vehicle_master_specs").select("*").eq("variant_id", variant_id).execute()
+                    if variant_response.data and len(variant_response.data) > 0:
+                        variant_data = variant_response.data[0]
+                        logger.info(f"Found variant in vehicle_master_specs: {variant_data.get('variant_name', 'Unknown')}")
+                    else:
+                        raise NotFoundException(f"Variant with ID {variant_id} not found in any table")
+                except Exception as fallback_error:
+                    logger.error(f"Fallback lookup also failed: {str(fallback_error)}")
+                    raise NotFoundException(f"Variant with ID {variant_id} not found")
+            else:
+                variant_data = variant_response.data[0]
+                logger.info(f"Found variant: {variant_data.get('name', 'Unknown')} (ID: {variant_id})")
             
-            variant_data = variant_response.data[0]
-            logger.info(f"Found variant: {variant_data.get('name', 'Unknown')} (ID: {variant_id})")
-            
+        except NotFoundException:
+            raise
         except Exception as e:
             logger.error(f"Error fetching variant {variant_id}: {str(e)}")
             raise NotFoundException(f"Failed to fetch variant: {str(e)}")
+        
+        # Log the variant data for debugging
+        logger.info(f"Variant data keys: {list(variant_data.keys())}")
         
         # Calculate valuation
         try:
@@ -111,7 +129,8 @@ class ValuationService:
         random_suffix = secrets.token_hex(4).upper()
         report_number = f"AUTO-VAL-{timestamp}-{random_suffix}"
         
-        # ─── BUILD RESPONSE MATCHING SCHEMA ──────────────────────────
+        # ─── BUILD RESPONSE WITH SAFE DATA ACCESS ──────────────────
+        # FIXED: Use safe .get() with defaults for all fields
         
         safe_result = {
             "report": {
@@ -122,21 +141,21 @@ class ValuationService:
                 "version": "1.0",
                 "description": (
                     f"Valuation report for "
-                    f"{variant_data.get('make_name', '')} "
-                    f"{variant_data.get('model_name', '')}"
+                    f"{variant_data.get('make_name', '') or variant_data.get('make', 'Unknown')} "
+                    f"{variant_data.get('model_name', '') or variant_data.get('model', '')}"
                 ),
             },
             
             "vehicle": {
                 "variant_id": variant_id,
-                "make": variant_data.get("make_name", ""),
-                "model": variant_data.get("model_name", ""),
-                "variant_name": variant_data.get("name", ""),  # Changed from variant to variant_name
+                "make": variant_data.get("make_name", "") or variant_data.get("make", ""),
+                "model": variant_data.get("model_name", "") or variant_data.get("model", ""),
+                "variant_name": variant_data.get("name", "") or variant_data.get("variant_name", ""),
                 "year": year,
-                "fuel_type": variant_data.get("fuel_type_name"),
-                "transmission": variant_data.get("transmission_type_name"),
-                "engine_size_cc": variant_data.get("engine_size_cc"),  # Changed from engine_size to engine_size_cc
-                "body_type": variant_data.get("body_type_name"),
+                "fuel_type": variant_data.get("fuel_type_name") or variant_data.get("fuel_type"),
+                "transmission": variant_data.get("transmission_type_name") or variant_data.get("transmission_type"),
+                "engine_size_cc": variant_data.get("engine_size_cc") or variant_data.get("engine_size"),
+                "body_type": variant_data.get("body_type_name") or variant_data.get("body_type"),
             },
             
             "valuation": {
@@ -148,10 +167,10 @@ class ValuationService:
                     2,
                 ),
                 "currency": "KES",
-                "confidence_score": confidence_score,  # 0-100 percentage
+                "confidence_score": confidence_score,
                 "estimated_value_range": {
-                    "minimum": round(market_value * 0.95, 2),  # Changed from min to minimum
-                    "maximum": round(market_value * 1.05, 2),  # Changed from max to maximum
+                    "minimum": round(market_value * 0.95, 2),
+                    "maximum": round(market_value * 1.05, 2),
                 },
                 "sample_size": result.get("sample_size", 0),
             },
@@ -235,8 +254,21 @@ class ValuationService:
             float: Estimated value
         """
         try:
-            # Get base price from variant or use default
-            base_price = variant_data.get("base_price") or variant_data.get("price") or variant_data.get("market_value") or 2500000
+            # Get base price from variant with multiple fallback keys
+            base_price = (
+                variant_data.get("base_price") or 
+                variant_data.get("price") or 
+                variant_data.get("market_value") or 
+                variant_data.get("estimated_value") or
+                variant_data.get("value") or
+                2500000
+            )
+            
+            # Ensure base_price is a number
+            try:
+                base_price = float(base_price)
+            except (ValueError, TypeError):
+                base_price = 2500000.0
             
             # Calculate age depreciation
             current_year = datetime.now().year
