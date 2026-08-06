@@ -3,8 +3,9 @@
 # ================================================================
 # TYPE: MODULE - Valuation API routes
 
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import Optional
+from typing import Optional, List
 
 from app.modules.valuation.schemas import (
     ValuationRequest,
@@ -17,9 +18,19 @@ from app.modules.valuation.schemas import (
 from app.modules.valuation.service import ValuationService
 from app.core.dependencies import get_current_user, get_current_user_optional
 
-router = APIRouter()
+# ─── ROUTER WITH PREFIX ──────────────────────────────────────────────
+
+router = APIRouter(
+    prefix="/valuation",
+    tags=["Vehicle Valuation"],
+)
+
 valuation_service = ValuationService()
 
+
+# ================================================================
+# VALUATION ENDPOINTS
+# ================================================================
 
 @router.post("/calculate", response_model=ValuationReportResponse)
 async def calculate_valuation(
@@ -41,11 +52,15 @@ async def calculate_valuation(
         
         result = await valuation_service.calculate_valuation(
             variant_id=request.variant_id,
-            year=request.year,  # FIXED: was request.vehicle_year
+            year=request.year,
             mileage=request.mileage,
             condition=request.condition,
             accident_history=request.accident_history,
             location=request.location,
+            fuel_type=request.fuel_type,
+            transmission=request.transmission,
+            ownership_count=request.ownership_count,
+            service_history=request.service_history,
             user_id=user_id
         )
         
@@ -75,11 +90,15 @@ async def calculate_valuation_public(
     try:
         result = await valuation_service.calculate_valuation(
             variant_id=request.variant_id,
-            year=request.year,  # FIXED: was request.vehicle_year
+            year=request.year,
             mileage=request.mileage,
             condition=request.condition,
             accident_history=request.accident_history,
             location=request.location,
+            fuel_type=request.fuel_type,
+            transmission=request.transmission,
+            ownership_count=request.ownership_count,
+            service_history=request.service_history,
             user_id=None
         )
         
@@ -107,17 +126,46 @@ async def calculate_valuation_legacy(
         
         result = await valuation_service.calculate_valuation(
             variant_id=request.variant_id,
-            year=request.year,  # FIXED: was request.vehicle_year
+            year=request.year,
             mileage=request.mileage,
             condition=request.condition,
             accident_history=request.accident_history,
             location=request.location,
+            fuel_type=request.fuel_type,
+            transmission=request.transmission,
+            ownership_count=request.ownership_count,
+            service_history=request.service_history,
             user_id=user_id
         )
         
-        # Convert to legacy format if needed
-        # This returns the full report but the response model will validate
-        return result
+        # ─── CONVERT TO LEGACY FORMAT ──────────────────────────────────
+        
+        return {
+            "vehicle": result["vehicle"],
+            "market_value": result["valuation"]["estimated_vehicle_value"],
+            "price_range_low": result["valuation"]["estimated_value_range"]["minimum"],
+            "price_range_high": result["valuation"]["estimated_value_range"]["maximum"],
+            "confidence_score": result["valuation"]["confidence_score"],
+            "depreciation": {
+                "original_value": result["valuation"]["retail_value"],
+                "current_value": result["valuation"]["estimated_vehicle_value"],
+                "depreciation_amount": (
+                    result["valuation"]["retail_value"] 
+                    - result["valuation"]["estimated_vehicle_value"]
+                ),
+                "depreciation_percentage": (
+                    (result["valuation"]["retail_value"] - result["valuation"]["estimated_vehicle_value"]) 
+                    / result["valuation"]["retail_value"] 
+                    * 100
+                ) if result["valuation"]["retail_value"] > 0 else 0,
+                "annual_rate": 0.15,
+            },
+            "adjustments": result.get("analysis", {}).get("adjustments", []),
+            "market_comparison": None,
+            "recommendation": None,
+            "currency": "KES",
+            "calculated_at": result["report"]["generated_at"],
+        }
         
     except Exception as e:
         raise HTTPException(
@@ -125,6 +173,10 @@ async def calculate_valuation_legacy(
             detail=f"Valuation failed: {str(e)}"
         )
 
+
+# ================================================================
+# HISTORY ENDPOINTS
+# ================================================================
 
 @router.get("/history", response_model=ValuationHistoryResponse)
 async def get_valuation_history(
@@ -178,6 +230,39 @@ async def get_valuation_report(
         )
 
 
+@router.get("/history/report/{report_number}")
+async def get_valuation_by_report_number(
+    report_number: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get a valuation report by report number.
+    """
+    try:
+        user_id = current_user.get("id")
+        report = await valuation_service.get_valuation_by_report_number(report_number, user_id)
+        
+        if not report:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Valuation report not found"
+            )
+        
+        return report
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to get valuation report: {str(e)}"
+        )
+
+
+# ================================================================
+# STATISTICS ENDPOINTS
+# ================================================================
+
 @router.get("/stats", response_model=ValuationStats)
 async def get_valuation_stats(
     current_user: dict = Depends(get_current_user)
@@ -198,22 +283,35 @@ async def get_valuation_stats(
         )
 
 
+# ================================================================
+# HEALTH ENDPOINT
+# ================================================================
+
 @router.get("/health", response_model=ValuationHealthResponse)
 async def valuation_health():
     """
     Health check for valuation service.
     """
-    return {
-        "status": "healthy",
-        "service": "valuation",
-        "version": "1.0",
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    try:
+        health = await valuation_service.health_check()
+        return health
+    except Exception as e:
+        return {
+            "status": "degraded",
+            "service": "valuation",
+            "version": "1.0",
+            "timestamp": datetime.utcnow().isoformat(),
+            "error": str(e)
+        }
 
+
+# ================================================================
+# BULK ENDPOINTS
+# ================================================================
 
 @router.post("/bulk")
 async def bulk_valuation(
-    requests: list[ValuationRequest],
+    requests: List[ValuationRequest],
     current_user: dict = Depends(get_current_user_optional)
 ):
     """
@@ -227,11 +325,15 @@ async def bulk_valuation(
             try:
                 result = await valuation_service.calculate_valuation(
                     variant_id=request.variant_id,
-                    year=request.year,  # FIXED: was request.vehicle_year
+                    year=request.year,
                     mileage=request.mileage,
                     condition=request.condition,
                     accident_history=request.accident_history,
                     location=request.location,
+                    fuel_type=request.fuel_type,
+                    transmission=request.transmission,
+                    ownership_count=request.ownership_count,
+                    service_history=request.service_history,
                     user_id=user_id
                 )
                 results.append({
@@ -261,7 +363,7 @@ async def bulk_valuation(
 
 @router.post("/compare")
 async def compare_valuations(
-    requests: list[ValuationRequest],
+    requests: List[ValuationRequest],
     current_user: dict = Depends(get_current_user_optional)
 ):
     """
@@ -275,22 +377,27 @@ async def compare_valuations(
             try:
                 result = await valuation_service.calculate_valuation(
                     variant_id=request.variant_id,
-                    year=request.year,  # FIXED: was request.vehicle_year
+                    year=request.year,
                     mileage=request.mileage,
                     condition=request.condition,
                     accident_history=request.accident_history,
                     location=request.location,
+                    fuel_type=request.fuel_type,
+                    transmission=request.transmission,
+                    ownership_count=request.ownership_count,
+                    service_history=request.service_history,
                     user_id=user_id
                 )
                 
                 # Extract key comparison data
                 results.append({
                     "variant_id": request.variant_id,
-                    "make": result["vehicle"]["make"],
-                    "model": result["vehicle"]["model"],
+                    "make": result["vehicle"].get("make"),
+                    "model": result["vehicle"].get("model"),
                     "year": request.year,
                     "estimated_value": result["valuation"]["estimated_vehicle_value"],
-                    "confidence_score": result["valuation"]["confidence_score"]
+                    "confidence_score": result["valuation"]["confidence_score"],
+                    "success": True
                 })
             except Exception as e:
                 results.append({
@@ -300,7 +407,10 @@ async def compare_valuations(
                 })
         
         return {
-            "comparison": results
+            "comparison": results,
+            "total": len(results),
+            "successful": sum(1 for r in results if r["success"]),
+            "failed": sum(1 for r in results if not r["success"])
         }
         
     except Exception as e:
@@ -308,3 +418,12 @@ async def compare_valuations(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Valuation comparison failed: {str(e)}"
         )
+
+
+# ================================================================
+# EXPORTS
+# ================================================================
+
+__all__ = [
+    "router",
+]
