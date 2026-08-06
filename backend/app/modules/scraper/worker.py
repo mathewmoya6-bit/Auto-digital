@@ -23,18 +23,21 @@ class ScraperWorker:
     # Valid statuses for runs
     VALID_STATUSES = ("pending", "running", "completed", "failed")
 
+    # Single source of truth for the jobs table name.
+    JOBS_TABLE = "scraper_jobs"
+
     def __init__(self, batch_size: int = 250, max_concurrent_lookups: int = 20):
         self.supabase = get_supabase()
         self.lookup = VehicleLookup()
         self.batch_size = batch_size
         self.max_concurrent_lookups = max_concurrent_lookups
         self.lookup_semaphore = asyncio.Semaphore(max_concurrent_lookups)
-        
+
         # Minimum percentage of existing listings to consider a successful scrape
         self.MIN_DEACTIVATION_PERCENTAGE = 0.70  # 70% of existing listings must be found
         self.MIN_DEACTIVATION_ABSOLUTE = 50  # At least 50 listings must be found
 
-        # FIX 1: Store scraper CLASSES, not instances
+        # Store scraper CLASSES, not instances
         self.scrapers = {
             "jiji": JijiScraper,
             "cheki": ChekiScraper,
@@ -44,7 +47,7 @@ class ScraperWorker:
 
         # Cache source IDs to avoid repeated queries
         self.source_ids = self._load_source_ids()
-        
+
         # In-memory lock for preventing concurrent runs (single-process only)
         # For multi-process/multi-container, use Redis or PostgreSQL advisory locks
         self._running_sources = set()
@@ -58,15 +61,15 @@ class ScraperWorker:
                 .select("id,name")
                 .execute()
             )
-            
+
             source_map = {
                 row["name"]: row["id"]
                 for row in (result.data or [])
             }
-            
+
             logger.info(f"Loaded {len(source_map)} market sources")
             return source_map
-            
+
         except Exception as e:
             logger.error(f"Failed to load source IDs: {e}")
             return {}
@@ -74,12 +77,12 @@ class ScraperWorker:
     def _get_source_id(self, source: str) -> Optional[int]:
         """Get cached source ID with fallback refresh"""
         source_id = self.source_ids.get(source)
-        
+
         if not source_id:
             # Attempt to refresh cache
             self.source_ids = self._load_source_ids()
             source_id = self.source_ids.get(source)
-            
+
         return source_id
 
     def _get_existing_listing_count(self, source_id: int) -> int:
@@ -99,20 +102,13 @@ class ScraperWorker:
             return 0
 
     def _create_run_record(self, source: str, run_started: datetime) -> Optional[int]:
-        """
-        Create a run record.
-
-        Supports both:
-        - scraper_runs (new)
-        - scraper_jobs (legacy)
-        """
+        """Create a run record in scraper_jobs."""
         source_id = self._get_source_id(source)
 
-        # Try new table first
         try:
             result = (
                 self.supabase
-                .table("scraper_runs")
+                .table(self.JOBS_TABLE)
                 .insert({
                     "source_id": source_id,
                     "status": "pending",
@@ -123,32 +119,11 @@ class ScraperWorker:
 
             if result.data:
                 run_id = result.data[0]["id"]
-                logger.info(f"Created run record {run_id} in scraper_runs for {source}")
+                logger.info(f"Created run record {run_id} in {self.JOBS_TABLE} for {source}")
                 return run_id
 
         except Exception as e:
-            logger.warning(f"scraper_runs missing or failed: {e}, falling back to scraper_jobs")
-
-        # Fallback to legacy table
-        try:
-            result = (
-                self.supabase
-                .table("scraper_jobs")
-                .insert({
-                    "source_id": source_id,
-                    "status": "pending",
-                    "started_at": run_started.isoformat(),
-                })
-                .execute()
-            )
-
-            if result.data:
-                run_id = result.data[0]["id"]
-                logger.info(f"Created run record {run_id} in scraper_jobs for {source}")
-                return run_id
-
-        except Exception as e:
-            logger.error(f"Failed to create run record in scraper_jobs: {e}")
+            logger.error(f"Failed to create run record in {self.JOBS_TABLE} for {source}: {e}")
 
         logger.error(f"Failed to create run record for {source}")
         return None
@@ -163,13 +138,7 @@ class ScraperWorker:
         deactivated: Optional[int] = None,
         error: Optional[str] = None
     ):
-        """
-        Update run status.
-
-        Supports both:
-        - scraper_runs (new)
-        - scraper_jobs (legacy)
-        """
+        """Update run status in scraper_jobs."""
         if not run_id:
             logger.error("Cannot update run with None ID")
             return
@@ -198,30 +167,19 @@ class ScraperWorker:
         if status in ("completed", "failed"):
             payload["completed_at"] = now.isoformat()
 
-        # Try scraper_runs first
         try:
             (
                 self.supabase
-                .table("scraper_runs")
-                .update(payload)
-                .eq("id", run_id)
-                .execute()
-            )
-            return
-        except Exception as e:
-            logger.debug(f"scraper_runs update failed: {e}, trying scraper_jobs")
-
-        # Fallback to scraper_jobs
-        try:
-            (
-                self.supabase
-                .table("scraper_jobs")
+                .table(self.JOBS_TABLE)
                 .update(payload)
                 .eq("id", run_id)
                 .execute()
             )
         except Exception as e:
-            logger.error(f"Failed to update run {run_id} in both tables: {e}")
+            # This now surfaces the REAL error (e.g. missing column) instead of
+            # being silently swallowed after a doomed first attempt against a
+            # table that doesn't exist.
+            logger.error(f"Failed to update run {run_id} in {self.JOBS_TABLE}: {e}")
 
     def _deactivate_stale_listings(
         self,
@@ -232,18 +190,18 @@ class ScraperWorker:
     ) -> Tuple[int, bool]:
         """
         Deactivate listings that weren't seen in this scrape.
-        
+
         Only deactivates if we found a reasonable percentage and absolute count.
         Returns (deactivated_count, was_safe)
         """
         if not active_listing_ids:
             logger.warning(f"No active listings for source {source_id}, skipping deactivation")
             return 0, False
-        
+
         # Calculate percentage found
         found_count = len(active_listing_ids)
         found_percentage = found_count / total_existing if total_existing > 0 else 1.0
-        
+
         # Only deactivate if we found enough listings (both percentage AND absolute)
         if found_count < self.MIN_DEACTIVATION_ABSOLUTE:
             logger.warning(
@@ -251,14 +209,14 @@ class ScraperWorker:
                 f"< {self.MIN_DEACTIVATION_ABSOLUTE} minimum absolute threshold"
             )
             return 0, False
-            
+
         if found_percentage < self.MIN_DEACTIVATION_PERCENTAGE:
             logger.warning(
                 f"Skipping deactivation for source {source_id}: found {found_count}/{total_existing} "
                 f"({found_percentage:.1%}) < {self.MIN_DEACTIVATION_PERCENTAGE:.0%} threshold"
             )
             return 0, False
-            
+
         try:
             # Use last_seen < run_started instead of NOT IN
             result = (
@@ -273,16 +231,16 @@ class ScraperWorker:
                 .lt("last_seen", run_started.isoformat())
                 .execute()
             )
-            
+
             deactivated = len(result.data) if result.data else 0
             if deactivated:
                 logger.info(
                     f"Deactivated {deactivated} stale listings for source {source_id} "
                     f"({found_count} active found, {found_percentage:.1%} coverage)"
                 )
-            
+
             return deactivated, True
-            
+
         except Exception as e:
             logger.error(f"Failed to deactivate stale listings: {e}")
             return 0, False
@@ -336,7 +294,7 @@ class ScraperWorker:
     def _clean_engine_size(self, engine_size) -> Optional[int]:
         """
         Clean and validate engine size
-        Handles: 1.5 → 1500, 2.0 → 2000, 1800cc → 1800, 1,800 → 1800
+        Handles: 1.5 -> 1500, 2.0 -> 2000, 1800cc -> 1800, 1,800 -> 1800
         """
         if not engine_size:
             return None
@@ -345,13 +303,13 @@ class ScraperWorker:
             cleaned = re.sub(r"[^\d.]", "", str(engine_size))
             if not cleaned:
                 return None
-                
+
             # Convert to int (cc)
             if "." in cleaned:
-                # Handle decimal (1.5L → 1500cc)
+                # Handle decimal (1.5L -> 1500cc)
                 return int(float(cleaned) * 1000)
             else:
-                # Handle integer (1800 → 1800cc)
+                # Handle integer (1800 -> 1800cc)
                 return int(cleaned)
         except (ValueError, TypeError):
             return None
@@ -364,15 +322,15 @@ class ScraperWorker:
         batch_timestamp: str
     ) -> Optional[Dict[str, Any]]:
         """Prepare listing for upsert with first_seen preservation via DB trigger"""
-        
-        # FIX 9: Support multiple ID field names
+
+        # Support multiple ID field names
         listing_id = (
             listing.get("listing_id")
             or listing.get("id")
             or listing.get("uuid")
             or listing.get("slug")
         )
-        
+
         if not listing_id:
             logger.warning(f"Missing listing_id in listing: {listing}")
             return None
@@ -380,10 +338,9 @@ class ScraperWorker:
         # Use semaphore to limit concurrent vehicle lookups
         async with self.lookup_semaphore:
             try:
-                # FIX 4: Increase timeout for vehicle lookup
                 vehicle = await asyncio.wait_for(
                     self.lookup.resolve(listing, create_missing=False),
-                    timeout=15.0  # Was 5.0 - increased to 15 seconds
+                    timeout=15.0
                 )
             except asyncio.TimeoutError:
                 logger.debug(f"Vehicle lookup timeout for {listing_id}")
@@ -392,10 +349,10 @@ class ScraperWorker:
                 logger.debug(f"Vehicle lookup failed for {listing_id}: {e}")
                 vehicle = {}
 
-        # FIX 6: Fallback to listing values if vehicle lookup returns nothing
+        # Fallback to listing values if vehicle lookup returns nothing
         make = vehicle.get("make") or listing.get("make")
         model = vehicle.get("model") or listing.get("model")
-        
+
         # Clean string fields properly (None stays None)
         title = self._clean_string_field(listing.get("title"), 500)
         url = self._clean_string_field(listing.get("url"))
@@ -427,10 +384,10 @@ class ScraperWorker:
             "first_seen": run_started.isoformat(),
             "last_seen": batch_timestamp,
         }
-        
-        # FIX 7: Remove None values to avoid constraint violations
+
+        # Remove None values to avoid constraint violations
         payload = {k: v for k, v in payload.items() if v is not None}
-        
+
         return payload
 
     async def _process_batch(
@@ -443,27 +400,27 @@ class ScraperWorker:
         stats: Dict[str, Any]
     ) -> int:
         """Process a batch of listings with parallel vehicle lookups"""
-        
-        # FIX 3: Skip listings without IDs
+
+        # Skip listings without IDs
         valid_listings = [
-            x for x in listings 
+            x for x in listings
             if x.get("listing_id") or x.get("id") or x.get("uuid") or x.get("slug")
         ]
-        
+
         if not valid_listings:
             logger.warning(f"Batch had {len(listings)} listings, but none had valid IDs")
             return 0
-        
+
         # Parallel vehicle lookups with semaphore
         save_tasks = [
-            self.save_listing(source_id, listing, run_started, batch_timestamp) 
+            self.save_listing(source_id, listing, run_started, batch_timestamp)
             for listing in valid_listings
         ]
         results = await asyncio.gather(*save_tasks, return_exceptions=True)
-        
+
         payloads = []
         failed_count = 0
-        
+
         for result in results:
             if isinstance(result, Exception):
                 failed_count += 1
@@ -474,7 +431,7 @@ class ScraperWorker:
                 active_listing_ids.add(result["listing_id"])
             else:
                 failed_count += 1
-        
+
         if payloads:
             try:
                 # Batch upsert - Postgres trigger preserves first_seen
@@ -487,22 +444,22 @@ class ScraperWorker:
                     )
                     .execute()
                 )
-                
+
                 stats["listings_saved"] += len(payloads)
-                
+
             except Exception as e:
                 logger.error(f"Batch upsert failed: {e}")
-                
+
                 # Try binary search to isolate bad records
                 await self._retry_with_binary_split(
                     payloads,
                     stats
                 )
-        
+
         # Count failed from the save step
         if failed_count:
             stats["listings_failed"] = stats.get("listings_failed", 0) + failed_count
-        
+
         return len(payloads)
 
     async def _retry_with_binary_split(
@@ -512,7 +469,6 @@ class ScraperWorker:
     ):
         """Binary search to isolate bad records when batch upsert fails"""
         if len(payloads) == 1:
-            # FIX 8: Upsert expects a list, not a dict
             try:
                 (
                     self.supabase
@@ -525,12 +481,12 @@ class ScraperWorker:
                 stats["listings_failed"] = stats.get("listings_failed", 0) + 1
                 logger.debug(f"Failed to insert listing {payloads[0].get('listing_id')}: {e}")
             return
-        
+
         # Split in half
         mid = len(payloads) // 2
         left = payloads[:mid]
         right = payloads[mid:]
-        
+
         # Try left half
         try:
             (
@@ -543,7 +499,7 @@ class ScraperWorker:
         except Exception:
             # Left half failed - recurse
             await self._retry_with_binary_split(left, stats)
-        
+
         # Try right half
         try:
             (
@@ -574,10 +530,7 @@ class ScraperWorker:
         return self.source_ids.get(source)
 
     async def get_dashboard_status(self) -> Dict[str, Any]:
-        """
-        Get dashboard status with optimized queries.
-        Supports both scraper_runs and scraper_jobs.
-        """
+        """Get dashboard status from scraper_jobs."""
         status = {
             "pending_count": 0,
             "running_count": 0,
@@ -589,34 +542,18 @@ class ScraperWorker:
             "total_listings": 0,
         }
 
-        # Try to get runs from scraper_runs first
-        table = "scraper_runs"
         runs = []
-
         try:
             result = (
                 self.supabase
-                .table(table)
+                .table(self.JOBS_TABLE)
                 .select("*")
                 .order("started_at", desc=True)
                 .execute()
             )
             runs = result.data or []
         except Exception as e:
-            logger.debug(f"scraper_runs query failed: {e}, trying scraper_jobs")
-            # Fallback to scraper_jobs
-            try:
-                table = "scraper_jobs"
-                result = (
-                    self.supabase
-                    .table(table)
-                    .select("*")
-                    .order("started_at", desc=True)
-                    .execute()
-                )
-                runs = result.data or []
-            except Exception as e2:
-                logger.error(f"Failed to query both tables: {e2}")
+            logger.error(f"Failed to query {self.JOBS_TABLE}: {e}")
 
         # Count statuses
         for run in runs:
@@ -649,12 +586,11 @@ class ScraperWorker:
         return status
 
     async def get_run(self, run_id: int) -> Optional[Dict[str, Any]]:
-        """Get a specific run by ID. Supports both tables."""
-        # Try scraper_runs first
+        """Get a specific run from scraper_jobs."""
         try:
             result = (
                 self.supabase
-                .table("scraper_runs")
+                .table(self.JOBS_TABLE)
                 .select(
                     """
                     id,
@@ -678,38 +614,10 @@ class ScraperWorker:
                 .single()
                 .execute()
             )
-            if result.data:
-                return result.data
-        except Exception as e:
-            logger.debug(f"scraper_runs get_run failed: {e}, trying scraper_jobs")
-
-        # Fallback to scraper_jobs
-        try:
-            result = (
-                self.supabase
-                .table("scraper_jobs")
-                .select(
-                    """
-                    id,
-                    source_id,
-                    status,
-                    started_at,
-                    completed_at,
-                    updated_at,
-                    listings_found,
-                    listings_saved,
-                    error
-                    """
-                )
-                .eq("id", run_id)
-                .single()
-                .execute()
-            )
             return result.data if result.data else None
         except Exception as e:
-            logger.debug(f"scraper_jobs get_run failed: {e}")
-
-        return None
+            logger.error(f"get_run failed for {run_id}: {e}")
+            return None
 
     async def get_run_history(
         self,
@@ -718,17 +626,11 @@ class ScraperWorker:
         source: Optional[str] = None,
         status: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Get run history with pagination and filters.
-        Supports both tables.
-        """
-        # Try scraper_runs first
-        table = "scraper_runs"
-        
+        """Get run history from scraper_jobs with pagination and filters."""
         try:
             q = (
                 self.supabase
-                .table(table)
+                .table(self.JOBS_TABLE)
                 .select("*", count="exact")
             )
 
@@ -744,35 +646,10 @@ class ScraperWorker:
                     }
                 q = q.eq("status", status)
 
-            result = (
-                q.order("started_at", desc=True)
-                .range(offset, offset + limit - 1)
-                .execute()
-            )
-
-            return {
-                "runs": result.data or [],
-                "total": result.count or 0,
-                "limit": limit,
-                "offset": offset,
-                "has_more": (offset + limit) < (result.count or 0),
-            }
-
-        except Exception as e:
-            logger.debug(f"scraper_runs history failed: {e}, trying scraper_jobs")
-
-        # Fallback to scraper_jobs
-        table = "scraper_jobs"
-        
-        try:
-            q = (
-                self.supabase
-                .table(table)
-                .select("*", count="exact")
-            )
-
-            if status:
-                q = q.eq("status", status)
+            if source:
+                source_id = self._get_source_id(source)
+                if source_id:
+                    q = q.eq("source_id", source_id)
 
             result = (
                 q.order("started_at", desc=True)
@@ -789,7 +666,7 @@ class ScraperWorker:
             }
 
         except Exception as e:
-            logger.error(f"Failed to get run history from both tables: {e}")
+            logger.error(f"Failed to get run history from {self.JOBS_TABLE}: {e}")
             return {
                 "runs": [],
                 "total": 0,
@@ -805,7 +682,7 @@ class ScraperWorker:
             # Check database connection
             self.supabase.table("market_sources").select("id").limit(1).execute()
             db_connected = True
-            
+
             # Get listing count
             listings = (
                 self.supabase
@@ -814,12 +691,12 @@ class ScraperWorker:
                 .execute()
             )
             listing_count = listings.count or 0
-            
+
             # Get run count
             run_history = await self.get_run_history(limit=1)
             run_count = run_history.get("total", 0)
             latest_run = run_history.get("runs", [])[0] if run_history.get("runs") else None
-            
+
             return {
                 "healthy": True,
                 "database_status": "connected" if db_connected else "disconnected",
@@ -828,7 +705,7 @@ class ScraperWorker:
                 "listing_count": listing_count,
                 "latest_run": latest_run,
             }
-            
+
         except Exception as e:
             logger.exception("Worker health check failed")
             return {
@@ -862,16 +739,14 @@ class ScraperWorker:
                 "error": "Source already running",
                 "run_id": None,
             }
-        
-        # FIX 11: Check if source IDs are loaded
+
         if not self.source_ids:
             raise RuntimeError("market_sources table is empty - cannot run scraper")
-        
-        # FIX 1: Instantiate fresh scraper each run
+
         scraper_class = self.scrapers.get(source)
         if not scraper_class:
             raise ValueError(f"Unknown scraper: {source}")
-        
+
         scraper = scraper_class()  # Fresh instance each run
 
         source_id = self._get_source_id(source)
@@ -881,8 +756,7 @@ class ScraperWorker:
         # Acquire lock
         self._running_sources.add(source)
         run_started = datetime.now(timezone.utc)
-        
-        # Initialize variables for finally block
+
         run_id = None
         stats = {
             "listings_found": 0,
@@ -892,35 +766,35 @@ class ScraperWorker:
             "status": "pending",
             "error": None,
         }
-        
+
         try:
             # Get existing listing count for deactivation safety
             existing_count = self._get_existing_listing_count(source_id)
-            
+
             # Create run record
             run_id = self._create_run_record(source, run_started)
-            
+
             if not run_id:
                 raise RuntimeError(f"Failed to create run record for {source}")
-            
+
             active_listing_ids = set()
 
             # Mark as running
             self._update_run_status(
-                run_id, 
+                run_id,
                 "running",
                 listings_found=0,
                 listings_saved=0,
                 listings_failed=0
             )
-            
+
             for attempt in range(max_retries + 1):
                 try:
                     logger.info(f"[{source}] Starting scrape (run {run_id}, attempt {attempt + 1})")
-                    
+
                     # Dynamic timeout based on pages
                     timeout = max(180, pages * 60)
-                    
+
                     # Run scraper with timeout
                     scrape_start = datetime.now(timezone.utc)
                     result = await asyncio.wait_for(
@@ -931,52 +805,51 @@ class ScraperWorker:
                         timeout=timeout
                     )
                     scrape_duration = (datetime.now(timezone.utc) - scrape_start).total_seconds()
-                    
-                    # FIX 2: Validate scraper output
+
+                    # Validate scraper output
                     if not isinstance(result, dict):
                         raise RuntimeError(
                             f"{source} scraper returned {type(result)} instead of dict"
                         )
-                    
+
                     if "listings" not in result:
                         raise RuntimeError(
                             f"{source} scraper returned no listings key"
                         )
-                    
+
                     listings = result["listings"]
-                    
+
                     if not isinstance(listings, list):
                         raise RuntimeError(
                             f"{source} listings is not a list (got {type(listings)})"
                         )
-                    
-                    # FIX 10: Log every scrape result
+
                     logger.info(f"[{source}] Scraper returned {len(listings)} listings")
-                    
+
                     if listings:
                         logger.info(f"[{source}] First listing: {listings[0]}")
                     else:
                         logger.warning(f"[{source}] Scraper returned zero listings - check CSS selectors")
-                    
+
                     stats["listings_found"] = len(listings)
-                    
+
                     logger.info(
                         f"[{source}] Found {len(listings)} listings "
                         f"(scrape took {scrape_duration:.2f}s)"
                     )
-                    
+
                     # Process listings in batches with parallel lookups
                     batch_start = datetime.now(timezone.utc)
                     batch_timestamp = batch_start.isoformat()
-                    
+
                     for i in range(0, len(listings), self.batch_size):
                         batch = listings[i:i + self.batch_size]
                         await self._process_batch(
-                            source_id, 
-                            batch, 
-                            run_started, 
+                            source_id,
+                            batch,
+                            run_started,
                             batch_timestamp,
-                            active_listing_ids, 
+                            active_listing_ids,
                             stats
                         )
                         logger.debug(
@@ -984,7 +857,7 @@ class ScraperWorker:
                             f"saved {stats['listings_saved']} so far"
                         )
                     batch_duration = (datetime.now(timezone.utc) - batch_start).total_seconds()
-                    
+
                     # Only deactivate if we found enough listings
                     if existing_count > 0:
                         deactivated, was_safe = self._deactivate_stale_listings(
@@ -1001,18 +874,18 @@ class ScraperWorker:
                             )
                     else:
                         logger.info(f"[{source}] No existing listings to deactivate (first run?)")
-                    
+
                     # Success - break retry loop
                     stats["status"] = "completed"
                     break
-                    
+
                 except asyncio.TimeoutError:
                     logger.warning(f"[{source}] Timeout on attempt {attempt + 1}")
                     if attempt >= max_retries:
                         stats["status"] = "failed"
                         stats["error"] = f"Scraper timed out after {max_retries} retries"
                         raise TimeoutError(stats["error"])
-                        
+
                 except Exception as e:
                     logger.warning(f"[{source}] Attempt {attempt + 1} failed: {e}")
                     if attempt >= max_retries:
@@ -1021,7 +894,7 @@ class ScraperWorker:
                         raise
                     # Exponential backoff
                     await asyncio.sleep(2 ** attempt)
-                    
+
         except Exception as e:
             stats["status"] = "failed"
             if not stats["error"]:
@@ -1031,7 +904,7 @@ class ScraperWorker:
             # Always update the run record if it was created
             duration = (datetime.now(timezone.utc) - run_started).total_seconds()
             stats["duration_seconds"] = duration
-            
+
             if run_id:
                 self._update_run_status(
                     run_id,
@@ -1042,13 +915,13 @@ class ScraperWorker:
                     deactivated=stats.get("deactivated", 0),
                     error=stats.get("error")
                 )
-                
+
                 logger.info(
                     f"[{source}] Run {run_id} completed: {stats['status']} "
                     f"(found: {stats['listings_found']}, saved: {stats['listings_saved']}, "
                     f"failed: {stats.get('listings_failed', 0)}, deactivated: {stats.get('deactivated', 0)})"
                 )
-            
+
             # Release lock
             self._running_sources.discard(source)
 
@@ -1084,7 +957,7 @@ class ScraperWorker:
         if parallel:
             # Run scrapers in parallel with semaphore
             semaphore = asyncio.Semaphore(max_concurrent)
-            
+
             async def run_with_semaphore(source):
                 async with semaphore:
                     result = await self.run_source(
@@ -1093,10 +966,10 @@ class ScraperWorker:
                         limit_per_page=limit_per_page,
                     )
                 return source, result
-            
+
             tasks = [run_with_semaphore(source) for source in self.scrapers.keys()]
             completed = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             for item in completed:
                 if isinstance(item, Exception):
                     logger.error(f"Scraper failed: {item}")
@@ -1107,7 +980,7 @@ class ScraperWorker:
                 total_saved += result.get("listings_saved", 0)
                 total_failed += result.get("listings_failed", 0)
                 total_deactivated += result.get("deactivated", 0)
-        
+
         else:
             # Run sequentially
             for source in self.scrapers.keys():
@@ -1123,10 +996,10 @@ class ScraperWorker:
                 total_deactivated += result.get("deactivated", 0)
 
         duration = (datetime.now(timezone.utc) - start_time).total_seconds()
-        
+
         sources_run = len(results)
         sources_failed = sum(1 for r in results.values() if r.get("status") == "failed")
-        
+
         # Determine overall status
         if sources_failed == sources_run:
             overall_status = "failed"
@@ -1165,7 +1038,7 @@ class ScraperWorker:
                 parallel=parallel,
                 max_concurrent=max_concurrent,
             )
-        
+
         return await self.run_source(
             source=source,
             pages=pages,
@@ -1174,87 +1047,57 @@ class ScraperWorker:
 
     async def recover_stuck_jobs(self, max_age_minutes: int = 60) -> Dict[str, Any]:
         """
-        Recover stuck scraper runs (status='running' or 'pending' for too long)
-        Supports both scraper_runs and scraper_jobs.
+        Recover stuck scraper_jobs (status='running' or 'pending' for too long)
         """
         try:
             now = datetime.now(timezone.utc)
             cutoff = (now - timedelta(minutes=max_age_minutes)).isoformat()
-            
-            # Try scraper_runs first
-            try:
-                result = (
-                    self.supabase
-                    .table("scraper_runs")
-                    .select("id, source_id, status, started_at")
-                    .in_("status", ["running", "pending"])
-                    .lt("started_at", cutoff)
-                    .execute()
-                )
-                stuck_jobs = result.data or []
-                table_used = "scraper_runs"
-            except Exception as e:
-                logger.debug(f"scraper_runs recovery failed: {e}, trying scraper_jobs")
-                # Fallback to scraper_jobs
-                result = (
-                    self.supabase
-                    .table("scraper_jobs")
-                    .select("id, source_id, status, started_at")
-                    .in_("status", ["running", "pending"])
-                    .lt("started_at", cutoff)
-                    .execute()
-                )
-                stuck_jobs = result.data or []
-                table_used = "scraper_jobs"
-            
+
+            result = (
+                self.supabase
+                .table(self.JOBS_TABLE)
+                .select("id, source_id, status, started_at")
+                .in_("status", ["running", "pending"])
+                .lt("started_at", cutoff)
+                .execute()
+            )
+            stuck_jobs = result.data or []
+
             if not stuck_jobs:
                 return {"status": "success", "recovered": 0, "message": "No stuck jobs found"}
-            
-            logger.info(f"Found {len(stuck_jobs)} stuck jobs to recover from {table_used}")
-            
+
+            logger.info(f"Found {len(stuck_jobs)} stuck jobs to recover from {self.JOBS_TABLE}")
+
             recovered = []
             for job in stuck_jobs:
                 try:
-                    # Mark as failed with updated_at
                     update_payload = {
                         "status": "failed",
                         "error": f"Job recovered after {max_age_minutes} minutes timeout",
                         "completed_at": now.isoformat(),
                         "updated_at": now.isoformat(),
                     }
-                    
-                    try:
-                        (
-                            self.supabase
-                            .table("scraper_runs")
-                            .update(update_payload)
-                            .eq("id", job["id"])
-                            .execute()
-                        )
-                    except Exception:
-                        # Fallback to scraper_jobs
-                        (
-                            self.supabase
-                            .table("scraper_jobs")
-                            .update(update_payload)
-                            .eq("id", job["id"])
-                            .execute()
-                        )
-                    
+                    (
+                        self.supabase
+                        .table(self.JOBS_TABLE)
+                        .update(update_payload)
+                        .eq("id", job["id"])
+                        .execute()
+                    )
                     recovered.append(job["id"])
                     logger.info(f"Recovered job {job['id']} (source_id: {job['source_id']})")
-                    
+
                 except Exception as e:
                     logger.error(f"Failed to recover job {job['id']}: {e}")
-            
+
             return {
                 "status": "success",
                 "recovered": len(recovered),
                 "total_stuck": len(stuck_jobs),
                 "recovered_ids": recovered,
-                "table_used": table_used,
+                "table_used": self.JOBS_TABLE,
             }
-            
+
         except Exception as e:
             logger.error(f"Recovery failed: {e}")
             return {"status": "failed", "error": str(e)}
