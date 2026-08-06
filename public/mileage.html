@@ -1348,11 +1348,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 9.0 - Rewired to call the Auto-D REST API directly for
-        // vehicle taxonomy, running cost, and ownership/5-year data,
-        // instead of querying the Supabase view. Supabase is now used
-        // only for auth (session token) and for the two datasets that
-        // have no API equivalent: vehicle categories and quick routes.
+        // Version 9.1 - Fixed authentication flow to handle 401 gracefully
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1362,7 +1358,7 @@
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                VIEW_NAME: 'vehicle_master_specs', // only used for categories now (no API endpoint exists)
+                VIEW_NAME: 'vehicle_master_specs',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html'
             };
@@ -1504,7 +1500,7 @@
                 el.progressContainer.classList.remove('show');
             }
 
-            // ─── SUPABASE (auth session + categories/routes fallback only) ──
+            // ─── SUPABASE ────────────────────────────────────────────
             function initSupabase() {
                 try {
                     if (typeof supabase === 'undefined') {
@@ -1524,8 +1520,7 @@
             }
 
             // ─── AUTO-D API HELPER ────────────────────────────────────
-            // Central fetch wrapper for every /api/v1/* call. Attaches the
-            // Supabase-issued bearer token (if signed in) automatically.
+            // FIXED: Handles 401 gracefully for /me endpoint
             async function apiFetch(path, options = {}) {
                 const token = await getAccessToken();
                 const headers = Object.assign(
@@ -1542,6 +1537,16 @@
                     signal: AbortSignal.timeout(options.timeout || 15000)
                 });
 
+                // Handle 401 specially for /me - just return null
+                if (response.status === 401) {
+                    if (path === '/me') {
+                        console.log('ℹ️ /me endpoint returned 401, treating as unauthenticated for profile');
+                        return null;
+                    }
+                    // For other endpoints, throw
+                    throw new Error('Unauthorized');
+                }
+
                 if (!response.ok) {
                     let errorData;
                     try { errorData = await response.json(); }
@@ -1555,12 +1560,7 @@
                 return response.json();
             }
 
-            // ─── AUTH (via Auto-D API: /login, /register, /logout, /me) ──
-            // Auth still goes through Supabase to obtain the session/JWT
-            // (that's what the API's Authorization: Bearer header expects),
-            // but we also confirm/sync against GET /api/v1/me so the app's
-            // own user record — not just the Supabase session — is source
-            // of truth for "am I logged in".
+            // ─── AUTH ──────────────────────────────────────────────────
             async function getAccessToken() {
                 try {
                     if (!supabaseClient) return '';
@@ -1573,6 +1573,7 @@
                 }
             }
 
+            // FIXED: signIn doesn't let /me failure break the flow
             async function signIn(email, password) {
                 try {
                     if (!supabaseClient) {
@@ -1584,12 +1585,20 @@
                     currentUser = data.session;
                     isAuthenticated = true;
 
-                    // Confirm against the Auto-D API's own session view.
+                    // Try /me but don't let failure break auth
                     try {
                         const me = await apiFetch('/me');
-                        if (me) currentUser = Object.assign({}, currentUser, { profile: me });
+                        if (me) {
+                            currentUser = Object.assign({}, currentUser, { profile: me });
+                            console.log('✅ User profile loaded from /me');
+                        }
                     } catch (apiErr) {
-                        console.warn('⚠️ /me check failed after sign-in:', apiErr.message);
+                        // 401 is expected - user is still authenticated via Supabase
+                        if (apiErr.message.includes('Unauthorized')) {
+                            console.log('ℹ️ /me unavailable, using Supabase session only');
+                        } else {
+                            console.warn('⚠️ /me check failed:', apiErr.message);
+                        }
                     }
 
                     updateAuthUI();
@@ -1623,7 +1632,7 @@
 
             async function signOut() {
                 try {
-                    // Tell the Auto-D API the session is ending too.
+                    // Try API logout but don't let failure break the flow
                     try { await apiFetch('/logout', { method: 'POST' }); }
                     catch (apiErr) { console.warn('⚠️ API logout failed (continuing):', apiErr.message); }
 
@@ -1642,6 +1651,7 @@
                 }
             }
 
+            // FIXED: checkAuth doesn't let /me failure break auth status
             async function checkAuth() {
                 try {
                     if (!supabaseClient) {
@@ -1650,15 +1660,25 @@
                     }
                     const { data, error } = await supabaseClient.auth.getSession();
                     if (error) throw error;
+                    
                     if (data.session) {
                         currentUser = data.session;
                         isAuthenticated = true;
-                        // Sync display name/email from the API's own user record.
+                        
+                        // Try /me but don't let failure break auth
                         try {
                             const me = await apiFetch('/me');
-                            if (me) currentUser = Object.assign({}, currentUser, { profile: me });
+                            if (me) {
+                                currentUser = Object.assign({}, currentUser, { profile: me });
+                                console.log('✅ User profile loaded from /me');
+                            }
                         } catch (apiErr) {
-                            console.warn('⚠️ /me check failed:', apiErr.message);
+                            // 401 is expected - user is still authenticated via Supabase
+                            if (apiErr.message.includes('Unauthorized')) {
+                                console.log('ℹ️ /me unavailable, using Supabase session only');
+                            } else {
+                                console.warn('⚠️ /me check failed:', apiErr.message);
+                            }
                         }
                     } else {
                         currentUser = null;
@@ -1677,7 +1697,7 @@
 
             function updateAuthUI() {
                 if (isAuthenticated && currentUser) {
-                    const email = currentUser.profile?.email || currentUser.user?.email || 'user';
+                    const email = currentUser.profile?.email || currentUser.user?.email || currentUser.email || 'user';
                     el.authStatus.textContent = `🔒 ${email}`;
                     el.authStatus.className = 'auth-status authenticated';
                     el.authMessage.textContent = `✅ Signed in as ${email}`;
@@ -1693,12 +1713,7 @@
                 }
             }
 
-            // ─── API: QUERY SUPABASE VIEW (categories + routes only) ────
-            // No /api/v1 endpoint exists for vehicle categories or quick
-            // routes, so those two data sets still come straight from the
-            // Supabase view/table. Everything else (makes, models,
-            // generations, variants, variant details, running cost,
-            // ownership/5-year cost, reports) goes through apiFetch().
+            // ─── API: QUERY SUPABASE VIEW ────────────────────────────
             async function queryView(select, filter, order) {
                 if (!supabaseClient) {
                     const client = initSupabase();
@@ -1714,8 +1729,6 @@
 
             // ─── LOAD DATA ─────────────────────────────────────────────
             async function loadCategories() {
-                // No /api/v1/categories endpoint exists — this stays on
-                // the Supabase view.
                 try {
                     setStatus('info', 'Loading categories...');
                     const data = await queryView('category_id, category_name', null, { column: 'category_name', ascending: true });
@@ -1734,9 +1747,6 @@
             }
 
             async function loadMakes(categoryId) {
-                // GET /api/v1/makes — the API does not accept a category
-                // filter, so we fetch the full list and filter client-side
-                // on whatever category field the response provides.
                 try {
                     setStatus('info', 'Loading makes...');
                     const data = await apiFetch('/makes');
@@ -1757,7 +1767,6 @@
             }
 
             async function loadModels(makeId) {
-                // GET /api/v1/models/{make_id}
                 try {
                     setStatus('info', 'Loading models...');
                     const data = await apiFetch(`/models/${encodeURIComponent(makeId)}`);
@@ -1775,7 +1784,6 @@
             }
 
             async function loadGenerations(modelId) {
-                // GET /api/v1/generations/{model_id}
                 try {
                     setStatus('info', 'Loading generations...');
                     const data = await apiFetch(`/generations/${encodeURIComponent(modelId)}`);
@@ -1794,7 +1802,6 @@
             }
 
             async function loadVariants(generationId) {
-                // GET /api/v1/variants/{generation_id}
                 try {
                     setStatus('info', 'Loading variants...');
                     const data = await apiFetch(`/variants/${encodeURIComponent(generationId)}`);
@@ -1832,10 +1839,6 @@
             }
 
             async function loadVariantDetails(variantId) {
-                // GET /api/v1/vehicle-details/{variant_id} — the purpose-
-                // built endpoint for a single variant's full profile.
-                // Falls back to GET /api/v1/variant/{variant_id} if that
-                // one 404s or errors, since both cover overlapping data.
                 try {
                     setStatus('info', 'Loading vehicle details...');
                     try {
@@ -1877,7 +1880,6 @@
             }
 
             async function loadRoutes() {
-                // No /api/v1/routes endpoint exists — stays on Supabase.
                 try {
                     if (!supabaseClient) {
                         const client = initSupabase();
@@ -2107,29 +2109,6 @@
             }
 
             // ─── RUNNING COST API CALL ─────────────────────────────────
-            // Payload field names/types match app/modules/running_cost/
-            // schemas.py::RunningCostRequest exactly. Notable gotchas
-            // fixed here vs. earlier versions of this file:
-            //   - `location` is an enum ("urban"|"suburban"|"rural"|
-            //     "remote"), NOT a city name — sending "nairobi" would
-            //     silently fall through to a neutral 1.0 factor.
-            //   - `down_payment` is a FRACTION (0–1), not a percent —
-            //     the UI slider collects a percent (5–70) so it's
-            //     divided by 100 before sending.
-            //   - `loan_term` is in MONTHS, not years — the UI slider
-            //     collects years (1–7) so it's multiplied by 12.
-            //   - `interest_rate` is already a percent (e.g. 14.0 =
-            //     14%), matching the UI slider directly — no conversion.
-            //   - `year` and `distance` are required fields on the
-            //     backend model (no default) — omitting them causes a
-            //     validation error, not a silent fallback.
-            // The single response from this endpoint already contains
-            // everything the UI needs: trip totals, per-km breakdown,
-            // monthly/annual costs, the full 5-year projection
-            // (fiveYearData / five_year_total), vehicle valuation
-            // (purchase_price / resale_value / current_value), and a
-            // finance breakdown when `financed` is true. There is no
-            // separate ownership/TCO endpoint to call.
             async function calculateRunningCostFromAPI(formData) {
                 const payload = {
                     variant_id: parseInt(formData.variant_id),
@@ -2158,12 +2137,11 @@
                 const token = await getAccessToken();
                 const endpoint = token ? '/running-cost/calculate' : '/running-cost/calculate-public';
                 console.log(`📤 Sending running cost request to: ${CONFIG.API_BASE}${endpoint} (auth: ${token ? 'yes' : 'no'})`);
-                console.log('📦 Payload:', payload);
 
                 return apiFetch(endpoint, { method: 'POST', body: payload });
             }
 
-            // ─── MAIN CALCULATION (only runs when Calculate is clicked) ──
+            // ─── MAIN CALCULATION ──────────────────────────────────────
             async function calculateAndRender(variant = null) {
                 if (!variant) variant = currentVariantData;
                 if (!variant) {
@@ -2194,13 +2172,10 @@
                     trip_type: el.tripType.value === 'city' ? 'urban' : el.tripType.value,
                     usage_type: el.usageType.value,
                     location: 'urban',
-                    year: parseInt(el.yearSelect.value) || 2024,
+                    year: parseInt(el.yearSelect.value) || new Date().getFullYear(),
                     financed: isFinanced,
-                    // UI collects a percent (5–70); schema wants a 0–1 fraction.
                     down_payment_fraction: (parseInt(el.downPct.value) || 30) / 100,
-                    // UI collects percent directly — matches schema as-is.
                     interest_rate: parseFloat(el.rate.value) || 16,
-                    // UI collects years (1–7); schema wants months.
                     loan_term_months: (parseInt(el.term.value) || 4) * 12
                 };
 
@@ -2230,22 +2205,11 @@
             }
 
             // ─── RENDER RESULTS ─────────────────────────────────────────
-            // `result` is the full response from running-cost/calculate(-public)
-            // — see app/modules/running_cost/service.py::calculate_running_cost.
-            // It already contains trip totals, per-km breakdown, monthly/
-            // annual costs, the 5-year projection (fiveYearData /
-            // five_year_total), vehicle valuation (purchase_price /
-            // resale_value / current_value), and — when `financed` was
-            // sent as true — a `finance` object (monthly_payment,
-            // total_interest, etc). There is no separate ownership call.
+            let lastCalculatedVehicleId = null;
+
             function renderResults(result, variant) {
                 if (!result) return;
 
-                // ─── EXTRACT VALUES ─────────────────────────────────────
-                // Prefer the top-level "trip*" fields the service builds
-                // (tripTotal, fuelCostTrip, etc); fall back to the
-                // "legacy" flat fields (fuel_cost, service_cost, ...)
-                // which the same response also includes for compatibility.
                 const distance = result.distance || 150;
                 const tripCostPerKm = result.tripCostPerKm ?? result.cost_per_km ?? 0;
                 const fuelCost = result.fuelCostTrip ?? result.fuel_cost ?? 0;
@@ -2258,7 +2222,7 @@
                 el.tripTotal.textContent = formatCurrency(tripTotal);
                 el.tripSub.textContent = `at ${formatCurrency(tripCostPerKm)} KES/km over ${formatNumber(distance)} km`;
 
-                // ─── TRIP COST GRID ──────────────────────────────────
+                // Trip Cost Grid
                 const tripComponents = {
                     'Fuel': fuelCost,
                     'Service': serviceCost,
@@ -2283,7 +2247,7 @@
                 `;
                 el.tripCostGrid.innerHTML = tripHtml;
 
-                // ─── PER KM GRID ──────────────────────────────────────
+                // Per KM Grid
                 const perKmComponents = {
                     'Fuel': fuelCost / (distance || 1),
                     'Service': serviceCost / (distance || 1),
@@ -2308,10 +2272,7 @@
                 `;
                 el.perkmGrid.innerHTML = perkmHtml;
 
-                // ─── 5-YEAR DATA ─────────────────────────────────────
-                // Returned directly by running-cost/calculate — each item
-                // in fiveYearData has: year, fuel, service, tyres,
-                // insurance, depreciation, running_cost, total, value.
+                // 5-Year Data
                 const fiveYearData = result.fiveYearData || [];
                 const total5Year = result.five_year_total ?? 0;
                 const originalCost = result.purchase_price ?? result.market_value ?? 2500000;
@@ -2340,7 +2301,7 @@
                     </div>
                 `;
 
-                // ─── YEARLY TABLE ──────────────────────────────────────
+                // Yearly Table
                 const tbody = el.yearlyBody;
                 tbody.innerHTML = '';
                 if (fiveYearData.length > 0) {
@@ -2362,7 +2323,7 @@
                     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:12px;color:var(--text-muted);">5-year breakdown unavailable from the ownership service.</td></tr>`;
                 }
 
-                // ─── COMMERCIAL RATES ──────────────────────────────────
+                // Commercial Rates
                 const perKm = tripCostPerKm;
                 const commercialRates = [
                     { label: 'Private', value: perKm * 1.0, sub: 'Base rate' },
@@ -2381,7 +2342,7 @@
                     </div>
                 `).join('');
 
-                // ─── MONTHLY & ANNUAL ──────────────────────────────────
+                // Monthly & Annual
                 const monthlyMultiplier = 1 / 12;
                 const monthlyItems = [
                     { label: 'Fuel', value: fuelCost * monthlyMultiplier },
@@ -2411,7 +2372,7 @@
                     </div>
                 `).join('');
 
-                // ─── RCI ──────────────────────────────────────────────
+                // RCI
                 let rciLabel, rciStars, rciClass;
                 if (tripCostPerKm <= 20) { rciLabel = 'Excellent'; rciStars = '★★★★★'; rciClass = 'excellent'; }
                 else if (tripCostPerKm <= 35) { rciLabel = 'Good'; rciStars = '★★★★'; rciClass = 'good'; }
@@ -2424,7 +2385,7 @@
                 el.rciStars.textContent = rciStars;
                 el.rciLabel.textContent = rciLabel;
 
-                // ─── ENVIRONMENTAL ──────────────────────────────────────
+                // Environmental
                 const fuelType = variant?.fuel_type_name || result.fuel_type || result.fuelTypeDisplay || '';
                 const co2PerKm = fuelType.toLowerCase() === 'electric' ? 0 : 
                                  fuelType.toLowerCase() === 'hybrid' ? 80 : 
@@ -2439,7 +2400,7 @@
                     <div class="env-item"><div class="env-value">${fuelConsumption ? fuelConsumption.toFixed(1) : '—'}</div><div class="env-label">km/L</div></div>
                 `;
 
-                // ─── RECOMMENDATIONS ────────────────────────────────────
+                // Recommendations
                 const recList = el.recList;
                 const recs = [];
                 if (tripCostPerKm > 50) {
@@ -2450,6 +2411,7 @@
                 if (fuelType.toLowerCase() === 'electric') {
                     recs.push({ icon: '🌱', text: 'Electric vehicle - zero emissions and lower running costs.', type: 'success' });
                 }
+                // FIXED: Check if finance exists before accessing properties
                 if (result.finance && result.finance.financed) {
                     const f = result.finance;
                     recs.push({
@@ -2472,18 +2434,10 @@
                     hour: '2-digit', minute: '2-digit'
                 });
 
-                // Stash the last successful vehicle_id + result so the
-                // Export button can hit the reports endpoints.
                 lastCalculatedVehicleId = variant?.variant_id || null;
             }
 
-            let lastCalculatedVehicleId = null;
-
-            // ─── LOAD VARIANT DETAILS (NO auto-calculate) ──────────────
-            // fix: this used to call calculateAndRender() as soon as a
-            // variant was selected. Now it only loads and displays the
-            // vehicle profile card and enables the Calculate button —
-            // the actual cost calculation waits for the user to click it.
+            // ─── LOAD VARIANT AND DISPLAY ──────────────────────────────
             async function loadVariantAndDisplay(variantId) {
                 if (!variantId) return;
                 el.calculateBtn.disabled = true;
@@ -2508,12 +2462,7 @@
                 }
             }
 
-            // ─── EXPORT (via Reports endpoints) ─────────────────────────
-            // GET /api/v1/reports/running-cost/{vehicle_id} generates the
-            // report; GET /api/v1/reports/download/{report_id} fetches the
-            // file. Requires a saved vehicle_id from /api/v1/vehicles, so
-            // this only works once the current variant has been added to
-            // the user's garage and a calculation has run.
+            // ─── EXPORT ──────────────────────────────────────────────────
             async function exportReport() {
                 if (!isAuthenticated) {
                     showToast('Sign in to export a report', 'warning');
@@ -2703,9 +2652,6 @@
                     }
                 });
 
-                // fix: selecting a variant now only loads/displays the
-                // vehicle profile and enables the button — it no longer
-                // triggers calculateAndRender() automatically.
                 el.variantSelect.addEventListener('change', function() {
                     const variantId = this.value;
                     if (variantId) {
@@ -2716,11 +2662,6 @@
                     }
                 });
 
-                // fix: parameter changes (distance, annual km, fuel price,
-                // driving style, trip type, usage type, year) only clear
-                // their own validation-error state now. They used to
-                // debounce-trigger a recalculation; that's removed —
-                // the user must click Calculate to see updated results.
                 ['change', 'input'].forEach(evt => {
                     [el.distanceInput, el.annualKmInput, el.fuelPriceInput, el.drivingStyle,
                      el.tripType, el.usageType, el.yearSelect].forEach(elem => {
@@ -2732,8 +2673,6 @@
                     });
                 });
 
-                // fix: clicking a quick-route chip only fills in the
-                // distance field now — it no longer auto-recalculates.
                 el.routeChips.addEventListener('click', function(e) {
                     const chip = e.target.closest('.chip');
                     if (!chip) return;
@@ -2753,8 +2692,6 @@
                     }
                 });
 
-                // fix: cash/financed toggle just switches the fields shown
-                // now — it no longer auto-recalculates.
                 el.btnCash.addEventListener('click', function() {
                     this.classList.add('active');
                     el.btnFinanced.classList.remove('active');
@@ -2800,10 +2737,6 @@
             }
 
             // ─── INIT ──────────────────────────────────────────────────
-            // fix: no longer auto-selects the first category and cascades
-            // makes/models/generations/variants on load. The person now
-            // picks Category → Make → Model → Generation → Variant
-            // themselves, then clicks Calculate.
             async function init() {
                 el.loadingOverlay.classList.add('active');
 
