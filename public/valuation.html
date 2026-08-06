@@ -1495,7 +1495,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK
-        // Version 4.8 - Professional Valuation Report
+        // Version 4.9 - Professional Valuation Report (vehicle-detail fallback fix)
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -2483,7 +2483,7 @@
                     el.loadingSteps.classList.remove('show');
                     if (result && (result.data || result.market_value || result.retail_value || result.valuation)) {
                         valuationData = result;
-                        showResult(result, registration);
+                        showResult(result, registration, formData);
                         showToast('✅ Valuation complete!', 'success');
                     } else {
                         throw new Error('No valuation data received');
@@ -2497,7 +2497,12 @@
             }
 
             // ─── SHOW RESULT ──────────────────────────────────────────
-            function showResult(result, registration) {
+            // NOTE: `formData` (the values the user actually entered/selected) is now
+            // passed in and used as a fallback any time the API's `data.vehicle` object
+            // omits a field. Previously, missing API fields fell straight through to
+            // "—" even though the form had perfectly good values for them.
+            function showResult(result, registration, formData) {
+                formData = formData || {};
                 let data = result.data || result;
                 let currentValue = 0;
                 let retailValue = 0;
@@ -2522,6 +2527,14 @@
                     'Depreciation model',
                     'Market comparables analysis'
                 ];
+
+                // Helper: pick the API's vehicle-detail value if present, else fall back
+                // to what the user actually put in the form.
+                const vFallback = (apiVal, formVal) => {
+                    if (apiVal !== undefined && apiVal !== null && apiVal !== '') return apiVal;
+                    return formVal;
+                };
+
                 // Check if response has new structure
                 if (data.valuation && data.valuation.estimated_vehicle_value) {
                     const val = data.valuation;
@@ -2532,17 +2545,49 @@
                     reportNumber = data.report?.report_number || reportNumber;
                     methodology = data.analysis?.valuation_methodology || methodology;
                     adjustments = data.analysis?.adjustments || {};
-                    if (data.vehicle) {
-                        vehicleName = `${data.vehicle.make || ''} ${data.vehicle.model || ''} ${data.vehicle.variant_name || ''}`.trim() ||
-                            'Unknown Vehicle';
-                        year = data.vehicle.year || '—';
-                        mileage = data.vehicle.mileage ? `${data.vehicle.mileage.toLocaleString()} km` : '—';
-                        location = data.vehicle.location || '—';
-                        condition = data.vehicle.condition || '—';
-                        fuelType = data.vehicle.fuel_type || '—';
-                        transmission = data.vehicle.transmission || '—';
-                        engine = data.vehicle.engine_size_cc ? `${data.vehicle.engine_size_cc}cc` : '—';
-                    }
+
+                    const apiVehicle = data.vehicle || {};
+
+                    vehicleName = vFallback(
+                        (apiVehicle.make || apiVehicle.model || apiVehicle.variant_name)
+                            ? `${apiVehicle.make || ''} ${apiVehicle.model || ''} ${apiVehicle.variant_name || ''}`.trim()
+                            : null,
+                        getVehicleName(
+                            el.makeSelect.options[el.makeSelect.selectedIndex]?.text || '',
+                            el.modelSelect.options[el.modelSelect.selectedIndex]?.text || '',
+                            el.variantSelect.options[el.variantSelect.selectedIndex]?.text || ''
+                        )
+                    ) || 'Unknown Vehicle';
+
+                    year = vFallback(apiVehicle.year, formData.year || el.yearSelect.value) || '—';
+
+                    const mileageVal = vFallback(apiVehicle.mileage, formData.mileage || parseFloat(el.mileageInput.value));
+                    mileage = mileageVal ? `${formatNumber(mileageVal)} km` : '—';
+
+                    location = vFallback(
+                        apiVehicle.location,
+                        el.locationSelect.options[el.locationSelect.selectedIndex]?.text
+                    ) || '—';
+
+                    condition = vFallback(
+                        apiVehicle.condition,
+                        el.conditionSelect.options[el.conditionSelect.selectedIndex]?.text
+                    ) || '—';
+
+                    fuelType = vFallback(
+                        apiVehicle.fuel_type,
+                        FUEL_TYPE_LABELS[el.fuelTypeSelect.value] || currentVariantData?.fuel_type_name
+                    ) || '—';
+
+                    transmission = vFallback(
+                        apiVehicle.transmission,
+                        TRANSMISSION_LABELS[el.transmissionSelect.value] || currentVariantData?.transmission_type_name
+                    ) || '—';
+
+                    engine = vFallback(
+                        apiVehicle.engine_size_cc ? `${apiVehicle.engine_size_cc}cc` : null,
+                        currentVariantData?.engine_size_cc ? `${currentVariantData.engine_size_cc}cc` : null
+                    ) || '—';
                 } else {
                     currentValue = data.retail_value || data.market_value || data.trade_value || data.dealer_value || data.value ||
                         0;
