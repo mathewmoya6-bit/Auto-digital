@@ -694,6 +694,12 @@
         }
         .vehicle-detail-item.full { grid-column: 1 / -1; }
         .vehicle-detail-item.full .value { max-width: 70%; }
+        .vehicle-detail-item .registration-value {
+            color: #22c55e;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+        }
 
         /* Disclaimer */
         .report-disclaimer {
@@ -1127,6 +1133,12 @@
                     <span id="statusMessageText">Getting things ready...</span>
                 </div>
 
+                <!-- New Car Registration Field -->
+                <div class="form-group">
+                    <label for="registrationInput">🔢 Car Registration (e.g., KCA 123A)</label>
+                    <input type="text" id="registrationInput" placeholder="Enter registration number (e.g., KCA 123A)" style="text-transform: uppercase;" />
+                </div>
+
                 <div class="form-group">
                     <label for="categorySelect">Vehicle Category</label>
                     <select id="categorySelect">
@@ -1396,6 +1408,10 @@
                             <span class="label">Vehicle</span>
                             <span class="value" id="resultVehicle">-</span>
                         </div>
+                        <div class="vehicle-detail-item full">
+                            <span class="label">Registration</span>
+                            <span class="value registration-value" id="resultRegistration">-</span>
+                        </div>
                         <div class="vehicle-detail-item">
                             <span class="label">Year</span>
                             <span class="value" id="resultYear">-</span>
@@ -1505,6 +1521,7 @@
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
+                registrationInput: document.getElementById('registrationInput'),
                 categorySelect: document.getElementById('categorySelect'),
                 makeSelect: document.getElementById('makeSelect'),
                 modelSelect: document.getElementById('modelSelect'),
@@ -1533,6 +1550,7 @@
                 confidenceLabel: document.getElementById('confidenceLabel'),
                 adjustmentsList: document.getElementById('adjustmentsList'),
                 resultVehicle: document.getElementById('resultVehicle'),
+                resultRegistration: document.getElementById('resultRegistration'),
                 resultYear: document.getElementById('resultYear'),
                 resultMileage: document.getElementById('resultMileage'),
                 resultLocation: document.getElementById('resultLocation'),
@@ -1688,8 +1706,6 @@
                 return null;
             }
 
-            // Prefill fuel type / transmission selects from variant data, falling
-            // back to the current selection if the variant doesn't specify one.
             function prefillFuelAndTransmission(variant) {
                 const fuelGuess = normalizeFuelType(variant && variant.fuel_type_name);
                 if (fuelGuess) el.fuelTypeSelect.value = fuelGuess;
@@ -1697,8 +1713,6 @@
                 if (transGuess) el.transmissionSelect.value = transGuess;
             }
 
-            // Reflect the current Fuel Type / Transmission selections onto the
-            // vehicle profile pills, overriding any raw/placeholder variant data.
             function updateVehiclePills() {
                 const fuelVal = el.fuelTypeSelect.value;
                 const transVal = el.transmissionSelect.value;
@@ -2295,6 +2309,7 @@
                 }
                 const payload = {
                     variant_id: formData.variant_id || 'sample',
+                    registration: formData.registration || '',
                     year: formData.year || 2020,
                     mileage: formData.mileage || 50000,
                     condition: formData.condition || 'good',
@@ -2432,8 +2447,12 @@
                 currentVariantData = variant;
                 displayVehicleInfo(variant);
                 updateVehiclePills();
+                
+                const registration = el.registrationInput.value.trim().toUpperCase() || 'Not Provided';
+                
                 const formData = {
                     variant_id: variantId,
+                    registration: registration,
                     year: parseInt(el.yearSelect.value) || 2020,
                     mileage: parseFloat(el.mileageInput.value) || 50000,
                     condition: el.conditionSelect.value,
@@ -2464,7 +2483,7 @@
                     el.loadingSteps.classList.remove('show');
                     if (result && (result.data || result.market_value || result.retail_value || result.valuation)) {
                         valuationData = result;
-                        showResult(result);
+                        showResult(result, registration);
                         showToast('✅ Valuation complete!', 'success');
                     } else {
                         throw new Error('No valuation data received');
@@ -2478,9 +2497,8 @@
             }
 
             // ─── SHOW RESULT ──────────────────────────────────────────
-            function showResult(result) {
+            function showResult(result, registration) {
                 let data = result.data || result;
-                // Handle new API response structure
                 let currentValue = 0;
                 let retailValue = 0;
                 let tradeValue = 0;
@@ -2506,7 +2524,6 @@
                 ];
                 // Check if response has new structure
                 if (data.valuation && data.valuation.estimated_vehicle_value) {
-                    // New API structure
                     const val = data.valuation;
                     currentValue = val.estimated_vehicle_value || 0;
                     retailValue = val.retail_value || currentValue * 1.08;
@@ -2527,7 +2544,6 @@
                         engine = data.vehicle.engine_size_cc ? `${data.vehicle.engine_size_cc}cc` : '—';
                     }
                 } else {
-                    // Legacy API structure
                     currentValue = data.retail_value || data.market_value || data.trade_value || data.dealer_value || data.value ||
                         0;
                     retailValue = data.retail_value || currentValue * 1.08;
@@ -2575,6 +2591,7 @@
                 });
                 // Vehicle details
                 el.resultVehicle.textContent = vehicleName || 'Unknown Vehicle';
+                el.resultRegistration.textContent = registration || 'Not Provided';
                 el.resultYear.textContent = year;
                 el.resultMileage.textContent = mileage;
                 el.resultLocation.textContent = location;
