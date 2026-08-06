@@ -13,7 +13,8 @@ from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
-from app.modules.scraper.base import BaseScraper
+# FIXED: Import from base_scraper, not base
+from app.modules.scraper.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,11 @@ class AutochekScraper(BaseScraper):
 
     def __init__(self):
         """Initialize Autochek scraper."""
-        super().__init__()
-        self.base_url = "https://www.autochek.co.ke"
+        # FIXED: Call super with required parameters
+        super().__init__(
+            source_name="autochek",
+            base_url="https://www.autochek.co.ke"
+        )
         self.search_url = f"{self.base_url}/cars"
 
     # ============================================================
@@ -70,8 +74,8 @@ class AutochekScraper(BaseScraper):
                     else:
                         url = f"{self.search_url}?page={page_num}"
                     
-                    # Fetch page
-                    soup = await self._fetch_page(url)
+                    # Fetch page - FIXED: use fetch_soup directly
+                    soup = await self.fetch_soup(url)
                     
                     if soup is None:
                         logger.warning(f"Failed to fetch Autochek page {page_num}")
@@ -186,7 +190,8 @@ class AutochekScraper(BaseScraper):
         Parse a single Autochek vehicle listing.
         """
         try:
-            soup = await self._fetch_page(url)
+            # FIXED: use fetch_soup directly
+            soup = await self.fetch_soup(url)
             
             if soup is None:
                 return None
@@ -248,13 +253,15 @@ class AutochekScraper(BaseScraper):
             try:
                 element = soup.select_one(selector)
                 if element:
-                    price = self._parse_price(element.get_text(" ", strip=True))
+                    # FIXED: use parse_price directly
+                    price = self.parse_price(element.get_text(" ", strip=True))
                     if price:
                         return int(price)
             except Exception:
                 continue
         
-        return self._parse_price(soup.get_text(" ", strip=True))
+        # FIXED: use parse_price directly
+        return self.parse_price(soup.get_text(" ", strip=True))
 
     # ============================================================
     # DESCRIPTION
@@ -275,7 +282,8 @@ class AutochekScraper(BaseScraper):
             try:
                 element = soup.select_one(selector)
                 if element:
-                    text = self._clean_text(element.get_text(" ", strip=True))
+                    # FIXED: use clean_text directly
+                    text = self.clean_text(element.get_text(" ", strip=True))
                     if len(text) > 20:
                         return text
             except Exception:
@@ -283,7 +291,8 @@ class AutochekScraper(BaseScraper):
         
         meta = soup.find("meta", attrs={"name": "description"})
         if meta:
-            return self._clean_text(meta.get("content", ""))
+            # FIXED: use clean_text directly
+            return self.clean_text(meta.get("content", ""))
         
         return ""
 
@@ -333,7 +342,8 @@ class AutochekScraper(BaseScraper):
             try:
                 element = soup.select_one(selector)
                 if element:
-                    text = self._clean_text(element.get_text(" ", strip=True))
+                    # FIXED: use clean_text directly
+                    text = self.clean_text(element.get_text(" ", strip=True))
                     if text:
                         return text
             except Exception:
@@ -370,7 +380,8 @@ class AutochekScraper(BaseScraper):
             try:
                 element = soup.select_one(selector)
                 if element:
-                    title = self._clean_text(element.get_text(" ", strip=True))
+                    # FIXED: use clean_text directly
+                    title = self.clean_text(element.get_text(" ", strip=True))
                     if title:
                         return title
             except Exception:
@@ -378,10 +389,12 @@ class AutochekScraper(BaseScraper):
         
         meta = soup.find("meta", property="og:title")
         if meta:
-            return self._clean_text(meta.get("content", ""))
+            # FIXED: use clean_text directly
+            return self.clean_text(meta.get("content", ""))
         
         if soup.title:
-            return self._clean_text(soup.title.get_text())
+            # FIXED: use clean_text directly
+            return self.clean_text(soup.title.get_text())
         
         return ""
 
@@ -432,7 +445,8 @@ class AutochekScraper(BaseScraper):
             try:
                 element = soup.select_one(selector)
                 if element:
-                    location = self._clean_text(element.get_text(" ", strip=True))
+                    # FIXED: use clean_text directly
+                    location = self.clean_text(element.get_text(" ", strip=True))
                     if location:
                         return location
             except Exception:
@@ -515,7 +529,8 @@ class AutochekScraper(BaseScraper):
             try:
                 items = soup.select(selector)
                 for item in items:
-                    text = self._clean_text(item.get_text(" ", strip=True))
+                    # FIXED: use clean_text directly
+                    text = self.clean_text(item.get_text(" ", strip=True))
                     if not text:
                         continue
                     
@@ -527,17 +542,17 @@ class AutochekScraper(BaseScraper):
                         if year_match:
                             details["year"] = int(year_match.group())
                     
-                    # Mileage
+                    # Mileage - FIXED: use parse_mileage
                     if "km" in text_lower or "mileage" in text_lower:
-                        mileage_match = re.search(r"(\d+[,.]?\d*)\s*(?:km|kms|km)", text_lower)
-                        if mileage_match:
-                            details["mileage"] = int(re.sub(r"[^\d]", "", mileage_match.group(1)))
+                        mileage_val = self.parse_mileage(text)
+                        if mileage_val:
+                            details["mileage"] = mileage_val
                     
-                    # Engine size
+                    # Engine size - FIXED: use parse_engine_size
                     if "cc" in text_lower or "engine" in text_lower:
-                        engine_match = re.search(r"(\d+[,.]?\d*)\s*(?:cc|litre)", text_lower)
-                        if engine_match:
-                            details["engine_size"] = int(re.sub(r"[^\d]", "", engine_match.group(1)))
+                        engine_val = self.parse_engine_size(text)
+                        if engine_val:
+                            details["engine_size"] = int(engine_val * 1000)  # Convert to cc
                     
                     # Fuel type
                     if "fuel" in text_lower:
@@ -569,23 +584,3 @@ class AutochekScraper(BaseScraper):
                 continue
         
         return details
-
-    # ============================================================
-    # OVERRIDES
-    # ============================================================
-
-    def _parse_price(self, text: str) -> Optional[int]:
-        """Override price parsing."""
-        return super()._parse_price(text)
-
-    def _parse_year(self, text: str) -> Optional[int]:
-        """Override year parsing."""
-        return super()._parse_year(text)
-
-    def _parse_mileage(self, text: str) -> Optional[int]:
-        """Override mileage parsing."""
-        return super()._parse_mileage(text)
-
-    def _parse_engine_size(self, text: str) -> Optional[float]:
-        """Override engine size parsing."""
-        return super()._parse_engine_size(text)
