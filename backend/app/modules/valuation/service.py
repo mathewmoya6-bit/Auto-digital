@@ -109,6 +109,7 @@ class ValuationService:
         # ─── GET VEHICLE DATA FROM vehicle_master_specs ─────────────────
         
         try:
+            # Try with variant_id column
             variant_response = (
                 self.supabase
                 .table("vehicle_master_specs")
@@ -118,11 +119,24 @@ class ValuationService:
                 .execute()
             )
             
+            # If no result, try with id column
             if not variant_response.data:
-                raise NotFoundException(f"Vehicle variant {variant_id} not found in vehicle_master_specs")
+                logger.info(f"No result with variant_id, trying with id column")
+                variant_response = (
+                    self.supabase
+                    .table("vehicle_master_specs")
+                    .select("*")
+                    .eq("id", variant_id)
+                    .limit(1)
+                    .execute()
+                )
+            
+            if not variant_response.data:
+                logger.error(f"Vehicle variant {variant_id} not found in vehicle_master_specs")
+                raise NotFoundException(f"Vehicle variant {variant_id} not found")
             
             variant_data = variant_response.data[0]
-            logger.info(f"Found vehicle in vehicle_master_specs: {variant_data.get('make_name')} {variant_data.get('model_name')}")
+            logger.info(f"Found vehicle: {variant_data.get('make_name')} {variant_data.get('model_name')}")
             
         except NotFoundException:
             raise
@@ -156,12 +170,25 @@ class ValuationService:
         
         # Try to get base price from vehicle_master_specs
         base_price = 0
-        for field in ["estimated_value", "market_value", "price"]:
+        price_fields = [
+            "estimated_value",
+            "market_value",
+            "price",
+            "retail_price",
+            "base_price",
+            "dealer_price"
+        ]
+        
+        for field in price_fields:
             if variant_data.get(field):
-                value = float(variant_data[field])
-                if value > 0:
-                    base_price = value
-                    break
+                try:
+                    value = float(variant_data[field])
+                    if value > 0:
+                        base_price = value
+                        logger.info(f"Found base price from field '{field}': {base_price}")
+                        break
+                except (ValueError, TypeError):
+                    continue
         
         if base_price <= 0:
             logger.warning(f"No base price found for variant {variant_id}, using fallback")
@@ -169,41 +196,19 @@ class ValuationService:
         
         logger.info(f"Base price: KES {base_price:,.2f}")
         
-        # ─── CREATE VALUATION REQUEST ────────────────────────────────────
-        
-        # Create a simple request object for the engine
-        class ValuationRequest:
-            def __init__(self, data):
-                self.variant_id = data.get("variant_id")
-                self.year = data.get("year")
-                self.mileage = data.get("mileage")
-                self.condition = data.get("condition")
-                self.accident_history = data.get("accident_history")
-                self.location = data.get("location")
-                self.fuel_type = data.get("fuel_type")
-                self.transmission = data.get("transmission")
-                self.service_history = data.get("service_history", True)
-                self.ownership_count = data.get("ownership_count", 1)
-        
-        request_data = {
-            "variant_id": variant_id,
-            "year": year,
-            "mileage": mileage,
-            "condition": condition,
-            "accident_history": accident_history,
-            "location": location,
-            "fuel_type": vehicle.get("fuel_type"),
-            "transmission": vehicle.get("transmission"),
-            "service_history": service_history,
-            "ownership_count": ownership_count
-        }
-        
-        request_obj = ValuationRequest(request_data)
-        
-        # ─── CALCULATE VALUATION ─────────────────────────────────────────
+        # ─── CALL ENGINE ──────────────────────────────────────────────────
         
         try:
-            result = await self.engine.calculate(request_obj)
+            # FIXED: Call engine with keyword arguments, not request object
+            result = await self.engine.calculate(
+                variant_id=variant_id,
+                year=year,
+                mileage=mileage,
+                condition=condition,
+                accident_history=accident_history,
+                location=location,
+                variant_data=variant_data
+            )
             logger.info("Valuation calculation completed successfully")
         except Exception as e:
             logger.error(f"Engine calculation failed: {str(e)}")
@@ -365,7 +370,6 @@ class ValuationService:
             current_value = current_value * (1 - mileage_penalty)
         
         return {
-            "vehicle": vehicle,
             "market_value": round(current_value, 2),
             "retail_value": round(current_value * 1.08, 2),
             "trade_value": round(current_value * 0.85, 2),
