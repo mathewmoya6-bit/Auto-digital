@@ -44,4 +44,6 @@ async def logout(current_user: dict = Depends(get_current_user)):
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
     """Get current user information."""
-    return await auth_service.get_user(current_user["id"])
+    # The current_user already contains all the user info from the token
+    # No need to fetch from database again
+    return current_user
