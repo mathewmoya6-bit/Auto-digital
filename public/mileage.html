@@ -1032,7 +1032,7 @@
     <div class="loading-overlay" id="loadingOverlay">
         <div class="spinner-large"></div>
         <div class="loading-text">Loading Vehicle Data...</div>
-        <div class="loading-sub" id="loadingStatus">Connecting to Auto-D API</div>
+        <div class="loading-sub" id="loadingStatus">Connecting to Supabase</div>
     </div>
 
     <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -1340,7 +1340,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v9.0
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.2
             </div>
         </footer>
     </div>
@@ -1348,7 +1348,10 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 9.1 - Fixed authentication flow to handle 401 gracefully
+        // Version 8.2 - Auto-populate removed: results now only render
+        // when the user explicitly clicks "Calculate". Selecting a
+        // vehicle or changing a parameter no longer triggers a
+        // calculation on its own.
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1500,7 +1503,7 @@
                 el.progressContainer.classList.remove('show');
             }
 
-            // ─── SUPABASE ────────────────────────────────────────────
+            // ─── SUPABASE ──────────────────────────────────────────────
             function initSupabase() {
                 try {
                     if (typeof supabase === 'undefined') {
@@ -1519,47 +1522,6 @@
                 }
             }
 
-            // ─── AUTO-D API HELPER ────────────────────────────────────
-            // FIXED: Handles 401 gracefully for /me endpoint
-            async function apiFetch(path, options = {}) {
-                const token = await getAccessToken();
-                const headers = Object.assign(
-                    { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                    options.headers || {}
-                );
-                if (token) headers['Authorization'] = `Bearer ${token}`;
-
-                const url = `${CONFIG.API_BASE}${path}`;
-                const response = await fetch(url, {
-                    method: options.method || 'GET',
-                    headers,
-                    body: options.body ? JSON.stringify(options.body) : undefined,
-                    signal: AbortSignal.timeout(options.timeout || 15000)
-                });
-
-                // Handle 401 specially for /me - just return null
-                if (response.status === 401) {
-                    if (path === '/me') {
-                        console.log('ℹ️ /me endpoint returned 401, treating as unauthenticated for profile');
-                        return null;
-                    }
-                    // For other endpoints, throw
-                    throw new Error('Unauthorized');
-                }
-
-                if (!response.ok) {
-                    let errorData;
-                    try { errorData = await response.json(); }
-                    catch (e) { errorData = { message: `HTTP ${response.status}` }; }
-                    const detail = errorData.detail
-                        ? (typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail))
-                        : (errorData.message || `HTTP ${response.status}`);
-                    throw new Error(detail);
-                }
-                if (response.status === 204) return null;
-                return response.json();
-            }
-
             // ─── AUTH ──────────────────────────────────────────────────
             async function getAccessToken() {
                 try {
@@ -1573,7 +1535,6 @@
                 }
             }
 
-            // FIXED: signIn doesn't let /me failure break the flow
             async function signIn(email, password) {
                 try {
                     if (!supabaseClient) {
@@ -1584,26 +1545,12 @@
                     if (error) throw error;
                     currentUser = data.session;
                     isAuthenticated = true;
-
-                    // Try /me but don't let failure break auth
-                    try {
-                        const me = await apiFetch('/me');
-                        if (me) {
-                            currentUser = Object.assign({}, currentUser, { profile: me });
-                            console.log('✅ User profile loaded from /me');
-                        }
-                    } catch (apiErr) {
-                        // 401 is expected - user is still authenticated via Supabase
-                        if (apiErr.message.includes('Unauthorized')) {
-                            console.log('ℹ️ /me unavailable, using Supabase session only');
-                        } else {
-                            console.warn('⚠️ /me check failed:', apiErr.message);
-                        }
-                    }
-
                     updateAuthUI();
                     showToast('✅ Signed in successfully!', 'success');
-                    setTimeout(() => { window.location.href = CONFIG.DASHBOARD_URL; }, 1000);
+                    // Redirect to dashboard after successful sign in
+                    setTimeout(() => {
+                        window.location.href = CONFIG.DASHBOARD_URL;
+                    }, 1000);
                     return true;
                 } catch (error) {
                     showToast('❌ Sign in failed: ' + error.message, 'error');
@@ -1632,10 +1579,6 @@
 
             async function signOut() {
                 try {
-                    // Try API logout but don't let failure break the flow
-                    try { await apiFetch('/logout', { method: 'POST' }); }
-                    catch (apiErr) { console.warn('⚠️ API logout failed (continuing):', apiErr.message); }
-
                     if (supabaseClient) {
                         await supabaseClient.auth.signOut();
                     }
@@ -1651,7 +1594,6 @@
                 }
             }
 
-            // FIXED: checkAuth doesn't let /me failure break auth status
             async function checkAuth() {
                 try {
                     if (!supabaseClient) {
@@ -1660,26 +1602,9 @@
                     }
                     const { data, error } = await supabaseClient.auth.getSession();
                     if (error) throw error;
-                    
                     if (data.session) {
                         currentUser = data.session;
                         isAuthenticated = true;
-                        
-                        // Try /me but don't let failure break auth
-                        try {
-                            const me = await apiFetch('/me');
-                            if (me) {
-                                currentUser = Object.assign({}, currentUser, { profile: me });
-                                console.log('✅ User profile loaded from /me');
-                            }
-                        } catch (apiErr) {
-                            // 401 is expected - user is still authenticated via Supabase
-                            if (apiErr.message.includes('Unauthorized')) {
-                                console.log('ℹ️ /me unavailable, using Supabase session only');
-                            } else {
-                                console.warn('⚠️ /me check failed:', apiErr.message);
-                            }
-                        }
                     } else {
                         currentUser = null;
                         isAuthenticated = false;
@@ -1697,7 +1622,7 @@
 
             function updateAuthUI() {
                 if (isAuthenticated && currentUser) {
-                    const email = currentUser.profile?.email || currentUser.user?.email || currentUser.email || 'user';
+                    const email = currentUser.user?.email || 'user';
                     el.authStatus.textContent = `🔒 ${email}`;
                     el.authStatus.className = 'auth-status authenticated';
                     el.authMessage.textContent = `✅ Signed in as ${email}`;
@@ -1713,7 +1638,7 @@
                 }
             }
 
-            // ─── API: QUERY SUPABASE VIEW ────────────────────────────
+            // ─── API: QUERY VIEW ──────────────────────────────────
             async function queryView(select, filter, order) {
                 if (!supabaseClient) {
                     const client = initSupabase();
@@ -1749,16 +1674,18 @@
             async function loadMakes(categoryId) {
                 try {
                     setStatus('info', 'Loading makes...');
-                    const data = await apiFetch('/makes');
-                    const list = Array.isArray(data) ? data : (data.items || data.makes || []);
-                    const filtered = categoryId
-                        ? list.filter(m => !m.category_id || String(m.category_id) === String(categoryId))
-                        : list;
-                    return filtered.map(m => ({
-                        id: m.id || m.make_id,
-                        name: m.name || m.make_name,
-                        country: m.country || m.make_country
-                    }));
+                    const data = await queryView(
+                        'make_id, make_name, make_country',
+                        { column: 'category_id', value: categoryId },
+                        { column: 'make_name', ascending: true }
+                    );
+                    const unique = {};
+                    data.forEach(item => {
+                        if (item.make_id && !unique[item.make_id]) {
+                            unique[item.make_id] = { id: item.make_id, name: item.make_name, country: item.make_country };
+                        }
+                    });
+                    return Object.values(unique);
                 } catch (error) {
                     console.error('Error loading makes:', error);
                     setStatus('error', error.message);
@@ -1769,13 +1696,18 @@
             async function loadModels(makeId) {
                 try {
                     setStatus('info', 'Loading models...');
-                    const data = await apiFetch(`/models/${encodeURIComponent(makeId)}`);
-                    const list = Array.isArray(data) ? data : (data.items || data.models || []);
-                    return list.map(m => ({
-                        id: m.id || m.model_id,
-                        name: m.name || m.model_name,
-                        body_type: m.body_type || m.model_body_type
-                    }));
+                    const data = await queryView(
+                        'model_id, model_name, model_body_type',
+                        { column: 'make_id', value: makeId },
+                        { column: 'model_name', ascending: true }
+                    );
+                    const unique = {};
+                    data.forEach(item => {
+                        if (item.model_id && !unique[item.model_id]) {
+                            unique[item.model_id] = { id: item.model_id, name: item.model_name, body_type: item.model_body_type };
+                        }
+                    });
+                    return Object.values(unique);
                 } catch (error) {
                     console.error('Error loading models:', error);
                     setStatus('error', error.message);
@@ -1786,14 +1718,23 @@
             async function loadGenerations(modelId) {
                 try {
                     setStatus('info', 'Loading generations...');
-                    const data = await apiFetch(`/generations/${encodeURIComponent(modelId)}`);
-                    const list = Array.isArray(data) ? data : (data.items || data.generations || []);
-                    return list.map(g => ({
-                        id: g.id || g.generation_id,
-                        code: g.code || g.generation_code,
-                        start_year: g.start_year || g.generation_start_year,
-                        end_year: g.end_year || g.generation_end_year
-                    }));
+                    const data = await queryView(
+                        'generation_id, generation_code, generation_start_year, generation_end_year',
+                        { column: 'model_id', value: modelId },
+                        { column: 'generation_start_year', ascending: false }
+                    );
+                    const unique = {};
+                    data.forEach(item => {
+                        if (item.generation_id && !unique[item.generation_id]) {
+                            unique[item.generation_id] = {
+                                id: item.generation_id,
+                                code: item.generation_code,
+                                start_year: item.generation_start_year,
+                                end_year: item.generation_end_year
+                            };
+                        }
+                    });
+                    return Object.values(unique);
                 } catch (error) {
                     console.error('Error loading generations:', error);
                     setStatus('error', error.message);
@@ -1804,32 +1745,21 @@
             async function loadVariants(generationId) {
                 try {
                     setStatus('info', 'Loading variants...');
-                    const data = await apiFetch(`/variants/${encodeURIComponent(generationId)}`);
-                    const list = Array.isArray(data) ? data : (data.items || data.variants || []);
-                    return list.map(v => {
-                        let name = v.variant_name || v.name || 'Variant';
+                    const data = await queryView(
+                        `variant_id, variant_name, trim_level, engine_size_cc, power_hp, torque_nm, 
+                         fuel_consumption_combined, co2_emissions, seats, doors, fuel_type_name, 
+                         transmission_type_name, drive_type_name, body_type_name`,
+                        { column: 'generation_id', value: generationId },
+                        { column: 'variant_name', ascending: true }
+                    );
+                    return data.map(v => {
+                        let name = v.variant_name || 'Variant';
                         const parts = name.split(' ');
                         if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
                             parts.splice(0, 1);
                             name = parts.join(' ');
                         }
-                        return {
-                            variant_id: v.id || v.variant_id,
-                            variant_name: v.variant_name || v.name,
-                            trim_level: v.trim_level,
-                            engine_size_cc: v.engine_size_cc,
-                            power_hp: v.power_hp,
-                            torque_nm: v.torque_nm,
-                            fuel_consumption_combined: v.fuel_consumption_combined,
-                            co2_emissions: v.co2_emissions,
-                            seats: v.seats,
-                            doors: v.doors,
-                            fuel_type_name: v.fuel_type_name || v.fuel_type,
-                            transmission_type_name: v.transmission_type_name || v.transmission_type,
-                            drive_type_name: v.drive_type_name || v.drive_type,
-                            body_type_name: v.body_type_name || v.body_type,
-                            clean_name: name
-                        };
+                        return { ...v, clean_name: name };
                     });
                 } catch (error) {
                     console.error('Error loading variants:', error);
@@ -1841,42 +1771,14 @@
             async function loadVariantDetails(variantId) {
                 try {
                     setStatus('info', 'Loading vehicle details...');
-                    try {
-                        const data = await apiFetch(`/vehicle-details/${encodeURIComponent(variantId)}`);
-                        if (data) return normalizeVariantDetails(data);
-                    } catch (primaryErr) {
-                        console.warn('⚠️ /vehicle-details failed, falling back to /variant:', primaryErr.message);
-                    }
-                    const fallback = await apiFetch(`/variant/${encodeURIComponent(variantId)}`);
-                    return fallback ? normalizeVariantDetails(fallback) : null;
+                    const data = await queryView('*', { column: 'variant_id', value: variantId });
+                    if (data && data.length > 0) return data[0];
+                    return null;
                 } catch (error) {
                     console.error('Error loading variant details:', error);
                     setStatus('error', error.message);
                     return null;
                 }
-            }
-
-            function normalizeVariantDetails(v) {
-                return {
-                    variant_id: v.id || v.variant_id,
-                    make_name: v.make_name || v.make,
-                    model_name: v.model_name || v.model,
-                    variant_name: v.variant_name || v.name,
-                    trim_level: v.trim_level,
-                    engine_size_cc: v.engine_size_cc,
-                    power_hp: v.power_hp,
-                    torque_nm: v.torque_nm,
-                    fuel_consumption_combined: v.fuel_consumption_combined,
-                    co2_emissions: v.co2_emissions,
-                    seats: v.seats,
-                    doors: v.doors,
-                    fuel_type_name: v.fuel_type_name || v.fuel_type,
-                    transmission_type_name: v.transmission_type_name || v.transmission_type,
-                    drive_type_name: v.drive_type_name || v.drive_type,
-                    body_type_name: v.body_type_name || v.body_type,
-                    model_body_type: v.model_body_type,
-                    category_name: v.category_name
-                };
             }
 
             async function loadRoutes() {
@@ -2112,36 +2014,70 @@
             async function calculateRunningCostFromAPI(formData) {
                 const payload = {
                     variant_id: parseInt(formData.variant_id),
-                    year: parseInt(formData.year),
-                    distance: parseFloat(formData.distance),
+                    distance: parseFloat(formData.distance) || 150,
+                    annual_mileage: parseFloat(formData.annual_km) || 20000,
+                    fuel_price: parseFloat(formData.fuel_price) || 200,
                     trip_type: formData.trip_type || 'mixed',
-                    years: 5,
-                    fuel_price: formData.fuel_price != null ? parseFloat(formData.fuel_price) : null,
-                    down_payment: formData.down_payment_fraction != null ? formData.down_payment_fraction : 0.2,
-                    annual_mileage: parseInt(formData.annual_km) || 20000,
                     driving_style: formData.driving_style || 'normal',
                     usage_type: formData.usage_type || 'private',
+                    location: formData.location || 'nairobi',
                     condition: 'good',
-                    location: formData.location || 'urban',
+                    year: parseInt(formData.year) || 2024,
+                    financed: formData.financed || false,
+                    down_payment: parseFloat(formData.down_payment_percent) || 30,
+                    interest_rate: parseFloat(formData.interest_rate) || 16,
+                    loan_term: parseInt(formData.loan_term) || 4,
+                    years: 5,
                     include_insurance: true,
-                    include_tyres: true,
                     include_maintenance: true,
-                    include_depreciation: true,
-                    include_financing: !!formData.financed,
-                    insurance_type: 'comprehensive',
-                    financed: !!formData.financed,
-                    interest_rate: formData.interest_rate != null ? parseFloat(formData.interest_rate) : 14.0,
-                    loan_term: formData.loan_term_months != null ? parseInt(formData.loan_term_months) : 48
+                    include_tyres: true,
+                    include_depreciation: true
                 };
 
                 const token = await getAccessToken();
-                const endpoint = token ? '/running-cost/calculate' : '/running-cost/calculate-public';
-                console.log(`📤 Sending running cost request to: ${CONFIG.API_BASE}${endpoint} (auth: ${token ? 'yes' : 'no'})`);
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                } else {
+                    console.warn('⚠️ No access token available — request will be sent unauthenticated');
+                }
 
-                return apiFetch(endpoint, { method: 'POST', body: payload });
+                const url = `${CONFIG.API_BASE}/running-cost/calculate`;
+                console.log('📤 Sending running cost request to:', url);
+                console.log('📦 Payload:', JSON.stringify(payload, null, 2));
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload),
+                    signal: AbortSignal.timeout(15000)
+                });
+
+                console.log('📥 Response status:', response.status);
+
+                if (!response.ok) {
+                    let errorData;
+                    try {
+                        errorData = await response.json();
+                        if (errorData.detail) {
+                            console.error('❌ Validation errors:', JSON.stringify(errorData.detail, null, 2));
+                            throw new Error(JSON.stringify(errorData.detail, null, 2));
+                        }
+                    } catch (e) {
+                        errorData = { message: `HTTP ${response.status}` };
+                    }
+                    throw new Error(errorData.message || errorData.detail || `HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log('📥 Response data:', result);
+                return result;
             }
 
-            // ─── MAIN CALCULATION ──────────────────────────────────────
+            // ─── MAIN CALCULATION (only runs when Calculate is clicked) ──
             async function calculateAndRender(variant = null) {
                 if (!variant) variant = currentVariantData;
                 if (!variant) {
@@ -2171,21 +2107,20 @@
                     driving_style: el.drivingStyle.value,
                     trip_type: el.tripType.value === 'city' ? 'urban' : el.tripType.value,
                     usage_type: el.usageType.value,
-                    location: 'urban',
-                    year: parseInt(el.yearSelect.value) || new Date().getFullYear(),
+                    location: 'nairobi',
+                    year: parseInt(el.yearSelect.value) || 2024,
                     financed: isFinanced,
-                    down_payment_fraction: (parseInt(el.downPct.value) || 30) / 100,
+                    down_payment_percent: parseInt(el.downPct.value) || 30,
                     interest_rate: parseFloat(el.rate.value) || 16,
-                    loan_term_months: (parseInt(el.term.value) || 4) * 12
+                    loan_term: parseInt(el.term.value) || 4
                 };
 
-                showProgress(50, 'Calculating running cost...');
+                showProgress(60, 'Calling API...');
 
                 try {
                     const result = await calculateRunningCostFromAPI(inputs);
-
                     showProgress(90, 'Rendering results...');
-
+                    
                     if (result) {
                         renderResults(result, variant);
                         showProgress(100, 'Complete!');
@@ -2205,24 +2140,25 @@
             }
 
             // ─── RENDER RESULTS ─────────────────────────────────────────
-            let lastCalculatedVehicleId = null;
-
             function renderResults(result, variant) {
                 if (!result) return;
 
-                const distance = result.distance || 150;
-                const tripCostPerKm = result.tripCostPerKm ?? result.cost_per_km ?? 0;
-                const fuelCost = result.fuelCostTrip ?? result.fuel_cost ?? 0;
-                const serviceCost = result.serviceTrip ?? result.service_cost ?? 0;
-                const tyreCost = result.tyreTrip ?? result.tyre_cost ?? 0;
-                const insuranceCost = result.insuranceTrip ?? result.insurance_cost ?? 0;
-                const depreciationCost = result.depreciationTrip ?? result.depreciation_cost ?? 0;
-                const tripTotal = result.tripTotal ?? (fuelCost + serviceCost + tyreCost + insuranceCost + depreciationCost);
+                // ─── EXTRACT VALUES WITH FALLBACKS ────────────────────
+                const distance = result.distance || result.distance_km || 150;
+                const costPerKm = result.cost_per_km || result.per_km || 0;
+                const fuelCost = result.fuel_cost || result.fuel || 0;
+                const serviceCost = result.service_cost || result.maintenance || 0;
+                const tyreCost = result.tyre_cost || result.tyres || 0;
+                const insuranceCost = result.insurance_cost || result.insurance || 0;
+                const depreciationCost = result.depreciation_cost || result.depreciation || 0;
+
+                const tripTotal = fuelCost + serviceCost + tyreCost + insuranceCost + depreciationCost;
+                const tripCostPerKm = costPerKm > 0 ? costPerKm : tripTotal / (distance || 1);
 
                 el.tripTotal.textContent = formatCurrency(tripTotal);
                 el.tripSub.textContent = `at ${formatCurrency(tripCostPerKm)} KES/km over ${formatNumber(distance)} km`;
 
-                // Trip Cost Grid
+                // ─── TRIP COST GRID ──────────────────────────────────
                 const tripComponents = {
                     'Fuel': fuelCost,
                     'Service': serviceCost,
@@ -2247,7 +2183,7 @@
                 `;
                 el.tripCostGrid.innerHTML = tripHtml;
 
-                // Per KM Grid
+                // ─── PER KM GRID ──────────────────────────────────────
                 const perKmComponents = {
                     'Fuel': fuelCost / (distance || 1),
                     'Service': serviceCost / (distance || 1),
@@ -2272,11 +2208,11 @@
                 `;
                 el.perkmGrid.innerHTML = perkmHtml;
 
-                // 5-Year Data
-                const fiveYearData = result.fiveYearData || [];
-                const total5Year = result.five_year_total ?? 0;
-                const originalCost = result.purchase_price ?? result.market_value ?? 2500000;
-                const remainingValue = result.resale_value ?? result.current_value ?? originalCost * 0.4;
+                // ─── 5-YEAR DATA ──────────────────────────────────────
+                const fiveYearData = result.fiveYearData || result.yearly_breakdown || [];
+                const total5Year = result.five_year_total || result.total_5yr_cost || 0;
+                const originalCost = result.purchase_price || result.original_cost || 2500000;
+                const remainingValue = result.resale_value || result.current_value || originalCost * 0.4;
 
                 el.fiveYearStats.innerHTML = `
                     <div class="stat-card-sm">
@@ -2301,7 +2237,7 @@
                     </div>
                 `;
 
-                // Yearly Table
+                // ─── YEARLY TABLE ──────────────────────────────────────
                 const tbody = el.yearlyBody;
                 tbody.innerHTML = '';
                 if (fiveYearData.length > 0) {
@@ -2319,11 +2255,9 @@
                         `;
                         tbody.appendChild(tr);
                     });
-                } else {
-                    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:12px;color:var(--text-muted);">5-year breakdown unavailable from the ownership service.</td></tr>`;
                 }
 
-                // Commercial Rates
+                // ─── COMMERCIAL RATES ──────────────────────────────────
                 const perKm = tripCostPerKm;
                 const commercialRates = [
                     { label: 'Private', value: perKm * 1.0, sub: 'Base rate' },
@@ -2342,7 +2276,7 @@
                     </div>
                 `).join('');
 
-                // Monthly & Annual
+                // ─── MONTHLY & ANNUAL ──────────────────────────────────
                 const monthlyMultiplier = 1 / 12;
                 const monthlyItems = [
                     { label: 'Fuel', value: fuelCost * monthlyMultiplier },
@@ -2372,7 +2306,7 @@
                     </div>
                 `).join('');
 
-                // RCI
+                // ─── RCI ──────────────────────────────────────────────
                 let rciLabel, rciStars, rciClass;
                 if (tripCostPerKm <= 20) { rciLabel = 'Excellent'; rciStars = '★★★★★'; rciClass = 'excellent'; }
                 else if (tripCostPerKm <= 35) { rciLabel = 'Good'; rciStars = '★★★★'; rciClass = 'good'; }
@@ -2385,13 +2319,14 @@
                 el.rciStars.textContent = rciStars;
                 el.rciLabel.textContent = rciLabel;
 
-                // Environmental
-                const fuelType = variant?.fuel_type_name || result.fuel_type || result.fuelTypeDisplay || '';
+                // ─── ENVIRONMENTAL ──────────────────────────────────────
+                const fuelType = variant?.fuel_type_name || result.fuel_type || '';
                 const co2PerKm = fuelType.toLowerCase() === 'electric' ? 0 : 
                                  fuelType.toLowerCase() === 'hybrid' ? 80 : 
                                  fuelType.toLowerCase() === 'diesel' ? 160 : 140;
                 const co2Trip = co2PerKm * (distance || 150);
-                const fuelConsumption = result.fuel_consumption ?? result.fuelConsumption ?? 0;
+                const fuelConsumption = result.fuel_consumption || result.consumption || 
+                                       (distance > 0 ? (fuelCost / (result.fuel_price || 200)) / distance * 100 : 0);
 
                 el.envGrid.innerHTML = `
                     <div class="env-item"><div class="env-value">${formatNumber(co2PerKm)}</div><div class="env-label">g CO₂/km</div></div>
@@ -2400,7 +2335,7 @@
                     <div class="env-item"><div class="env-value">${fuelConsumption ? fuelConsumption.toFixed(1) : '—'}</div><div class="env-label">km/L</div></div>
                 `;
 
-                // Recommendations
+                // ─── RECOMMENDATIONS ────────────────────────────────────
                 const recList = el.recList;
                 const recs = [];
                 if (tripCostPerKm > 50) {
@@ -2410,15 +2345,6 @@
                 }
                 if (fuelType.toLowerCase() === 'electric') {
                     recs.push({ icon: '🌱', text: 'Electric vehicle - zero emissions and lower running costs.', type: 'success' });
-                }
-                // FIXED: Check if finance exists before accessing properties
-                if (result.finance && result.finance.financed) {
-                    const f = result.finance;
-                    recs.push({
-                        icon: '🏦',
-                        text: `Financed: ~KES ${formatCurrency(f.monthly_payment || 0)}/mo over ${f.loan_term || 0} months, KES ${formatCurrency(f.total_interest || 0)} total interest.`,
-                        type: 'info'
-                    });
                 }
                 recs.push({ icon: '📊', text: `5-Year running cost: KES ${formatCurrency(total5Year)}.`, type: 'info' });
                 recList.innerHTML = recs.map(rec => `
@@ -2433,11 +2359,13 @@
                     year: 'numeric', month: 'short', day: 'numeric',
                     hour: '2-digit', minute: '2-digit'
                 });
-
-                lastCalculatedVehicleId = variant?.variant_id || null;
             }
 
-            // ─── LOAD VARIANT AND DISPLAY ──────────────────────────────
+            // ─── LOAD VARIANT DETAILS (NO auto-calculate) ──────────────
+            // fix: this used to call calculateAndRender() as soon as a
+            // variant was selected. Now it only loads and displays the
+            // vehicle profile card and enables the Calculate button —
+            // the actual cost calculation waits for the user to click it.
             async function loadVariantAndDisplay(variantId) {
                 if (!variantId) return;
                 el.calculateBtn.disabled = true;
@@ -2459,35 +2387,6 @@
                     console.error('Error loading variant:', error);
                     showToast('Error loading vehicle details: ' + error.message, 'error');
                     hideProgress();
-                }
-            }
-
-            // ─── EXPORT ──────────────────────────────────────────────────
-            async function exportReport() {
-                if (!isAuthenticated) {
-                    showToast('Sign in to export a report', 'warning');
-                    return;
-                }
-                if (!lastCalculatedVehicleId) {
-                    showToast('Calculate a running cost first', 'warning');
-                    return;
-                }
-                try {
-                    showToast('📥 Generating report...', 'info');
-                    const report = await apiFetch(`/reports/running-cost/${encodeURIComponent(lastCalculatedVehicleId)}`);
-                    const reportId = report?.report_id || report?.id;
-                    if (!reportId) throw new Error('Report service did not return a report id');
-                    const download = await apiFetch(`/reports/download/${encodeURIComponent(reportId)}`);
-                    const fileUrl = download?.url || download?.download_url;
-                    if (fileUrl) {
-                        window.open(fileUrl, '_blank');
-                        showToast('✅ Report ready', 'success');
-                    } else {
-                        showToast('Report generated — check Report History', 'success');
-                    }
-                } catch (error) {
-                    console.error('Export error:', error);
-                    showToast('Export failed: ' + error.message, 'error');
                 }
             }
 
@@ -2652,6 +2551,9 @@
                     }
                 });
 
+                // fix: selecting a variant now only loads/displays the
+                // vehicle profile and enables the button — it no longer
+                // triggers calculateAndRender() automatically.
                 el.variantSelect.addEventListener('change', function() {
                     const variantId = this.value;
                     if (variantId) {
@@ -2662,6 +2564,11 @@
                     }
                 });
 
+                // fix: parameter changes (distance, annual km, fuel price,
+                // driving style, trip type, usage type, year) only clear
+                // their own validation-error state now. They used to
+                // debounce-trigger a recalculation; that's removed —
+                // the user must click Calculate to see updated results.
                 ['change', 'input'].forEach(evt => {
                     [el.distanceInput, el.annualKmInput, el.fuelPriceInput, el.drivingStyle,
                      el.tripType, el.usageType, el.yearSelect].forEach(elem => {
@@ -2673,6 +2580,8 @@
                     });
                 });
 
+                // fix: clicking a quick-route chip only fills in the
+                // distance field now — it no longer auto-recalculates.
                 el.routeChips.addEventListener('click', function(e) {
                     const chip = e.target.closest('.chip');
                     if (!chip) return;
@@ -2692,6 +2601,8 @@
                     }
                 });
 
+                // fix: cash/financed toggle just switches the fields shown
+                // now — it no longer auto-recalculates.
                 el.btnCash.addEventListener('click', function() {
                     this.classList.add('active');
                     el.btnFinanced.classList.remove('active');
@@ -2729,7 +2640,9 @@
                     }
                 });
 
-                el.exportBtn.addEventListener('click', exportReport);
+                el.exportBtn.addEventListener('click', function() {
+                    showToast('📥 Export feature coming soon!', 'info');
+                });
 
                 setInterval(async () => {
                     await checkAuth();
@@ -2737,6 +2650,10 @@
             }
 
             // ─── INIT ──────────────────────────────────────────────────
+            // fix: no longer auto-selects the first category and cascades
+            // makes/models/generations/variants on load. The person now
+            // picks Category → Make → Model → Generation → Variant
+            // themselves, then clicks Calculate.
             async function init() {
                 el.loadingOverlay.classList.add('active');
 
@@ -2767,8 +2684,9 @@
                     setTimeout(hideProgress, 500);
 
                     console.log('✅ Auto-D Kenya Mileage Calculator initialized');
+                    console.log('📊 Using view: ' + CONFIG.VIEW_NAME);
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
-                    console.log(`🔗 API Base: ${CONFIG.API_BASE}`);
+                    console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/running-cost/calculate`);
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
