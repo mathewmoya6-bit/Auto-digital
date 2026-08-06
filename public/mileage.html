@@ -1340,7 +1340,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.2
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.3
             </div>
         </footer>
     </div>
@@ -1348,10 +1348,8 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.2 - Auto-populate removed: results now only render
-        // when the user explicitly clicks "Calculate". Selecting a
-        // vehicle or changing a parameter no longer triggers a
-        // calculation on its own.
+        // Version 8.3 - FIXED: down_payment now correctly sent as decimal (0.3, not 30)
+        //                 Added payload logging for debugging
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1547,7 +1545,6 @@
                     isAuthenticated = true;
                     updateAuthUI();
                     showToast('✅ Signed in successfully!', 'success');
-                    // Redirect to dashboard after successful sign in
                     setTimeout(() => {
                         window.location.href = CONFIG.DASHBOARD_URL;
                     }, 1000);
@@ -2011,7 +2008,12 @@
             }
 
             // ─── RUNNING COST API CALL ─────────────────────────────────
+            // FIXED: down_payment now correctly sent as a decimal (0.3 not 30)
+            //        Added console.log for payload debugging
             async function calculateRunningCostFromAPI(formData) {
+                // ✅ FIX 1: Convert down_payment from percent (30) to decimal (0.3)
+                const downPaymentDecimal = parseFloat(formData.down_payment_percent) / 100;
+
                 const payload = {
                     variant_id: parseInt(formData.variant_id),
                     distance: parseFloat(formData.distance) || 150,
@@ -2024,7 +2026,7 @@
                     condition: 'good',
                     year: parseInt(formData.year) || 2024,
                     financed: formData.financed || false,
-                    down_payment: parseFloat(formData.down_payment_percent) || 30,
+                    down_payment: downPaymentDecimal,  // ✅ FIX: Now 0.3 not 30
                     interest_rate: parseFloat(formData.interest_rate) || 16,
                     loan_term: parseInt(formData.loan_term) || 4,
                     years: 5,
@@ -2033,6 +2035,10 @@
                     include_tyres: true,
                     include_depreciation: true
                 };
+
+                // ✅ FIX 2: Log the payload before sending
+                console.log("📦 Running Cost Payload:", JSON.stringify(payload, null, 2));
+                console.log(`📊 down_payment: ${payload.down_payment} (converted from ${formData.down_payment_percent}%)`);
 
                 const token = await getAccessToken();
                 const headers = {
@@ -2047,7 +2053,6 @@
 
                 const url = `${CONFIG.API_BASE}/running-cost/calculate`;
                 console.log('📤 Sending running cost request to:', url);
-                console.log('📦 Payload:', JSON.stringify(payload, null, 2));
 
                 const response = await fetch(url, {
                     method: 'POST',
@@ -2077,7 +2082,7 @@
                 return result;
             }
 
-            // ─── MAIN CALCULATION (only runs when Calculate is clicked) ──
+            // ─── MAIN CALCULATION ──────────────────────────────────────
             async function calculateAndRender(variant = null) {
                 if (!variant) variant = currentVariantData;
                 if (!variant) {
@@ -2143,7 +2148,6 @@
             function renderResults(result, variant) {
                 if (!result) return;
 
-                // ─── EXTRACT VALUES WITH FALLBACKS ────────────────────
                 const distance = result.distance || result.distance_km || 150;
                 const costPerKm = result.cost_per_km || result.per_km || 0;
                 const fuelCost = result.fuel_cost || result.fuel || 0;
@@ -2158,7 +2162,6 @@
                 el.tripTotal.textContent = formatCurrency(tripTotal);
                 el.tripSub.textContent = `at ${formatCurrency(tripCostPerKm)} KES/km over ${formatNumber(distance)} km`;
 
-                // ─── TRIP COST GRID ──────────────────────────────────
                 const tripComponents = {
                     'Fuel': fuelCost,
                     'Service': serviceCost,
@@ -2183,7 +2186,6 @@
                 `;
                 el.tripCostGrid.innerHTML = tripHtml;
 
-                // ─── PER KM GRID ──────────────────────────────────────
                 const perKmComponents = {
                     'Fuel': fuelCost / (distance || 1),
                     'Service': serviceCost / (distance || 1),
@@ -2208,7 +2210,6 @@
                 `;
                 el.perkmGrid.innerHTML = perkmHtml;
 
-                // ─── 5-YEAR DATA ──────────────────────────────────────
                 const fiveYearData = result.fiveYearData || result.yearly_breakdown || [];
                 const total5Year = result.five_year_total || result.total_5yr_cost || 0;
                 const originalCost = result.purchase_price || result.original_cost || 2500000;
@@ -2237,7 +2238,6 @@
                     </div>
                 `;
 
-                // ─── YEARLY TABLE ──────────────────────────────────────
                 const tbody = el.yearlyBody;
                 tbody.innerHTML = '';
                 if (fiveYearData.length > 0) {
@@ -2257,7 +2257,6 @@
                     });
                 }
 
-                // ─── COMMERCIAL RATES ──────────────────────────────────
                 const perKm = tripCostPerKm;
                 const commercialRates = [
                     { label: 'Private', value: perKm * 1.0, sub: 'Base rate' },
@@ -2276,7 +2275,6 @@
                     </div>
                 `).join('');
 
-                // ─── MONTHLY & ANNUAL ──────────────────────────────────
                 const monthlyMultiplier = 1 / 12;
                 const monthlyItems = [
                     { label: 'Fuel', value: fuelCost * monthlyMultiplier },
@@ -2306,7 +2304,6 @@
                     </div>
                 `).join('');
 
-                // ─── RCI ──────────────────────────────────────────────
                 let rciLabel, rciStars, rciClass;
                 if (tripCostPerKm <= 20) { rciLabel = 'Excellent'; rciStars = '★★★★★'; rciClass = 'excellent'; }
                 else if (tripCostPerKm <= 35) { rciLabel = 'Good'; rciStars = '★★★★'; rciClass = 'good'; }
@@ -2319,7 +2316,6 @@
                 el.rciStars.textContent = rciStars;
                 el.rciLabel.textContent = rciLabel;
 
-                // ─── ENVIRONMENTAL ──────────────────────────────────────
                 const fuelType = variant?.fuel_type_name || result.fuel_type || '';
                 const co2PerKm = fuelType.toLowerCase() === 'electric' ? 0 : 
                                  fuelType.toLowerCase() === 'hybrid' ? 80 : 
@@ -2335,7 +2331,6 @@
                     <div class="env-item"><div class="env-value">${fuelConsumption ? fuelConsumption.toFixed(1) : '—'}</div><div class="env-label">km/L</div></div>
                 `;
 
-                // ─── RECOMMENDATIONS ────────────────────────────────────
                 const recList = el.recList;
                 const recs = [];
                 if (tripCostPerKm > 50) {
@@ -2361,11 +2356,7 @@
                 });
             }
 
-            // ─── LOAD VARIANT DETAILS (NO auto-calculate) ──────────────
-            // fix: this used to call calculateAndRender() as soon as a
-            // variant was selected. Now it only loads and displays the
-            // vehicle profile card and enables the Calculate button —
-            // the actual cost calculation waits for the user to click it.
+            // ─── LOAD VARIANT DETAILS ──────────────────────────────────
             async function loadVariantAndDisplay(variantId) {
                 if (!variantId) return;
                 el.calculateBtn.disabled = true;
@@ -2551,9 +2542,6 @@
                     }
                 });
 
-                // fix: selecting a variant now only loads/displays the
-                // vehicle profile and enables the button — it no longer
-                // triggers calculateAndRender() automatically.
                 el.variantSelect.addEventListener('change', function() {
                     const variantId = this.value;
                     if (variantId) {
@@ -2564,11 +2552,6 @@
                     }
                 });
 
-                // fix: parameter changes (distance, annual km, fuel price,
-                // driving style, trip type, usage type, year) only clear
-                // their own validation-error state now. They used to
-                // debounce-trigger a recalculation; that's removed —
-                // the user must click Calculate to see updated results.
                 ['change', 'input'].forEach(evt => {
                     [el.distanceInput, el.annualKmInput, el.fuelPriceInput, el.drivingStyle,
                      el.tripType, el.usageType, el.yearSelect].forEach(elem => {
@@ -2580,8 +2563,6 @@
                     });
                 });
 
-                // fix: clicking a quick-route chip only fills in the
-                // distance field now — it no longer auto-recalculates.
                 el.routeChips.addEventListener('click', function(e) {
                     const chip = e.target.closest('.chip');
                     if (!chip) return;
@@ -2601,8 +2582,6 @@
                     }
                 });
 
-                // fix: cash/financed toggle just switches the fields shown
-                // now — it no longer auto-recalculates.
                 el.btnCash.addEventListener('click', function() {
                     this.classList.add('active');
                     el.btnFinanced.classList.remove('active');
@@ -2650,10 +2629,6 @@
             }
 
             // ─── INIT ──────────────────────────────────────────────────
-            // fix: no longer auto-selects the first category and cascades
-            // makes/models/generations/variants on load. The person now
-            // picks Category → Make → Model → Generation → Variant
-            // themselves, then clicks Calculate.
             async function init() {
                 el.loadingOverlay.classList.add('active');
 
