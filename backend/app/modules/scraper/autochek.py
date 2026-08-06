@@ -1,63 +1,41 @@
 # app/modules/scraper/autochek.py
 # ================================================================
-# Auto-D Kenya - Autochek Scraper
+# Auto-D Kenya - Autochek Vehicle Scraper
+# ================================================================
+# TYPE: MODULE - Autochek.co.ke listing scraper
 # ================================================================
 
-import asyncio
 import logging
-import random
+import re
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List, Set
+from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
-from app.modules.scraper.base_scraper import BaseScraper
+from app.modules.scraper.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
 
 class AutochekScraper(BaseScraper):
     """
-    Scraper for Autochek Kenya vehicle listings.
+    Autochek.co.ke vehicle listing scraper.
+    
+    Extracts:
+    - Vehicle listings from search results
+    - Detailed vehicle information from individual pages
+    - Pricing, specifications, and seller details
     """
 
     def __init__(self):
-        super().__init__(
-            source_name="autochek",
-            base_url="https://autochek.africa/ke"
-        )
-
-        # FIXED: Correct URL structure for Autochek
-        # The correct URL for car listings in Kenya is:
-        # https://autochek.africa/ke/used-cars
-        # or https://autochek.africa/ke/new-cars
-        self.search_url = "https://autochek.africa/ke/used-cars"
-        
-        # Also try these if the above doesn't work
-        self.fallback_urls = [
-            "https://autochek.africa/ke/cars-for-sale",
-            "https://autochek.africa/ke/new-cars",
-            "https://autochek.africa/ke/inventory",
-            "https://autochek.africa/ke/vehicles"
-        ]
+        """Initialize Autochek scraper."""
+        super().__init__()
+        self.base_url = "https://www.autochek.co.ke"
+        self.search_url = f"{self.base_url}/cars"
 
     # ============================================================
-    # RUN METHOD (Called by worker)
-    # ============================================================
-
-    async def run(
-        self,
-        pages: int = 3,
-        limit_per_page: int = 20,
-    ) -> Dict[str, Any]:
-        """
-        Run the scraper - entry point for worker.
-        """
-        return await self.scrape(pages, limit_per_page)
-
-    # ============================================================
-    # MAIN SCRAPER
+    # MAIN SCRAPE METHODS
     # ============================================================
 
     async def scrape(
@@ -65,201 +43,455 @@ class AutochekScraper(BaseScraper):
         pages: int = 3,
         limit_per_page: int = 20,
     ) -> Dict[str, Any]:
-
-        listings = []
+        """
+        Scrape Autochek vehicle listings.
         
-        # Try to find working URL first
-        working_url = await self._find_working_url()
-        if not working_url:
-            logger.error("No working URL found for Autochek")
+        Args:
+            pages: Number of pages to scrape
+            limit_per_page: Listings per page
+            
+        Returns:
+            Dict[str, Any]: Scraped listings and metadata
+        """
+        try:
+            logger.info(f"Starting Autochek scrape: {pages} pages, {limit_per_page} per page")
+            
+            all_listings = []
+            total_listings = 0
+            failed_pages = 0
+            
+            for page_num in range(1, pages + 1):
+                try:
+                    logger.info(f"Scraping Autochek page {page_num}/{pages}")
+                    
+                    # Build URL with pagination
+                    if page_num == 1:
+                        url = self.search_url
+                    else:
+                        url = f"{self.search_url}?page={page_num}"
+                    
+                    # Fetch page
+                    soup = await self._fetch_page(url)
+                    
+                    if soup is None:
+                        logger.warning(f"Failed to fetch Autochek page {page_num}")
+                        failed_pages += 1
+                        continue
+                    
+                    # Parse listing URLs from page
+                    listing_urls = self._extract_listing_urls(soup)
+                    
+                    if not listing_urls:
+                        logger.warning(f"No listings found on Autochek page {page_num}")
+                        failed_pages += 1
+                        continue
+                    
+                    logger.info(f"Found {len(listing_urls)} listing URLs on page {page_num}")
+                    
+                    # Process each listing
+                    for listing_url in listing_urls:
+                        try:
+                            listing = await self._parse_listing(listing_url)
+                            if listing:
+                                all_listings.append(listing)
+                                total_listings += 1
+                        except Exception as e:
+                            logger.debug(f"Failed to parse listing {listing_url}: {e}")
+                            continue
+                    
+                    # Respect rate limits
+                    await self._rate_limit()
+                    
+                except Exception as e:
+                    logger.error(f"Error scraping Autochek page {page_num}: {e}")
+                    failed_pages += 1
+                    continue
+            
+            logger.info(f"Autochek scrape complete: {total_listings} listings from {pages - failed_pages} pages")
+            
             return {
-                "status": "error",
-                "source": self.source_name,
+                "listings": all_listings,
+                "total_listings": total_listings,
+                "pages_scraped": pages - failed_pages,
+                "pages_failed": failed_pages,
+                "source": "autochek",
+                "scraped_at": datetime.now(timezone.utc).isoformat(),
+            }
+            
+        except Exception as e:
+            logger.exception(f"Autochek scrape failed: {e}")
+            return {
                 "listings": [],
-                "listings_found": 0,
-                "listings_saved": 0,
-                "error": "No working URL found",
-                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "total_listings": 0,
+                "pages_scraped": 0,
+                "pages_failed": pages,
+                "source": "autochek",
+                "error": str(e),
             }
 
-        for page in range(1, pages + 1):
-
-            logger.info(
-                "Autochek: scraping page %d using URL: %s",
-                page,
-                working_url
-            )
-
-            try:
-                # FIXED: Use working URL with page parameter
-                soup = await self._fetch_page(
-                    working_url,
-                    params={"page": page}
-                )
-
-                if soup is None:
-                    logger.warning(
-                        "Failed to load Autochek page %d",
-                        page,
-                    )
-                    continue
-
-                urls = self._extract_listing_urls(soup)
-                
-                # Deduplicate URLs
-                unique_urls = list(dict.fromkeys(urls))
-
-                logger.info(
-                    "Found %d unique vehicle links on Autochek page %d",
-                    len(unique_urls),
-                    page,
-                )
-
-                for url in unique_urls[:limit_per_page]:
-
-                    listing = await self._parse_listing(url)
-
-                    # Skip invalid listings
-                    if listing and listing.get("listing_id"):
-                        listings.append(listing)
-
-                    await asyncio.sleep(
-                        random.uniform(0.3, 0.8)
-                    )
-
-                await asyncio.sleep(
-                    random.uniform(1, 2)
-                )
-
-            except Exception:
-                logger.exception(
-                    "Autochek page %d failed",
-                    page,
-                )
-
-        return {
-            "status": "success",
-            "source": self.source_name,
-            "listings": listings,
-            "listings_found": len(listings),
-            "listings_saved": 0,
-            "completed_at": datetime.now(
-                timezone.utc
-            ).isoformat(),
-        }
-
-    # ============================================================
-    # FIND WORKING URL
-    # ============================================================
-
-    async def _find_working_url(self) -> Optional[str]:
+    def _extract_listing_urls(self, soup: BeautifulSoup) -> List[str]:
         """
-        Find a working URL for Autochek listings.
-        """
-        urls_to_try = [self.search_url] + self.fallback_urls
+        Extract listing URLs from search results page.
         
-        for url in urls_to_try:
-            try:
-                logger.info(f"Testing URL: {url}")
-                # Try to fetch without page parameter first
-                soup = await self._fetch_page(url)
-                if soup is not None:
-                    # Check if we got actual content
-                    body_text = soup.get_text(strip=True)
-                    if len(body_text) > 100:  # Has real content
-                        logger.info(f"Found working URL: {url}")
-                        return url
-            except Exception as e:
-                logger.warning(f"URL {url} failed: {str(e)}")
-                continue
+        Args:
+            soup: BeautifulSoup object of the page
+            
+        Returns:
+            List[str]: List of listing URLs
+        """
+        listing_urls = []
         
-        return None
-
-    # ============================================================
-    # EXTRACT LISTING URLS
-    # ============================================================
-
-    def _extract_listing_urls(
-        self,
-        soup: BeautifulSoup,
-    ) -> List[str]:
-        """
-        Extract listing URLs from the Autochek page.
-        """
-        urls: Set[str] = set()
-
-        # FIXED: Better selectors for Autochek
-        # Autochek typically uses these patterns
         selectors = [
-            'a[href*="/car/"]',
-            'a[href*="/used/"]',
-            'a[href*="/new/"]',
-            'a[href*="/vehicle/"]',
-            '.listing-card a',
-            '.vehicle-card a',
-            '.car-card a',
-            '.inventory-item a',
+            "a.listing-link",
+            "a.vehicle-link",
+            "a.car-link",
+            "a.product-link",
+            "a[href*='/cars/']",
+            ".vehicle-card a",
+            ".listing-card a",
+            ".car-card a",
         ]
-
+        
         for selector in selectors:
             try:
                 elements = soup.select(selector)
                 for element in elements:
                     href = element.get("href")
-                    if href:
+                    if not href:
+                        continue
+                    
+                    # Build full URL
+                    if href.startswith("/"):
                         url = urljoin(self.base_url, href)
-                        # Filter to only listing URLs
-                        if self._is_valid_listing_url(url):
-                            urls.add(url)
+                    else:
+                        url = href
+                    
+                    # Only include car listing URLs
+                    if "/cars/" in url and url not in listing_urls:
+                        listing_urls.append(url)
+                        
+            except Exception as e:
+                logger.debug(f"Error extracting listing URLs with selector {selector}: {e}")
+                continue
+        
+        # Limit to a reasonable number
+        return listing_urls[:200]
+
+    # ============================================================
+    # PARSE INDIVIDUAL LISTING
+    # ============================================================
+
+    async def _parse_listing(self, url: str) -> Optional[Dict[str, Any]]:
+        """
+        Parse a single Autochek vehicle listing.
+        """
+        try:
+            soup = await self._fetch_page(url)
+            
+            if soup is None:
+                return None
+            
+            title = self._extract_title(soup)
+            if not title:
+                return None
+            
+            make, model = self._extract_make_model(title)
+            details = self._extract_vehicle_details(soup)
+            
+            listing = {
+                "listing_id": self._extract_listing_id(url, soup),
+                "title": title,
+                "url": url,
+                "price": self._extract_price(soup),
+                "currency": "KES",
+                "make": make,
+                "model": model,
+                "year": details.get("year"),
+                "mileage": details.get("mileage"),
+                "engine_size": details.get("engine_size"),
+                "fuel_type": details.get("fuel_type"),
+                "transmission": details.get("transmission"),
+                "body_type": details.get("body_type"),
+                "location": self._extract_location(soup),
+                "seller_name": self._extract_seller_name(soup),
+                "seller_type": self._extract_seller_type(soup),
+                "condition": self._extract_condition(soup),
+                "description": self._extract_description(soup),
+                "images": self._extract_images(soup),
+                "scraped_at": datetime.now(timezone.utc).isoformat(),
+            }
+            
+            return listing
+            
+        except Exception as e:
+            logger.exception(f"Failed parsing listing {url}: {e}")
+            return None
+
+    # ============================================================
+    # PRICE
+    # ============================================================
+
+    def _extract_price(self, soup: BeautifulSoup) -> Optional[int]:
+        """Extract vehicle price."""
+        selectors = [
+            ".price",
+            ".vehicle-price",
+            ".listing-price",
+            "[itemprop='price']",
+            ".amount",
+            ".price-value",
+            "span.price",
+            "div.price",
+        ]
+        
+        for selector in selectors:
+            try:
+                element = soup.select_one(selector)
+                if element:
+                    price = self._parse_price(element.get_text(" ", strip=True))
+                    if price:
+                        return int(price)
             except Exception:
                 continue
-
-        # Fallback: look for any link with car-related keywords
-        if not urls:
-            for link in soup.find_all("a", href=True):
-                href = link["href"]
-                if href:
-                    url = urljoin(self.base_url, href)
-                    if self._is_valid_listing_url(url):
-                        urls.add(url)
-
-        return list(urls)
-
-    def _is_valid_listing_url(self, url: str) -> bool:
-        """
-        Check if URL is a valid listing URL.
-        """
-        # Exclude non-listing URLs
-        exclude_patterns = [
-            "/login", "/signup", "/register", 
-            "/about", "/contact", "/help", 
-            "/faq", "/privacy", "/terms",
-            "facebook.com", "twitter.com", 
-            "instagram.com", "youtube.com",
-            "whatsapp.com", "/blog", "/news"
-        ]
         
-        if any(pattern in url.lower() for pattern in exclude_patterns):
-            return False
-            
-        # Include listing URLs
-        include_patterns = [
-            "/car/", "/used/", "/new/", 
-            "/vehicle/", "/listing/"
-        ]
-        
-        return any(pattern in url.lower() for pattern in include_patterns)
+        return self._parse_price(soup.get_text(" ", strip=True))
 
     # ============================================================
-    # EXTRACT VEHICLE DETAILS
+    # DESCRIPTION
     # ============================================================
 
-    def _extract_vehicle_details(
-        self,
-        soup: BeautifulSoup,
-    ) -> Dict[str, Any]:
+    def _extract_description(self, soup: BeautifulSoup) -> str:
+        """Extract listing description."""
+        selectors = [
+            ".description",
+            ".vehicle-description",
+            ".listing-description",
+            ".product-description",
+            ".details",
+            ".overview",
+        ]
+        
+        for selector in selectors:
+            try:
+                element = soup.select_one(selector)
+                if element:
+                    text = self._clean_text(element.get_text(" ", strip=True))
+                    if len(text) > 20:
+                        return text
+            except Exception:
+                continue
+        
+        meta = soup.find("meta", attrs={"name": "description"})
+        if meta:
+            return self._clean_text(meta.get("content", ""))
+        
+        return ""
+
+    # ============================================================
+    # IMAGES
+    # ============================================================
+
+    def _extract_images(self, soup: BeautifulSoup) -> List[str]:
+        """Extract image URLs."""
+        images = []
+        
+        selectors = [
+            "img",
+            ".gallery img",
+            ".vehicle-gallery img",
+            ".swiper img",
+        ]
+        
+        for selector in selectors:
+            try:
+                for img in soup.select(selector):
+                    src = img.get("src") or img.get("data-src") or img.get("data-lazy")
+                    if not src:
+                        continue
+                    src = urljoin(self.base_url, src)
+                    if src not in images:
+                        images.append(src)
+            except Exception:
+                continue
+        
+        return images
+
+    # ============================================================
+    # SELLER
+    # ============================================================
+
+    def _extract_seller_name(self, soup: BeautifulSoup) -> str:
+        """Extract seller name."""
+        selectors = [
+            ".dealer-name",
+            ".seller-name",
+            ".vendor-name",
+            ".dealer",
+        ]
+        
+        for selector in selectors:
+            try:
+                element = soup.select_one(selector)
+                if element:
+                    text = self._clean_text(element.get_text(" ", strip=True))
+                    if text:
+                        return text
+            except Exception:
+                continue
+        
+        return "Autochek"
+
+    def _extract_seller_type(self, soup: BeautifulSoup) -> str:
+        """Extract seller type."""
+        text = soup.get_text(" ", strip=True).lower()
+        
+        if "dealer" in text:
+            return "Dealer"
+        if "private seller" in text:
+            return "Private"
+        
+        return "Dealer"
+
+    # ============================================================
+    # TITLE
+    # ============================================================
+
+    def _extract_title(self, soup: BeautifulSoup) -> str:
+        """Extract vehicle title."""
+        selectors = [
+            "h1",
+            ".vehicle-title",
+            ".listing-title",
+            ".product-title",
+            ".car-title",
+        ]
+        
+        for selector in selectors:
+            try:
+                element = soup.select_one(selector)
+                if element:
+                    title = self._clean_text(element.get_text(" ", strip=True))
+                    if title:
+                        return title
+            except Exception:
+                continue
+        
+        meta = soup.find("meta", property="og:title")
+        if meta:
+            return self._clean_text(meta.get("content", ""))
+        
+        if soup.title:
+            return self._clean_text(soup.title.get_text())
+        
+        return ""
+
+    # ============================================================
+    # MAKE / MODEL
+    # ============================================================
+
+    def _extract_make_model(self, title: str) -> tuple[str, str]:
+        """Extract make and model from title."""
+        if not title:
+            return "", ""
+        
+        makes = [
+            "Toyota", "Nissan", "Mazda", "Subaru", "Honda",
+            "Suzuki", "Mitsubishi", "Mercedes", "Mercedes-Benz",
+            "BMW", "Audi", "Volkswagen", "Lexus", "Hyundai",
+            "Kia", "Ford", "Isuzu", "Peugeot", "Land Rover",
+            "Range Rover", "Jeep", "Volvo"
+        ]
+        
+        words = title.split()
+        
+        for i, word in enumerate(words):
+            for make in makes:
+                if word.lower() == make.split()[0].lower():
+                    model = ""
+                    if i + 1 < len(words):
+                        model = words[i + 1]
+                    return make, model
+        
+        return "", ""
+
+    # ============================================================
+    # LOCATION
+    # ============================================================
+
+    def _extract_location(self, soup: BeautifulSoup) -> str:
+        """Extract vehicle location."""
+        selectors = [
+            ".location",
+            ".vehicle-location",
+            ".dealer-location",
+            ".address",
+            ".city",
+        ]
+        
+        for selector in selectors:
+            try:
+                element = soup.select_one(selector)
+                if element:
+                    location = self._clean_text(element.get_text(" ", strip=True))
+                    if location:
+                        return location
+            except Exception:
+                continue
+        
+        text = soup.get_text(" ", strip=True)
+        cities = ["Nairobi", "Mombasa", "Kisumu", "Nakuru", "Eldoret", "Thika", "Machakos", "Kiambu"]
+        
+        for city in cities:
+            if city.lower() in text.lower():
+                return city
+        
+        return "Kenya"
+
+    # ============================================================
+    # CONDITION
+    # ============================================================
+
+    def _extract_condition(self, soup: BeautifulSoup) -> str:
+        """Extract vehicle condition."""
+        text = soup.get_text(" ", strip=True).lower()
+        
+        if "brand new" in text:
+            return "New"
+        if "used" in text or "pre-owned" in text:
+            return "Used"
+        
+        return "Used"
+
+    # ============================================================
+    # LISTING ID
+    # ============================================================
+
+    def _extract_listing_id(self, url: str, soup: BeautifulSoup) -> str:
+        """Extract listing ID from URL or soup."""
+        path = urlparse(url).path
+        slug = path.rstrip("/").split("/")[-1]
+        
+        if slug and len(slug) > 4:
+            return slug
+        
+        meta = soup.find("meta", attrs={"name": "listing-id"})
+        if meta:
+            value = meta.get("content")
+            if value:
+                return value
+        
+        return str(abs(hash(url)))
+
+    # ============================================================
+    # VEHICLE DETAILS
+    # ============================================================
+
+    def _extract_vehicle_details(self, soup: BeautifulSoup) -> Dict[str, Any]:
         """
-        Extract all vehicle details from page.
+        Extract vehicle details from the page.
+        
+        Returns:
+            Dict with year, mileage, engine_size, fuel_type, transmission, body_type
         """
         details = {
             "year": None,
@@ -269,382 +501,91 @@ class AutochekScraper(BaseScraper):
             "transmission": None,
             "body_type": None,
         }
-
-        # Get page text
-        page_text = soup.get_text(" ", strip=True)
-
-        # Extract from page text using regex
-        details["year"] = self._parse_year(page_text)
-        details["mileage"] = self._parse_mileage(page_text)
-        details["engine_size"] = self._parse_engine_size(page_text)
-
-        # Look for specific detail sections
-        detail_sections = soup.find_all(["div", "ul", "table"], 
-            class_=lambda x: x and any(word in x.lower() for word in 
-                ["details", "specs", "features", "info"])
-        )
-
-        for section in detail_sections:
-            section_text = section.get_text(" ", strip=True)
-            
-            # Extract fuel type
-            if "petrol" in section_text.lower():
-                details["fuel_type"] = "Petrol"
-            elif "diesel" in section_text.lower():
-                details["fuel_type"] = "Diesel"
-            elif "electric" in section_text.lower():
-                details["fuel_type"] = "Electric"
-            elif "hybrid" in section_text.lower():
-                details["fuel_type"] = "Hybrid"
-            
-            # Extract transmission
-            if "automatic" in section_text.lower():
-                details["transmission"] = "Automatic"
-            elif "manual" in section_text.lower():
-                details["transmission"] = "Manual"
-            
-            # Extract body type
-            body_types = ["sedan", "suv", "hatchback", "coupe", 
-                         "convertible", "truck", "van", "wagon"]
-            for body in body_types:
-                if body in section_text.lower():
-                    details["body_type"] = body.capitalize()
-                    break
-
+        
+        # Try to find spec items
+        spec_selectors = [
+            ".spec-item",
+            ".detail-item",
+            ".feature-item",
+            ".specification-item",
+            "li.spec",
+        ]
+        
+        for selector in spec_selectors:
+            try:
+                items = soup.select(selector)
+                for item in items:
+                    text = self._clean_text(item.get_text(" ", strip=True))
+                    if not text:
+                        continue
+                    
+                    text_lower = text.lower()
+                    
+                    # Year
+                    if "year" in text_lower or "reg" in text_lower:
+                        year_match = re.search(r"\b(19|20)\d{2}\b", text)
+                        if year_match:
+                            details["year"] = int(year_match.group())
+                    
+                    # Mileage
+                    if "km" in text_lower or "mileage" in text_lower:
+                        mileage_match = re.search(r"(\d+[,.]?\d*)\s*(?:km|kms|km)", text_lower)
+                        if mileage_match:
+                            details["mileage"] = int(re.sub(r"[^\d]", "", mileage_match.group(1)))
+                    
+                    # Engine size
+                    if "cc" in text_lower or "engine" in text_lower:
+                        engine_match = re.search(r"(\d+[,.]?\d*)\s*(?:cc|litre)", text_lower)
+                        if engine_match:
+                            details["engine_size"] = int(re.sub(r"[^\d]", "", engine_match.group(1)))
+                    
+                    # Fuel type
+                    if "fuel" in text_lower:
+                        if "petrol" in text_lower or "gasoline" in text_lower:
+                            details["fuel_type"] = "Petrol"
+                        elif "diesel" in text_lower:
+                            details["fuel_type"] = "Diesel"
+                        elif "electric" in text_lower:
+                            details["fuel_type"] = "Electric"
+                        elif "hybrid" in text_lower:
+                            details["fuel_type"] = "Hybrid"
+                    
+                    # Transmission
+                    if "transmission" in text_lower or "gear" in text_lower:
+                        if "manual" in text_lower:
+                            details["transmission"] = "Manual"
+                        elif "automatic" in text_lower or "auto" in text_lower:
+                            details["transmission"] = "Automatic"
+                        elif "cvt" in text_lower:
+                            details["transmission"] = "CVT"
+                    
+                    # Body type
+                    body_types = ["suv", "sedan", "hatchback", "pickup", "van", "truck", "coupe", "convertible", "wagon"]
+                    for body in body_types:
+                        if body in text_lower:
+                            details["body_type"] = body.title()
+                            break
+            except Exception:
+                continue
+        
         return details
 
     # ============================================================
-    # EXTRACT TITLE
+    # OVERRIDES
     # ============================================================
 
-    def _extract_title(
-        self,
-        soup: BeautifulSoup,
-    ) -> str:
-        """
-        Extract vehicle title from the page.
-        """
-        # Try h1 first
-        title_tag = soup.find("h1")
-        if title_tag:
-            title = self._clean_text(title_tag.get_text())
-            if title:
-                return title
+    def _parse_price(self, text: str) -> Optional[int]:
+        """Override price parsing."""
+        return super()._parse_price(text)
 
-        # Try meta tags
-        meta_title = soup.find("meta", {"property": "og:title"})
-        if meta_title:
-            content = meta_title.get("content")
-            if content:
-                return self._clean_text(content)
-
-        # Try title tag
-        title_tag = soup.find("title")
-        if title_tag:
-            title = self._clean_text(title_tag.get_text())
-            # Remove site name if present
-            if "|" in title:
-                title = title.split("|")[0].strip()
-            return title
-
-        return ""
-
-    # ============================================================
-    # EXTRACT MAKE AND MODEL FROM TITLE
-    # ============================================================
-
-    def _extract_make_model(
-        self,
-        title: str,
-    ) -> tuple:
-        """
-        Extract make and model from the title.
-        """
-        if not title:
-            return "", ""
-
-        # Common makes in Kenya (organized by length for better matching)
-        makes = [
-            "Land Rover", "Range Rover", "Mercedes-Benz", "Mercedes", 
-            "Toyota", "Nissan", "Honda", "Subaru", "Mazda",
-            "BMW", "Audi", "Volkswagen", "Ford", "Mitsubishi", 
-            "Isuzu", "Suzuki", "Hyundai", "Kia", "Lexus", "Volvo",
-            "Peugeot", "Citroen", "Renault", "Fiat", "Jeep",
-            "Chevrolet", "Dodge", "Chrysler", "Porsche", "Jaguar",
-            "Bentley", "Ferrari", "Lamborghini", "Maserati",
-            "Aston Martin", "Rolls Royce", "Mini", "Smart", "Tesla"
-        ]
-
-        title_lower = title.lower()
-        
-        # Try to find make in title
-        for make in makes:
-            if make.lower() in title_lower:
-                # Extract model (text after make)
-                parts = title.split()
-                for i, part in enumerate(parts):
-                    if part.lower() == make.lower():
-                        # Get next part as model
-                        if i + 1 < len(parts):
-                            model = parts[i + 1]
-                            # Clean model (remove special characters)
-                            model = ''.join(c for c in model if c.isalnum() or c.isspace())
-                            if model and len(model) > 1:
-                                return make, model
-                        return make, ""
-
-        return "", ""
-
-    # ============================================================
-    # PARSE LISTING
-    # ============================================================
-
-    async def _parse_listing(
-        self,
-        url: str,
-    ) -> Optional[Dict[str, Any]]:
-
-        try:
-
-            soup = await self._fetch_page(url)
-
-            if soup is None:
-                return None
-
-            # Extract title
-            title = self._extract_title(soup)
-
-            if not title:
-                logger.warning(f"No title found for listing: {url}")
-                return None
-
-            # Get vehicle details
-            details = self._extract_vehicle_details(soup)
-
-            # Extract make and model from title
-            make, model = self._extract_make_model(title)
-
-            # Extract listing ID
-            listing_id = self._extract_listing_id(url, soup)
-
-            # Extract price
-            price = self._parse_price(soup.get_text(" ", strip=True))
-            
-            # Try to get price from specific elements
-            if price is None:
-                price = self._extract_price_from_page(soup)
-
-            # Extract location
-            location = self._extract_location(soup)
-
-            return {
-                "listing_id": listing_id,
-                "title": title,
-                "url": url,
-                "price": price,
-                "currency": "KES",
-                "make": make,
-                "model": model,
-                "year": details.get("year"),
-                "mileage": details.get("mileage"),
-                "engine_size": details.get("engine_size"),
-                "fuel_type": details.get("fuel_type") or "",
-                "transmission": details.get("transmission") or "",
-                "body_type": details.get("body_type") or "",
-                "location": location,
-                "seller_name": "Autochek",
-                "seller_type": "Dealer",
-                "condition": self._extract_condition(soup),
-            }
-
-        except Exception:
-            logger.exception(
-                "Failed parsing Autochek listing: %s",
-                url,
-            )
-            return None
-
-    # ============================================================
-    # EXTRACT LISTING ID
-    # ============================================================
-
-    def _extract_listing_id(self, url: str, soup: BeautifulSoup) -> str:
-        """
-        Extract listing ID from URL or page.
-        """
-        # Try to get from URL
-        parsed = urlparse(url)
-        path = parsed.path.rstrip("/")
-        listing_id = path.split("/")[-1]
-        
-        # Check if it's a valid ID
-        if listing_id and len(listing_id) > 2 and listing_id not in ["car", "used", "new", "vehicle"]:
-            return listing_id
-
-        # Try to get from meta
-        meta_id = soup.find("meta", {"name": "listing-id"})
-        if meta_id:
-            content = meta_id.get("content")
-            if content:
-                return content
-
-        # Try to get from hidden input
-        hidden_id = soup.find("input", {"type": "hidden", "name": "listing_id"})
-        if hidden_id:
-            value = hidden_id.get("value")
-            if value:
-                return value
-
-        # Generate from URL hash
-        return str(abs(hash(url)))[:10]
-
-    # ============================================================
-    # EXTRACT PRICE FROM PAGE
-    # ============================================================
-
-    def _extract_price_from_page(self, soup: BeautifulSoup) -> Optional[float]:
-        """
-        Extract price from specific price elements on the page.
-        """
-        price_selectors = [
-            ".price",
-            ".vehicle-price",
-            ".car-price",
-            ".listing-price",
-            "[itemprop='price']",
-            ".product-price",
-            ".amount",
-            ".sale-price",
-            ".price-amount",
-            "span.price",
-            "div.price",
-        ]
-
-        for selector in price_selectors:
-            try:
-                price_element = soup.select_one(selector)
-                if price_element:
-                    price_text = price_element.get_text(strip=True)
-                    price = self._parse_price(price_text)
-                    if price:
-                        return price
-            except Exception:
-                continue
-
-        return None
-
-    # ============================================================
-    # EXTRACT LOCATION
-    # ============================================================
-
-    def _extract_location(self, soup: BeautifulSoup) -> str:
-        """
-        Extract location from the page.
-        """
-        location_selectors = [
-            ".location",
-            ".vehicle-location",
-            "[itemprop='location']",
-            ".address",
-            ".seller-location",
-            ".city",
-            ".area",
-            ".region",
-        ]
-
-        for selector in location_selectors:
-            try:
-                location_element = soup.select_one(selector)
-                if location_element:
-                    location = self._clean_text(location_element.get_text())
-                    if location and len(location) > 2:
-                        # Check if it looks like a location
-                        if any(city in location.lower() for city in 
-                            ["nairobi", "mombasa", "kisumu", "nakuru", "eldoret", "thika", "malindi"]):
-                            return location
-            except Exception:
-                continue
-
-        # Default to Kenya
-        return "Kenya"
-
-    # ============================================================
-    # EXTRACT CONDITION
-    # ============================================================
-
-    def _extract_condition(self, soup: BeautifulSoup) -> str:
-        """
-        Extract vehicle condition.
-        """
-        # Check page text for condition indicators
-        page_text = soup.get_text(" ", strip=True).lower()
-        
-        if "brand new" in page_text or "new car" in page_text or "new model" in page_text:
-            return "New"
-        if "used car" in page_text or "pre-owned" in page_text or "second hand" in page_text:
-            return "Used"
-        if "certified pre-owned" in page_text or "cpo" in page_text:
-            return "Certified Pre-Owned"
-
-        # Check meta data
-        meta_condition = soup.find("meta", {"name": "condition"})
-        if meta_condition:
-            content = meta_condition.get("content", "").lower()
-            if "new" in content:
-                return "New"
-            if "used" in content or "pre-owned" in content:
-                return "Used"
-
-        return "Used"
-
-    # ============================================================
-    # OVERRIDE: PARSE YEAR
-    # ============================================================
-
-    def _parse_year(
-        self,
-        text: str,
-    ) -> Optional[int]:
-        """
-        Parse year from Autochek listing text.
-        """
+    def _parse_year(self, text: str) -> Optional[int]:
+        """Override year parsing."""
         return super()._parse_year(text)
 
-    # ============================================================
-    # OVERRIDE: PARSE MILEAGE
-    # ============================================================
-
-    def _parse_mileage(
-        self,
-        text: str,
-    ) -> Optional[int]:
-        """
-        Parse mileage from Autochek listing text.
-        """
+    def _parse_mileage(self, text: str) -> Optional[int]:
+        """Override mileage parsing."""
         return super()._parse_mileage(text)
 
-    # ============================================================
-    # OVERRIDE: PARSE ENGINE SIZE
-    # ============================================================
-
-    def _parse_engine_size(
-        self,
-        text: str,
-    ) -> Optional[float]:
-        """
-        Parse engine size from Autochek listing text.
-        """
+    def _parse_engine_size(self, text: str) -> Optional[float]:
+        """Override engine size parsing."""
         return super()._parse_engine_size(text)
-
-    # ============================================================
-    # OVERRIDE: PARSE PRICE
-    # ============================================================
-
-    def _parse_price(
-        self,
-        text: str,
-    ) -> Optional[float]:
-        """
-        Parse price from Autochek listing text.
-        """
-        return super()._parse_price(text)
