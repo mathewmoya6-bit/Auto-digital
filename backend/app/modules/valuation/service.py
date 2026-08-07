@@ -156,6 +156,7 @@ class ValuationService:
             "transmission": variant_data.get("transmission_type_name"),
             "engine_size_cc": variant_data.get("engine_size_cc"),
             "body_type": variant_data.get("body_type_name"),
+            "vehicle_type": self._detect_vehicle_type(variant_data),
         }
         
         # Override with provided values if available
@@ -164,7 +165,7 @@ class ValuationService:
         if transmission:
             vehicle["transmission"] = transmission
         
-        logger.info(f"Vehicle: {vehicle['make']} {vehicle['model']} ({vehicle['variant_name']})")
+        logger.info(f"Vehicle: {vehicle['make']} {vehicle['model']} ({vehicle['variant_name']}) - Type: {vehicle['vehicle_type']}")
         
         # ─── GET BASE PRICE ──────────────────────────────────────────────
         
@@ -196,23 +197,55 @@ class ValuationService:
         
         logger.info(f"Base price: KES {base_price:,.2f}")
         
-        # ─── CALL ENGINE ──────────────────────────────────────────────────
+        # ─── CALL DATABASE VALUATION FUNCTION ──────────────────────────────────
         
         try:
-            # FIXED: Call engine with keyword arguments, not request object
-            result = await self.engine.calculate(
-                variant_id=variant_id,
-                year=year,
-                mileage=mileage,
-                condition=condition,
-                accident_history=accident_history,
-                location=location,
-                variant_data=variant_data
+            crsp_id = variant_data.get("id")
+            
+            if not crsp_id:
+                raise Exception("CRSP ID missing for vehicle")
+            
+            rpc_response = (
+                self.supabase
+                .rpc(
+                    "calculate_vehicle_value",
+                    {
+                        "p_crsp_id": crsp_id,
+                        "p_vehicle_type": vehicle["vehicle_type"],
+                        "p_manufacture_year": year,
+                        "p_mileage": mileage,
+                        "p_condition": condition.upper(),
+                        "p_accident_status": self._normalize_accident(accident_history),
+                        "p_location": location.upper()
+                    }
+                )
+                .execute()
             )
-            logger.info("Valuation calculation completed successfully")
+            
+            if not rpc_response.data:
+                raise Exception("No valuation returned")
+            
+            db_value = rpc_response.data[0]
+            
+            result = {
+                "market_value": float(db_value["final_value"]),
+                "retail_value": float(db_value["final_value"]) * 1.08,
+                "trade_value": float(db_value["final_value"]) * 0.85,
+                "dealer_value": float(db_value["final_value"]) * 0.95,
+                "confidence_score": float(db_value["confidence_score"]),
+                "adjustments": {
+                    "mileage": db_value["mileage_adjustment"],
+                    "condition": db_value["condition_adjustment"],
+                    "accident": db_value["accident_adjustment"],
+                    "location": db_value["location_adjustment"],
+                },
+                "sample_size": 0,
+                "comparables": []
+            }
+            logger.info("Valuation calculation completed successfully using database function")
+            
         except Exception as e:
-            logger.error(f"Engine calculation failed: {str(e)}")
-            # Return fallback valuation
+            logger.error(f"Database valuation failed: {e}")
             result = self._create_fallback_valuation(vehicle, year, mileage, base_price)
         
         # ─── FIX CONFIDENCE SCORE ───────────────────────────────────────
@@ -303,6 +336,62 @@ class ValuationService:
         
         logger.info(f"Valuation report {report_number} generated successfully")
         return response
+    
+    # ================================================================
+    # HELPER METHODS
+    # ================================================================
+    
+    def _normalize_accident(self, accident: str) -> str:
+        """
+        Normalize accident history values to database enum values.
+        
+        Args:
+            accident: Accident history string
+            
+        Returns:
+            str: Normalized accident status for database
+        """
+        mapping = {
+            "none": "NO_ACCIDENT",
+            "minor": "MINOR_REPAIR",
+            "major": "ACCIDENT_REPAIRED",
+            "total_loss": "STRUCTURAL_DAMAGE"
+        }
+        
+        return mapping.get(accident.lower(), "NO_ACCIDENT")
+    
+    def _detect_vehicle_type(self, data: Dict[str, Any]) -> str:
+        """
+        Detect vehicle type from vehicle data.
+        
+        Args:
+            data: Vehicle data dictionary
+            
+        Returns:
+            str: Vehicle type (SUV, PICKUP, LUXURY, SEDAN, ELECTRIC)
+        """
+        body = (data.get("body_type_name") or "").upper()
+        fuel = (data.get("fuel_type_name") or "").upper()
+        make = (data.get("make_name") or "").upper()
+        
+        # Electric vehicles
+        if "ELECTRIC" in fuel:
+            return "ELECTRIC"
+        
+        # SUVs and crossovers
+        if any(x in body for x in ["SUV", "CROSSOVER", "4X4"]):
+            return "SUV"
+        
+        # Pickups
+        if any(x in body for x in ["PICKUP", "DOUBLE CAB"]):
+            return "PICKUP"
+        
+        # Luxury brands
+        if make in ["BMW", "MERCEDES", "PORSCHE", "LEXUS", "AUDI"]:
+            return "LUXURY"
+        
+        # Default to sedan
+        return "SEDAN"
     
     # ================================================================
     # BASE PRICE ESTIMATION
