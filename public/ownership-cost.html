@@ -1093,7 +1093,7 @@
                 </a>
             </div>
             <div class="header-right">
-                <div class="version">Version <span>v8.1</span> <span class="auto-d-badge" style="display:inline-block;background:rgba(234,179,8,0.15);color:#eab308;font-family:var(--font-mono);font-size:8px;padding:2px 8px;border-radius:10px;border:1px solid rgba(234,179,8,0.2);margin-left:6px;">Auto-D</span></div>
+                <div class="version">Version <span>v8.2</span> <span class="auto-d-badge" style="display:inline-block;background:rgba(234,179,8,0.15);color:#eab308;font-family:var(--font-mono);font-size:8px;padding:2px 8px;border-radius:10px;border:1px solid rgba(234,179,8,0.2);margin-left:6px;">Auto-D</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus" aria-live="polite">🔓 Not Authenticated</span>
@@ -1270,9 +1270,10 @@
                 <div class="panel-label"><span class="num">06</span> Financial Details</div>
 
                 <div class="form-group">
-                    <label for="purchasePrice">Purchase Price (KES)</label>
+                    <label for="purchasePrice">Purchase Price (KES) <span id="basePriceTag" style="color:var(--green);font-weight:600;display:none;">· Base price (CRSP)</span></label>
                     <input type="number" id="purchasePrice" value="4500000" min="100000" max="500000000" step="10000" />
                     <div class="field-error" id="purchasePriceError"></div>
+                    <div class="helper-text" id="basePriceHelper" style="display:none;"></div>
                 </div>
 
                 <div id="financeFields">
@@ -1369,6 +1370,7 @@
                         <span class="pill" id="bodyTypePill">—</span>
                         <span class="pill" id="conditionPill">—</span>
                         <span class="pill" id="purchaseTypePill">—</span>
+                        <span class="pill highlight" id="basePricePill" style="display:none;">—</span>
                     </div>
                     <div id="vehicleExtraSpecs" style="margin-top:6px;font-size:11px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:4px 16px;"></div>
                 </div>
@@ -1451,6 +1453,7 @@
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
+                BASE_PRICE_TABLE: 'vehicle_base_prices',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html',
                 INFLATION_RATE: 2.0,
@@ -1467,6 +1470,8 @@
             let currentUser = null;
             let accessToken = null; // single in-memory source of truth; Supabase persists its own session copy
             let currentVariantData = null;
+            let currentBasePrice = null; // CRSP base price (KES) looked up from vehicle_base_prices
+            let purchasePriceEditedByUser = false; // once true, stop auto-filling from base price
             let vehicleType = 'ice';
             let vehicleCondition = 'new';
             let fuelType = 'petrol';
@@ -1510,6 +1515,8 @@
                 yearSelect: document.getElementById('yearSelect'),
                 purchasePrice: document.getElementById('purchasePrice'),
                 purchasePriceError: document.getElementById('purchasePriceError'),
+                basePriceTag: document.getElementById('basePriceTag'),
+                basePriceHelper: document.getElementById('basePriceHelper'),
                 downPayment: document.getElementById('downPayment'),
                 downPaymentError: document.getElementById('downPaymentError'),
                 loanTermRange: document.getElementById('loanTermRange'),
@@ -1540,6 +1547,7 @@
                 bodyTypePill: document.getElementById('bodyTypePill'),
                 conditionPill: document.getElementById('conditionPill'),
                 purchaseTypePill: document.getElementById('purchaseTypePill'),
+                basePricePill: document.getElementById('basePricePill'),
                 vehicleSpecs: document.getElementById('vehicleSpecs'),
                 vehicleExtraSpecs: document.getElementById('vehicleExtraSpecs'),
                 outTotal: document.getElementById('outTotal'),
@@ -1925,6 +1933,54 @@
                 return data;
             }
 
+            // ─── Base Price (CRSP) Lookup ──────────────────────────
+            // Looks up the vehicle's base/list price from vehicle_base_prices by
+            // make + model text match (that table has no foreign key into
+            // vehicle_master_specs). Prefers an exact model match when available.
+            async function fetchBasePrice(make, model) {
+                if (!supabaseClient || !make) return null;
+                try {
+                    let query = supabaseClient
+                        .from(CONFIG.BASE_PRICE_TABLE)
+                        .select('make, model, crsp_kes')
+                        .ilike('make', make.trim());
+                    if (model) {
+                        query = query.ilike('model', `%${model.trim()}%`);
+                    }
+                    const { data, error } = await query.limit(5);
+                    if (error) throw error;
+                    if (!data || data.length === 0) return null;
+                    const exact = model
+                        ? data.find(r => (r.model || '').trim().toLowerCase() === model.trim().toLowerCase())
+                        : null;
+                    const row = exact || data[0];
+                    return row.crsp_kes || null;
+                } catch (error) {
+                    console.warn('⚠️ Base price lookup failed:', error.message);
+                    return null;
+                }
+            }
+
+            function applyBasePriceToForm(basePrice) {
+                currentBasePrice = basePrice;
+                if (!basePrice) {
+                    el.basePriceTag.style.display = 'none';
+                    el.basePriceHelper.style.display = 'none';
+                    return;
+                }
+                el.basePriceTag.style.display = 'inline';
+                el.basePriceHelper.style.display = 'block';
+                el.basePriceHelper.textContent = `Auto-filled from Auto-D base price (CRSP): KES ${fmtCurrency(basePrice)}`;
+                if (!purchasePriceEditedByUser) {
+                    el.purchasePrice.value = Math.round(basePrice);
+                    // Keep a sensible default down payment (~20%) in sync with the new price.
+                    if (purchaseType === 'finance') {
+                        el.downPayment.value = Math.round(basePrice * 0.2);
+                    }
+                    validateFinancials();
+                }
+            }
+
             // ─── Load Data ────────────────────────────────────────
             async function loadCategories() {
                 try {
@@ -2231,6 +2287,13 @@
                 el.purchaseTypePill.textContent = purchaseType === 'cash' ? '💰 Cash' : '🏦 Financing';
                 el.purchaseTypePill.className = `pill ${purchaseType === 'cash' ? '' : 'highlight'}`;
 
+                if (currentBasePrice) {
+                    el.basePricePill.textContent = `Base price: KES ${fmtCurrency(currentBasePrice)}`;
+                    el.basePricePill.style.display = 'inline-block';
+                } else {
+                    el.basePricePill.style.display = 'none';
+                }
+
                 const extraSpecs = [
                     { label: 'Trim', value: variant.trim_level || 'Standard' },
                     { label: 'Power', value: `${variant.power_hp || 0} HP` },
@@ -2357,6 +2420,13 @@
                 }
 
                 currentVariantData = variant;
+
+                if (!currentBasePrice) {
+                    showProgress(30, 'Looking up base price...');
+                    const basePrice = await fetchBasePrice(variant.make_name, variant.model_name);
+                    applyBasePriceToForm(basePrice);
+                }
+
                 displayVehicleInfo(variant);
 
                 const formData = {
@@ -2621,6 +2691,7 @@
                 csv += `Total Interest,${csvCell(scenarioData.total_interest || 0)}\n`;
                 csv += `Cost Per KM,${csvCell(scenarioData.cost_per_km || 0)}\n`;
                 csv += `Resale Value,${csvCell(scenarioData.resale_value || 0)}\n`;
+                csv += `Base Price (CRSP),${csvCell(currentBasePrice || '')}\n`;
                 csv += `Fuel Type,${csvCell(fuelType)}\n`;
                 csv += `Vehicle Condition,${csvCell(vehicleCondition)}\n`;
                 csv += `Purchase Type,${csvCell(purchaseType)}\n`;
@@ -2766,6 +2837,12 @@
                     if (currentVariantData) displayVehicleInfo(currentVariantData);
                 });
 
+                // Track manual edits to purchase price so we stop overwriting it once
+                // the person has typed their own number.
+                el.purchasePrice.addEventListener('input', function() {
+                    purchasePriceEditedByUser = true;
+                });
+
                 // Vehicle selection cascading
                 el.categorySelect.addEventListener('change', async function() {
                     if (this.value && isAuthenticated) await populateMakes(this.value);
@@ -2779,8 +2856,21 @@
                 el.generationSelect.addEventListener('change', async function() {
                     if (this.value && isAuthenticated) await populateVariants(this.value);
                 });
-                el.variantSelect.addEventListener('change', function() {
-                    el.calculateBtn.disabled = !(this.value && isAuthenticated);
+                el.variantSelect.addEventListener('change', async function() {
+                    const hasSelection = this.value && isAuthenticated;
+                    el.calculateBtn.disabled = !hasSelection;
+                    if (!hasSelection) return;
+
+                    // Pre-load variant details + base price as soon as a variant is picked,
+                    // so the purchase price field is populated before the person even clicks Calculate.
+                    const variant = await loadVariantDetails(this.value);
+                    if (variant) {
+                        currentVariantData = variant;
+                        purchasePriceEditedByUser = false;
+                        const basePrice = await fetchBasePrice(variant.make_name, variant.model_name);
+                        applyBasePriceToForm(basePrice);
+                        displayVehicleInfo(variant);
+                    }
                 });
 
                 el.calculateBtn.addEventListener('click', calculate);
@@ -2855,7 +2945,8 @@
 
                     el.loadingOverlay.classList.remove('active');
 
-                    console.log('✅ Auto-D Kenya TCO Calculator v8.1');
+                    console.log('✅ Auto-D Kenya TCO Calculator v8.2');
+                    console.log('💰 Base price table: ' + CONFIG.BASE_PRICE_TABLE);
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/ownership/calculate`);
                 } catch (error) {
