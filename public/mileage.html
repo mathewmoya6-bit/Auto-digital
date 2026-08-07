@@ -1136,10 +1136,11 @@
                     <div class="error-text" id="generationError">Please select a generation</div>
                 </div>
 
+                <!-- CHANGED: "Variant" → "Engine Capacity" -->
                 <div class="form-group">
-                    <label for="variantSelect">Vehicle Variant</label>
-                    <select id="variantSelect" disabled><option value="">Select a generation first</option></select>
-                    <div class="error-text" id="variantError">Please select a variant</div>
+                    <label for="engineCapacitySelect">Engine Capacity (cc)</label>
+                    <select id="engineCapacitySelect" disabled><option value="">Select a generation first</option></select>
+                    <div class="error-text" id="engineCapacityError">Please select an engine capacity</div>
                 </div>
 
                 <div class="form-group">
@@ -1363,6 +1364,7 @@
         // Version 8.4 - Aligned: fetches vehicle base price (CRSP) from
         //                 vehicle_base_prices table by make/model and uses
         //                 it as the purchase-price basis for calculations.
+        //                 CHANGED: "Variant" → "Engine Capacity"
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1384,7 +1386,7 @@
             let currentUser = null;
             let isFinanced = false;
             let currentVariantData = null;
-            let currentBasePrice = null; // CRSP base price (KES) fetched for the selected make/model
+            let currentBasePrice = null;
             let routes = [];
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
@@ -1395,7 +1397,7 @@
                 makeSelect: document.getElementById('makeSelect'),
                 modelSelect: document.getElementById('modelSelect'),
                 generationSelect: document.getElementById('generationSelect'),
-                variantSelect: document.getElementById('variantSelect'),
+                engineCapacitySelect: document.getElementById('engineCapacitySelect'), // CHANGED
                 fuelFilterGroup: document.getElementById('fuelFilterGroup'),
                 distanceInput: document.getElementById('distanceInput'),
                 annualKmInput: document.getElementById('annualKmInput'),
@@ -1666,9 +1668,6 @@
             }
 
             // ─── BASE PRICE (CRSP) LOOKUP ──────────────────────────────
-            // Looks up the vehicle's base/list price from the vehicle_base_prices
-            // table by make + model (case-insensitive). That table has no foreign
-            // key into vehicle_master_specs, so the match is done on name text.
             async function fetchBasePrice(make, model) {
                 if (!supabaseClient || !make) return null;
                 try {
@@ -1682,7 +1681,6 @@
                     const { data, error } = await query.limit(5);
                     if (error) throw error;
                     if (!data || data.length === 0) return null;
-                    // Prefer an exact (case-insensitive) model match if one exists.
                     const exact = model
                         ? data.find(r => (r.model || '').trim().toLowerCase() === model.trim().toLowerCase())
                         : null;
@@ -1784,32 +1782,38 @@
                 }
             }
 
-            async function loadVariants(generationId) {
+            // CHANGED: load engine capacities instead of variants
+            async function loadEngineCapacities(generationId) {
                 try {
-                    setStatus('info', 'Loading variants...');
+                    setStatus('info', 'Loading engine capacities...');
                     const data = await queryView(
                         `variant_id, variant_name, trim_level, engine_size_cc, power_hp, torque_nm, 
                          fuel_consumption_combined, co2_emissions, seats, doors, fuel_type_name, 
                          transmission_type_name, drive_type_name, body_type_name`,
                         { column: 'generation_id', value: generationId },
-                        { column: 'variant_name', ascending: true }
+                        { column: 'engine_size_cc', ascending: true }
                     );
-                    return data.map(v => {
-                        let name = v.variant_name || 'Variant';
-                        const parts = name.split(' ');
-                        if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
-                            parts.splice(0, 1);
-                            name = parts.join(' ');
+                    // Group by engine_size_cc
+                    const grouped = {};
+                    data.forEach(v => {
+                        const key = v.engine_size_cc || 'Unknown';
+                        if (!grouped[key]) {
+                            grouped[key] = {
+                                engine_size_cc: key,
+                                variants: []
+                            };
                         }
-                        return { ...v, clean_name: name };
+                        grouped[key].variants.push(v);
                     });
+                    return Object.values(grouped);
                 } catch (error) {
-                    console.error('Error loading variants:', error);
+                    console.error('Error loading engine capacities:', error);
                     setStatus('error', error.message);
                     return [];
                 }
             }
 
+            // CHANGED: load variant by variant_id (for details)
             async function loadVariantDetails(variantId) {
                 try {
                     setStatus('info', 'Loading vehicle details...');
@@ -1873,8 +1877,8 @@
                 el.modelSelect.disabled = true;
                 el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
                 el.generationSelect.disabled = true;
-                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                el.variantSelect.disabled = true;
+                el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
                 if (!categoryId) return;
                 const makes = await loadMakes(categoryId);
@@ -1900,8 +1904,8 @@
                 select.disabled = true;
                 el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
                 el.generationSelect.disabled = true;
-                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                el.variantSelect.disabled = true;
+                el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
                 if (!makeId) return;
                 const models = await loadModels(makeId);
@@ -1925,8 +1929,8 @@
                 const select = el.generationSelect;
                 select.innerHTML = '<option value="">Select Generation...</option>';
                 select.disabled = true;
-                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                el.variantSelect.disabled = true;
+                el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
                 if (!modelId) return;
                 const generations = await loadGenerations(modelId);
@@ -1945,41 +1949,39 @@
                 setStatus('success', `✅ Loaded ${generations.length} generations`);
             }
 
-            async function populateVariants(generationId) {
-                const select = el.variantSelect;
-                select.innerHTML = '<option value="">Select Variant...</option>';
+            // CHANGED: populate engine capacities instead of variants
+            async function populateEngineCapacities(generationId) {
+                const select = el.engineCapacitySelect;
+                select.innerHTML = '<option value="">Select Engine Capacity...</option>';
                 select.disabled = true;
                 el.calculateBtn.disabled = true;
                 if (!generationId) return;
-                let variants = await loadVariants(generationId);
+                let engineGroups = await loadEngineCapacities(generationId);
 
                 if (selectedFuelFilter !== 'all') {
-                    variants = variants.filter(v => (v.fuel_type_name || '').toLowerCase() === selectedFuelFilter);
+                    engineGroups = engineGroups.filter(group => 
+                        group.variants.some(v => (v.fuel_type_name || '').toLowerCase() === selectedFuelFilter)
+                    );
                 }
 
-                if (!variants || variants.length === 0) {
-                    select.innerHTML = '<option value="">No variants match this filter</option>';
-                    setStatus('warning', 'No variants match the selected fuel type');
+                if (!engineGroups || engineGroups.length === 0) {
+                    select.innerHTML = '<option value="">No engine capacities match this filter</option>';
+                    setStatus('warning', 'No engine capacities match the selected fuel type');
                     return;
                 }
-                const seen = new Map();
-                variants.forEach(v => {
-                    let label = v.clean_name || v.variant_name || 'Variant';
-                    const key = label.trim().toLowerCase();
-                    if (seen.has(key)) return;
-                    seen.set(key, true);
+                engineGroups.forEach(group => {
                     const opt = document.createElement('option');
-                    opt.value = v.variant_id;
-                    let displayLabel = label;
-                    if (v.engine_size_cc) displayLabel += ` ${v.engine_size_cc}cc`;
-                    if (v.power_hp) displayLabel += ` ${v.power_hp}hp`;
-                    if (v.fuel_type_name) displayLabel += ` (${v.fuel_type_name})`;
-                    if (v.transmission_type_name) displayLabel += ` ${v.transmission_type_name}`;
-                    opt.textContent = displayLabel;
+                    opt.value = group.variants[0].variant_id; // Store first variant's ID
+                    const fuelTypes = [...new Set(group.variants.map(v => v.fuel_type_name || 'Unknown'))];
+                    let label = `${group.engine_size_cc}cc`;
+                    if (fuelTypes.length > 0) label += ` (${fuelTypes.join('/')})`;
+                    if (group.variants.length > 1) label += ` [${group.variants.length} variants]`;
+                    opt.textContent = label;
+                    opt.dataset.variantId = group.variants[0].variant_id;
                     select.appendChild(opt);
                 });
                 select.disabled = false;
-                setStatus('success', `✅ Loaded ${seen.size} unique variants`);
+                setStatus('success', `✅ Loaded ${engineGroups.length} engine capacities`);
             }
 
             // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
@@ -2061,11 +2063,7 @@
             }
 
             // ─── RUNNING COST API CALL ─────────────────────────────────
-            // FIXED: down_payment now correctly sent as a decimal (0.3 not 30)
-            //        Added console.log for payload debugging
-            //        Now includes purchase_price sourced from vehicle_base_prices (CRSP)
             async function calculateRunningCostFromAPI(formData) {
-                // ✅ FIX 1: Convert down_payment from percent (30) to decimal (0.3)
                 const downPaymentDecimal = parseFloat(formData.down_payment_percent) / 100;
 
                 const payload = {
@@ -2080,7 +2078,7 @@
                     condition: 'good',
                     year: parseInt(formData.year) || 2024,
                     financed: formData.financed || false,
-                    down_payment: downPaymentDecimal,  // ✅ FIX: Now 0.3 not 30
+                    down_payment: downPaymentDecimal,
                     interest_rate: parseFloat(formData.interest_rate) || 16,
                     loan_term: parseInt(formData.loan_term) || 4,
                     years: 5,
@@ -2090,19 +2088,11 @@
                     include_depreciation: true
                 };
 
-                // ✅ Base price: use the CRSP figure looked up from vehicle_base_prices
-                // when we have one, so depreciation/finance math starts from a real
-                // list price instead of the API's internal default.
                 if (formData.purchase_price) {
                     payload.purchase_price = parseFloat(formData.purchase_price);
                 }
 
-                // ✅ FIX 2: Log the payload before sending
                 console.log("📦 Running Cost Payload:", JSON.stringify(payload, null, 2));
-                console.log(`📊 down_payment: ${payload.down_payment} (converted from ${formData.down_payment_percent}%)`);
-                if (payload.purchase_price) {
-                    console.log(`💰 purchase_price (base price / CRSP): KES ${payload.purchase_price}`);
-                }
 
                 const token = await getAccessToken();
                 const headers = {
@@ -2111,8 +2101,6 @@
                 };
                 if (token) {
                     headers['Authorization'] = `Bearer ${token}`;
-                } else {
-                    console.warn('⚠️ No access token available — request will be sent unauthenticated');
                 }
 
                 const url = `${CONFIG.API_BASE}/running-cost/calculate`;
@@ -2125,16 +2113,10 @@
                     signal: AbortSignal.timeout(15000)
                 });
 
-                console.log('📥 Response status:', response.status);
-
                 if (!response.ok) {
                     let errorData;
                     try {
                         errorData = await response.json();
-                        if (errorData.detail) {
-                            console.error('❌ Validation errors:', JSON.stringify(errorData.detail, null, 2));
-                            throw new Error(JSON.stringify(errorData.detail, null, 2));
-                        }
                     } catch (e) {
                         errorData = { message: `HTTP ${response.status}` };
                     }
@@ -2277,8 +2259,6 @@
 
                 const fiveYearData = result.fiveYearData || result.yearly_breakdown || [];
                 const total5Year = result.five_year_total || result.total_5yr_cost || 0;
-                // ✅ Prefer the CRSP base price we looked up client-side; fall back to
-                // whatever the API returned, then a hardcoded default as a last resort.
                 const originalCost = currentBasePrice || result.purchase_price || result.original_cost || 2500000;
                 const remainingValue = result.resale_value || result.current_value || originalCost * 0.4;
 
@@ -2571,7 +2551,7 @@
                     btn.setAttribute('aria-pressed', 'true');
                     selectedFuelFilter = btn.dataset.fuel || 'all';
                     if (el.generationSelect.value) {
-                        populateVariants(el.generationSelect.value);
+                        populateEngineCapacities(el.generationSelect.value);
                     }
                 });
 
@@ -2581,7 +2561,7 @@
                         await populateMakes(selectedCategoryId);
                         el.modelSelect.value = '';
                         el.generationSelect.value = '';
-                        el.variantSelect.value = '';
+                        el.engineCapacitySelect.value = '';
                         currentVariantData = null;
                         currentBasePrice = null;
                         el.calculateBtn.disabled = true;
@@ -2593,7 +2573,7 @@
                     if (makeId) {
                         await populateModels(makeId);
                         el.generationSelect.value = '';
-                        el.variantSelect.value = '';
+                        el.engineCapacitySelect.value = '';
                         currentVariantData = null;
                         currentBasePrice = null;
                         el.calculateBtn.disabled = true;
@@ -2604,7 +2584,7 @@
                     const modelId = this.value;
                     if (modelId) {
                         await populateGenerations(modelId);
-                        el.variantSelect.value = '';
+                        el.engineCapacitySelect.value = '';
                         currentVariantData = null;
                         currentBasePrice = null;
                         el.calculateBtn.disabled = true;
@@ -2614,15 +2594,17 @@
                 el.generationSelect.addEventListener('change', async function() {
                     const genId = this.value;
                     if (genId) {
-                        await populateVariants(genId);
+                        await populateEngineCapacities(genId);
                         currentVariantData = null;
                         currentBasePrice = null;
                         el.calculateBtn.disabled = true;
                     }
                 });
 
-                el.variantSelect.addEventListener('change', function() {
-                    const variantId = this.value;
+                // CHANGED: engineCapacitySelect change handler
+                el.engineCapacitySelect.addEventListener('change', function() {
+                    const selectedOption = this.options[this.selectedIndex];
+                    const variantId = selectedOption ? selectedOption.value : null;
                     if (variantId) {
                         loadVariantAndDisplay(variantId);
                     } else {
