@@ -1223,9 +1223,10 @@
                     <select id="generationSelect" disabled><option value="">Select a model first</option></select>
                 </div>
 
+                <!-- CHANGED: "Variant" → "Engine Capacity" -->
                 <div class="form-group">
-                    <label for="variantSelect">Vehicle Variant</label>
-                    <select id="variantSelect" disabled><option value="">Select a generation first</option></select>
+                    <label for="engineCapacitySelect">Engine Capacity (cc)</label>
+                    <select id="engineCapacitySelect" disabled><option value="">Select a generation first</option></select>
                 </div>
 
                 <div class="form-group">
@@ -1460,26 +1461,23 @@
                 EV_KWH_PER_KM: 0.15,
                 EV_PRICE_PER_KWH: 30,
                 REQUEST_TIMEOUT: 30000,
-                // Free-tier hosts can take a while to wake from idle; the calculate call gets a longer
-                // timeout and a distinct "waking up" status so a cold start doesn't look like a hang.
                 COLD_START_TIMEOUT: 55000
             };
 
             let supabaseClient = null;
             let isAuthenticated = false;
             let currentUser = null;
-            let accessToken = null; // single in-memory source of truth; Supabase persists its own session copy
+            let accessToken = null;
             let currentVariantData = null;
-            let currentBasePrice = null; // CRSP base price (KES) looked up from vehicle_base_prices
-            let purchasePriceEditedByUser = false; // once true, stop auto-filling from base price
+            let currentBasePrice = null;
+            let purchasePriceEditedByUser = false;
             let vehicleType = 'ice';
             let vehicleCondition = 'new';
             let fuelType = 'petrol';
             let purchaseType = 'cash';
             let scenarioData = null;
 
-            // Tracks in-flight cascading-select requests so a fast re-selection can cancel a stale one.
-            const pendingControllers = { makes: null, models: null, generations: null, variants: null };
+            const pendingControllers = { makes: null, models: null, generations: null, engineCapacities: null };
 
             // ─── Toggle States ────────────────────────────────────
             let includeDepreciation = true;
@@ -1511,7 +1509,7 @@
                 makeSelect: document.getElementById('makeSelect'),
                 modelSelect: document.getElementById('modelSelect'),
                 generationSelect: document.getElementById('generationSelect'),
-                variantSelect: document.getElementById('variantSelect'),
+                engineCapacitySelect: document.getElementById('engineCapacitySelect'),
                 yearSelect: document.getElementById('yearSelect'),
                 purchasePrice: document.getElementById('purchasePrice'),
                 purchasePriceError: document.getElementById('purchasePriceError'),
@@ -1619,8 +1617,6 @@
                 return Math.round(v).toLocaleString('en-KE');
             }
 
-            // Every value that came from a database record or an API response goes through this
-            // before it touches innerHTML, since none of it can be trusted to be free of markup.
             function escapeHtml(value) {
                 const s = value === undefined || value === null ? '' : String(value);
                 const div = document.createElement('div');
@@ -1660,8 +1656,6 @@
                 el.progressContainer.classList.remove('show');
             }
 
-            // A generic, user-safe message for anything that shouldn't leak backend internals.
-            // The real error always still goes to console.error for debugging.
             function friendlyError(error, fallback) {
                 console.error(fallback, error);
                 if (error && error.userFacing) return error.message;
@@ -1761,8 +1755,6 @@
                         }
                     });
 
-                    // Single source of truth for session state: everything (UI, token, controls)
-                    // reacts to this instead of each call managing its own copy of localStorage.
                     supabaseClient.auth.onAuthStateChange((_event, session) => {
                         currentUser = session;
                         isAuthenticated = !!session;
@@ -1799,7 +1791,6 @@
                 try {
                     const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
                     if (error) throw error;
-                    // currentUser/isAuthenticated/accessToken are set by onAuthStateChange.
                     await loadInitialData();
                     showToast('✅ Signed in successfully!', 'success');
                     return true;
@@ -1829,7 +1820,6 @@
             async function signOut() {
                 try {
                     await supabaseClient.auth.signOut();
-                    // onAuthStateChange clears currentUser/isAuthenticated/accessToken and the UI.
                     showToast('🔓 Signed out', 'info');
                     return true;
                 } catch (error) {
@@ -1897,15 +1887,15 @@
             function enableControls() {
                 document.querySelectorAll('.calculator-panel select, .calculator-panel input').forEach((field) => {
                     if (field.id !== 'makeSelect' && field.id !== 'modelSelect' &&
-                        field.id !== 'generationSelect' && field.id !== 'variantSelect') {
+                        field.id !== 'generationSelect' && field.id !== 'engineCapacitySelect') {
                         field.disabled = false;
                     }
                 });
                 if (el.categorySelect.value) el.makeSelect.disabled = false;
                 if (el.makeSelect.value) el.modelSelect.disabled = false;
                 if (el.modelSelect.value) el.generationSelect.disabled = false;
-                if (el.generationSelect.value) el.variantSelect.disabled = false;
-                if (el.variantSelect.value) el.calculateBtn.disabled = false;
+                if (el.generationSelect.value) el.engineCapacitySelect.disabled = false;
+                if (el.engineCapacitySelect.value) el.calculateBtn.disabled = false;
             }
 
             function disableControls() {
@@ -1934,9 +1924,6 @@
             }
 
             // ─── Base Price (CRSP) Lookup ──────────────────────────
-            // Looks up the vehicle's base/list price from vehicle_base_prices by
-            // make + model text match (that table has no foreign key into
-            // vehicle_master_specs). Prefers an exact model match when available.
             async function fetchBasePrice(make, model) {
                 if (!supabaseClient || !make) return null;
                 try {
@@ -1973,7 +1960,6 @@
                 el.basePriceHelper.textContent = `Auto-filled from Auto-D base price (CRSP): KES ${fmtCurrency(basePrice)}`;
                 if (!purchasePriceEditedByUser) {
                     el.purchasePrice.value = Math.round(basePrice);
-                    // Keep a sensible default down payment (~20%) in sync with the new price.
                     if (purchaseType === 'finance') {
                         el.downPayment.value = Math.round(basePrice * 0.2);
                     }
@@ -2077,22 +2063,34 @@
                 }
             }
 
-            async function loadVariants(generationId, signal) {
+            // CHANGED: load engine capacities instead of variants
+            async function loadEngineCapacities(generationId, signal) {
                 try {
-                    setStatus('info', 'Loading variants...');
+                    setStatus('info', 'Loading engine capacities...');
                     const data = await queryView(
                         `variant_id, variant_name, trim_level, engine_size_cc, power_hp, torque_nm,
                          fuel_consumption_combined, co2_emissions, seats, doors, fuel_type_name,
                          transmission_type_name, drive_type_name, body_type_name`,
                         { column: 'generation_id', value: generationId },
-                        { column: 'variant_name', ascending: true },
+                        { column: 'engine_size_cc', ascending: true },
                         signal
                     );
-                    return data;
+                    const grouped = {};
+                    data.forEach(v => {
+                        const key = v.engine_size_cc || 'Unknown';
+                        if (!grouped[key]) {
+                            grouped[key] = {
+                                engine_size_cc: key,
+                                variants: []
+                            };
+                        }
+                        grouped[key].variants.push(v);
+                    });
+                    return Object.values(grouped);
                 } catch (error) {
                     if (error.aborted) return null;
-                    console.error('Error loading variants:', error);
-                    setStatus('error', 'Failed to load variants');
+                    console.error('Error loading engine capacities:', error);
+                    setStatus('error', 'Failed to load engine capacities');
                     return [];
                 }
             }
@@ -2146,13 +2144,13 @@
                 el.modelSelect.disabled = true;
                 el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
                 el.generationSelect.disabled = true;
-                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                el.variantSelect.disabled = true;
+                el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
                 if (!categoryId || !isAuthenticated) return;
                 const signal = startCascade('makes');
                 const makes = await loadMakes(categoryId, signal);
-                if (makes === null) return; // superseded by a newer selection
+                if (makes === null) return;
                 if (!makes || makes.length === 0) {
                     select.innerHTML = '<option value="">No makes available</option>';
                     return;
@@ -2175,8 +2173,8 @@
                 select.disabled = true;
                 el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
                 el.generationSelect.disabled = true;
-                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                el.variantSelect.disabled = true;
+                el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
                 if (!makeId || !isAuthenticated) return;
                 const signal = startCascade('models');
@@ -2202,8 +2200,8 @@
                 const select = el.generationSelect;
                 select.innerHTML = '<option value="">Select Generation...</option>';
                 select.disabled = true;
-                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                el.variantSelect.disabled = true;
+                el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
                 if (!modelId || !isAuthenticated) return;
                 const signal = startCascade('generations');
@@ -2224,42 +2222,32 @@
                 setStatus('success', `✅ Loaded ${generations.length} generations`);
             }
 
-            async function populateVariants(generationId) {
-                const select = el.variantSelect;
-                select.innerHTML = '<option value="">Select Variant...</option>';
+            // CHANGED: populate engine capacities instead of variants
+            async function populateEngineCapacities(generationId) {
+                const select = el.engineCapacitySelect;
+                select.innerHTML = '<option value="">Select Engine Capacity...</option>';
                 select.disabled = true;
                 el.calculateBtn.disabled = true;
                 if (!generationId || !isAuthenticated) return;
-                const signal = startCascade('variants');
-                const variants = await loadVariants(generationId, signal);
-                if (variants === null) return;
-                if (!variants || variants.length === 0) {
-                    select.innerHTML = '<option value="">No variants available</option>';
+                const signal = startCascade('engineCapacities');
+                const engineGroups = await loadEngineCapacities(generationId, signal);
+                if (engineGroups === null) return;
+                if (!engineGroups || engineGroups.length === 0) {
+                    select.innerHTML = '<option value="">No engine capacities available</option>';
                     return;
                 }
-                const seen = new Map();
-                variants.forEach(v => {
-                    let label = v.variant_name || 'Variant';
-                    const parts = label.split(' ');
-                    if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
-                        parts.splice(0, 1);
-                        label = parts.join(' ');
-                    }
-                    const key = label.trim().toLowerCase();
-                    if (seen.has(key)) return;
-                    seen.set(key, true);
+                engineGroups.forEach(group => {
                     const opt = document.createElement('option');
-                    opt.value = v.variant_id;
-                    let displayLabel = label;
-                    if (v.engine_size_cc) displayLabel += ` ${v.engine_size_cc}cc`;
-                    if (v.power_hp) displayLabel += ` ${v.power_hp}hp`;
-                    if (v.fuel_type_name) displayLabel += ` (${v.fuel_type_name})`;
-                    if (v.transmission_type_name) displayLabel += ` ${v.transmission_type_name}`;
-                    opt.textContent = displayLabel;
+                    opt.value = group.variants[0].variant_id;
+                    let label = `${group.engine_size_cc}cc`;
+                    const fuelTypes = [...new Set(group.variants.map(v => v.fuel_type_name || 'Unknown'))];
+                    if (fuelTypes.length > 0) label += ` (${fuelTypes.join('/')})`;
+                    if (group.variants.length > 1) label += ` [${group.variants.length} variants]`;
+                    opt.textContent = label;
                     select.appendChild(opt);
                 });
                 select.disabled = false;
-                setStatus('success', `✅ Loaded ${seen.size} unique variants`);
+                setStatus('success', `✅ Loaded ${engineGroups.length} engine capacities`);
             }
 
             async function loadInitialData() {
@@ -2304,7 +2292,6 @@
                     { label: 'Drive', value: variant.drive_type_name || '—' },
                 ];
 
-                // All values are DB-sourced text, so they're escaped before going into innerHTML.
                 el.vehicleExtraSpecs.innerHTML = extraSpecs
                     .filter(s => s.value && s.value !== '—' && s.value !== '0' && s.value !== '0 HP')
                     .map(s =>
@@ -2400,9 +2387,10 @@
                     return;
                 }
 
-                const variantId = el.variantSelect.value;
+                const selectedOption = el.engineCapacitySelect.options[el.engineCapacitySelect.selectedIndex];
+                const variantId = selectedOption ? selectedOption.value : null;
                 if (!variantId) {
-                    showToast('Please select a vehicle variant', 'error');
+                    showToast('Please select an engine capacity', 'error');
                     return;
                 }
 
@@ -2854,15 +2842,13 @@
                     if (this.value && isAuthenticated) await populateGenerations(this.value);
                 });
                 el.generationSelect.addEventListener('change', async function() {
-                    if (this.value && isAuthenticated) await populateVariants(this.value);
+                    if (this.value && isAuthenticated) await populateEngineCapacities(this.value);
                 });
-                el.variantSelect.addEventListener('change', async function() {
+                el.engineCapacitySelect.addEventListener('change', async function() {
                     const hasSelection = this.value && isAuthenticated;
                     el.calculateBtn.disabled = !hasSelection;
                     if (!hasSelection) return;
 
-                    // Pre-load variant details + base price as soon as a variant is picked,
-                    // so the purchase price field is populated before the person even clicks Calculate.
                     const variant = await loadVariantDetails(this.value);
                     if (variant) {
                         currentVariantData = variant;
