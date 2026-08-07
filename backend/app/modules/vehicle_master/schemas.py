@@ -12,6 +12,40 @@ from pydantic import BaseModel, Field
 
 
 # ==========================================================
+# SEARCH PARAMETERS
+# ==========================================================
+
+class VehicleSearchParams(BaseModel):
+    """
+    Vehicle master search filters.
+    """
+
+    make: Optional[str] = None
+
+    model: Optional[str] = None
+
+    year: Optional[int] = None
+
+    fuel: Optional[str] = None
+
+    transmission: Optional[str] = None
+
+    body_type: Optional[str] = None
+
+    page: int = Field(
+        default=1,
+        ge=1
+    )
+
+    per_page: int = Field(
+        default=20,
+        ge=1,
+        le=100
+    )
+
+
+
+# ==========================================================
 # COMPLETE VEHICLE UPDATE
 # ==========================================================
 
@@ -22,17 +56,17 @@ class VehicleMasterUpdate(BaseModel):
     Example:
 
     {
-        "vehicle": {
-            "make": "Toyota",
-            "model": "Corolla"
+        "vehicle":{
+            "make":"TOYOTA",
+            "model":"COROLLA"
         },
 
-        "specification": {
-            "fuel": "PETROL"
+        "specification":{
+            "fuel":"PETROL"
         },
 
-        "pricing": {
-            "crsp_kes": 3500000
+        "pricing":{
+            "market_value":2800000
         }
     }
     """
@@ -46,21 +80,21 @@ class VehicleMasterUpdate(BaseModel):
 
 
 # ==========================================================
-# VEHICLE BASIC UPDATE
+# VEHICLE BASIC INFORMATION UPDATE
 # ==========================================================
 
 class VehicleUpdate(BaseModel):
     """
-    Vehicle identity fields.
+    Update vehicle identification fields.
     """
 
     make: Optional[str] = Field(
-        None,
+        default=None,
         max_length=100
     )
 
     model: Optional[str] = Field(
-        None,
+        default=None,
         max_length=150
     )
 
@@ -78,7 +112,7 @@ class VehicleUpdate(BaseModel):
 
 class SpecificationUpdate(BaseModel):
     """
-    Technical vehicle specifications.
+    Vehicle technical specification update.
     """
 
     transmission: Optional[str] = None
@@ -98,48 +132,48 @@ class SpecificationUpdate(BaseModel):
 
 
 # ==========================================================
-# PRICE UPDATE
+# BASE PRICE UPDATE
 # ==========================================================
 
 class BasePriceUpdate(BaseModel):
     """
-    Vehicle valuation prices.
+    Vehicle pricing update.
     """
 
     crsp_kes: Optional[float] = Field(
-        None,
+        default=None,
         gt=0
     )
 
     market_value: Optional[float] = Field(
-        None,
+        default=None,
         gt=0
     )
 
     insurance_value: Optional[float] = Field(
-        None,
+        default=None,
         gt=0
     )
 
     forced_sale_value: Optional[float] = Field(
-        None,
+        default=None,
         gt=0
     )
 
     trade_in_value: Optional[float] = Field(
-        None,
+        default=None,
         gt=0
     )
 
 
 
 # ==========================================================
-# RESPONSE SCHEMA
+# VEHICLE RESPONSE
 # ==========================================================
 
 class VehicleMasterResponse(BaseModel):
     """
-    Vehicle master response.
+    Vehicle master database response.
     """
 
     id: int
@@ -176,4 +210,42 @@ class VehicleMasterResponse(BaseModel):
 
     currency: Optional[str] = "KES"
 
-    is_active: bool = True
+    source: Optional[str] = None
+
+    is_active: Optional[bool] = True
+
+
+
+# ==========================================================
+# DASHBOARD RESPONSE
+# ==========================================================
+
+class VehicleMasterDashboardResponse(BaseModel):
+    """
+    Dashboard statistics response.
+    """
+
+    total_vehicles: int
+
+    active_vehicles: int
+
+    inactive_vehicles: int
+
+    total_changes: int
+
+
+
+# ==========================================================
+# BULK PRICE UPDATE
+# ==========================================================
+
+class BulkPriceUpdate(BaseModel):
+    """
+    Bulk vehicle price update.
+    """
+
+    variant_id: int
+
+    crsp_kes: float = Field(
+        gt=0
+    )
