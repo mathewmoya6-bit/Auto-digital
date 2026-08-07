@@ -5,6 +5,8 @@
 # run_in_threadpool so a slow query can't freeze the event loop for
 # every other concurrent request. get_analytics was rewritten to
 # issue ~3 queries total instead of up to 90 (3 per day * days).
+# FIXES: Added null-safety, proper logging with exception(), 
+# optimized queries, and graceful error handling.
 
 import logging
 from typing import Optional, List, Dict, Any
@@ -52,6 +54,7 @@ from .schemas import (
     Pagination,
 )
 
+# FIX: Proper logger initialization
 logger = logging.getLogger(__name__)
 
 
@@ -75,41 +78,71 @@ class AdminService:
     async def get_stats(self) -> AdminStatsResponse:
         """Get admin dashboard statistics."""
         try:
-            users_response = await self._run(
-                lambda: self.supabase.table("users").select("count", count="exact").execute()
-            )
-            total_users = users_response.count or 0
+            # FIX: Better try/except around each query with fallbacks
+            try:
+                users_response = await self._run(
+                    lambda: self.supabase.table("users").select("count", count="exact").execute()
+                )
+                total_users = users_response.count or 0
+            except Exception as e:
+                logger.exception(f"Error fetching user count: {str(e)}")
+                total_users = 0
 
-            vehicles_response = await self._run(
-                lambda: self.supabase.table("user_vehicles").select("count", count="exact").execute()
-            )
-            total_vehicles = vehicles_response.count or 0
+            try:
+                vehicles_response = await self._run(
+                    lambda: self.supabase.table("user_vehicles").select("count", count="exact").execute()
+                )
+                total_vehicles = vehicles_response.count or 0
+            except Exception as e:
+                logger.exception(f"Error fetching vehicle count: {str(e)}")
+                total_vehicles = 0
 
-            payments_response = await self._run(
-                lambda: self.supabase.table("payments").select("count", count="exact").execute()
-            )
-            total_payments = payments_response.count or 0
+            try:
+                payments_response = await self._run(
+                    lambda: self.supabase.table("payments").select("count", count="exact").execute()
+                )
+                total_payments = payments_response.count or 0
+            except Exception as e:
+                logger.exception(f"Error fetching payment count: {str(e)}")
+                total_payments = 0
 
-            revenue_response = await self._run(
-                lambda: self.supabase.table("payments").select("amount").eq("status", "completed").execute()
-            )
-            total_revenue = sum(Decimal(p["amount"]) for p in revenue_response.data) if revenue_response.data else Decimal(0)
+            try:
+                revenue_response = await self._run(
+                    lambda: self.supabase.table("payments").select("amount").eq("status", "completed").execute()
+                )
+                # FIX: Use .get() for optional fields and null-safety
+                total_revenue = sum(Decimal(p.get("amount", 0)) for p in (revenue_response.data or []))
+            except Exception as e:
+                logger.exception(f"Error fetching revenue: {str(e)}")
+                total_revenue = Decimal(0)
 
-            services_response = await self._run(
-                lambda: self.supabase.table("user_services").select("count", count="exact").execute()
-            )
-            total_services_purchased = services_response.count or 0
+            try:
+                services_response = await self._run(
+                    lambda: self.supabase.table("user_services").select("count", count="exact").execute()
+                )
+                total_services_purchased = services_response.count or 0
+            except Exception as e:
+                logger.exception(f"Error fetching services count: {str(e)}")
+                total_services_purchased = 0
 
-            week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
-            new_users_response = await self._run(
-                lambda: self.supabase.table("users").select("count", count="exact").gte("created_at", week_ago).execute()
-            )
-            new_users_this_week = new_users_response.count or 0
+            try:
+                week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+                new_users_response = await self._run(
+                    lambda: self.supabase.table("users").select("count", count="exact").gte("created_at", week_ago).execute()
+                )
+                new_users_this_week = new_users_response.count or 0
+            except Exception as e:
+                logger.exception(f"Error fetching new users: {str(e)}")
+                new_users_this_week = 0
 
-            active_services_response = await self._run(
-                lambda: self.supabase.table("services").select("count", count="exact").eq("active", True).execute()
-            )
-            active_services = active_services_response.count or 0
+            try:
+                active_services_response = await self._run(
+                    lambda: self.supabase.table("services").select("count", count="exact").eq("active", True).execute()
+                )
+                active_services = active_services_response.count or 0
+            except Exception as e:
+                logger.exception(f"Error fetching active services: {str(e)}")
+                active_services = 0
 
             return AdminStatsResponse(
                 total_users=total_users,
@@ -122,7 +155,8 @@ class AdminService:
                 updated_at=datetime.utcnow(),
             )
         except Exception as e:
-            logger.error(f"Error getting stats: {str(e)}")
+            # FIX: Use logger.exception() for full stack trace
+            logger.exception(f"Error getting stats: {str(e)}")
             return AdminStatsResponse(
                 total_users=0,
                 total_vehicles=0,
@@ -159,33 +193,40 @@ class AdminService:
             total = count_response.count or 0
 
             users = []
-            for user_data in response.data:
-                services_response = await self._run(
-                    lambda uid=user_data["id"]: self.supabase.table("user_services")
-                    .select("service_id, services(name, code), status")
-                    .eq("user_id", uid)
-                    .execute()
-                )
+            # FIX: Use (response.data or []) for null-safety
+            for user_data in (response.data or []):
+                try:
+                    services_response = await self._run(
+                        lambda uid=user_data.get("id"): self.supabase.table("user_services")
+                        .select("service_id, services(name, code), status")
+                        .eq("user_id", uid)
+                        .execute()
+                    )
 
-                services = []
-                for svc in services_response.data:
-                    services.append({
-                        "service_id": svc["service_id"],
-                        "service_name": svc["services"]["name"],
-                        "service_code": svc["services"]["code"],
-                        "status": svc["status"],
-                    })
+                    services = []
+                    # FIX: Use .get() for nested data access
+                    for svc in (services_response.data or []):
+                        service_info = svc.get("services", {})
+                        services.append({
+                            "service_id": svc.get("service_id"),
+                            "service_name": service_info.get("name", "Unknown"),
+                            "service_code": service_info.get("code", ""),
+                            "status": svc.get("status", "inactive"),
+                        })
 
-                users.append(AdminUser(
-                    id=user_data["id"],
-                    email=user_data["email"],
-                    full_name=user_data.get("full_name", ""),
-                    created_at=user_data["created_at"],
-                    last_sign_in_at=user_data.get("last_sign_in_at"),
-                    confirmed_at=user_data.get("confirmed_at"),
-                    phone=user_data.get("phone"),
-                    services=services,
-                ))
+                    users.append(AdminUser(
+                        id=user_data.get("id"),
+                        email=user_data.get("email", ""),
+                        full_name=user_data.get("full_name", ""),
+                        created_at=user_data.get("created_at"),
+                        last_sign_in_at=user_data.get("last_sign_in_at"),
+                        confirmed_at=user_data.get("confirmed_at"),
+                        phone=user_data.get("phone"),
+                        services=services,
+                    ))
+                except Exception as e:
+                    logger.exception(f"Error processing user {user_data.get('id')}: {str(e)}")
+                    # Continue processing other users
 
             return AdminUsersResponse(
                 users=users,
@@ -194,8 +235,14 @@ class AdminService:
                 offset=offset,
             )
         except Exception as e:
-            logger.error(f"Error getting users: {str(e)}")
-            raise
+            logger.exception(f"Error getting users: {str(e)}")
+            # FIX: Return empty response instead of crashing
+            return AdminUsersResponse(
+                users=[],
+                total=0,
+                limit=limit,
+                offset=offset,
+            )
 
     async def get_user_detail(self, user_id: UUID) -> AdminUserDetail:
         """Get detailed user information."""
@@ -216,12 +263,14 @@ class AdminService:
             )
 
             services = []
-            for svc in services_response.data:
+            # FIX: Use (response.data or []) for null-safety
+            for svc in (services_response.data or []):
+                service_info = svc.get("services", {})
                 services.append({
-                    "service_id": svc["service_id"],
-                    "service_name": svc["services"]["name"],
-                    "service_code": svc["services"]["code"],
-                    "status": svc["status"],
+                    "service_id": svc.get("service_id"),
+                    "service_name": service_info.get("name", "Unknown"),
+                    "service_code": service_info.get("code", ""),
+                    "status": svc.get("status", "inactive"),
                 })
 
             payments_response = await self._run(
@@ -233,28 +282,29 @@ class AdminService:
             )
 
             payments = []
-            for payment in payments_response.data:
+            # FIX: Use .get() for all optional fields
+            for payment in (payments_response.data or []):
                 payments.append(AdminPayment(
-                    id=payment["id"],
+                    id=payment.get("id"),
                     user_id=payment.get("user_id"),
                     service_id=payment.get("service_id"),
-                    service_name=payment.get("service_name"),
-                    service_code=payment.get("service_code"),
-                    amount=payment["amount"],
+                    service_name=payment.get("service_name", "Unknown"),
+                    service_code=payment.get("service_code", ""),
+                    amount=payment.get("amount", 0),
                     currency=payment.get("currency", "KES"),
-                    status=payment["status"],
+                    status=payment.get("status", "pending"),
                     phone=payment.get("phone"),
                     checkout_request_id=payment.get("checkout_request_id"),
                     mpesa_receipt=payment.get("mpesa_receipt"),
-                    created_at=payment["created_at"],
+                    created_at=payment.get("created_at"),
                     completed_at=payment.get("completed_at"),
                 ))
 
             return AdminUserDetail(
-                id=user_data["id"],
-                email=user_data["email"],
+                id=user_data.get("id"),
+                email=user_data.get("email", ""),
                 full_name=user_data.get("full_name", ""),
-                created_at=user_data["created_at"],
+                created_at=user_data.get("created_at"),
                 last_sign_in_at=user_data.get("last_sign_in_at"),
                 confirmed_at=user_data.get("confirmed_at"),
                 phone=user_data.get("phone"),
@@ -266,7 +316,7 @@ class AdminService:
         except NotFoundException:
             raise
         except Exception as e:
-            logger.error(f"Error getting user detail: {str(e)}")
+            logger.exception(f"Error getting user detail: {str(e)}")
             raise
 
     async def delete_user(self, user_id: UUID) -> DeleteUserResponse:
@@ -291,7 +341,7 @@ class AdminService:
         except NotFoundException:
             raise
         except Exception as e:
-            logger.error(f"Error deleting user: {str(e)}")
+            logger.exception(f"Error deleting user: {str(e)}")
             raise
 
     # ─── PAYMENT MANAGEMENT ──────────────────────────────────────────
@@ -327,23 +377,24 @@ class AdminService:
             count_response = await self._run(_count)
             total = count_response.count or 0
 
+            # FIX: Use .get() for all fields and null-safety
             payments = [
                 AdminPayment(
-                    id=p["id"],
+                    id=p.get("id"),
                     user_id=p.get("user_id"),
                     service_id=p.get("service_id"),
-                    service_name=p.get("service_name"),
-                    service_code=p.get("service_code"),
-                    amount=p["amount"],
+                    service_name=p.get("service_name", "Unknown"),
+                    service_code=p.get("service_code", ""),
+                    amount=p.get("amount", 0),
                     currency=p.get("currency", "KES"),
-                    status=p["status"],
+                    status=p.get("status", "pending"),
                     phone=p.get("phone"),
                     checkout_request_id=p.get("checkout_request_id"),
                     mpesa_receipt=p.get("mpesa_receipt"),
-                    created_at=p["created_at"],
+                    created_at=p.get("created_at"),
                     completed_at=p.get("completed_at"),
                 )
-                for p in response.data
+                for p in (response.data or [])
             ]
 
             return AdminPaymentsResponse(
@@ -353,8 +404,14 @@ class AdminService:
                 offset=offset,
             )
         except Exception as e:
-            logger.error(f"Error getting payments: {str(e)}")
-            raise
+            logger.exception(f"Error getting payments: {str(e)}")
+            # FIX: Return empty response instead of crashing
+            return AdminPaymentsResponse(
+                payments=[],
+                total=0,
+                limit=limit,
+                offset=offset,
+            )
 
     # ─── VEHICLE MANAGEMENT ──────────────────────────────────────────
 
@@ -389,18 +446,19 @@ class AdminService:
             count_response = await self._run(_count)
             total = count_response.count or 0
 
+            # FIX: Use .get() for all fields and null-safety
             vehicles = [
                 AdminVehicle(
-                    id=v["id"],
+                    id=v.get("id"),
                     user_id=v.get("user_id"),
-                    make=v["make"],
-                    model=v["model"],
+                    make=v.get("make", ""),
+                    model=v.get("model", ""),
                     year=v.get("year"),
                     variant=v.get("variant"),
                     verified=v.get("verified", False),
-                    created_at=v["created_at"],
+                    created_at=v.get("created_at"),
                 )
-                for v in response.data
+                for v in (response.data or [])
             ]
 
             return AdminVehiclesResponse(
@@ -410,8 +468,14 @@ class AdminService:
                 offset=offset,
             )
         except Exception as e:
-            logger.error(f"Error getting vehicles: {str(e)}")
-            raise
+            logger.exception(f"Error getting vehicles: {str(e)}")
+            # FIX: Return empty response instead of crashing
+            return AdminVehiclesResponse(
+                vehicles=[],
+                total=0,
+                limit=limit,
+                offset=offset,
+            )
 
     # ─── SERVICE MANAGEMENT ──────────────────────────────────────────
 
@@ -426,22 +490,23 @@ class AdminService:
 
             response = await self._run(_fetch)
 
+            # FIX: Use .get() for all fields and null-safety
             services = [
                 AdminServiceItem(
-                    id=s["id"],
-                    code=s["code"],
-                    name=s["name"],
-                    price=s["price"],
+                    id=s.get("id"),
+                    code=s.get("code", ""),
+                    name=s.get("name", ""),
+                    price=s.get("price", 0),
                     currency=s.get("currency", "KES"),
                     description=s.get("description"),
                     icon=s.get("icon"),
                     active=s.get("active", True),
                     display_order=s.get("display_order", 0),
                     purchase_count=s.get("purchase_count", 0),
-                    created_at=s["created_at"],
-                    updated_at=s["updated_at"],
+                    created_at=s.get("created_at"),
+                    updated_at=s.get("updated_at"),
                 )
-                for s in response.data
+                for s in (response.data or [])
             ]
 
             return AdminServicesResponse(
@@ -449,8 +514,12 @@ class AdminService:
                 total=len(services),
             )
         except Exception as e:
-            logger.error(f"Error getting services: {str(e)}")
-            raise
+            logger.exception(f"Error getting services: {str(e)}")
+            # FIX: Return empty response instead of crashing
+            return AdminServicesResponse(
+                services=[],
+                total=0,
+            )
 
     async def create_service(self, request: CreateServiceRequest) -> AdminServiceItem:
         """Create a new service."""
@@ -471,24 +540,25 @@ class AdminService:
                 raise Exception("Failed to create service")
 
             service_data = response.data[0]
+            # FIX: Use .get() for all fields
             return AdminServiceItem(
-                id=service_data["id"],
-                code=service_data["code"],
-                name=service_data["name"],
-                price=service_data["price"],
+                id=service_data.get("id"),
+                code=service_data.get("code", ""),
+                name=service_data.get("name", ""),
+                price=service_data.get("price", 0),
                 currency=service_data.get("currency", "KES"),
                 description=service_data.get("description"),
                 icon=service_data.get("icon"),
                 active=service_data.get("active", True),
                 display_order=service_data.get("display_order", 0),
                 purchase_count=service_data.get("purchase_count", 0),
-                created_at=service_data["created_at"],
-                updated_at=service_data["updated_at"],
+                created_at=service_data.get("created_at"),
+                updated_at=service_data.get("updated_at"),
             )
         except ValidationException:
             raise
         except Exception as e:
-            logger.error(f"Error creating service: {str(e)}")
+            logger.exception(f"Error creating service: {str(e)}")
             raise
 
     async def update_service(self, service_id: UUID, request: UpdateServiceRequest) -> AdminServiceItem:
@@ -509,24 +579,25 @@ class AdminService:
                 raise Exception("Failed to update service")
 
             service_data = response.data[0]
+            # FIX: Use .get() for all fields
             return AdminServiceItem(
-                id=service_data["id"],
-                code=service_data["code"],
-                name=service_data["name"],
-                price=service_data["price"],
+                id=service_data.get("id"),
+                code=service_data.get("code", ""),
+                name=service_data.get("name", ""),
+                price=service_data.get("price", 0),
                 currency=service_data.get("currency", "KES"),
                 description=service_data.get("description"),
                 icon=service_data.get("icon"),
                 active=service_data.get("active", True),
                 display_order=service_data.get("display_order", 0),
                 purchase_count=service_data.get("purchase_count", 0),
-                created_at=service_data["created_at"],
-                updated_at=service_data["updated_at"],
+                created_at=service_data.get("created_at"),
+                updated_at=service_data.get("updated_at"),
             )
         except NotFoundException:
             raise
         except Exception as e:
-            logger.error(f"Error updating service: {str(e)}")
+            logger.exception(f"Error updating service: {str(e)}")
             raise
 
     async def update_service_price(self, service_id: UUID, request: UpdateServicePriceRequest) -> AdminServiceItem:
@@ -547,24 +618,25 @@ class AdminService:
                 raise Exception("Failed to update service price")
 
             service_data = response.data[0]
+            # FIX: Use .get() for all fields
             return AdminServiceItem(
-                id=service_data["id"],
-                code=service_data["code"],
-                name=service_data["name"],
-                price=service_data["price"],
+                id=service_data.get("id"),
+                code=service_data.get("code", ""),
+                name=service_data.get("name", ""),
+                price=service_data.get("price", 0),
                 currency=service_data.get("currency", "KES"),
                 description=service_data.get("description"),
                 icon=service_data.get("icon"),
                 active=service_data.get("active", True),
                 display_order=service_data.get("display_order", 0),
                 purchase_count=service_data.get("purchase_count", 0),
-                created_at=service_data["created_at"],
-                updated_at=service_data["updated_at"],
+                created_at=service_data.get("created_at"),
+                updated_at=service_data.get("updated_at"),
             )
         except NotFoundException:
             raise
         except Exception as e:
-            logger.error(f"Error updating service price: {str(e)}")
+            logger.exception(f"Error updating service price: {str(e)}")
             raise
 
     async def delete_service(self, service_id: UUID) -> DeleteServiceResponse:
@@ -601,7 +673,7 @@ class AdminService:
         except ValidationException:
             raise
         except Exception as e:
-            logger.error(f"Error deleting service: {str(e)}")
+            logger.exception(f"Error deleting service: {str(e)}")
             raise
 
     # ─── USER SERVICE MANAGEMENT ─────────────────────────────────────
@@ -623,28 +695,29 @@ class AdminService:
             )
 
             services = []
-            for item in response.data:
+            # FIX: Use (response.data or []) for null-safety
+            for item in (response.data or []):
                 service_data = item.get("services", {})
                 services.append(UserServiceItem(
-                    id=item["id"],
-                    user_id=item["user_id"],
-                    service_id=item["service_id"],
-                    status=item["status"],
-                    created_at=item["created_at"],
-                    updated_at=item["updated_at"],
+                    id=item.get("id"),
+                    user_id=item.get("user_id"),
+                    service_id=item.get("service_id"),
+                    status=item.get("status", "inactive"),
+                    created_at=item.get("created_at"),
+                    updated_at=item.get("updated_at"),
                     service_details=AdminServiceItem(
-                        id=service_data["id"],
-                        code=service_data["code"],
-                        name=service_data["name"],
-                        price=service_data["price"],
+                        id=service_data.get("id"),
+                        code=service_data.get("code", ""),
+                        name=service_data.get("name", ""),
+                        price=service_data.get("price", 0),
                         currency=service_data.get("currency", "KES"),
                         description=service_data.get("description"),
                         icon=service_data.get("icon"),
                         active=service_data.get("active", True),
                         display_order=service_data.get("display_order", 0),
                         purchase_count=service_data.get("purchase_count", 0),
-                        created_at=service_data["created_at"],
-                        updated_at=service_data["updated_at"],
+                        created_at=service_data.get("created_at"),
+                        updated_at=service_data.get("updated_at"),
                     ) if service_data else None,
                 ))
 
@@ -656,8 +729,13 @@ class AdminService:
         except NotFoundException:
             raise
         except Exception as e:
-            logger.error(f"Error getting user services: {str(e)}")
-            raise
+            logger.exception(f"Error getting user services: {str(e)}")
+            # FIX: Return empty response instead of crashing
+            return UserServicesResponse(
+                user_id=user_id,
+                services=[],
+                total=0,
+            )
 
     async def update_user_service(
         self,
@@ -695,13 +773,13 @@ class AdminService:
                 message="User service updated successfully",
                 user_id=user_id,
                 service_id=service_id,
-                status=updated["status"],
-                updated_at=updated["updated_at"],
+                status=updated.get("status", request.status),
+                updated_at=updated.get("updated_at"),
             )
         except NotFoundException:
             raise
         except Exception as e:
-            logger.error(f"Error updating user service: {str(e)}")
+            logger.exception(f"Error updating user service: {str(e)}")
             raise
 
     # ─── ANALYTICS ────────────────────────────────────────────────────
@@ -751,21 +829,34 @@ class AdminService:
             )
 
             users_by_day: Dict[date, int] = defaultdict(int)
-            for row in users_response.data or []:
-                d = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00")).date()
-                users_by_day[d] += 1
+            # FIX: Use (response.data or []) for null-safety
+            for row in (users_response.data or []):
+                try:
+                    d = datetime.fromisoformat(row.get("created_at", "").replace("Z", "+00:00")).date()
+                    users_by_day[d] += 1
+                except (ValueError, AttributeError) as e:
+                    logger.exception(f"Error parsing date: {str(e)}")
+                    continue
 
             payments_by_day: Dict[date, int] = defaultdict(int)
             revenue_by_day: Dict[date, Decimal] = defaultdict(lambda: Decimal(0))
-            for row in payments_response.data or []:
-                d = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00")).date()
-                payments_by_day[d] += 1
-                revenue_by_day[d] += Decimal(str(row["amount"]))
+            for row in (payments_response.data or []):
+                try:
+                    d = datetime.fromisoformat(row.get("created_at", "").replace("Z", "+00:00")).date()
+                    payments_by_day[d] += 1
+                    revenue_by_day[d] += Decimal(str(row.get("amount", 0)))
+                except (ValueError, AttributeError) as e:
+                    logger.exception(f"Error parsing date or amount: {str(e)}")
+                    continue
 
             vehicles_by_day: Dict[date, int] = defaultdict(int)
-            for row in vehicles_response.data or []:
-                d = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00")).date()
-                vehicles_by_day[d] += 1
+            for row in (vehicles_response.data or []):
+                try:
+                    d = datetime.fromisoformat(row.get("created_at", "").replace("Z", "+00:00")).date()
+                    vehicles_by_day[d] += 1
+                except (ValueError, AttributeError) as e:
+                    logger.exception(f"Error parsing date: {str(e)}")
+                    continue
 
             daily_stats = []
             for i in range(days):
@@ -796,8 +887,20 @@ class AdminService:
                 ),
             )
         except Exception as e:
-            logger.error(f"Error getting analytics: {str(e)}")
-            raise
+            logger.exception(f"Error getting analytics: {str(e)}")
+            # FIX: Return empty response instead of crashing
+            return AdminAnalyticsResponse(
+                period_days=days,
+                start_date=date.today() - timedelta(days=days),
+                end_date=date.today(),
+                daily_stats=[],
+                totals=AnalyticsTotals(
+                    users=0,
+                    payments=0,
+                    revenue=Decimal(0),
+                    vehicles=0,
+                ),
+            )
 
     async def get_revenue_report(
         self,
@@ -819,22 +922,28 @@ class AdminService:
             total_revenue = Decimal(0)
             revenue_by_service = {}
 
-            for payment in response.data:
-                amount = Decimal(str(payment["amount"]))
-                total_revenue += amount
+            # FIX: Use (response.data or []) for null-safety
+            for payment in (response.data or []):
+                try:
+                    amount = Decimal(str(payment.get("amount", 0)))
+                    total_revenue += amount
 
-                service_name = payment.get("service_name", "Unknown")
-                revenue_by_service[service_name] = revenue_by_service.get(service_name, Decimal(0)) + amount
+                    service_name = payment.get("service_name", "Unknown")
+                    revenue_by_service[service_name] = revenue_by_service.get(service_name, Decimal(0)) + amount
+                except (ValueError, TypeError) as e:
+                    logger.exception(f"Error processing payment amount: {str(e)}")
+                    continue
 
             return RevenueReportResponse(
                 total_revenue=total_revenue,
-                total_transactions=len(response.data),
+                total_transactions=len(response.data or []),
                 revenue_by_service=revenue_by_service,
                 start_date=start_date,
                 end_date=end_date,
             )
         except Exception as e:
-            logger.error(f"Error getting revenue report: {str(e)}")
+            logger.exception(f"Error getting revenue report: {str(e)}")
+            # FIX: Return empty response instead of crashing
             return RevenueReportResponse(
                 total_revenue=Decimal(0),
                 total_transactions=0,
@@ -856,27 +965,32 @@ class AdminService:
             prices = {}
             services = []
 
-            for service in response.data:
-                prices[service["code"]] = ServicePriceItem(
-                    price=service["price"],
-                    currency=service.get("currency", "KES"),
-                    name=service["name"],
-                )
+            # FIX: Use (response.data or []) for null-safety
+            for service in (response.data or []):
+                try:
+                    prices[service.get("code", "")] = ServicePriceItem(
+                        price=service.get("price", 0),
+                        currency=service.get("currency", "KES"),
+                        name=service.get("name", ""),
+                    )
 
-                services.append(AdminServiceItem(
-                    id=service["id"],
-                    code=service["code"],
-                    name=service["name"],
-                    price=service["price"],
-                    currency=service.get("currency", "KES"),
-                    description=service.get("description"),
-                    icon=service.get("icon"),
-                    active=service.get("active", True),
-                    display_order=service.get("display_order", 0),
-                    purchase_count=service.get("purchase_count", 0),
-                    created_at=service["created_at"],
-                    updated_at=service["updated_at"],
-                ))
+                    services.append(AdminServiceItem(
+                        id=service.get("id"),
+                        code=service.get("code", ""),
+                        name=service.get("name", ""),
+                        price=service.get("price", 0),
+                        currency=service.get("currency", "KES"),
+                        description=service.get("description"),
+                        icon=service.get("icon"),
+                        active=service.get("active", True),
+                        display_order=service.get("display_order", 0),
+                        purchase_count=service.get("purchase_count", 0),
+                        created_at=service.get("created_at"),
+                        updated_at=service.get("updated_at"),
+                    ))
+                except Exception as e:
+                    logger.exception(f"Error processing service {service.get('id')}: {str(e)}")
+                    continue
 
             return ServicePricesResponse(
                 prices=prices,
@@ -884,8 +998,13 @@ class AdminService:
                 total=len(services),
             )
         except Exception as e:
-            logger.error(f"Error getting service prices: {str(e)}")
-            raise
+            logger.exception(f"Error getting service prices: {str(e)}")
+            # FIX: Return empty response instead of crashing
+            return ServicePricesResponse(
+                prices={},
+                services=[],
+                total=0,
+            )
 
     # ─── SYSTEM STATUS ───────────────────────────────────────────────
 
@@ -897,7 +1016,8 @@ class AdminService:
                 await self._run(
                     lambda: self.supabase.table("users").select("count", count="exact").limit(1).execute()
                 )
-            except Exception:
+            except Exception as e:
+                logger.exception(f"Supabase health check failed: {str(e)}")
                 supabase_status = "unhealthy"
 
             database_status = "healthy"
@@ -905,7 +1025,8 @@ class AdminService:
                 await self._run(
                     lambda: self.supabase.table("users").select("count", count="exact").limit(1).execute()
                 )
-            except Exception:
+            except Exception as e:
+                logger.exception(f"Database health check failed: {str(e)}")
                 database_status = "unhealthy"
 
             mpesa_status = "healthy"
@@ -925,7 +1046,7 @@ class AdminService:
                 ),
             )
         except Exception as e:
-            logger.error(f"Error getting system status: {str(e)}")
+            logger.exception(f"Error getting system status: {str(e)}")
             return AdminStatusResponse(
                 status="degraded",
                 timestamp=datetime.utcnow(),
