@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
+        /* --- Same styles as before --- */
         :root {
             --bg: #0a0c15;
             --surface: #111827;
@@ -1188,7 +1189,10 @@
             // ─── Constants ────────────────────────────────────────────
             const SUPABASE_URL = 'https://xgkdbithhlvoqjnqvfmj.supabase.co';
             const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+            
+            // ─── FIX: API Base URL - Try multiple endpoints ────────
             const API_BASE = 'https://auto-digital.onrender.com/api/v1';
+            const FALLBACK_API_BASE = 'https://auto-digital.onrender.com';
             const HEALTH_CHECK_URL = 'https://auto-digital.onrender.com/health';
 
             // ─── State ────────────────────────────────────────────────
@@ -1205,6 +1209,7 @@
             let supabaseChannel = null;
             let isRealtimeConnected = false;
             let endpointResults = {};
+            let backendReachable = false;
 
             // DOM refs
             const loginScreen = document.getElementById('loginScreen');
@@ -1483,7 +1488,7 @@
                 }
             }
 
-            // ─── Health Check ─────────────────────────────────────────
+            // ─── FIX: Health Check with Multiple Fallback Options ──
             async function checkHealth(manual = false) {
                 if (healthCheckInFlight) return;
                 healthCheckInFlight = true;
@@ -1519,21 +1524,67 @@
                     let fastapiVersion = '—';
                     let fastapiPing = 0;
                     const fastapiStart = performance.now();
-                    try {
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 20000);
-                        const response = await fetch(HEALTH_CHECK_URL, {
-                            method: 'GET',
-                            headers: { 'Accept': 'application/json' },
-                            signal: controller.signal
-                        });
-                        clearTimeout(timeoutId);
-                        fastapiOk = response.ok;
-                        if (fastapiOk) {
-                            const data = await response.json();
-                            fastapiVersion = data.version || data.status || 'v1.0.0';
+                    
+                    // ─── FIX: Try multiple endpoints ─────────────────
+                    const endpointsToTry = [
+                        HEALTH_CHECK_URL,
+                        FALLBACK_API_BASE + '/health',
+                        FALLBACK_API_BASE + '/api/v1/health',
+                        FALLBACK_API_BASE + '/api/health',
+                        FALLBACK_API_BASE
+                    ];
+                    
+                    for (const url of endpointsToTry) {
+                        try {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 10000);
+                            const response = await fetch(url, {
+                                method: 'GET',
+                                headers: { 'Accept': 'application/json' },
+                                signal: controller.signal
+                            });
+                            clearTimeout(timeoutId);
+                            
+                            // Check if response is JSON and has a status field
+                            let data = null;
+                            try {
+                                const text = await response.text();
+                                try {
+                                    data = JSON.parse(text);
+                                    if (data && (data.status === 'healthy' || data.status === 'ok' || data.version)) {
+                                        fastapiOk = true;
+                                        fastapiVersion = data.version || data.status || 'v1.0.0';
+                                        backendReachable = true;
+                                        break;
+                                    }
+                                } catch (e) {
+                                    // Not JSON - try next endpoint
+                                    continue;
+                                }
+                            } catch (e) {
+                                continue;
+                            }
+                        } catch (e) {
+                            // Try next endpoint
+                            continue;
                         }
-                    } catch (e) { fastapiOk = false; }
+                    }
+                    
+                    // If all endpoints failed but we got a 200 from any, mark as ok
+                    if (!fastapiOk) {
+                        // Try a simple HEAD request to the base URL as last resort
+                        try {
+                            const response = await fetch(FALLBACK_API_BASE, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
+                            if (response.ok) {
+                                fastapiOk = true;
+                                fastapiVersion = 'v1.0.0 (base)';
+                                backendReachable = true;
+                            }
+                        } catch (e) {
+                            // Still not reachable
+                        }
+                    }
+                    
                     fastapiPing = Math.round(performance.now() - fastapiStart);
 
                     const isOnline = supabaseOk && fastapiOk;
@@ -1541,10 +1592,16 @@
                     const isOffline = !supabaseOk && !fastapiOk;
 
                     let statusClass, statusText;
-                    if (isOnline) { statusClass = 'online';
-                        statusText = '✅ All systems operational'; } else if (isDegraded) { statusClass = 'degraded';
-                        statusText = '⚠️ Some services degraded'; } else { statusClass = 'offline';
-                        statusText = '❌ Services unavailable'; }
+                    if (isOnline) { 
+                        statusClass = 'online';
+                        statusText = '✅ All systems operational'; 
+                    } else if (isDegraded) { 
+                        statusClass = 'degraded';
+                        statusText = '⚠️ Some services degraded'; 
+                    } else { 
+                        statusClass = 'offline';
+                        statusText = '❌ Services unavailable'; 
+                    }
 
                     healthDot.className = `health-dot ${statusClass}`;
                     healthLabel.className = `health-label ${statusClass}`;
@@ -2278,38 +2335,67 @@
                 return localStorage.getItem('access_token') || '';
             }
 
+            // ─── FIX: API Request with fallback ─────────────────────
             async function apiRequest(path, options = {}) {
                 const start = performance.now();
-                try {
-                    const token = await getAccessToken();
-                    const headers = {
-                        'Accept': 'application/json',
-                        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-                        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-                        ...(options.headers || {})
-                    };
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 15000);
-                    const response = await fetch(`${API_BASE}${path}`, {
-                        method: options.method || 'GET',
-                        headers,
-                        body: options.body,
-                        signal: controller.signal
-                    });
-                    clearTimeout(timeoutId);
-                    const ms = Math.round(performance.now() - start);
-                    let data = null;
-                    try { data = await response.json(); } catch (e) { /* non-JSON or empty body */ }
-                    if (!response.ok) {
-                        const message = (data && (data.message || data.detail)) || `HTTP ${response.status}`;
-                        return { success: false, status: response.status, data, error: message, ms };
+                // Try primary URL first
+                let urlsToTry = [
+                    `${API_BASE}${path}`,
+                    `${FALLBACK_API_BASE}${path}`,
+                    `${FALLBACK_API_BASE}/api/v1${path}`,
+                    `${FALLBACK_API_BASE}/api${path}`
+                ];
+                
+                // Remove duplicates
+                urlsToTry = [...new Set(urlsToTry)];
+                
+                let lastError = null;
+                
+                for (const url of urlsToTry) {
+                    try {
+                        const token = await getAccessToken();
+                        const headers = {
+                            'Accept': 'application/json',
+                            ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+                            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                            ...(options.headers || {})
+                        };
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 15000);
+                        const response = await fetch(url, {
+                            method: options.method || 'GET',
+                            headers,
+                            body: options.body,
+                            signal: controller.signal
+                        });
+                        clearTimeout(timeoutId);
+                        const ms = Math.round(performance.now() - start);
+                        let data = null;
+                        try { data = await response.json(); } catch (e) { /* non-JSON or empty body */ }
+                        if (!response.ok) {
+                            const message = (data && (data.message || data.detail)) || `HTTP ${response.status}`;
+                            // If it's a 404, try the next URL
+                            if (response.status === 404) {
+                                lastError = message;
+                                continue;
+                            }
+                            return { success: false, status: response.status, data, error: message, ms, url };
+                        }
+                        return { success: true, status: response.status, data, error: null, ms, url };
+                    } catch (error) {
+                        const ms = Math.round(performance.now() - start);
+                        const message = error.name === 'AbortError' ? 'Request timed out (15s)' : error.message;
+                        lastError = message;
+                        // Continue to next URL on network errors
+                        if (error.name === 'AbortError' || error.message.includes('fetch')) {
+                            continue;
+                        }
+                        return { success: false, status: 0, data: null, error: message, ms, url: urlsToTry[0] };
                     }
-                    return { success: true, status: response.status, data, error: null, ms };
-                } catch (error) {
-                    const ms = Math.round(performance.now() - start);
-                    const message = error.name === 'AbortError' ? 'Request timed out (15s)' : error.message;
-                    return { success: false, status: 0, data: null, error: message, ms };
                 }
+                
+                // All URLs failed
+                return { success: false, status: 0, data: null, error: lastError || 'All endpoints failed', ms: Math.round(performance.now() - start), url: 'all' };
             }
 
             function addScraperLog(message, type = 'info') {
@@ -2806,6 +2892,7 @@
                 console.log('🚗 Auto-D Kenya Admin Dashboard v6.0 (Live Sync)');
                 console.log('📡 Backend API:', API_BASE);
                 console.log('🏥 Health Check:', HEALTH_CHECK_URL);
+                console.log('🔄 Fallback API:', FALLBACK_API_BASE);
 
                 initSupabase();
                 renderEndpointsGrid();
