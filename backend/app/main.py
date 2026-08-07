@@ -191,6 +191,21 @@ app.include_router(
     tags=["Admin"]
 )
 
+# Admin Routes — also mounted WITHOUT the versioned API prefix.
+# The admin panel frontend calls unprefixed paths like
+# /admin/service-prices, /admin/payments, /admin/analytics, and
+# /admin/services. Those were only reachable at
+# {API_V1_PREFIX}/admin/... before, so unprefixed calls fell through
+# to the SPA catch-all redirect / 404'd, which surfaces in the
+# browser as "Failed to fetch". Mounting the same router again here
+# (no prefix) makes both paths work without duplicating any route
+# logic. Remove this block if the frontend is updated to always call
+# the prefixed path instead.
+app.include_router(
+    admin_router,
+    tags=["Admin"]
+)
+
 # Running Cost Routes
 app.include_router(
     running_cost_router,
