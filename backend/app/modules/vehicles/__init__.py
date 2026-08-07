@@ -1,18 +1,22 @@
-# app/modules/vehicles/__init__.py
-# Auto-D Kenya - Vehicles Module
-# ================================================================
+"""
+Auto-D Kenya
+Vehicle Master Module
+"""
 
-"""Vehicles module for Auto-D Kenya."""
-
-from .router import router
-from .service import VehicleService
-from .schemas import VehicleRequest, VehicleResponse
-from .models import Vehicle
+from app.modules.vehicle_master.router import router
+from app.modules.vehicle_master.schemas import (
+    VehicleMasterUpdate,
+    BasePriceUpdate,
+    SpecificationUpdate,
+    VehicleUpdate,
+)
+from app.modules.vehicle_master.service import VehicleMasterService
 
 __all__ = [
     "router",
-    "VehicleService",
-    "VehicleRequest",
-    "VehicleResponse",
-    "Vehicle"
+    "VehicleMasterUpdate",
+    "BasePriceUpdate",
+    "SpecificationUpdate",
+    "VehicleUpdate",
+    "VehicleMasterService",
 ]
