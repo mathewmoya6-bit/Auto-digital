@@ -1,98 +1,170 @@
 # app/modules/vehicles/router.py
-# Auto-D Kenya - Vehicles Routes
-# ================================================================
-# TYPE: MODULE - Vehicles API routes
 
-from fastapi import APIRouter, Depends, Query
-from typing import Optional, List
+"""
+Auto-D Kenya
+Vehicle Master Router
+"""
 
-from app.core.dependencies import get_current_user
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Query
+
 from app.modules.vehicles.service import VehicleService
-from app.modules.vehicles.schemas import VehicleRequest, VehicleResponse
 
-router = APIRouter()
-vehicle_service = VehicleService()
+logger = logging.getLogger(__name__)
 
+router = APIRouter(
+    prefix="/vehicles",
+    tags=["Vehicle Master"],
+)
+
+service = VehicleService()
+
+# ==========================================================
+# VEHICLE CATEGORIES
+# ==========================================================
+
+@router.get("/categories")
+async def get_categories():
+    """Get all vehicle categories."""
+    return await service.get_categories()
+
+
+# ==========================================================
+# MAKES
+# ==========================================================
 
 @router.get("/makes")
-async def get_makes(category_id: Optional[str] = None):
-    """Get all vehicle makes."""
-    return await vehicle_service.get_makes(category_id)
+async def get_makes(
+    category_id: Optional[int] = Query(default=None)
+):
+    """Get vehicle makes."""
+    return await service.get_makes(category_id)
 
+
+# ==========================================================
+# MODELS
+# ==========================================================
 
 @router.get("/models/{make_id}")
-async def get_models(make_id: str):
-    """Get models for a specific make."""
-    return await vehicle_service.get_models(make_id)
+async def get_models(make_id: int):
+    """Get models for a make."""
+    return await service.get_models(make_id)
 
+
+# ==========================================================
+# GENERATIONS
+# ==========================================================
 
 @router.get("/generations/{model_id}")
-async def get_generations(model_id: str):
-    """Get generations for a specific model."""
-    return await vehicle_service.get_generations(model_id)
+async def get_generations(model_id: int):
+    """Get generations."""
+    return await service.get_generations(model_id)
 
+
+# ==========================================================
+# VARIANTS
+# ==========================================================
 
 @router.get("/variants/{generation_id}")
-async def get_variants(generation_id: str):
-    """Get variants for a specific generation."""
-    return await vehicle_service.get_variants(generation_id)
+async def get_variants(generation_id: int):
+    """Get variants."""
+    return await service.get_variants(generation_id)
 
 
 @router.get("/variant/{variant_id}")
-async def get_variant(variant_id: str):
-    """Get detailed variant information."""
-    return await vehicle_service.get_variant(variant_id)
+async def get_variant(variant_id: int):
+    """Get a single variant."""
+
+    vehicle = await service.get_variant(variant_id)
+
+    if not vehicle:
+        raise HTTPException(
+            status_code=404,
+            detail="Vehicle variant not found",
+        )
+
+    return vehicle
 
 
-@router.post("/vehicles", response_model=VehicleResponse)
-async def add_vehicle(
-    request: VehicleRequest,
-    current_user: dict = Depends(get_current_user)
+# ==========================================================
+# MASTER VEHICLE DATABASE
+# ==========================================================
+
+@router.get("/master/{variant_id}")
+async def get_vehicle_master(
+    variant_id: int,
 ):
-    """Add a new vehicle."""
-    data = request.dict(exclude_unset=True)
-    result = await vehicle_service.add_vehicle(current_user["id"], data)
-    return result
+    """Return complete vehicle."""
+
+    vehicle = await service.get_vehicle_master(
+        variant_id
+    )
+
+    if not vehicle:
+        raise HTTPException(
+            status_code=404,
+            detail="Vehicle not found",
+        )
+
+    return vehicle
 
 
-@router.get("/vehicles", response_model=List[VehicleResponse])
-async def get_user_vehicles(current_user: dict = Depends(get_current_user)):
-    """Get all vehicles for the current user."""
-    return await vehicle_service.get_user_vehicles(current_user["id"])
-
-
-@router.get("/vehicles/{vehicle_id}", response_model=VehicleResponse)
-async def get_vehicle(
-    vehicle_id: str,
-    current_user: dict = Depends(get_current_user)
+@router.get("/master/search")
+async def search_vehicle_master(
+    make: Optional[str] = None,
+    model: Optional[str] = None,
+    year: Optional[int] = None,
+    fuel: Optional[str] = None,
+    transmission: Optional[str] = None,
 ):
-    """Get a specific vehicle."""
-    return await vehicle_service.get_vehicle(vehicle_id, current_user["id"])
+    """Search master vehicle database."""
+
+    return await service.search_vehicle_master(
+        make=make,
+        model=model,
+        year=year,
+        fuel=fuel,
+        transmission=transmission,
+    )
 
 
-@router.put("/vehicles/{vehicle_id}", response_model=VehicleResponse)
-async def update_vehicle(
-    vehicle_id: str,
-    request: VehicleRequest,
-    current_user: dict = Depends(get_current_user)
+# ==========================================================
+# BASE PRICE
+# ==========================================================
+
+@router.get("/base-price/{variant_id}")
+async def get_base_price(
+    variant_id: int,
 ):
-    """Update a vehicle."""
-    data = request.dict(exclude_unset=True)
-    return await vehicle_service.update_vehicle(vehicle_id, current_user["id"], data)
+    """Get CRSP/Base Price."""
+
+    return await service.get_base_price(
+        variant_id
+    )
 
 
-@router.delete("/vehicles/{vehicle_id}")
-async def delete_vehicle(
-    vehicle_id: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Delete a vehicle."""
-    await vehicle_service.delete_vehicle(vehicle_id, current_user["id"])
-    return {"message": "Vehicle deleted successfully"}
+# ==========================================================
+# DASHBOARD
+# ==========================================================
+
+@router.get("/statistics")
+async def statistics():
+    """Vehicle database statistics."""
+
+    return {
+        "total_vehicles": await service.get_master_vehicle_count()
+    }
 
 
-@router.get("/search")
-async def search_vehicles(q: str, limit: int = Query(10, le=50)):
-    """Search for vehicles."""
-    # Implementation would go here
-    return {"message": "Search endpoint"}
+# ==========================================================
+# HEALTH
+# ==========================================================
+
+@router.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "module": "Vehicle Master",
+    }
