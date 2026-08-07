@@ -1,112 +1,179 @@
 """
 Auto-D Kenya
 Vehicle Master Schemas
+
+Pydantic models for Vehicle Master Admin API.
 """
 
-from typing import Optional, List, Any
-from datetime import date, datetime
+from typing import Optional, Dict, Any
+
 from pydantic import BaseModel, Field
 
 
+
 # ==========================================================
-# UPDATE SCHEMAS
+# COMPLETE VEHICLE UPDATE
+# ==========================================================
+
+class VehicleMasterUpdate(BaseModel):
+    """
+    Complete vehicle update payload.
+
+    Example:
+
+    {
+        "vehicle": {
+            "make": "Toyota",
+            "model": "Corolla"
+        },
+
+        "specification": {
+            "fuel": "PETROL"
+        },
+
+        "pricing": {
+            "crsp_kes": 3500000
+        }
+    }
+    """
+
+    vehicle: Optional[Dict[str, Any]] = None
+
+    specification: Optional[Dict[str, Any]] = None
+
+    pricing: Optional[Dict[str, Any]] = None
+
+
+
+# ==========================================================
+# VEHICLE BASIC UPDATE
 # ==========================================================
 
 class VehicleUpdate(BaseModel):
-    """Update vehicle variant."""
-    name: Optional[str] = None
-    trim_level: Optional[str] = None
-    generation_id: Optional[int] = None
-    is_active: Optional[bool] = None
+    """
+    Vehicle identity fields.
+    """
 
+    make: Optional[str] = Field(
+        None,
+        max_length=100
+    )
 
-class SpecificationUpdate(BaseModel):
-    """Update vehicle specifications."""
-    engine_cc: Optional[float] = Field(None, gt=0)
-    power_hp: Optional[float] = Field(None, ge=0)
-    torque_nm: Optional[float] = Field(None, ge=0)
-    fuel_consumption_combined: Optional[float] = Field(None, ge=0)
-    seats: Optional[int] = Field(None, ge=1, le=20)
-    doors: Optional[int] = Field(None, ge=1, le=6)
-    drive_type: Optional[str] = None
-    transmission_type: Optional[str] = None
-    body_type: Optional[str] = None
+    model: Optional[str] = Field(
+        None,
+        max_length=150
+    )
 
+    model_number: Optional[str] = None
 
-class BasePriceUpdate(BaseModel):
-    """Update vehicle base price."""
-    crsp_kes: Optional[float] = Field(None, gt=0)
     currency: Optional[str] = "KES"
-    year: Optional[int] = Field(None, ge=1900, le=2100)
-    effective_date: Optional[date] = None
+
     source: Optional[str] = None
 
 
-class VehicleMasterUpdate(BaseModel):
-    """Complete vehicle update payload."""
-    vehicle: Optional[VehicleUpdate] = None
-    specification: Optional[SpecificationUpdate] = None
-    pricing: Optional[BasePriceUpdate] = None
-
 
 # ==========================================================
-# SEARCH SCHEMAS
+# SPECIFICATION UPDATE
 # ==========================================================
 
-class VehicleSearchParams(BaseModel):
-    """Search parameters."""
-    make: Optional[str] = None
-    model: Optional[str] = None
-    year: Optional[int] = None
-    fuel: Optional[str] = None
+class SpecificationUpdate(BaseModel):
+    """
+    Technical vehicle specifications.
+    """
+
     transmission: Optional[str] = None
+
+    drive_configuration: Optional[str] = None
+
+    engine_capacity: Optional[str] = None
+
     body_type: Optional[str] = None
-    page: int = Field(1, ge=1)
-    per_page: int = Field(20, ge=1, le=100)
+
+    gvw: Optional[str] = None
+
+    seating: Optional[str] = None
+
+    fuel: Optional[str] = None
+
 
 
 # ==========================================================
-# RESPONSE SCHEMAS
+# PRICE UPDATE
 # ==========================================================
 
-class VehicleMasterSchema(BaseModel):
-    """Complete vehicle master view schema."""
-    variant_id: int
-    variant_name: Optional[str] = None
-    make_name: Optional[str] = None
-    model_name: Optional[str] = None
-    engine_size_cc: Optional[float] = None
-    power_hp: Optional[float] = None
-    torque_nm: Optional[float] = None
-    fuel_type_name: Optional[str] = None
-    transmission_type_name: Optional[str] = None
-    body_type_name: Optional[str] = None
-    seats: Optional[int] = None
-    doors: Optional[int] = None
+class BasePriceUpdate(BaseModel):
+    """
+    Vehicle valuation prices.
+    """
+
+    crsp_kes: Optional[float] = Field(
+        None,
+        gt=0
+    )
+
+    market_value: Optional[float] = Field(
+        None,
+        gt=0
+    )
+
+    insurance_value: Optional[float] = Field(
+        None,
+        gt=0
+    )
+
+    forced_sale_value: Optional[float] = Field(
+        None,
+        gt=0
+    )
+
+    trade_in_value: Optional[float] = Field(
+        None,
+        gt=0
+    )
+
+
+
+# ==========================================================
+# RESPONSE SCHEMA
+# ==========================================================
+
+class VehicleMasterResponse(BaseModel):
+    """
+    Vehicle master response.
+    """
+
+    id: int
+
+    make: str
+
+    model: str
+
+    model_number: Optional[str] = None
+
+    transmission: Optional[str] = None
+
+    drive_configuration: Optional[str] = None
+
+    engine_capacity: Optional[str] = None
+
+    body_type: Optional[str] = None
+
+    gvw: Optional[str] = None
+
+    seating: Optional[str] = None
+
+    fuel: Optional[str] = None
+
     crsp_kes: Optional[float] = None
-    currency: Optional[str] = None
+
+    market_value: Optional[float] = None
+
+    insurance_value: Optional[float] = None
+
+    forced_sale_value: Optional[float] = None
+
+    trade_in_value: Optional[float] = None
+
+    currency: Optional[str] = "KES"
+
     is_active: bool = True
-
-
-class VehicleSearchResult(BaseModel):
-    """Search result schema."""
-    total: int
-    page: int
-    per_page: int
-    results: List[VehicleMasterSchema]
-
-
-# ==========================================================
-# DASHBOARD SCHEMA
-# ==========================================================
-
-class VehicleDashboardSchema(BaseModel):
-    """Vehicle database dashboard statistics."""
-    total_vehicles: int
-    total_makes: int
-    total_models: int
-    total_generations: int
-    total_variants: int
-    total_base_prices: int
-    active_variants: Optional[int] = 0
-    last_updated: Optional[datetime] = None
