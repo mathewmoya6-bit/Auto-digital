@@ -485,6 +485,17 @@
             font-weight: 600;
             border: 1px solid rgba(6, 182, 212, 0.2);
         }
+        .base-price-pill {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            background: #0a0c15;
+            color: #22c55e;
+            padding: 3px 12px;
+            border-radius: 20px;
+            letter-spacing: 0.04em;
+            font-weight: 600;
+            border: 1px solid rgba(34, 197, 94, 0.2);
+        }
         .vehicle-specs {
             margin-top: 6px;
             font-family: 'JetBrains Mono', monospace;
@@ -1253,6 +1264,7 @@
                         <span class="fuel-pill" id="fuelPill">—</span>
                         <span class="transmission-pill" id="transmissionPill">—</span>
                         <span class="engine-cc-display" id="engineCCDisplay">—</span>
+                        <span class="base-price-pill" id="basePricePill" style="display:none;">—</span>
                     </div>
                     <div class="vehicle-specs" id="vehicleSpecs"></div>
                 </div>
@@ -1340,7 +1352,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.3
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.4
             </div>
         </footer>
     </div>
@@ -1348,8 +1360,9 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.3 - FIXED: down_payment now correctly sent as decimal (0.3, not 30)
-        //                 Added payload logging for debugging
+        // Version 8.4 - Aligned: fetches vehicle base price (CRSP) from
+        //                 vehicle_base_prices table by make/model and uses
+        //                 it as the purchase-price basis for calculations.
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1360,6 +1373,7 @@
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
+                BASE_PRICE_TABLE: 'vehicle_base_prices',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html'
             };
@@ -1370,6 +1384,7 @@
             let currentUser = null;
             let isFinanced = false;
             let currentVariantData = null;
+            let currentBasePrice = null; // CRSP base price (KES) fetched for the selected make/model
             let routes = [];
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
@@ -1395,6 +1410,7 @@
                 fuelPill: document.getElementById('fuelPill'),
                 transmissionPill: document.getElementById('transmissionPill'),
                 engineCCDisplay: document.getElementById('engineCCDisplay'),
+                basePricePill: document.getElementById('basePricePill'),
                 vehicleSpecs: document.getElementById('vehicleSpecs'),
                 tripTotal: document.getElementById('tripTotal'),
                 tripSub: document.getElementById('tripSub'),
@@ -1647,6 +1663,35 @@
                 const { data, error } = await query;
                 if (error) throw error;
                 return data;
+            }
+
+            // ─── BASE PRICE (CRSP) LOOKUP ──────────────────────────────
+            // Looks up the vehicle's base/list price from the vehicle_base_prices
+            // table by make + model (case-insensitive). That table has no foreign
+            // key into vehicle_master_specs, so the match is done on name text.
+            async function fetchBasePrice(make, model) {
+                if (!supabaseClient || !make) return null;
+                try {
+                    let query = supabaseClient
+                        .from(CONFIG.BASE_PRICE_TABLE)
+                        .select('make, model, crsp_kes')
+                        .ilike('make', make.trim());
+                    if (model) {
+                        query = query.ilike('model', `%${model.trim()}%`);
+                    }
+                    const { data, error } = await query.limit(5);
+                    if (error) throw error;
+                    if (!data || data.length === 0) return null;
+                    // Prefer an exact (case-insensitive) model match if one exists.
+                    const exact = model
+                        ? data.find(r => (r.model || '').trim().toLowerCase() === model.trim().toLowerCase())
+                        : null;
+                    const row = exact || data[0];
+                    return row.crsp_kes || null;
+                } catch (error) {
+                    console.warn('⚠️ Base price lookup failed:', error.message);
+                    return null;
+                }
             }
 
             // ─── LOAD DATA ─────────────────────────────────────────────
@@ -1949,6 +1994,14 @@
                 el.transmissionPill.textContent = variant.transmission_type_name || '—';
                 const engineCC = variant.engine_size_cc || null;
                 el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
+
+                if (currentBasePrice) {
+                    el.basePricePill.textContent = `Base: KES ${formatNumber(currentBasePrice)}`;
+                    el.basePricePill.style.display = 'inline-block';
+                } else {
+                    el.basePricePill.style.display = 'none';
+                }
+
                 const specItems = [
                     { label: '🔧', value: variant.trim_level || 'Standard' },
                     { label: '⚡', value: `${variant.power_hp || 0} HP` },
@@ -2010,6 +2063,7 @@
             // ─── RUNNING COST API CALL ─────────────────────────────────
             // FIXED: down_payment now correctly sent as a decimal (0.3 not 30)
             //        Added console.log for payload debugging
+            //        Now includes purchase_price sourced from vehicle_base_prices (CRSP)
             async function calculateRunningCostFromAPI(formData) {
                 // ✅ FIX 1: Convert down_payment from percent (30) to decimal (0.3)
                 const downPaymentDecimal = parseFloat(formData.down_payment_percent) / 100;
@@ -2036,9 +2090,19 @@
                     include_depreciation: true
                 };
 
+                // ✅ Base price: use the CRSP figure looked up from vehicle_base_prices
+                // when we have one, so depreciation/finance math starts from a real
+                // list price instead of the API's internal default.
+                if (formData.purchase_price) {
+                    payload.purchase_price = parseFloat(formData.purchase_price);
+                }
+
                 // ✅ FIX 2: Log the payload before sending
                 console.log("📦 Running Cost Payload:", JSON.stringify(payload, null, 2));
                 console.log(`📊 down_payment: ${payload.down_payment} (converted from ${formData.down_payment_percent}%)`);
+                if (payload.purchase_price) {
+                    console.log(`💰 purchase_price (base price / CRSP): KES ${payload.purchase_price}`);
+                }
 
                 const token = await getAccessToken();
                 const headers = {
@@ -2117,7 +2181,8 @@
                     financed: isFinanced,
                     down_payment_percent: parseInt(el.downPct.value) || 30,
                     interest_rate: parseFloat(el.rate.value) || 16,
-                    loan_term: parseInt(el.term.value) || 4
+                    loan_term: parseInt(el.term.value) || 4,
+                    purchase_price: currentBasePrice || null
                 };
 
                 showProgress(60, 'Calling API...');
@@ -2212,7 +2277,9 @@
 
                 const fiveYearData = result.fiveYearData || result.yearly_breakdown || [];
                 const total5Year = result.five_year_total || result.total_5yr_cost || 0;
-                const originalCost = result.purchase_price || result.original_cost || 2500000;
+                // ✅ Prefer the CRSP base price we looked up client-side; fall back to
+                // whatever the API returned, then a hardcoded default as a last resort.
+                const originalCost = currentBasePrice || result.purchase_price || result.original_cost || 2500000;
                 const remainingValue = result.resale_value || result.current_value || originalCost * 0.4;
 
                 el.fiveYearStats.innerHTML = `
@@ -2370,10 +2437,18 @@
                         return;
                     }
                     currentVariantData = variantData;
+
+                    showProgress(45, 'Looking up base price...');
+                    currentBasePrice = await fetchBasePrice(variantData.make_name, variantData.model_name);
+
                     displayVehicleInfo(variantData);
                     el.calculateBtn.disabled = false;
                     hideProgress();
-                    showToast('Vehicle loaded — click Calculate to see costs', 'info');
+                    if (currentBasePrice) {
+                        showToast(`Vehicle loaded — base price KES ${formatNumber(currentBasePrice)}`, 'info');
+                    } else {
+                        showToast('Vehicle loaded — click Calculate to see costs', 'info');
+                    }
                 } catch (error) {
                     console.error('Error loading variant:', error);
                     showToast('Error loading vehicle details: ' + error.message, 'error');
@@ -2508,6 +2583,7 @@
                         el.generationSelect.value = '';
                         el.variantSelect.value = '';
                         currentVariantData = null;
+                        currentBasePrice = null;
                         el.calculateBtn.disabled = true;
                     }
                 });
@@ -2519,6 +2595,7 @@
                         el.generationSelect.value = '';
                         el.variantSelect.value = '';
                         currentVariantData = null;
+                        currentBasePrice = null;
                         el.calculateBtn.disabled = true;
                     }
                 });
@@ -2529,6 +2606,7 @@
                         await populateGenerations(modelId);
                         el.variantSelect.value = '';
                         currentVariantData = null;
+                        currentBasePrice = null;
                         el.calculateBtn.disabled = true;
                     }
                 });
@@ -2538,6 +2616,7 @@
                     if (genId) {
                         await populateVariants(genId);
                         currentVariantData = null;
+                        currentBasePrice = null;
                         el.calculateBtn.disabled = true;
                     }
                 });
@@ -2548,6 +2627,7 @@
                         loadVariantAndDisplay(variantId);
                     } else {
                         currentVariantData = null;
+                        currentBasePrice = null;
                         el.calculateBtn.disabled = true;
                     }
                 });
@@ -2660,6 +2740,7 @@
 
                     console.log('✅ Auto-D Kenya Mileage Calculator initialized');
                     console.log('📊 Using view: ' + CONFIG.VIEW_NAME);
+                    console.log('💰 Base price table: ' + CONFIG.BASE_PRICE_TABLE);
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/running-cost/calculate`);
 
