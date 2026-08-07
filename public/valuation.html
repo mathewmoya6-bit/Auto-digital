@@ -424,7 +424,7 @@
             display: inline-block; 
         }
 
-        /* ─── RESULT BOX - UPDATED PROFESSIONAL STYLE ──────────────── */
+        /* ─── RESULT BOX - PROFESSIONAL STYLE ──────────────── */
         .result-box {
             background: linear-gradient(135deg, #1e293b, #0f172a);
             border: 2px solid #eab308;
@@ -666,6 +666,62 @@
             font-weight: 600;
             font-family: 'JetBrains Mono', monospace;
             font-size: 11px;
+        }
+
+        /* CRSP Reference Check */
+        .crsp-section {
+            margin: 12px 0;
+            padding: 12px 16px;
+            background: #0f172a;
+            border-radius: 8px;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
+        .crsp-section h4 {
+            font-size: 11px;
+            color: #06b6d4;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-family: 'JetBrains Mono', monospace;
+            margin-bottom: 8px;
+        }
+        .crsp-grid { display: flex; flex-direction: column; gap: 2px; }
+        .crsp-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            font-size: 12px;
+            color: #94a3b8;
+            border-bottom: 1px solid rgba(45, 58, 78, 0.3);
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .crsp-row:last-child { border-bottom: none; }
+        .crsp-row .value {
+            font-weight: 600;
+            color: #06b6d4;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+        }
+        .crsp-row .value.crsp-variance-pos { color: #22c55e; }
+        .crsp-row .value.crsp-variance-neg { color: #94a3b8; }
+        .crsp-row .value.crsp-variance-high { color: #ef4444; }
+        .crsp-note {
+            font-size: 10px;
+            color: #64748b;
+            line-height: 1.6;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(45, 58, 78, 0.3);
+        }
+        .crsp-pill {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 10px;
+            border-radius: 20px;
+            background: #1e293b;
+            color: #06b6d4;
+            border-left: 3px solid #06b6d4;
+            display: none;
         }
 
         /* Vehicle Details */
@@ -1067,6 +1123,9 @@
             .report-disclaimer p { color: #666 !important; }
             .result-footer { border-color: #ddd !important; }
             .result-footer strong { color: #b8860b !important; }
+            .crsp-section { border-color: #ddd !important; }
+            .crsp-section h4 { color: #0e7490 !important; }
+            .crsp-row .value { color: #0e7490 !important; }
         }
     </style>
 </head>
@@ -1084,7 +1143,7 @@
                 <h1>Auto-D <span>Kenya</span><br />Instant Value Check</h1>
                 <p class="subtitle">
                     AI-powered vehicle valuation for the Kenyan market<br />
-                    <span style="font-size:12px;color:var(--text-muted);">⚡ Real-time estimates · Market-driven · High accuracy</span>
+                    <span style="font-size:12px;color:var(--text-muted);">⚡ Real-time estimates · Market-driven · Cross-checked against KRA CRSP base prices</span>
                 </p>
                 <a href="/dashboard.html" class="dashboard-link" style="display:inline-flex;align-items:center;gap:8px;padding:8px 18px;background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.2);border-radius:8px;color:#eab308;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;text-decoration:none;transition:all 0.3s ease;margin-top:8px;">
                     <span class="arrow">←</span> Back to Dashboard
@@ -1168,7 +1227,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="variantSelect">Vehicle Variant</label>
+                    <label for="variantSelect">Engine Capacity</label>
                     <select id="variantSelect" disabled>
                         <option value="">Select a generation first</option>
                     </select>
@@ -1302,7 +1361,7 @@
                 <button class="calc-btn" id="valuateBtn" disabled>🚀 Get AI Valuation</button>
 
                 <div class="disclaimer">
-                    ⚠️ <strong>Disclaimer:</strong> Valuations are estimates based on Auto-D AI models and market data. 
+                    ⚠️ <strong>Disclaimer:</strong> Valuations are estimates based on Auto-D AI models, market data and a KRA CRSP base-price cross-check. 
                     Actual market value may vary. Use as a guide only — <strong>not financial advice</strong>.
                 </div>
             </section>
@@ -1319,11 +1378,12 @@
                         <span class="fuel-pill" id="fuelPill">—</span>
                         <span class="transmission-pill" id="transmissionPill">—</span>
                         <span class="engine-cc-display" id="engineCCDisplay">—</span>
+                        <span class="crsp-pill" id="crspPill">—</span>
                     </div>
                     <div class="vehicle-specs" id="vehicleSpecs"></div>
                 </div>
 
-                <!-- ═══ UPDATED RESULT BOX ────────────────────────────── -->
+                <!-- ═══ RESULT BOX ────────────────────────────── -->
                 <div id="resultBox" class="result-box">
 
                     <!-- Report Title -->
@@ -1388,6 +1448,7 @@
                             <li>Vehicle specifications</li>
                             <li>Depreciation model</li>
                             <li>Market comparables analysis</li>
+                            <li>KRA CRSP base-price cross-check</li>
                         </ul>
                     </div>
 
@@ -1400,6 +1461,43 @@
                                 <span class="adj-value">—</span>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- CRSP Reference Check -->
+                    <div class="crsp-section" id="crspSection" style="display:none;">
+                        <h4>🏛️ KRA CRSP Base Price Cross-Check</h4>
+                        <div class="crsp-grid">
+                            <div class="crsp-row">
+                                <span>Matched CRSP Line</span>
+                                <span class="value" id="crspMatchedLine">—</span>
+                            </div>
+                            <div class="crsp-row">
+                                <span>CRSP Base Price</span>
+                                <span class="value" id="crspBasePrice">—</span>
+                            </div>
+                            <div class="crsp-row">
+                                <span>Vehicle Age</span>
+                                <span class="value" id="crspAge">—</span>
+                            </div>
+                            <div class="crsp-row">
+                                <span>Depreciation Rate Applied</span>
+                                <span class="value" id="crspDepreciationRate">—</span>
+                            </div>
+                            <div class="crsp-row">
+                                <span>CRSP-Depreciated Reference Value</span>
+                                <span class="value" id="crspReferenceValue">—</span>
+                            </div>
+                            <div class="crsp-row">
+                                <span>Variance vs AI Valuation</span>
+                                <span class="value" id="crspVariance">—</span>
+                            </div>
+                        </div>
+                        <p class="crsp-note">
+                            ⚠️ Depreciation brackets shown are Auto-D's approximation of the KRA CRSP age-bracket
+                            schedule, applied to the base price from our CRSP reference table. The "over 7 years"
+                            bracket has not yet been verified against the current KRA gazette — treat this
+                            cross-check as indicative only, not an authoritative customs valuation.
+                        </p>
                     </div>
 
                     <!-- Vehicle Details -->
@@ -1448,9 +1546,10 @@
                         <p>
                             This valuation is generated using the AUTO-D vehicle valuation model.
                             It represents an indicative estimate based on vehicle specifications,
-                            age, mileage, condition, depreciation modelling and regional factors.
+                            age, mileage, condition, depreciation modelling, regional factors and a
+                            cross-check against KRA CRSP base prices where a matching record is found.
                             It should not be interpreted as the current market asking price,
-                            dealer retail price, trade-in value or guaranteed selling price.
+                            dealer retail price, trade-in value, customs value or guaranteed selling price.
                             Actual transaction values may vary depending on inspection,
                             maintenance history, ownership records and prevailing market conditions.
                         </p>
@@ -1476,7 +1575,7 @@
 
                 <div class="result-card" style="border-color: rgba(239, 68, 68, 0.2);">
                     <div style="font-size:10px;color:var(--text-muted);line-height:1.6;">
-                        ⚠️ <strong style="color:var(--amber);">Disclaimer:</strong> Valuations are estimates based on Auto-D AI models and market data. 
+                        ⚠️ <strong style="color:var(--amber);">Disclaimer:</strong> Valuations are estimates based on Auto-D AI models, market data and a KRA CRSP base-price cross-check. 
                         Actual market value may vary. Use as a guide only — <strong style="color:var(--amber);">not financial advice</strong>.
                     </div>
                 </div>
@@ -1486,8 +1585,8 @@
         <footer class="report-footer" role="contentinfo">
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
-                <strong>Engine:</strong> AI Valuation · Real-time Market Data<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.8
+                <strong>Engine:</strong> AI Valuation · Real-time Market Data · KRA CRSP Cross-Check<br />
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v4.9
             </div>
         </footer>
     </div>
@@ -1495,7 +1594,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK
-        // Version 4.9 - Professional Valuation Report (vehicle-detail fallback fix)
+        // Version 4.9 - Engine-capacity variant selection + CRSP base-price cross-check
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1506,6 +1605,7 @@
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
+                CRSP_TABLE_NAME: 'vehicle_base_prices',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html'
             };
@@ -1515,6 +1615,7 @@
             let isAuthenticated = false;
             let currentUser = null;
             let currentVariantData = null;
+            let crspReferenceData = null;
             let capturedPhotos = {};
             let uploadedImagePreviews = {};
             let valuationData = null;
@@ -1542,6 +1643,7 @@
                 fuelPill: document.getElementById('fuelPill'),
                 transmissionPill: document.getElementById('transmissionPill'),
                 engineCCDisplay: document.getElementById('engineCCDisplay'),
+                crspPill: document.getElementById('crspPill'),
                 vehicleSpecs: document.getElementById('vehicleSpecs'),
                 resultBox: document.getElementById('resultBox'),
                 resultMarketValue: document.getElementById('resultMarketValue'),
@@ -1549,6 +1651,7 @@
                 confidenceFill: document.getElementById('confidenceFill'),
                 confidenceLabel: document.getElementById('confidenceLabel'),
                 adjustmentsList: document.getElementById('adjustmentsList'),
+                crspSection: document.getElementById('crspSection'),
                 resultVehicle: document.getElementById('resultVehicle'),
                 resultRegistration: document.getElementById('resultRegistration'),
                 resultYear: document.getElementById('resultYear'),
@@ -1727,6 +1830,118 @@
                     return parts.slice(1).join(' ');
                 }
                 return bodyType;
+            }
+
+            // ─── KRA CRSP DEPRECIATION (reference / cross-check only) ─────
+            // NOTE: This is Auto-D's approximation of the KRA CRSP age-bracket
+            // depreciation schedule used for customs/reference purposes. The
+            // "over 7 years" bracket in particular has NOT been verified
+            // against the current KRA gazette — do not treat as authoritative
+            // until confirmed. Flagged for follow-up before this goes live.
+            function getKraDepreciationRate(ageYears) {
+                if (ageYears < 1) return 0.05;
+                if (ageYears < 2) return 0.10;
+                if (ageYears < 3) return 0.15;
+                if (ageYears < 4) return 0.20;
+                if (ageYears < 5) return 0.25;
+                if (ageYears < 6) return 0.30;
+                if (ageYears < 7) return 0.35;
+                return 0.40; // over 7 years — unverified bracket, see note above
+            }
+
+            // ─── CRSP BASE PRICE LOOKUP ─────────────────────────────────
+            async function lookupCRSPBasePrice(makeName, modelName, engineCC) {
+                if (!supabaseClient || !isAuthenticated || !makeName) return null;
+                try {
+                    let query = supabaseClient
+                        .from(CONFIG.CRSP_TABLE_NAME)
+                        .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes')
+                        .ilike('make', makeName.trim());
+                    if (modelName) {
+                        const modelToken = modelName.trim().split(/\s+/)[0];
+                        if (modelToken) query = query.ilike('model', `%${modelToken}%`);
+                    }
+                    const { data, error } = await query.limit(50);
+                    if (error || !data || data.length === 0) return null;
+
+                    // 1) Exact engine-capacity string match (e.g. "1500" === "1500")
+                    if (engineCC) {
+                        const ccStr = String(engineCC).trim();
+                        const exact = data.find(r => (r.engine_capacity || '').toString().trim() === ccStr);
+                        if (exact) return { ...exact, matchQuality: 'exact engine capacity match' };
+                    }
+
+                    // 2) Closest numeric engine capacity
+                    const numeric = data
+                        .map(r => ({ ...r, ccNum: parseFloat(r.engine_capacity) }))
+                        .filter(r => !isNaN(r.ccNum));
+                    if (engineCC && numeric.length > 0) {
+                        numeric.sort((a, b) => Math.abs(a.ccNum - engineCC) - Math.abs(b.ccNum - engineCC));
+                        return { ...numeric[0], matchQuality: 'closest engine capacity match' };
+                    }
+
+                    // 3) Model-only fallback (no reliable engine capacity to compare)
+                    return { ...data[0], matchQuality: 'make/model match only' };
+                } catch (e) {
+                    console.warn('CRSP base price lookup failed:', e);
+                    return null;
+                }
+            }
+
+            async function refreshCRSPReference() {
+                crspReferenceData = null;
+                updateCRSPBadge();
+                if (!currentVariantData) return;
+                const makeName = currentVariantData.make_name;
+                const modelName = currentVariantData.model_name;
+                const cc = currentVariantData.engine_size_cc;
+                crspReferenceData = await lookupCRSPBasePrice(makeName, modelName, cc);
+                updateCRSPBadge();
+            }
+
+            function updateCRSPBadge() {
+                if (!el.crspPill) return;
+                if (crspReferenceData && crspReferenceData.crsp_kes) {
+                    const f = formatCurrency(crspReferenceData.crsp_kes);
+                    el.crspPill.textContent = `🏛️ CRSP KES ${f.formatted}`;
+                    el.crspPill.style.display = 'inline-block';
+                } else {
+                    el.crspPill.textContent = '🏛️ CRSP: no match';
+                    el.crspPill.style.display = 'inline-block';
+                }
+            }
+
+            function renderCRSPCheck(aiValue, year) {
+                if (!el.crspSection) return;
+                if (!crspReferenceData || !crspReferenceData.crsp_kes) {
+                    el.crspSection.style.display = 'none';
+                    return;
+                }
+                const nowYear = new Date().getFullYear();
+                const age = Math.max(0, nowYear - (parseInt(year, 10) || nowYear));
+                const rate = getKraDepreciationRate(age);
+                const basePrice = crspReferenceData.crsp_kes;
+                const refValue = basePrice * (1 - rate);
+                const variancePct = refValue > 0 ? ((aiValue - refValue) / refValue) * 100 : 0;
+
+                const matchedLine = `${crspReferenceData.make || ''} ${crspReferenceData.model || ''}`.trim() +
+                    (crspReferenceData.engine_capacity ? ` · ${crspReferenceData.engine_capacity}` : '');
+
+                document.getElementById('crspMatchedLine').textContent = matchedLine || '—';
+                document.getElementById('crspBasePrice').textContent = `KES ${formatCurrency(basePrice).formatted}`;
+                document.getElementById('crspAge').textContent = `${age} year${age === 1 ? '' : 's'}`;
+                document.getElementById('crspDepreciationRate').textContent =
+                    `${(rate * 100).toFixed(0)}%${age >= 7 ? ' (unverified bracket)' : ''}`;
+                document.getElementById('crspReferenceValue').textContent = `KES ${formatCurrency(refValue).formatted}`;
+
+                const varEl = document.getElementById('crspVariance');
+                const sign = variancePct >= 0 ? '+' : '';
+                varEl.textContent = `${sign}${variancePct.toFixed(1)}%`;
+                varEl.className = 'value ' + (Math.abs(variancePct) > 20
+                    ? 'crsp-variance-high'
+                    : (variancePct >= 0 ? 'crsp-variance-pos' : 'crsp-variance-neg'));
+
+                el.crspSection.style.display = 'block';
             }
 
             // ─── API HELPERS ──────────────────────────────────────────
@@ -2000,7 +2215,7 @@
 
             async function loadVariants(generationId) {
                 try {
-                    setStatus('info', 'Loading variants...');
+                    setStatus('info', 'Loading engine capacity options...');
                     const data = await queryView(
                         `variant_id, variant_name, trim_level, engine_size_cc, power_hp, torque_nm, 
                          fuel_consumption_combined, co2_emissions, seats, doors, fuel_type_name, 
@@ -2010,8 +2225,8 @@
                     );
                     return data;
                 } catch (error) {
-                    console.error('Error loading variants:', error);
-                    setStatus('error', 'Failed to load variants');
+                    console.error('Error loading engine capacity options:', error);
+                    setStatus('error', 'Failed to load engine capacity options');
                     return [];
                 }
             }
@@ -2061,6 +2276,10 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.valuateBtn.disabled = true;
+                currentVariantData = null;
+                crspReferenceData = null;
+                updateCRSPBadge();
+                el.crspPill.style.display = 'none';
                 if (!categoryId || !isAuthenticated) return;
                 const makes = await loadMakes(categoryId);
                 if (!makes || makes.length === 0) {
@@ -2088,6 +2307,10 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.valuateBtn.disabled = true;
+                currentVariantData = null;
+                crspReferenceData = null;
+                updateCRSPBadge();
+                el.crspPill.style.display = 'none';
                 if (!makeId || !isAuthenticated) return;
                 const models = await loadModels(makeId);
                 if (!models || models.length === 0) {
@@ -2113,6 +2336,10 @@
                 el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.variantSelect.disabled = true;
                 el.valuateBtn.disabled = true;
+                currentVariantData = null;
+                crspReferenceData = null;
+                updateCRSPBadge();
+                el.crspPill.style.display = 'none';
                 if (!modelId || !isAuthenticated) return;
                 const generations = await loadGenerations(modelId);
                 if (!generations || generations.length === 0) {
@@ -2130,40 +2357,63 @@
                 setStatus('success', `✅ Loaded ${generations.length} generations`);
             }
 
+            // Populate the "Engine Capacity" dropdown. Variants for the chosen
+            // generation are grouped by engine_size_cc so the person picks an
+            // engine capacity rather than a trim/variant name. A representative
+            // variant from each capacity group is kept so we can still load full
+            // spec details (and drive the CRSP lookup) once one is selected.
             async function populateVariants(generationId) {
                 const select = el.variantSelect;
-                select.innerHTML = '<option value="">Select Variant...</option>';
+                select.innerHTML = '<option value="">Select Engine Capacity...</option>';
                 select.disabled = true;
                 el.valuateBtn.disabled = true;
+                currentVariantData = null;
+                crspReferenceData = null;
+                updateCRSPBadge();
+                el.crspPill.style.display = 'none';
                 if (!generationId || !isAuthenticated) return;
                 let variants = await loadVariants(generationId);
                 if (!variants || variants.length === 0) {
-                    select.innerHTML = '<option value="">No variants available</option>';
+                    select.innerHTML = '<option value="">No engine capacity options available</option>';
                     return;
                 }
-                const seen = new Map();
+
+                const groups = new Map();
                 variants.forEach(v => {
-                    let label = v.variant_name || 'Variant';
-                    const parts = label.split(' ');
-                    if (parts.length > 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
-                        parts.splice(0, 1);
-                        label = parts.join(' ');
-                    }
-                    const key = label.trim().toLowerCase();
-                    if (seen.has(key)) return;
-                    seen.set(key, true);
+                    const ccKey = (v.engine_size_cc !== null && v.engine_size_cc !== undefined && v.engine_size_cc !== '')
+                        ? String(v.engine_size_cc)
+                        : 'unknown';
+                    if (!groups.has(ccKey)) groups.set(ccKey, []);
+                    groups.get(ccKey).push(v);
+                });
+
+                const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
+                    if (a === 'unknown') return 1;
+                    if (b === 'unknown') return -1;
+                    return parseFloat(a) - parseFloat(b);
+                });
+
+                sortedKeys.forEach(cc => {
+                    const group = groups.get(cc);
+                    const rep = group[0];
                     const opt = document.createElement('option');
-                    opt.value = v.variant_id;
-                    let displayLabel = label;
-                    if (v.engine_size_cc) displayLabel += ` ${v.engine_size_cc}cc`;
-                    if (v.power_hp) displayLabel += ` ${v.power_hp}hp`;
-                    if (v.fuel_type_name) displayLabel += ` (${v.fuel_type_name})`;
-                    if (v.transmission_type_name) displayLabel += ` ${v.transmission_type_name}`;
-                    opt.textContent = displayLabel;
+                    opt.value = rep.variant_id;
+                    opt.dataset.engineCc = cc;
+                    let label = cc === 'unknown' ? 'Engine capacity N/A' : `${cc}cc`;
+                    const hpValues = group.map(v => v.power_hp).filter(v => v);
+                    if (hpValues.length) {
+                        const avgHp = Math.round(hpValues.reduce((s, v) => s + v, 0) / hpValues.length);
+                        label += ` · ~${avgHp}hp`;
+                    }
+                    if (rep.fuel_type_name) label += ` — ${rep.fuel_type_name}`;
+                    if (rep.transmission_type_name) label += ` ${rep.transmission_type_name}`;
+                    if (group.length > 1) label += ` (${group.length} trims)`;
+                    opt.textContent = label;
                     select.appendChild(opt);
                 });
+
                 select.disabled = false;
-                setStatus('success', `✅ Loaded ${seen.size} unique variants`);
+                setStatus('success', `✅ Loaded ${sortedKeys.length} engine capacity options`);
             }
 
             // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
@@ -2431,7 +2681,7 @@
                 }
                 const variantId = el.variantSelect.value;
                 if (!variantId) {
-                    showToast('Please select a vehicle variant', 'error');
+                    showToast('Please select an engine capacity', 'error');
                     return;
                 }
                 const hasPhotos = Object.keys(capturedPhotos).length > 0;
@@ -2447,6 +2697,7 @@
                 currentVariantData = variant;
                 displayVehicleInfo(variant);
                 updateVehiclePills();
+                await refreshCRSPReference();
                 
                 const registration = el.registrationInput.value.trim().toUpperCase() || 'Not Provided';
                 
@@ -2499,8 +2750,7 @@
             // ─── SHOW RESULT ──────────────────────────────────────────
             // NOTE: `formData` (the values the user actually entered/selected) is now
             // passed in and used as a fallback any time the API's `data.vehicle` object
-            // omits a field. Previously, missing API fields fell straight through to
-            // "—" even though the form had perfectly good values for them.
+            // omits a field, so missing API fields no longer fall straight through to "—".
             function showResult(result, registration, formData) {
                 formData = formData || {};
                 let data = result.data || result;
@@ -2525,7 +2775,8 @@
                     'Location',
                     'Vehicle specifications',
                     'Depreciation model',
-                    'Market comparables analysis'
+                    'Market comparables analysis',
+                    'KRA CRSP base-price cross-check'
                 ];
 
                 // Helper: pick the API's vehicle-detail value if present, else fall back
@@ -2685,6 +2936,8 @@
                         </div>
                     `;
                 }
+                // CRSP base-price cross-check
+                renderCRSPCheck(currentValue, formData.year || el.yearSelect.value);
                 // Show result
                 el.resultBox.classList.add('show');
                 el.resultBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2777,6 +3030,7 @@
                         el.variantSelect.value = '';
                         el.valuateBtn.disabled = true;
                         el.resultBox.classList.remove('show');
+                        el.crspSection.style.display = 'none';
                     }
                 });
 
@@ -2789,6 +3043,7 @@
                         el.variantSelect.value = '';
                         el.valuateBtn.disabled = true;
                         el.resultBox.classList.remove('show');
+                        el.crspSection.style.display = 'none';
                     }
                 });
 
@@ -2800,6 +3055,7 @@
                         el.variantSelect.value = '';
                         el.valuateBtn.disabled = true;
                         el.resultBox.classList.remove('show');
+                        el.crspSection.style.display = 'none';
                     }
                 });
 
@@ -2810,6 +3066,7 @@
                         await populateVariants(genId);
                         el.valuateBtn.disabled = true;
                         el.resultBox.classList.remove('show');
+                        el.crspSection.style.display = 'none';
                     }
                 });
 
@@ -2824,8 +3081,10 @@
                             displayVehicleInfo(variant);
                             prefillFuelAndTransmission(variant);
                             updateVehiclePills();
+                            await refreshCRSPReference();
                         }
                         el.resultBox.classList.remove('show');
+                        el.crspSection.style.display = 'none';
                     }
                 });
 
@@ -2892,6 +3151,7 @@
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Base: ${CONFIG.API_BASE}`);
                     console.log(`📊 View: ${CONFIG.VIEW_NAME}`);
+                    console.log(`🏛️ CRSP Table: ${CONFIG.CRSP_TABLE_NAME}`);
 
                 } catch (error) {
                     console.error('❌ Init error:', error);
