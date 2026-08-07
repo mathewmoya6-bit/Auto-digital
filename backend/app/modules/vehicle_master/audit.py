@@ -1,112 +1,112 @@
 """
 Auto-D Kenya
-Vehicle Master Audit Service
+Vehicle Master Dashboard Service
 """
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime
-from uuid import UUID
+from datetime import datetime, timedelta
 
-from app.core.database import get_supabase
-from fastapi.concurrency import run_in_threadpool
+from app.modules.vehicle_master.repository import VehicleMasterRepository
+from app.modules.vehicle_master.audit import AuditService
 
 logger = logging.getLogger(__name__)
 
 
-class AuditService:
-    """Audit logging for vehicle master operations."""
+class VehicleDashboardService:
+    """Enhanced dashboard service for vehicle master."""
 
     def __init__(self):
-        self.db = get_supabase()
+        self.repository = VehicleMasterRepository()
+        self.audit = AuditService()
 
-    async def _run(self, fn):
-        return await run_in_threadpool(fn)
-
-    async def log_update(
-        self,
-        variant_id: int,
-        changes: Dict[str, Any],
-        action: str = "update",
-        user_id: Optional[UUID] = None,
-        user_email: Optional[str] = None,
-    ) -> bool:
-        """Log a vehicle update."""
+    async def get_overview(self) -> Dict[str, Any]:
+        """Get comprehensive dashboard overview."""
+        stats = await self.repository.statistics()
+        
+        # Get recent activity
+        recent_activity = await self.audit.get_audit_logs(limit=10)
+        
+        # Get recent additions (last 30 days)
+        thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
         try:
-            data = {
-                "variant_id": variant_id,
-                "action": action,
-                "changes": changes,
-                "user_id": str(user_id) if user_id else None,
-                "user_email": user_email,
-                "created_at": datetime.utcnow().isoformat(),
-            }
-            
-            response = await self._run(
-                lambda: self.db.table("vehicle_audit_logs")
-                .insert(data)
-                .execute()
-            )
-            
-            return response.data is not None and len(response.data) > 0
-        except Exception as e:
-            logger.error(f"Error logging audit for variant {variant_id}: {e}")
-            return False
+            recent_vehicles_result = await self.repository.search()
+            recent_vehicles = recent_vehicles_result.get("results", [])[:10]
+        except Exception:
+            recent_vehicles = []
+        
+        return {
+            "stats": stats,
+            "recent_activity": recent_activity,
+            "recent_vehicles": recent_vehicles,
+            "generated_at": datetime.utcnow().isoformat(),
+        }
 
-    async def log_bulk_action(
-        self,
-        action: str,
-        count: int,
-        details: Dict[str, Any],
-        user_id: Optional[UUID] = None,
-        user_email: Optional[str] = None,
-    ) -> bool:
-        """Log a bulk action."""
+    async def get_make_breakdown(self) -> List[Dict[str, Any]]:
+        """Get vehicle breakdown by make."""
         try:
-            data = {
-                "action": action,
-                "count": count,
-                "details": details,
-                "user_id": str(user_id) if user_id else None,
-                "user_email": user_email,
-                "created_at": datetime.utcnow().isoformat(),
-            }
+            result = await self.repository.search()
+            vehicles = result.get("results", [])
             
-            response = await self._run(
-                lambda: self.db.table("vehicle_audit_logs")
-                .insert(data)
-                .execute()
-            )
+            make_counts = {}
+            for v in vehicles:
+                make = v.get("make_name", "Unknown")
+                make_counts[make] = make_counts.get(make, 0) + 1
             
-            return response.data is not None and len(response.data) > 0
+            return [
+                {"make": make, "count": count}
+                for make, count in sorted(
+                    make_counts.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )
+            ]
         except Exception as e:
-            logger.error(f"Error logging bulk action: {e}")
-            return False
-
-    async def get_audit_logs(
-        self,
-        variant_id: Optional[int] = None,
-        action: Optional[str] = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> List[Dict[str, Any]]:
-        """Get audit logs with filters."""
-        try:
-            query = self.db.table("vehicle_audit_logs").select("*")
-            
-            if variant_id:
-                query = query.eq("variant_id", variant_id)
-            if action:
-                query = query.eq("action", action)
-            
-            query = query.order("created_at", desc=True).range(offset, offset + limit - 1)
-            
-            response = await self._run(lambda: query.execute())
-            return response.data or []
-        except Exception as e:
-            logger.error(f"Error fetching audit logs: {e}")
+            logger.error(f"Error getting make breakdown: {e}")
             return []
 
-    async def get_vehicle_history(self, variant_id: int, limit: int = 20) -> List[Dict[str, Any]]:
-        """Get full history for a specific vehicle."""
-        return await self.get_audit_logs(variant_id=variant_id, limit=limit)
+    async def get_fuel_breakdown(self) -> List[Dict[str, Any]]:
+        """Get vehicle breakdown by fuel type."""
+        try:
+            result = await self.repository.search()
+            vehicles = result.get("results", [])
+            
+            fuel_counts = {}
+            for v in vehicles:
+                fuel = v.get("fuel_type_name", "Unknown")
+                fuel_counts[fuel] = fuel_counts.get(fuel, 0) + 1
+            
+            return [
+                {"fuel_type": fuel, "count": count}
+                for fuel, count in sorted(
+                    fuel_counts.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )
+            ]
+        except Exception as e:
+            logger.error(f"Error getting fuel breakdown: {e}")
+            return []
+
+    async def get_body_type_breakdown(self) -> List[Dict[str, Any]]:
+        """Get vehicle breakdown by body type."""
+        try:
+            result = await self.repository.search()
+            vehicles = result.get("results", [])
+            
+            body_counts = {}
+            for v in vehicles:
+                body = v.get("body_type_name", "Unknown")
+                body_counts[body] = body_counts.get(body, 0) + 1
+            
+            return [
+                {"body_type": body, "count": count}
+                for body, count in sorted(
+                    body_counts.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )
+            ]
+        except Exception as e:
+            logger.error(f"Error getting body type breakdown: {e}")
+            return []
