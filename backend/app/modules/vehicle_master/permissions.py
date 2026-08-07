@@ -1,96 +1,152 @@
 """
 Auto-D Kenya
 Vehicle Master Permissions
+
+Authorization layer for Vehicle Master Admin operations.
 """
 
 import logging
 from typing import Optional
 
-from fastapi import HTTPException, Depends, status
-from app.core.dependencies import get_current_user
+from fastapi import HTTPException, status
+
+from app.core.database import get_supabase
+
 
 logger = logging.getLogger(__name__)
 
 
-async def require_vehicle_master_access(
-    current_user: dict = Depends(get_current_user),
-) -> bool:
+class VehicleMasterPermission:
+
     """
-    Require vehicle master admin access.
-    
-    Checks:
-    1. User is authenticated
-    2. User has admin role or vehicle_master_admin permission
+    Vehicle Master permission checker.
     """
-    if not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
+
+
+    def __init__(self):
+        self.db = get_supabase()
+
+
+
+    async def has_permission(
+        self,
+        user_id: str,
+        permission: str
+    ) -> bool:
+        """
+        Check whether user has permission.
+        """
+
+        try:
+
+            response = (
+                self.db
+                .table("role_permissions")
+                .select(
+                    """
+                    permission_id,
+                    permissions(
+                        name
+                    ),
+                    user_roles!inner(
+                        user_id
+                    )
+                    """
+                )
+                .eq(
+                    "user_roles.user_id",
+                    user_id
+                )
+                .execute()
+            )
+
+
+            permissions = response.data or []
+
+
+            for item in permissions:
+
+                permission_data = (
+                    item.get("permissions")
+                    or {}
+                )
+
+                if (
+                    permission_data.get("name")
+                    == permission
+                ):
+                    return True
+
+
+            return False
+
+
+        except Exception as e:
+
+            logger.error(
+                f"Permission check failed: {e}"
+            )
+
+            return False
+
+
+
+    async def require_permission(
+        self,
+        user_id:str,
+        permission:str
+    ):
+        """
+        Raise exception if permission denied.
+        """
+
+        allowed = await self.has_permission(
+            user_id,
+            permission
         )
-    
-    # Check if user has admin role
-    user_roles = current_user.get("roles", [])
-    if "admin" in user_roles or "super_admin" in user_roles:
-        return True
-    
-    # Check for specific permission
-    permissions = current_user.get("permissions", [])
-    if "vehicle_master_admin" in permissions:
-        return True
-    
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Insufficient permissions for vehicle master access",
-    )
 
 
-async def require_vehicle_edit_access(
-    current_user: dict = Depends(get_current_user),
-) -> bool:
-    """
-    Require vehicle edit permissions.
-    """
-    if not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-        )
-    
-    user_roles = current_user.get("roles", [])
-    if "admin" in user_roles or "super_admin" in user_roles:
-        return True
-    
-    permissions = current_user.get("permissions", [])
-    if "vehicle_edit" in permissions or "vehicle_master_admin" in permissions:
-        return True
-    
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Insufficient permissions for vehicle editing",
-    )
+        if not allowed:
+
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Insufficient permission "
+                    f"required: {permission}"
+                )
+            )
 
 
-async def require_vehicle_view_access(
-    current_user: dict = Depends(get_current_user),
-) -> bool:
-    """
-    Require vehicle view permissions (read-only access).
-    """
-    if not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-        )
-    
-    user_roles = current_user.get("roles", [])
-    if "admin" in user_roles or "super_admin" in user_roles:
         return True
-    
-    permissions = current_user.get("permissions", [])
-    if "vehicle_view" in permissions or "vehicle_master_admin" in permissions:
-        return True
-    
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Insufficient permissions for vehicle viewing",
-    )
+
+
+
+# ==========================================================
+# VEHICLE MASTER PERMISSIONS
+# ==========================================================
+
+
+VEHICLE_MASTER_PERMISSIONS = {
+
+    "VIEW":
+        "vehicle_master.view",
+
+    "CREATE":
+        "vehicle_master.create",
+
+    "UPDATE":
+        "vehicle_master.update",
+
+    "UPDATE_PRICE":
+        "vehicle_master.update_price",
+
+    "DELETE":
+        "vehicle_master.delete",
+
+    "IMPORT":
+        "vehicle_master.import",
+
+    "EXPORT":
+        "vehicle_master.export",
+
+}
