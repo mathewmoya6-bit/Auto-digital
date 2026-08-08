@@ -627,6 +627,42 @@
             justify-content: space-between;
         }
 
+        /* ─── CRSP Info (aligned with valuation & mileage calculators) ─── */
+        .crsp-info {
+            background: var(--bg);
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin: 12px 0;
+            display: none;
+        }
+        .crsp-info.show { display: block; }
+        .crsp-info h4 {
+            font-size: 10px;
+            color: var(--cyan);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-family: var(--font-mono);
+            margin-bottom: 6px;
+        }
+        .crsp-info .row {
+            display: flex;
+            justify-content: space-between;
+            padding: 3px 0;
+            font-size: 11px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .crsp-info .row:last-child { border-bottom: none; }
+        .crsp-info .row .value {
+            font-weight: 600;
+            color: var(--cyan);
+            font-family: var(--font-mono);
+            font-size: 10px;
+        }
+        .crsp-info .row .value.crsp-found { color: var(--green); }
+        .crsp-info .row .value.crsp-missing { color: var(--red); }
+
         .disclaimer {
             font-size: 10px;
             color: var(--text-muted);
@@ -1068,6 +1104,9 @@
             .projection-year .amount {
                 color: #000 !important;
             }
+            .crsp-info { border-color: #ddd !important; }
+            .crsp-info h4 { color: #0e7490 !important; }
+            .crsp-info .row .value { color: #0e7490 !important; }
         }
     </style>
 </head>
@@ -1093,7 +1132,7 @@
                 </a>
             </div>
             <div class="header-right">
-                <div class="version">Version <span>v8.2</span> <span class="auto-d-badge" style="display:inline-block;background:rgba(234,179,8,0.15);color:#eab308;font-family:var(--font-mono);font-size:8px;padding:2px 8px;border-radius:10px;border:1px solid rgba(234,179,8,0.2);margin-left:6px;">Auto-D</span></div>
+                <div class="version">Version <span>v9.0</span> <span class="auto-d-badge" style="display:inline-block;background:rgba(234,179,8,0.15);color:#eab308;font-family:var(--font-mono);font-size:8px;padding:2px 8px;border-radius:10px;border:1px solid rgba(234,179,8,0.2);margin-left:6px;">Auto-D</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus" aria-live="polite">🔓 Not Authenticated</span>
@@ -1223,7 +1262,6 @@
                     <select id="generationSelect" disabled><option value="">Select a model first</option></select>
                 </div>
 
-                <!-- CHANGED: "Variant" → "Engine Capacity" -->
                 <div class="form-group">
                     <label for="engineCapacitySelect">Engine Capacity (cc)</label>
                     <select id="engineCapacitySelect" disabled><option value="">Select a generation first</option></select>
@@ -1250,6 +1288,18 @@
                         <option value="2011">2011</option>
                         <option value="2010">2010</option>
                     </select>
+                </div>
+
+                <!-- CRSP Base Price Reference (aligned with valuation & mileage calculators) -->
+                <div class="crsp-info" id="crspInfo">
+                    <h4>🏛️ KRA CRSP Base Price Reference</h4>
+                    <div id="crspInfoContent">
+                        <div class="row"><span>Matched CRSP Line</span><span class="value" id="crspMatchedLine">—</span></div>
+                        <div class="row"><span>CRSP Base Price</span><span class="value" id="crspBasePrice">—</span></div>
+                        <div class="row"><span>Engine Capacity</span><span class="value" id="crspEngineCapacity">—</span></div>
+                        <div class="row"><span>Fuel Type</span><span class="value" id="crspFuel">—</span></div>
+                        <div class="row"><span>Transmission</span><span class="value" id="crspTransmission">—</span></div>
+                    </div>
                 </div>
 
                 <!-- Purchase Type -->
@@ -1352,7 +1402,7 @@
                 <button class="calc-btn" id="calculateBtn" disabled>🚀 Calculate Ownership Cost</button>
 
                 <div class="disclaimer">
-                    ⚠️ <strong>Disclaimer:</strong> All figures are estimates based on Auto-D recommended Kenyan market rates. Use as a guide only — <strong>not financial advice</strong>.
+                    ⚠️ <strong>Disclaimer:</strong> All figures are estimates based on Auto-D recommended Kenyan market rates and a KRA CRSP base-price cross-check where a matching record is found. Use as a guide only — <strong>not financial advice</strong>.
                 </div>
 
             </section>
@@ -1433,7 +1483,7 @@
                 <!-- Disclaimer -->
                 <div class="result-card" style="border-color: rgba(239, 68, 68, 0.2);">
                     <div style="font-size:10px;color:var(--text-muted);line-height:1.6;">
-                        ⚠️ <strong style="color:var(--amber);">Disclaimer:</strong> All figures are estimates based on Auto-D recommended Kenyan market rates. Actual costs may vary based on individual circumstances, market conditions, and vehicle condition. Electric-vehicle running costs assume <span id="evAssumptionsNote">0.15 kWh/km at KES 30/kWh</span>; annual inflation is modelled at <span id="inflationAssumptionNote">2.0%</span> when enabled.
+                        ⚠️ <strong style="color:var(--amber);">Disclaimer:</strong> All figures are estimates based on Auto-D recommended Kenyan market rates and a KRA CRSP base-price cross-check where a matching record is found. Actual costs may vary based on individual circumstances, market conditions, and vehicle condition. Electric-vehicle running costs assume <span id="evAssumptionsNote">0.15 kWh/km at KES 30/kWh</span>; annual inflation is modelled at <span id="inflationAssumptionNote">2.0%</span> when enabled.
                     </div>
                 </div>
 
@@ -1454,7 +1504,9 @@
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
-                BASE_PRICE_TABLE: 'vehicle_base_prices',
+                // ALIGNED: same CRSP table + FK join pattern used by the valuation
+                // and mileage/running-cost calculators (engine_capacity_id -> variant_id).
+                CRSP_TABLE: 'vehicle_crsp_prices',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html',
                 INFLATION_RATE: 2.0,
@@ -1470,6 +1522,7 @@
             let accessToken = null;
             let currentVariantData = null;
             let currentBasePrice = null;
+            let currentCrspData = null; // ALIGNED: holds the matched CRSP row (make/model/engine_capacity/fuel/transmission/crsp_kes)
             let purchasePriceEditedByUser = false;
             let vehicleType = 'ice';
             let vehicleCondition = 'new';
@@ -1595,7 +1648,14 @@
                 fuelPriceHelper: document.getElementById('fuelPriceHelper'),
                 financeFields: document.getElementById('financeFields'),
                 evAssumptionsNote: document.getElementById('evAssumptionsNote'),
-                inflationAssumptionNote: document.getElementById('inflationAssumptionNote')
+                inflationAssumptionNote: document.getElementById('inflationAssumptionNote'),
+                // ALIGNED: CRSP info panel refs
+                crspInfo: document.getElementById('crspInfo'),
+                crspMatchedLine: document.getElementById('crspMatchedLine'),
+                crspBasePrice: document.getElementById('crspBasePrice'),
+                crspEngineCapacity: document.getElementById('crspEngineCapacity'),
+                crspFuel: document.getElementById('crspFuel'),
+                crspTransmission: document.getElementById('crspTransmission')
             };
 
             el.evAssumptionsNote.textContent = `${CONFIG.EV_KWH_PER_KM} kWh/km at KES ${CONFIG.EV_PRICE_PER_KWH}/kWh`;
@@ -1923,29 +1983,58 @@
                 return data;
             }
 
-            // ─── Base Price (CRSP) Lookup ──────────────────────────
-            async function fetchBasePrice(make, model) {
-                if (!supabaseClient || !make) return null;
+            // ─── CRSP Base Price Lookup ─────────────────────────────
+            // ALIGNED: uses vehicle_crsp_prices joined on the engine_capacity_id
+            // foreign key, exactly like the valuation and mileage/running-cost
+            // calculators — no more fuzzy make/model text matching.
+            async function fetchBasePrice(variantId) {
+                if (!supabaseClient || !variantId) return null;
                 try {
-                    let query = supabaseClient
-                        .from(CONFIG.BASE_PRICE_TABLE)
-                        .select('make, model, crsp_kes')
-                        .ilike('make', make.trim());
-                    if (model) {
-                        query = query.ilike('model', `%${model.trim()}%`);
-                    }
-                    const { data, error } = await query.limit(5);
+                    const { data, error } = await supabaseClient
+                        .from(CONFIG.CRSP_TABLE)
+                        .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes')
+                        .eq('engine_capacity_id', variantId)
+                        .limit(1);
                     if (error) throw error;
-                    if (!data || data.length === 0) return null;
-                    const exact = model
-                        ? data.find(r => (r.model || '').trim().toLowerCase() === model.trim().toLowerCase())
-                        : null;
-                    const row = exact || data[0];
-                    return row.crsp_kes || null;
+                    if (!data || data.length === 0) {
+                        console.log('ℹ️ No CRSP record found for variant_id:', variantId);
+                        currentCrspData = null;
+                        return null;
+                    }
+                    currentCrspData = data[0];
+                    console.log('✅ CRSP record found:', currentCrspData);
+                    return data[0].crsp_kes || null;
                 } catch (error) {
-                    console.warn('⚠️ Base price lookup failed:', error.message);
+                    console.warn('⚠️ CRSP base price lookup failed:', error.message);
+                    currentCrspData = null;
                     return null;
                 }
+            }
+
+            // ALIGNED: renders the matched CRSP line, same shape as the mileage calculator's panel.
+            function updateCRSPInfo() {
+                if (!currentCrspData || !currentCrspData.crsp_kes) {
+                    el.crspInfo.classList.remove('show');
+                    return;
+                }
+                const data = currentCrspData;
+                const matchedLine = `${data.make || ''} ${data.model || ''}`.trim() || '—';
+                el.crspMatchedLine.textContent = matchedLine;
+                el.crspMatchedLine.className = 'value crsp-found';
+                el.crspBasePrice.textContent = `KES ${fmtCurrency(data.crsp_kes)}`;
+                el.crspBasePrice.className = 'value crsp-found';
+                el.crspEngineCapacity.textContent = data.engine_capacity || '—';
+                el.crspFuel.textContent = data.fuel || '—';
+                el.crspTransmission.textContent = data.transmission || '—';
+                el.crspInfo.classList.add('show');
+            }
+
+            function resetCRSPInfo() {
+                currentBasePrice = null;
+                currentCrspData = null;
+                el.crspInfo.classList.remove('show');
+                el.basePriceTag.style.display = 'none';
+                el.basePriceHelper.style.display = 'none';
             }
 
             function applyBasePriceToForm(basePrice) {
@@ -1953,11 +2042,13 @@
                 if (!basePrice) {
                     el.basePriceTag.style.display = 'none';
                     el.basePriceHelper.style.display = 'none';
+                    updateCRSPInfo();
                     return;
                 }
                 el.basePriceTag.style.display = 'inline';
                 el.basePriceHelper.style.display = 'block';
                 el.basePriceHelper.textContent = `Auto-filled from Auto-D base price (CRSP): KES ${fmtCurrency(basePrice)}`;
+                updateCRSPInfo();
                 if (!purchasePriceEditedByUser) {
                     el.purchasePrice.value = Math.round(basePrice);
                     if (purchaseType === 'finance') {
@@ -2063,7 +2154,6 @@
                 }
             }
 
-            // CHANGED: load engine capacities instead of variants
             async function loadEngineCapacities(generationId, signal) {
                 try {
                     setStatus('info', 'Loading engine capacities...');
@@ -2147,6 +2237,8 @@
                 el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
+                currentVariantData = null;
+                resetCRSPInfo();
                 if (!categoryId || !isAuthenticated) return;
                 const signal = startCascade('makes');
                 const makes = await loadMakes(categoryId, signal);
@@ -2176,6 +2268,8 @@
                 el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
+                currentVariantData = null;
+                resetCRSPInfo();
                 if (!makeId || !isAuthenticated) return;
                 const signal = startCascade('models');
                 const models = await loadModels(makeId, signal);
@@ -2203,6 +2297,8 @@
                 el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
+                currentVariantData = null;
+                resetCRSPInfo();
                 if (!modelId || !isAuthenticated) return;
                 const signal = startCascade('generations');
                 const generations = await loadGenerations(modelId, signal);
@@ -2222,12 +2318,13 @@
                 setStatus('success', `✅ Loaded ${generations.length} generations`);
             }
 
-            // CHANGED: populate engine capacities instead of variants
             async function populateEngineCapacities(generationId) {
                 const select = el.engineCapacitySelect;
                 select.innerHTML = '<option value="">Select Engine Capacity...</option>';
                 select.disabled = true;
                 el.calculateBtn.disabled = true;
+                currentVariantData = null;
+                resetCRSPInfo();
                 if (!generationId || !isAuthenticated) return;
                 const signal = startCascade('engineCapacities');
                 const engineGroups = await loadEngineCapacities(generationId, signal);
@@ -2276,7 +2373,7 @@
                 el.purchaseTypePill.className = `pill ${purchaseType === 'cash' ? '' : 'highlight'}`;
 
                 if (currentBasePrice) {
-                    el.basePricePill.textContent = `Base price: KES ${fmtCurrency(currentBasePrice)}`;
+                    el.basePricePill.textContent = `CRSP Base: KES ${fmtCurrency(currentBasePrice)}`;
                     el.basePricePill.style.display = 'inline-block';
                 } else {
                     el.basePricePill.style.display = 'none';
@@ -2410,8 +2507,9 @@
                 currentVariantData = variant;
 
                 if (!currentBasePrice) {
-                    showProgress(30, 'Looking up base price...');
-                    const basePrice = await fetchBasePrice(variant.make_name, variant.model_name);
+                    showProgress(30, 'Looking up CRSP base price...');
+                    // ALIGNED: lookup keyed on variant_id (engine_capacity_id FK), not make/model text
+                    const basePrice = await fetchBasePrice(variant.variant_id);
                     applyBasePriceToForm(basePrice);
                 }
 
@@ -2680,6 +2778,7 @@
                 csv += `Cost Per KM,${csvCell(scenarioData.cost_per_km || 0)}\n`;
                 csv += `Resale Value,${csvCell(scenarioData.resale_value || 0)}\n`;
                 csv += `Base Price (CRSP),${csvCell(currentBasePrice || '')}\n`;
+                csv += `CRSP Matched Line,${csvCell(currentCrspData ? `${currentCrspData.make || ''} ${currentCrspData.model || ''}`.trim() : '')}\n`;
                 csv += `Fuel Type,${csvCell(fuelType)}\n`;
                 csv += `Vehicle Condition,${csvCell(vehicleCondition)}\n`;
                 csv += `Purchase Type,${csvCell(purchaseType)}\n`;
@@ -2853,7 +2952,8 @@
                     if (variant) {
                         currentVariantData = variant;
                         purchasePriceEditedByUser = false;
-                        const basePrice = await fetchBasePrice(variant.make_name, variant.model_name);
+                        // ALIGNED: lookup keyed on variant_id (engine_capacity_id FK), not make/model text
+                        const basePrice = await fetchBasePrice(variant.variant_id);
                         applyBasePriceToForm(basePrice);
                         displayVehicleInfo(variant);
                     }
@@ -2931,8 +3031,8 @@
 
                     el.loadingOverlay.classList.remove('active');
 
-                    console.log('✅ Auto-D Kenya TCO Calculator v8.2');
-                    console.log('💰 Base price table: ' + CONFIG.BASE_PRICE_TABLE);
+                    console.log('✅ Auto-D Kenya TCO Calculator v9.0');
+                    console.log('💰 CRSP table: ' + CONFIG.CRSP_TABLE + ' (joined via engine_capacity_id = variant_id)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/ownership/calculate`);
                 } catch (error) {
