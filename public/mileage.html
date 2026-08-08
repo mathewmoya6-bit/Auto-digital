@@ -558,6 +558,10 @@
             font-weight: 600;
             border: 1px solid rgba(34, 197, 94, 0.2);
         }
+        .base-price-pill.missing {
+            border-color: var(--red);
+            color: var(--red);
+        }
         .vehicle-specs {
             margin-top: 6px;
             font-family: 'JetBrains Mono', monospace;
@@ -1291,7 +1295,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost · CRSP Base Price<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.5
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.6
             </div>
         </footer>
     </div>
@@ -1299,7 +1303,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.5 - CRSP base price joined via engine_capacity_id FK
+        // Version 8.6 - CRSP base price properly sourced from vehicle_crsp_prices
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1599,10 +1603,14 @@
             }
 
             // ─── CRSP BASE PRICE LOOKUP ──────────────────────────────────
-            // Uses vehicle_crsp_prices table with engine_capacity_id FK
+            // CRITICAL: Sources from vehicle_crsp_prices table using engine_capacity_id FK
             async function fetchBasePrice(variantId) {
-                if (!supabaseClient || !variantId) return null;
+                if (!supabaseClient || !variantId) {
+                    console.log('ℹ️ No variantId provided for CRSP lookup');
+                    return null;
+                }
                 try {
+                    console.log(`🔍 Looking up CRSP for variant_id: ${variantId}`);
                     const { data, error } = await supabaseClient
                         .from(CONFIG.CRSP_TABLE)
                         .select('id, crsp_kes, make, model, engine_capacity, fuel, transmission, body_type, model_number, drive_configuration')
@@ -1613,11 +1621,11 @@
                         return null;
                     }
                     if (!data || data.length === 0) {
-                        console.log('ℹ️ No CRSP record found for variant_id:', variantId);
+                        console.log(`ℹ️ No CRSP record found for variant_id: ${variantId}`);
                         return null;
                     }
                     currentCrspData = data[0];
-                    console.log('✅ CRSP record found:', currentCrspData);
+                    console.log(`✅ CRSP record found: KES ${currentCrspData.crsp_kes} for ${currentCrspData.make} ${currentCrspData.model}`);
                     return data[0].crsp_kes || null;
                 } catch (error) {
                     console.warn('⚠️ Base price lookup failed:', error.message);
@@ -1934,14 +1942,15 @@
                 const engineCC = variant.engine_size_cc || null;
                 el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
 
+                // Show CRSP base price if available
                 if (currentBasePrice) {
                     el.basePricePill.textContent = `CRSP Base: KES ${formatNumber(currentBasePrice)}`;
                     el.basePricePill.style.display = 'inline-block';
+                    el.basePricePill.className = 'base-price-pill';
                 } else {
                     el.basePricePill.textContent = '⚠️ No CRSP record found';
                     el.basePricePill.style.display = 'inline-block';
-                    el.basePricePill.style.borderColor = 'var(--red)';
-                    el.basePricePill.style.color = 'var(--red)';
+                    el.basePricePill.className = 'base-price-pill missing';
                 }
 
                 const specItems = [
@@ -2025,17 +2034,15 @@
                     include_depreciation: true
                 };
 
-                // CRITICAL FIX: Use the actual CRSP base price if available
+                // CRITICAL: Use the actual CRSP base price from vehicle_crsp_prices table
                 if (formData.purchase_price) {
                     payload.purchase_price = parseFloat(formData.purchase_price);
+                    console.log(`💰 Using CRSP base price: KES ${payload.purchase_price}`);
+                } else {
+                    console.warn('⚠️ No CRSP base price available — API will use its own fallback');
                 }
 
                 console.log("📦 Running Cost Payload:", JSON.stringify(payload, null, 2));
-                if (payload.purchase_price) {
-                    console.log(`💰 purchase_price (CRSP base price): KES ${payload.purchase_price}`);
-                } else {
-                    console.warn('⚠️ No purchase_price provided — using fallback');
-                }
 
                 const token = await getAccessToken();
                 const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
@@ -2102,7 +2109,7 @@
                     down_payment_percent: parseInt(el.downPct.value) || 30,
                     interest_rate: parseFloat(el.rate.value) || 16,
                     loan_term: parseInt(el.term.value) || 4,
-                    purchase_price: currentBasePrice || null
+                    purchase_price: currentBasePrice || null  // ← CRSP base price
                 };
 
                 // Log what we're sending
@@ -2174,8 +2181,8 @@
 
                 const fiveYearData = result.fiveYearData || result.yearly_breakdown || [];
                 const total5Year = result.five_year_total || result.total_5yr_cost || 0;
-                
-                // CRITICAL FIX: Use the actual CRSP base price, NOT the fallback
+
+                // CRITICAL FIX: Use the actual CRSP base price from vehicle_crsp_prices
                 let originalCost = currentBasePrice;
                 
                 // If no CRSP price, check if result has it
@@ -2183,10 +2190,17 @@
                     originalCost = result.purchase_price;
                 }
                 
-                // Only use fallback if absolutely nothing else is available
+                // If still no price, check if result.original_cost has it
+                if (!originalCost && result.original_cost) {
+                    originalCost = result.original_cost;
+                }
+                
+                // ONLY use fallback if absolutely nothing else is available
                 if (!originalCost) {
                     console.warn('⚠️ No CRSP or purchase price found — using fallback');
-                    originalCost = 2500000;
+                    originalCost = 2500000; // This is the fallback when no CRSP record exists
+                } else {
+                    console.log(`✅ Original price (CRSP): KES ${originalCost}`);
                 }
                 
                 const remainingValue = result.resale_value || result.current_value || originalCost * 0.4;
@@ -2309,9 +2323,9 @@
                     el.calculateBtn.disabled = false;
                     hideProgress();
                     if (currentBasePrice) {
-                        showToast(`Vehicle loaded — CRSP base price KES ${formatNumber(currentBasePrice)}`, 'info');
+                        showToast(`✅ CRSP base price: KES ${formatNumber(currentBasePrice)}`, 'success');
                     } else {
-                        showToast('⚠️ No CRSP record found for this vehicle — using fallback price', 'warning');
+                        showToast('⚠️ No CRSP record found for this vehicle', 'warning');
                     }
                 } catch (error) {
                     console.error('Error loading variant:', error);
