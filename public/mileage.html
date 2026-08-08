@@ -11,743 +11,156 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
-        /* ─── CSS Variables ────────────────────────────────────────── */
         :root {
-            --amber: #eab308;
-            --amber-dark: #ca8a04;
-            --green: #22c55e;
-            --blue: #3b82f6;
-            --cyan: #06b6d4;
-            --red: #ef4444;
-            --bg: #0a0c15;
-            --bg-panel: #111827;
-            --text-primary: #f8fafc;
-            --text-secondary: #cbd5e1;
-            --text-muted: #64748b;
+            --amber: #eab308; --amber-dark: #ca8a04; --green: #22c55e; --blue: #3b82f6;
+            --cyan: #06b6d4; --red: #ef4444; --bg: #0a0c15; --bg-panel: #111827;
+            --text-primary: #f8fafc; --text-secondary: #cbd5e1; --text-muted: #64748b;
             --border: rgba(255, 255, 255, 0.06);
-            --font-heading: 'Space Grotesk', sans-serif;
-            --font-body: 'Inter', sans-serif;
-            --font-mono: 'JetBrains Mono', monospace;
+            --font-heading: 'Space Grotesk', sans-serif; --font-body: 'Inter', sans-serif; --font-mono: 'JetBrains Mono', monospace;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: 'Inter', sans-serif;
-            background: #0a0c15;
-            color: #f8fafc;
-            min-height: 100vh;
-        }
+        body { font-family: 'Inter', sans-serif; background: #0a0c15; color: #f8fafc; min-height: 100vh; }
         .wrap { max-width: 1440px; margin: 0 auto; padding: 28px 32px 60px; }
-        .skip-link {
-            position: absolute;
-            top: -40px;
-            left: 0;
-            background: #eab308;
-            color: #0a0c10;
-            padding: 8px 16px;
-            z-index: 100;
-            transition: top 0.3s;
-            font-weight: 600;
-            font-size: 14px;
-        }
+        .skip-link { position: absolute; top: -40px; left: 0; background: #eab308; color: #0a0c10; padding: 8px 16px; z-index: 100; transition: top 0.3s; font-weight: 600; font-size: 14px; }
         .skip-link:focus { top: 0; }
-
-        .report-header {
-            background: linear-gradient(135deg, #111827, #0a0c15);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 28px 32px;
-            margin-bottom: 28px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            flex-wrap: wrap;
-            gap: 20px;
-            position: relative;
-            overflow: hidden;
-        }
-        .report-header::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            right: -10%;
-            width: 40%;
-            height: 200%;
-            background: radial-gradient(ellipse, rgba(234, 179, 8, 0.03), transparent 70%);
-            pointer-events: none;
-        }
-        .header-left .badge {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: #eab308;
-            background: rgba(234, 179, 8, 0.12);
-            padding: 4px 14px;
-            border-radius: 20px;
-            display: inline-block;
-            margin-bottom: 8px;
-            border: 1px solid rgba(234, 179, 8, 0.15);
-        }
-        .header-left h1 {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 30px;
-            font-weight: 700;
-            color: #f8fafc;
-            letter-spacing: -0.02em;
-            line-height: 1.2;
-        }
+        .report-header { background: linear-gradient(135deg, #111827, #0a0c15); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 28px 32px; margin-bottom: 28px; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px; position: relative; overflow: hidden; }
+        .report-header::before { content: ''; position: absolute; top: -50%; right: -10%; width: 40%; height: 200%; background: radial-gradient(ellipse, rgba(234, 179, 8, 0.03), transparent 70%); pointer-events: none; }
+        .header-left .badge { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #eab308; background: rgba(234, 179, 8, 0.12); padding: 4px 14px; border-radius: 20px; display: inline-block; margin-bottom: 8px; border: 1px solid rgba(234, 179, 8, 0.15); }
+        .header-left h1 { font-family: 'Space Grotesk', sans-serif; font-size: 30px; font-weight: 700; color: #f8fafc; letter-spacing: -0.02em; line-height: 1.2; }
         .header-left h1 span { color: #eab308; }
-        .header-left .subtitle {
-            font-size: 14px;
-            color: #cbd5e1;
-            margin-top: 4px;
-        }
+        .header-left .subtitle { font-size: 14px; color: #cbd5e1; margin-top: 4px; }
         .header-left .subtitle strong { color: #eab308; }
-        .header-right {
-            text-align: right;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            color: #64748b;
-            line-height: 1.9;
-            flex-shrink: 0;
-        }
+        .header-right { text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #64748b; line-height: 1.9; flex-shrink: 0; }
         .header-right .version { color: #cbd5e1; font-weight: 600; font-size: 13px; }
         .header-right .version span { color: #eab308; }
-        .header-right .auth-status {
-            font-size: 10px;
-            padding: 2px 10px;
-            border-radius: 12px;
-            display: inline-block;
-        }
-        .header-right .auth-status.authenticated {
-            background: rgba(34, 197, 94, 0.15);
-            color: #22c55e;
-        }
-        .header-right .auth-status.unauthenticated {
-            background: rgba(239, 68, 68, 0.15);
-            color: #ef4444;
-        }
-
-        .dashboard-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 18px;
-            background: rgba(234, 179, 8, 0.12);
-            border: 1px solid rgba(234, 179, 8, 0.2);
-            border-radius: 8px;
-            color: #eab308;
-            font-family: 'Inter', sans-serif;
-            font-size: 13px;
-            font-weight: 600;
-            text-decoration: none;
-            transition: all 0.3s ease;
-            margin-top: 8px;
-        }
-        .dashboard-link:hover {
-            background: rgba(234, 179, 8, 0.2);
-            border-color: #eab308;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 20px rgba(234, 179, 8, 0.15);
-        }
-        .dashboard-link .arrow {
-            font-size: 16px;
-            transition: transform 0.3s ease;
-        }
-        .dashboard-link:hover .arrow {
-            transform: translateX(-4px);
-        }
-
-        .main-grid {
-            display: grid;
-            grid-template-columns: 420px 1fr;
-            gap: 28px;
-        }
-        @media (max-width: 1024px) {
-            .main-grid { grid-template-columns: 1fr; }
-            .calculator-panel { position: static !important; max-height: none !important; }
-        }
-
-        .calculator-panel {
-            background: #111827;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-            height: fit-content;
-            position: sticky;
-            top: 20px;
-            max-height: calc(100vh - 40px);
-            overflow-y: auto;
-            position: relative;
-        }
+        .header-right .auth-status { font-size: 10px; padding: 2px 10px; border-radius: 12px; display: inline-block; }
+        .header-right .auth-status.authenticated { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+        .header-right .auth-status.unauthenticated { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+        .dashboard-link { display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.2); border-radius: 8px; color: #eab308; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; text-decoration: none; transition: all 0.3s ease; margin-top: 8px; }
+        .dashboard-link:hover { background: rgba(234, 179, 8, 0.2); border-color: #eab308; transform: translateY(-2px); box-shadow: 0 4px 20px rgba(234, 179, 8, 0.15); }
+        .dashboard-link .arrow { font-size: 16px; transition: transform 0.3s ease; }
+        .dashboard-link:hover .arrow { transform: translateX(-4px); }
+        .main-grid { display: grid; grid-template-columns: 420px 1fr; gap: 28px; }
+        @media (max-width: 1024px) { .main-grid { grid-template-columns: 1fr; } .calculator-panel { position: static !important; max-height: none !important; } }
+        .calculator-panel { background: #111827; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 24px; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5); height: fit-content; position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; }
         .calculator-panel::-webkit-scrollbar { width: 4px; }
         .calculator-panel::-webkit-scrollbar-track { background: transparent; }
         .calculator-panel::-webkit-scrollbar-thumb { background: #eab308; border-radius: 10px; }
-
-        .auth-section {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 12px;
-        }
-        .auth-section .auth-buttons {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
-        }
-        .auth-section .auth-buttons button {
-            flex: 1;
-            padding: 6px 12px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            background: transparent;
-            color: var(--text-secondary);
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
+        .auth-section { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+        .auth-section .auth-buttons { display: flex; gap: 8px; margin-top: 8px; }
+        .auth-section .auth-buttons button { flex: 1; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
         .auth-section .auth-buttons button:hover { border-color: var(--amber); color: var(--amber); }
         .auth-section .auth-buttons button.primary { background: var(--amber); color: #0a0c10; border-color: var(--amber); }
         .auth-section .auth-buttons button.primary:hover { background: var(--amber-dark); }
         .auth-section .user-email { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); padding: 4px 0; }
-
-        .panel-label {
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 600;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: #eab308;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 12px;
-            margin-top: 16px;
-        }
+        .panel-label { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #eab308; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: 16px; }
         .panel-label:first-of-type { margin-top: 0; }
-        .panel-label .num {
-            font-family: 'JetBrains Mono', monospace;
-            color: #64748b;
-            background: #f0ece4;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 700;
-        }
-
+        .panel-label .num { font-family: 'JetBrains Mono', monospace; color: #64748b; background: #f0ece4; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
         .form-group { margin-bottom: 12px; }
-        .form-group label {
-            display: block;
-            font-size: 9px;
-            color: #cbd5e1;
-            margin-bottom: 3px;
-            font-family: 'JetBrains Mono', monospace;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-        }
-        .form-group .error-text {
-            font-size: 10px;
-            color: var(--red);
-            margin-top: 3px;
-            display: none;
-        }
+        .form-group label { display: block; font-size: 9px; color: #cbd5e1; margin-bottom: 3px; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em; text-transform: uppercase; }
+        .form-group .error-text { font-size: 10px; color: var(--red); margin-top: 3px; display: none; }
         .form-group .error-text.show { display: block; }
-        .form-group input.error,
-        .form-group select.error {
-            border: 2px solid var(--red);
-            outline: none;
-        }
-
-        select, input[type="number"], input[type="text"], input[type="password"] {
-            width: 100%;
-            background: #f0ece4;
-            color: #0a0c10;
-            border: none;
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-family: 'Inter', sans-serif;
-            font-size: 12px;
-            font-weight: 500;
-            appearance: none;
-            transition: outline 0.15s;
-        }
+        .form-group input.error, .form-group select.error { border: 2px solid var(--red); outline: none; }
+        select, input[type="number"], input[type="text"], input[type="password"] { width: 100%; background: #f0ece4; color: #0a0c10; border: none; border-radius: 6px; padding: 8px 12px; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500; appearance: none; transition: outline 0.15s; }
         select:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
         select:focus, input:focus { outline: 2px solid #eab308; outline-offset: 1px; }
-
-        .fuel-filter-group {
-            display: flex;
-            gap: 4px;
-            flex-wrap: wrap;
-            margin-top: 4px;
-        }
-        .fuel-filter-btn {
-            padding: 3px 10px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 14px;
-            background: transparent;
-            color: #cbd5e1;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
+        .fuel-filter-group { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+        .fuel-filter-btn { padding: 3px 10px; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 14px; background: transparent; color: #cbd5e1; font-family: 'JetBrains Mono', monospace; font-size: 8px; cursor: pointer; transition: all 0.3s; }
         .fuel-filter-btn:hover { border-color: #eab308; color: #eab308; }
-        .fuel-filter-btn.active {
-            background: #eab308;
-            border-color: #eab308;
-            color: #0a0c10;
-            font-weight: 600;
-        }
-        .fuel-filter-btn .fuel-dot {
-            display: inline-block;
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            margin-right: 3px;
-        }
+        .fuel-filter-btn.active { background: #eab308; border-color: #eab308; color: #0a0c10; font-weight: 600; }
+        .fuel-filter-btn .fuel-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; }
         .fuel-filter-btn .fuel-dot.petrol { background: #eab308; }
         .fuel-filter-btn .fuel-dot.diesel { background: #22c55e; }
         .fuel-filter-btn .fuel-dot.electric { background: #8b5cf6; }
         .fuel-filter-btn .fuel-dot.hybrid { background: linear-gradient(135deg, #eab308, #22c55e); }
-
-        .toggle-group {
-            display: flex;
-            gap: 6px;
-            margin-top: 4px;
-        }
-        .toggle-btn {
-            flex: 1;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            color: #64748b;
-            font-size: 10px;
-            font-weight: 600;
-            padding: 6px 8px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .toggle-btn.active {
-            background: rgba(234, 179, 8, 0.12);
-            border-color: rgba(234, 179, 8, 0.4);
-            color: #eab308;
-        }
+        .toggle-group { display: flex; gap: 6px; margin-top: 4px; }
+        .toggle-btn { flex: 1; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); color: #64748b; font-size: 10px; font-weight: 600; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: all 0.3s; }
+        .toggle-btn.active { background: rgba(234, 179, 8, 0.12); border-color: rgba(234, 179, 8, 0.4); color: #eab308; }
         .financed-fields { display: none; padding-top: 4px; }
         .financed-fields.show { display: block; }
-
-        .calc-btn {
-            width: 100%;
-            padding: 12px;
-            background: #eab308;
-            color: #0a0c10;
-            border: none;
-            border-radius: 6px;
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 13px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s;
-            margin-top: 8px;
-        }
-        .calc-btn:hover:not(:disabled) {
-            background: #ca8a04;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 20px rgba(234, 179, 8, 0.3);
-        }
+        .calc-btn { width: 100%; padding: 12px; background: #eab308; color: #0a0c10; border: none; border-radius: 6px; font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.3s; margin-top: 8px; }
+        .calc-btn:hover:not(:disabled) { background: #ca8a04; transform: translateY(-2px); box-shadow: 0 4px 20px rgba(234, 179, 8, 0.3); }
         .calc-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-        .calc-btn .spinner {
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-            border: 2px solid rgba(0, 0, 0, 0.1);
-            border-top: 2px solid #0a0c10;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin-right: 8px;
-            vertical-align: middle;
-        }
+        .calc-btn .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(0, 0, 0, 0.1); border-top: 2px solid #0a0c10; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle; }
         @keyframes spin { to { transform: rotate(360deg); } }
-
         .quick-routes { margin-top: 4px; }
-        .quick-routes-title {
-            font-size: 8px;
-            color: #cbd5e1;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-family: 'JetBrains Mono', monospace;
-            margin-bottom: 4px;
-            opacity: 0.7;
-        }
-        .route-chips {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            max-height: 60px;
-            overflow-y: auto;
-            padding-right: 4px;
-        }
+        .quick-routes-title { font-size: 8px; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.08em; font-family: 'JetBrains Mono', monospace; margin-bottom: 4px; opacity: 0.7; }
+        .route-chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 60px; overflow-y: auto; padding-right: 4px; }
         .route-chips::-webkit-scrollbar { width: 3px; }
         .route-chips::-webkit-scrollbar-track { background: transparent; }
         .route-chips::-webkit-scrollbar-thumb { background: #eab308; border-radius: 10px; }
-        .chip {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            background: transparent;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            color: #cbd5e1;
-            padding: 3px 8px;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.3s;
-            white-space: nowrap;
-            background: rgba(255, 255, 255, 0.03);
-        }
+        .chip { font-family: 'JetBrains Mono', monospace; font-size: 8px; border: 1px solid rgba(255, 255, 255, 0.06); color: #cbd5e1; padding: 3px 8px; border-radius: 4px; cursor: pointer; transition: all 0.3s; white-space: nowrap; background: rgba(255, 255, 255, 0.03); }
         .chip:hover { border-color: #eab308; color: #eab308; background: rgba(234, 179, 8, 0.08); }
         .chip .km-badge { font-size: 7px; opacity: 0.6; margin-left: 3px; }
-
-        .results-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .result-card {
-            background: #111827;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 16px 20px;
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-        }
-        .result-card .card-title {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 13px;
-            font-weight: 600;
-            color: #eab308;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 12px;
-        }
-        .result-card .card-title .badge {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            background: rgba(234, 179, 8, 0.12);
-            color: #eab308;
-            padding: 2px 10px;
-            border-radius: 12px;
-            font-weight: 500;
-        }
-
-        .vehicle-tag {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-        .vehicle-tag #vehicleLabel {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 600;
-            color: #f8fafc;
-        }
-        .fuel-pill {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            background: #0a0c15;
-            color: #eab308;
-            padding: 3px 12px;
-            border-radius: 20px;
-            letter-spacing: 0.04em;
-            font-weight: 600;
-        }
-        .transmission-pill {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            background: #0a0c15;
-            color: #3b82f6;
-            padding: 3px 12px;
-            border-radius: 20px;
-            letter-spacing: 0.04em;
-            font-weight: 600;
-        }
-        .engine-cc-display {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            background: #0a0c15;
-            color: #06b6d4;
-            padding: 3px 12px;
-            border-radius: 20px;
-            letter-spacing: 0.04em;
-            font-weight: 600;
-            border: 1px solid rgba(6, 182, 212, 0.2);
-        }
-        .base-price-pill {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            background: #0a0c15;
-            color: #22c55e;
-            padding: 3px 12px;
-            border-radius: 20px;
-            letter-spacing: 0.04em;
-            font-weight: 600;
-            border: 1px solid rgba(34, 197, 94, 0.2);
-        }
-        .vehicle-specs {
-            margin-top: 6px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            color: #64748b;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-        .vehicle-specs .spec-item {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
+        .results-panel { display: flex; flex-direction: column; gap: 16px; }
+        .result-card { background: #111827; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 16px 20px; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5); }
+        .result-card .card-title { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 600; color: #eab308; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .result-card .card-title .badge { font-family: 'JetBrains Mono', monospace; font-size: 8px; background: rgba(234, 179, 8, 0.12); color: #eab308; padding: 2px 10px; border-radius: 12px; font-weight: 500; }
+        .vehicle-tag { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .vehicle-tag #vehicleLabel { font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 600; color: #f8fafc; }
+        .fuel-pill { font-family: 'JetBrains Mono', monospace; font-size: 9px; background: #0a0c15; color: #eab308; padding: 3px 12px; border-radius: 20px; letter-spacing: 0.04em; font-weight: 600; }
+        .transmission-pill { font-family: 'JetBrains Mono', monospace; font-size: 9px; background: #0a0c15; color: #3b82f6; padding: 3px 12px; border-radius: 20px; letter-spacing: 0.04em; font-weight: 600; }
+        .engine-cc-display { font-family: 'JetBrains Mono', monospace; font-size: 9px; background: #0a0c15; color: #06b6d4; padding: 3px 12px; border-radius: 20px; letter-spacing: 0.04em; font-weight: 600; border: 1px solid rgba(6, 182, 212, 0.2); }
+        .base-price-pill { font-family: 'JetBrains Mono', monospace; font-size: 9px; background: #0a0c15; color: #22c55e; padding: 3px 12px; border-radius: 20px; letter-spacing: 0.04em; font-weight: 600; border: 1px solid rgba(34, 197, 94, 0.2); }
+        .vehicle-specs { margin-top: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #64748b; display: flex; flex-wrap: wrap; gap: 12px; }
+        .vehicle-specs .spec-item { display: flex; align-items: center; gap: 4px; }
         .vehicle-specs .spec-item .spec-value { color: #cbd5e1; }
-
-        .trip-total {
-            background: linear-gradient(135deg, #0a0c15, #1a2332);
-            border-radius: 8px;
-            padding: 14px 20px;
-            text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        .trip-total .label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: #eab308;
-        }
-        .trip-total .amount {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 32px;
-            font-weight: 700;
-            color: #f8fafc;
-            margin: 4px 0 2px;
-        }
+        .trip-total { background: linear-gradient(135deg, #0a0c15, #1a2332); border-radius: 8px; padding: 14px 20px; text-align: center; border: 1px solid rgba(255, 255, 255, 0.06); }
+        .trip-total .label { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: #eab308; }
+        .trip-total .amount { font-family: 'Space Grotesk', sans-serif; font-size: 32px; font-weight: 700; color: #f8fafc; margin: 4px 0 2px; }
         .trip-total .amount .currency { color: #eab308; font-size: 18px; }
-        .trip-total .sub {
-            font-size: 11px;
-            color: #cbd5e1;
-        }
+        .trip-total .sub { font-size: 11px; color: #cbd5e1; }
         .trip-total .sub strong { color: #eab308; }
-
-        .cost-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-            gap: 6px;
-            margin-top: 8px;
-        }
-        .cost-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 10px;
-            background: #0a0c15;
-            border-radius: 4px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-        }
+        .cost-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; margin-top: 8px; }
+        .cost-item { display: flex; justify-content: space-between; padding: 5px 10px; background: #0a0c15; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.06); font-family: 'JetBrains Mono', monospace; font-size: 10px; }
         .cost-item .label { color: #64748b; }
         .cost-item .value { font-weight: 600; color: #f8fafc; }
-        .cost-item.total-item {
-            background: rgba(234, 179, 8, 0.08);
-            border-color: #eab308;
-        }
+        .cost-item.total-item { background: rgba(234, 179, 8, 0.08); border-color: #eab308; }
         .cost-item.total-item .label { color: #eab308; font-weight: 700; }
         .cost-item.total-item .value { color: #eab308; font-weight: 700; }
-
-        .perkm-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-            gap: 4px;
-        }
-        .perkm-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 4px 8px;
-            background: #0a0c15;
-            border-radius: 3px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-        }
+        .perkm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px; }
+        .perkm-item { display: flex; justify-content: space-between; padding: 4px 8px; background: #0a0c15; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.06); font-family: 'JetBrains Mono', monospace; font-size: 9px; }
         .perkm-item .label { color: #64748b; }
         .perkm-item .value { font-weight: 600; }
-        .perkm-item.highlight {
-            background: rgba(234, 179, 8, 0.08);
-            border-color: #eab308;
-        }
+        .perkm-item.highlight { background: rgba(234, 179, 8, 0.08); border-color: #eab308; }
         .perkm-item.highlight .label { color: #eab308; font-weight: 700; }
         .perkm-item.highlight .value { color: #eab308; font-weight: 700; }
-
-        .commercial-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr 1fr;
-            gap: 8px;
-        }
-        .commercial-card {
-            padding: 10px 12px;
-            background: #0a0c15;
-            border-radius: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        .commercial-card .commercial-label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-        .commercial-card .commercial-value {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 18px;
-            font-weight: 700;
-            color: #f8fafc;
-            margin-top: 2px;
-        }
+        .commercial-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
+        .commercial-card { padding: 10px 12px; background: #0a0c15; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.06); }
+        .commercial-card .commercial-label { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+        .commercial-card .commercial-value { font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 700; color: #f8fafc; margin-top: 2px; }
         .commercial-card .commercial-value .currency { color: #eab308; font-size: 13px; }
-        .commercial-card .commercial-sub {
-            font-size: 9px;
-            color: #cbd5e1;
-        }
-        .commercial-card.highlight {
-            border-color: #eab308;
-            background: rgba(234, 179, 8, 0.05);
-        }
-
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-        }
+        .commercial-card .commercial-sub { font-size: 9px; color: #cbd5e1; }
+        .commercial-card.highlight { border-color: #eab308; background: rgba(234, 179, 8, 0.05); }
+        .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         @media (max-width: 480px) { .metrics-grid { grid-template-columns: 1fr; } }
-
-        .rci-display {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 10px 14px;
-            background: #0a0c15;
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            flex-wrap: wrap;
-        }
-        .rci-display .rci-value {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 28px;
-            font-weight: 700;
-        }
+        .rci-display { display: flex; align-items: center; gap: 16px; padding: 10px 14px; background: #0a0c15; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.06); flex-wrap: wrap; }
+        .rci-display .rci-value { font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; }
         .rci-display .rci-value.excellent { color: #22c55e; }
         .rci-display .rci-value.good { color: #3b82f6; }
         .rci-display .rci-value.average { color: #eab308; }
         .rci-display .rci-value.expensive { color: #ef4444; }
         .rci-display .rci-value.very-expensive { color: #dc2626; }
-        .rci-display .rci-label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
-            color: #cbd5e1;
-        }
-        .rci-display .rci-stars {
-            font-size: 18px;
-            letter-spacing: 2px;
-        }
-
-        .env-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            gap: 6px;
-        }
-        .env-item {
-            padding: 6px 10px;
-            background: #0a0c15;
-            border-radius: 4px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            text-align: center;
-        }
-        .env-item .env-value {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 700;
-            color: #f8fafc;
-        }
-        .env-item .env-label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            color: #64748b;
-            text-transform: uppercase;
-        }
-
-        .rec-list {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .rec-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 10px;
-            background: #0a0c15;
-            border-radius: 4px;
-            border-left: 3px solid #eab308;
-            font-size: 11px;
-            color: #cbd5e1;
-        }
+        .rci-display .rci-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #cbd5e1; }
+        .rci-display .rci-stars { font-size: 18px; letter-spacing: 2px; }
+        .env-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+        .env-item { padding: 6px 10px; background: #0a0c15; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.06); text-align: center; }
+        .env-item .env-value { font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 700; color: #f8fafc; }
+        .env-item .env-label { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: #64748b; text-transform: uppercase; }
+        .rec-list { display: flex; flex-direction: column; gap: 4px; }
+        .rec-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #0a0c15; border-radius: 4px; border-left: 3px solid #eab308; font-size: 11px; color: #cbd5e1; }
         .rec-item .icon { font-size: 14px; }
         .rec-item .rec-text { color: #f8fafc; }
-        .rec-item .rec-tag {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 7px;
-            text-transform: uppercase;
-            padding: 2px 8px;
-            border-radius: 10px;
-            background: rgba(234, 179, 8, 0.12);
-            color: #eab308;
-            margin-left: auto;
-            flex-shrink: 0;
-        }
+        .rec-item .rec-tag { font-family: 'JetBrains Mono', monospace; font-size: 7px; text-transform: uppercase; padding: 2px 8px; border-radius: 10px; background: rgba(234, 179, 8, 0.12); color: #eab308; margin-left: auto; flex-shrink: 0; }
         .rec-item.warning { border-left-color: #ef4444; }
         .rec-item.warning .rec-tag { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
         .rec-item.success { border-left-color: #22c55e; }
         .rec-item.success .rec-tag { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
         .rec-item.info { border-left-color: #3b82f6; }
         .rec-item.info .rec-tag { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
-
-        .action-bar {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin-top: 4px;
-        }
-        .action-btn {
-            padding: 5px 12px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 6px;
-            background: transparent;
-            color: #64748b;
-            cursor: pointer;
-            font-family: 'Inter', sans-serif;
-            font-size: 10px;
-            font-weight: 500;
-            transition: all 0.3s;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .action-btn:hover:not(:disabled) {
-            border-color: #eab308;
-            color: #eab308;
-            background: rgba(234, 179, 8, 0.05);
-        }
+        .action-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+        .action-btn { padding: 5px 12px; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; background: transparent; color: #64748b; cursor: pointer; font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 500; transition: all 0.3s; display: inline-flex; align-items: center; gap: 6px; }
+        .action-btn:hover:not(:disabled) { border-color: #eab308; color: #eab308; background: rgba(234, 179, 8, 0.05); }
         .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .action-btn.print { border-color: #3b82f6; color: #3b82f6; }
         .action-btn.print:hover:not(:disabled) { background: rgba(59, 130, 246, 0.08); }
@@ -755,229 +168,51 @@
         .action-btn.share:hover:not(:disabled) { background: rgba(34, 197, 94, 0.08); }
         .action-btn.export { border-color: var(--amber); color: var(--amber); }
         .action-btn.export:hover:not(:disabled) { background: rgba(234, 179, 8, 0.08); }
-
-        .report-footer {
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
-            padding-top: 20px;
-            margin-top: 24px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 16px;
-        }
-        .report-footer .brand {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 13px;
-            font-weight: 600;
-            color: #cbd5e1;
-        }
+        .report-footer { border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 20px; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+        .report-footer .brand { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 600; color: #cbd5e1; }
         .report-footer .brand span { color: #eab308; }
-        .report-footer .meta {
-            font-size: 10px;
-            color: #64748b;
-            text-align: right;
-            line-height: 1.8;
-        }
+        .report-footer .meta { font-size: 10px; color: #64748b; text-align: right; line-height: 1.8; }
         .report-footer .meta strong { color: #cbd5e1; }
-
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            border-radius: 8px;
-            z-index: 9999;
-            font-weight: 500;
-            animation: slideIn .3s ease;
-            max-width: 380px;
-            font-size: 12px;
-        }
+        .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; border-radius: 8px; z-index: 9999; font-weight: 500; animation: slideIn .3s ease; max-width: 380px; font-size: 12px; }
         .toast-success { background: #22c55e; color: #000; }
         .toast-error { background: #ef4444; color: #fff; }
         .toast-info { background: #3b82f6; color: #fff; }
         .toast-warning { background: #eab308; color: #000; }
-
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateX(80px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-
-        .disclaimer {
-            font-size: 10px;
-            color: #64748b;
-            margin-top: 12px;
-            padding: 8px 12px;
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
-            line-height: 1.5;
-        }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(80px); } to { opacity: 1; transform: translateX(0); } }
+        .disclaimer { font-size: 10px; color: #64748b; margin-top: 12px; padding: 8px 12px; border-top: 1px solid rgba(255, 255, 255, 0.06); line-height: 1.5; }
         .disclaimer strong { color: #eab308; }
-
         .table-wrap { overflow-x: auto; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 11px;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        th, td {
-            text-align: right;
-            padding: 6px 8px;
-            white-space: nowrap;
-        }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+        th, td { text-align: right; padding: 6px 8px; white-space: nowrap; }
         th:first-child, td:first-child { text-align: left; }
-        th {
-            color: #64748b;
-            font-weight: 600;
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
+        th { color: #64748b; font-weight: 600; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
         td { border-bottom: 1px solid rgba(51,65,85,0.4); }
         tr:last-child td { border-bottom: none; font-weight: 700; color: #eab308; }
-
-        .stats-grid-5 {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 8px;
-        }
+        .stats-grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
         @media (max-width: 768px) { .stats-grid-5 { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 480px) { .stats-grid-5 { grid-template-columns: 1fr 1fr; } }
-
-        .stat-card-sm {
-            background: #0a0c15;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 8px;
-            padding: 10px 12px;
-            text-align: center;
-        }
-        .stat-card-sm .label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 7px;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-        .stat-card-sm .num {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 700;
-            margin-top: 2px;
-        }
+        .stat-card-sm { background: #0a0c15; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 10px 12px; text-align: center; }
+        .stat-card-sm .label { font-family: 'JetBrains Mono', monospace; font-size: 7px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+        .stat-card-sm .num { font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 700; margin-top: 2px; }
         .stat-card-sm .num.amber { color: #eab308; }
         .stat-card-sm .num.green { color: #22c55e; }
         .stat-card-sm .num.blue { color: #3b82f6; }
-
-        .auto-d-badge {
-            display: inline-block;
-            background: rgba(234, 179, 8, 0.15);
-            color: #eab308;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            padding: 2px 8px;
-            border-radius: 10px;
-            border: 1px solid rgba(234, 179, 8, 0.2);
-            margin-left: 8px;
-        }
-
-        .loading-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(10, 12, 21, 0.85);
-            z-index: 99999;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-            gap: 20px;
-        }
+        .auto-d-badge { display: inline-block; background: rgba(234, 179, 8, 0.15); color: #eab308; font-family: 'JetBrains Mono', monospace; font-size: 8px; padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(234, 179, 8, 0.2); margin-left: 8px; }
+        .loading-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10, 12, 21, 0.85); z-index: 99999; justify-content: center; align-items: center; flex-direction: column; gap: 20px; }
         .loading-overlay.active { display: flex; }
-        .loading-overlay .spinner-large {
-            width: 50px;
-            height: 50px;
-            border: 4px solid rgba(234, 179, 8, 0.2);
-            border-top: 4px solid #eab308;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        .loading-overlay .loading-text {
-            color: #eab308;
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-        }
-        .loading-overlay .loading-sub {
-            color: #64748b;
-            font-size: 12px;
-            font-family: 'Inter', sans-serif;
-        }
-
-        .status-message {
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .status-message.error {
-            background: rgba(239, 68, 68, 0.12);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            color: #ef4444;
-        }
-        .status-message.warning {
-            background: rgba(234, 179, 8, 0.12);
-            border: 1px solid rgba(234, 179, 8, 0.2);
-            color: #eab308;
-        }
-        .status-message.success {
-            background: rgba(34, 197, 94, 0.12);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            color: #22c55e;
-        }
-        .status-message.info {
-            background: rgba(59, 130, 246, 0.12);
-            border: 1px solid rgba(59, 130, 246, 0.2);
-            color: #3b82f6;
-        }
-
-        .progress-container {
-            display: none;
-            margin: 12px 0;
-            padding: 8px 12px;
-            background: rgba(255,255,255,0.03);
-            border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.06);
-        }
+        .loading-overlay .spinner-large { width: 50px; height: 50px; border: 4px solid rgba(234, 179, 8, 0.2); border-top: 4px solid #eab308; border-radius: 50%; animation: spin 1s linear infinite; }
+        .loading-overlay .loading-text { color: #eab308; font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 600; letter-spacing: 0.05em; }
+        .loading-overlay .loading-sub { color: #64748b; font-size: 12px; font-family: 'Inter', sans-serif; }
+        .status-message { padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; display: flex; align-items: center; gap: 10px; }
+        .status-message.error { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .status-message.warning { background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.2); color: #eab308; }
+        .status-message.success { background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.2); color: #22c55e; }
+        .status-message.info { background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .progress-container { display: none; margin: 12px 0; padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); }
         .progress-container.show { display: block; }
-        .progress-bar-track {
-            width: 100%;
-            height: 4px;
-            background: rgba(255,255,255,0.06);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        .progress-bar-track .progress-fill {
-            height: 100%;
-            background: var(--amber);
-            border-radius: 4px;
-            transition: width 0.5s ease;
-            width: 0%;
-        }
-        .progress-text {
-            font-size: 10px;
-            color: var(--text-muted);
-            margin-top: 4px;
-            display: flex;
-            justify-content: space-between;
-        }
-
+        .progress-bar-track { width: 100%; height: 4px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+        .progress-bar-track .progress-fill { height: 100%; background: var(--amber); border-radius: 4px; transition: width 0.5s ease; width: 0%; }
+        .progress-text { font-size: 10px; color: var(--text-muted); margin-top: 4px; display: flex; justify-content: space-between; }
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
             .report-header { padding: 20px 18px; flex-direction: column; }
@@ -1003,7 +238,6 @@
             .vehicle-specs { flex-direction: column; gap: 4px; }
             .commercial-grid { grid-template-columns: 1fr; }
         }
-
         @media print {
             .calculator-panel, .action-bar, .report-footer, .dashboard-link { display: none !important; }
             .result-card { background: #fff !important; border-color: #ddd !important; }
@@ -1136,7 +370,6 @@
                     <div class="error-text" id="generationError">Please select a generation</div>
                 </div>
 
-                <!-- CHANGED: "Variant" → "Engine Capacity" -->
                 <div class="form-group">
                     <label for="engineCapacitySelect">Engine Capacity (cc)</label>
                     <select id="engineCapacitySelect" disabled><option value="">Select a generation first</option></select>
@@ -1353,7 +586,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.4
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.5
             </div>
         </footer>
     </div>
@@ -1361,26 +594,23 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.4 - Aligned: fetches vehicle base price (CRSP) from
-        //                 vehicle_base_prices table by make/model and uses
-        //                 it as the purchase-price basis for calculations.
-        //                 CHANGED: "Variant" → "Engine Capacity"
+        // Version 8.5 - CRSP base price now joined via the real foreign key
+        //                (vehicle_crsp_prices.engine_capacity_id = variant_id)
+        //                instead of fuzzy make/model text matching.
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
             'use strict';
 
-            // ─── CONFIG ──────────────────────────────────────────────
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
-                BASE_PRICE_TABLE: 'vehicle_base_prices',
+                CRSP_TABLE: 'vehicle_crsp_prices',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html'
             };
 
-            // ─── STATE ──────────────────────────────────────────────
             let supabaseClient = null;
             let isAuthenticated = false;
             let currentUser = null;
@@ -1391,13 +621,12 @@
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
 
-            // ─── DOM REFS ────────────────────────────────────────────
             const el = {
                 categorySelect: document.getElementById('categorySelect'),
                 makeSelect: document.getElementById('makeSelect'),
                 modelSelect: document.getElementById('modelSelect'),
                 generationSelect: document.getElementById('generationSelect'),
-                engineCapacitySelect: document.getElementById('engineCapacitySelect'), // CHANGED
+                engineCapacitySelect: document.getElementById('engineCapacitySelect'),
                 fuelFilterGroup: document.getElementById('fuelFilterGroup'),
                 distanceInput: document.getElementById('distanceInput'),
                 annualKmInput: document.getElementById('annualKmInput'),
@@ -1462,7 +691,6 @@
                 shareBtn: document.getElementById('shareBtn')
             };
 
-            // ─── HELPERS ──────────────────────────────────────────────
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
             function formatCurrency(val) {
                 if (val === undefined || val === null || isNaN(val)) return '0.00';
@@ -1519,7 +747,6 @@
                 el.progressContainer.classList.remove('show');
             }
 
-            // ─── SUPABASE ──────────────────────────────────────────────
             function initSupabase() {
                 try {
                     if (typeof supabase === 'undefined') {
@@ -1538,7 +765,6 @@
                 }
             }
 
-            // ─── AUTH ──────────────────────────────────────────────────
             async function getAccessToken() {
                 try {
                     if (!supabaseClient) return '';
@@ -1563,9 +789,7 @@
                     isAuthenticated = true;
                     updateAuthUI();
                     showToast('✅ Signed in successfully!', 'success');
-                    setTimeout(() => {
-                        window.location.href = CONFIG.DASHBOARD_URL;
-                    }, 1000);
+                    setTimeout(() => { window.location.href = CONFIG.DASHBOARD_URL; }, 1000);
                     return true;
                 } catch (error) {
                     showToast('❌ Sign in failed: ' + error.message, 'error');
@@ -1594,9 +818,7 @@
 
             async function signOut() {
                 try {
-                    if (supabaseClient) {
-                        await supabaseClient.auth.signOut();
-                    }
+                    if (supabaseClient) await supabaseClient.auth.signOut();
                     currentUser = null;
                     isAuthenticated = false;
                     updateAuthUI();
@@ -1653,7 +875,6 @@
                 }
             }
 
-            // ─── API: QUERY VIEW ──────────────────────────────────
             async function queryView(select, filter, order) {
                 if (!supabaseClient) {
                     const client = initSupabase();
@@ -1667,32 +888,27 @@
                 return data;
             }
 
-            // ─── BASE PRICE (CRSP) LOOKUP ──────────────────────────────
-            async function fetchBasePrice(make, model) {
-                if (!supabaseClient || !make) return null;
+            // ─── BASE PRICE (CRSP) LOOKUP — EXACT FK JOIN ──────────────
+            // vehicle_crsp_prices.engine_capacity_id is a real foreign key
+            // into vehicle_master_specs.variant_id, so this is now a direct
+            // equality match, not a fuzzy make/model text guess.
+            async function fetchBasePrice(variantId) {
+                if (!supabaseClient || !variantId) return null;
                 try {
-                    let query = supabaseClient
-                        .from(CONFIG.BASE_PRICE_TABLE)
-                        .select('make, model, crsp_kes')
-                        .ilike('make', make.trim());
-                    if (model) {
-                        query = query.ilike('model', `%${model.trim()}%`);
-                    }
-                    const { data, error } = await query.limit(5);
+                    const { data, error } = await supabaseClient
+                        .from(CONFIG.CRSP_TABLE)
+                        .select('crsp_kes, make, model, engine_capacity')
+                        .eq('engine_capacity_id', variantId)
+                        .limit(1);
                     if (error) throw error;
                     if (!data || data.length === 0) return null;
-                    const exact = model
-                        ? data.find(r => (r.model || '').trim().toLowerCase() === model.trim().toLowerCase())
-                        : null;
-                    const row = exact || data[0];
-                    return row.crsp_kes || null;
+                    return data[0].crsp_kes || null;
                 } catch (error) {
                     console.warn('⚠️ Base price lookup failed:', error.message);
                     return null;
                 }
             }
 
-            // ─── LOAD DATA ─────────────────────────────────────────────
             async function loadCategories() {
                 try {
                     setStatus('info', 'Loading categories...');
@@ -1782,27 +998,20 @@
                 }
             }
 
-            // CHANGED: load engine capacities instead of variants
             async function loadEngineCapacities(generationId) {
                 try {
                     setStatus('info', 'Loading engine capacities...');
                     const data = await queryView(
-                        `variant_id, variant_name, trim_level, engine_size_cc, power_hp, torque_nm, 
-                         fuel_consumption_combined, co2_emissions, seats, doors, fuel_type_name, 
+                        `variant_id, variant_name, trim_level, engine_size_cc, power_hp, torque_nm,
+                         fuel_consumption_combined, co2_emissions, seats, doors, fuel_type_name,
                          transmission_type_name, drive_type_name, body_type_name`,
                         { column: 'generation_id', value: generationId },
                         { column: 'engine_size_cc', ascending: true }
                     );
-                    // Group by engine_size_cc
                     const grouped = {};
                     data.forEach(v => {
                         const key = v.engine_size_cc || 'Unknown';
-                        if (!grouped[key]) {
-                            grouped[key] = {
-                                engine_size_cc: key,
-                                variants: []
-                            };
-                        }
+                        if (!grouped[key]) grouped[key] = { engine_size_cc: key, variants: [] };
                         grouped[key].variants.push(v);
                     });
                     return Object.values(grouped);
@@ -1813,7 +1022,6 @@
                 }
             }
 
-            // CHANGED: load variant by variant_id (for details)
             async function loadVariantDetails(variantId) {
                 try {
                     setStatus('info', 'Loading vehicle details...');
@@ -1848,7 +1056,6 @@
                 }
             }
 
-            // ─── UI POPULATION ─────────────────────────────────────────
             async function populateCategories() {
                 const select = el.categorySelect;
                 select.innerHTML = '<option value="">Select Category...</option>';
@@ -1949,7 +1156,6 @@
                 setStatus('success', `✅ Loaded ${generations.length} generations`);
             }
 
-            // CHANGED: populate engine capacities instead of variants
             async function populateEngineCapacities(generationId) {
                 const select = el.engineCapacitySelect;
                 select.innerHTML = '<option value="">Select Engine Capacity...</option>';
@@ -1959,7 +1165,7 @@
                 let engineGroups = await loadEngineCapacities(generationId);
 
                 if (selectedFuelFilter !== 'all') {
-                    engineGroups = engineGroups.filter(group => 
+                    engineGroups = engineGroups.filter(group =>
                         group.variants.some(v => (v.fuel_type_name || '').toLowerCase() === selectedFuelFilter)
                     );
                 }
@@ -1971,20 +1177,18 @@
                 }
                 engineGroups.forEach(group => {
                     const opt = document.createElement('option');
-                    opt.value = group.variants[0].variant_id; // Store first variant's ID
+                    opt.value = group.variants[0].variant_id;
                     const fuelTypes = [...new Set(group.variants.map(v => v.fuel_type_name || 'Unknown'))];
                     let label = `${group.engine_size_cc}cc`;
                     if (fuelTypes.length > 0) label += ` (${fuelTypes.join('/')})`;
                     if (group.variants.length > 1) label += ` [${group.variants.length} variants]`;
                     opt.textContent = label;
-                    opt.dataset.variantId = group.variants[0].variant_id;
                     select.appendChild(opt);
                 });
                 select.disabled = false;
                 setStatus('success', `✅ Loaded ${engineGroups.length} engine capacities`);
             }
 
-            // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
             function displayVehicleInfo(variant) {
                 const label = getVehicleName(
                     variant.make_name || '',
@@ -2019,7 +1223,6 @@
                 ).join('');
             }
 
-            // ─── RENDER ROUTE CHIPS ────────────────────────────────────
             function renderRouteChips() {
                 el.routeChips.innerHTML = '';
                 if (!routes || routes.length === 0) {
@@ -2035,7 +1238,6 @@
                 });
             }
 
-            // ─── VALIDATION ────────────────────────────────────────────
             function validateInputs() {
                 let isValid = true;
                 const distance = num(el.distanceInput.value);
@@ -2062,7 +1264,6 @@
                 return isValid;
             }
 
-            // ─── RUNNING COST API CALL ─────────────────────────────────
             async function calculateRunningCostFromAPI(formData) {
                 const downPaymentDecimal = parseFloat(formData.down_payment_percent) / 100;
 
@@ -2093,15 +1294,13 @@
                 }
 
                 console.log("📦 Running Cost Payload:", JSON.stringify(payload, null, 2));
+                if (payload.purchase_price) {
+                    console.log(`💰 purchase_price (base price / CRSP): KES ${payload.purchase_price}`);
+                }
 
                 const token = await getAccessToken();
-                const headers = {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                };
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
+                const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+                if (token) headers['Authorization'] = `Bearer ${token}`;
 
                 const url = `${CONFIG.API_BASE}/running-cost/calculate`;
                 console.log('📤 Sending running cost request to:', url);
@@ -2117,6 +1316,7 @@
                     let errorData;
                     try {
                         errorData = await response.json();
+                        if (errorData.detail) throw new Error(JSON.stringify(errorData.detail, null, 2));
                     } catch (e) {
                         errorData = { message: `HTTP ${response.status}` };
                     }
@@ -2128,7 +1328,6 @@
                 return result;
             }
 
-            // ─── MAIN CALCULATION ──────────────────────────────────────
             async function calculateAndRender(variant = null) {
                 if (!variant) variant = currentVariantData;
                 if (!variant) {
@@ -2172,7 +1371,6 @@
                 try {
                     const result = await calculateRunningCostFromAPI(inputs);
                     showProgress(90, 'Rendering results...');
-                    
                     if (result) {
                         renderResults(result, variant);
                         showProgress(100, 'Complete!');
@@ -2191,7 +1389,6 @@
                 el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
             }
 
-            // ─── RENDER RESULTS ─────────────────────────────────────────
             function renderResults(result, variant) {
                 if (!result) return;
 
@@ -2209,52 +1406,24 @@
                 el.tripTotal.textContent = formatCurrency(tripTotal);
                 el.tripSub.textContent = `at ${formatCurrency(tripCostPerKm)} KES/km over ${formatNumber(distance)} km`;
 
-                const tripComponents = {
-                    'Fuel': fuelCost,
-                    'Service': serviceCost,
-                    'Tyres': tyreCost,
-                    'Insurance': insuranceCost,
-                    'Depreciation': depreciationCost
-                };
+                const tripComponents = { 'Fuel': fuelCost, 'Service': serviceCost, 'Tyres': tyreCost, 'Insurance': insuranceCost, 'Depreciation': depreciationCost };
                 let tripHtml = '';
                 Object.entries(tripComponents).forEach(([key, value]) => {
-                    tripHtml += `
-                        <div class="cost-item">
-                            <span class="label">${escapeHTML(key)}</span>
-                            <span class="value">KES ${escapeHTML(formatCurrency(value))}</span>
-                        </div>
-                    `;
+                    tripHtml += `<div class="cost-item"><span class="label">${escapeHTML(key)}</span><span class="value">KES ${escapeHTML(formatCurrency(value))}</span></div>`;
                 });
-                tripHtml += `
-                    <div class="cost-item total-item" style="grid-column: 1 / -1;">
-                        <span class="label">TOTAL</span>
-                        <span class="value" style="color:var(--amber);">KES ${escapeHTML(formatCurrency(tripTotal))}</span>
-                    </div>
-                `;
+                tripHtml += `<div class="cost-item total-item" style="grid-column: 1 / -1;"><span class="label">TOTAL</span><span class="value" style="color:var(--amber);">KES ${escapeHTML(formatCurrency(tripTotal))}</span></div>`;
                 el.tripCostGrid.innerHTML = tripHtml;
 
                 const perKmComponents = {
-                    'Fuel': fuelCost / (distance || 1),
-                    'Service': serviceCost / (distance || 1),
-                    'Tyres': tyreCost / (distance || 1),
-                    'Insurance': insuranceCost / (distance || 1),
+                    'Fuel': fuelCost / (distance || 1), 'Service': serviceCost / (distance || 1),
+                    'Tyres': tyreCost / (distance || 1), 'Insurance': insuranceCost / (distance || 1),
                     'Depreciation': depreciationCost / (distance || 1)
                 };
                 let perkmHtml = '';
                 Object.entries(perKmComponents).forEach(([key, value]) => {
-                    perkmHtml += `
-                        <div class="perkm-item">
-                            <span class="label">${escapeHTML(key)}</span>
-                            <span class="value">KES ${escapeHTML(formatCurrency(value))}</span>
-                        </div>
-                    `;
+                    perkmHtml += `<div class="perkm-item"><span class="label">${escapeHTML(key)}</span><span class="value">KES ${escapeHTML(formatCurrency(value))}</span></div>`;
                 });
-                perkmHtml += `
-                    <div class="perkm-item highlight" style="grid-column:1/-1;">
-                        <span class="label">TOTAL</span>
-                        <span class="value">KES ${escapeHTML(formatCurrency(tripCostPerKm))}</span>
-                    </div>
-                `;
+                perkmHtml += `<div class="perkm-item highlight" style="grid-column:1/-1;"><span class="label">TOTAL</span><span class="value">KES ${escapeHTML(formatCurrency(tripCostPerKm))}</span></div>`;
                 el.perkmGrid.innerHTML = perkmHtml;
 
                 const fiveYearData = result.fiveYearData || result.yearly_breakdown || [];
@@ -2263,26 +1432,11 @@
                 const remainingValue = result.resale_value || result.current_value || originalCost * 0.4;
 
                 el.fiveYearStats.innerHTML = `
-                    <div class="stat-card-sm">
-                        <div class="label">Original Price</div>
-                        <div class="num amber">KES ${formatCurrency(originalCost)}</div>
-                    </div>
-                    <div class="stat-card-sm">
-                        <div class="label">Est. Resale Value</div>
-                        <div class="num green">KES ${formatCurrency(remainingValue || 0)}</div>
-                    </div>
-                    <div class="stat-card-sm">
-                        <div class="label">5-Yr Depreciation</div>
-                        <div class="num" style="color:var(--red);">${Math.round((1 - (remainingValue / (originalCost || 1))) * 100)}%</div>
-                    </div>
-                    <div class="stat-card-sm">
-                        <div class="label">Value Retention</div>
-                        <div class="num blue">${originalCost > 0 ? Math.round((remainingValue / originalCost) * 100) : 0}%</div>
-                    </div>
-                    <div class="stat-card-sm">
-                        <div class="label">5-Yr Total Cost</div>
-                        <div class="num amber">KES ${formatCurrency(total5Year)}</div>
-                    </div>
+                    <div class="stat-card-sm"><div class="label">Original Price</div><div class="num amber">KES ${formatCurrency(originalCost)}</div></div>
+                    <div class="stat-card-sm"><div class="label">Est. Resale Value</div><div class="num green">KES ${formatCurrency(remainingValue || 0)}</div></div>
+                    <div class="stat-card-sm"><div class="label">5-Yr Depreciation</div><div class="num" style="color:var(--red);">${Math.round((1 - (remainingValue / (originalCost || 1))) * 100)}%</div></div>
+                    <div class="stat-card-sm"><div class="label">Value Retention</div><div class="num blue">${originalCost > 0 ? Math.round((remainingValue / originalCost) * 100) : 0}%</div></div>
+                    <div class="stat-card-sm"><div class="label">5-Yr Total Cost</div><div class="num amber">KES ${formatCurrency(total5Year)}</div></div>
                 `;
 
                 const tbody = el.yearlyBody;
@@ -2314,42 +1468,24 @@
                 el.commercialGrid.innerHTML = commercialRates.map(c => `
                     <div class="commercial-card ${c.label === 'Private' ? 'highlight' : ''}">
                         <div class="commercial-label">${c.label}</div>
-                        <div class="commercial-value">
-                            <span class="currency">KES</span> ${formatCurrency(c.value)}
-                            <span style="font-size:10px;color:var(--text-muted);">/km</span>
-                        </div>
+                        <div class="commercial-value"><span class="currency">KES</span> ${formatCurrency(c.value)} <span style="font-size:10px;color:var(--text-muted);">/km</span></div>
                         <div class="commercial-sub">${c.sub}</div>
                     </div>
                 `).join('');
 
                 const monthlyMultiplier = 1 / 12;
                 const monthlyItems = [
-                    { label: 'Fuel', value: fuelCost * monthlyMultiplier },
-                    { label: 'Service', value: serviceCost * monthlyMultiplier },
-                    { label: 'Tyres', value: tyreCost * monthlyMultiplier },
-                    { label: 'Insurance', value: insuranceCost * monthlyMultiplier },
+                    { label: 'Fuel', value: fuelCost * monthlyMultiplier }, { label: 'Service', value: serviceCost * monthlyMultiplier },
+                    { label: 'Tyres', value: tyreCost * monthlyMultiplier }, { label: 'Insurance', value: insuranceCost * monthlyMultiplier },
                     { label: 'Depreciation', value: depreciationCost * monthlyMultiplier }
                 ];
-                el.monthlyGrid.innerHTML = monthlyItems.map(item => `
-                    <div class="cost-item">
-                        <span class="label">${escapeHTML(item.label)}</span>
-                        <span class="value">KES ${escapeHTML(formatCurrency(item.value))}</span>
-                    </div>
-                `).join('');
+                el.monthlyGrid.innerHTML = monthlyItems.map(item => `<div class="cost-item"><span class="label">${escapeHTML(item.label)}</span><span class="value">KES ${escapeHTML(formatCurrency(item.value))}</span></div>`).join('');
 
                 const annualItems = [
-                    { label: 'Fuel', value: fuelCost },
-                    { label: 'Service', value: serviceCost },
-                    { label: 'Tyres', value: tyreCost },
-                    { label: 'Insurance', value: insuranceCost },
-                    { label: 'Depreciation', value: depreciationCost }
+                    { label: 'Fuel', value: fuelCost }, { label: 'Service', value: serviceCost },
+                    { label: 'Tyres', value: tyreCost }, { label: 'Insurance', value: insuranceCost }, { label: 'Depreciation', value: depreciationCost }
                 ];
-                el.annualGrid.innerHTML = annualItems.map(item => `
-                    <div class="cost-item">
-                        <span class="label">${escapeHTML(item.label)}</span>
-                        <span class="value">KES ${escapeHTML(formatCurrency(item.value))}</span>
-                    </div>
-                `).join('');
+                el.annualGrid.innerHTML = annualItems.map(item => `<div class="cost-item"><span class="label">${escapeHTML(item.label)}</span><span class="value">KES ${escapeHTML(formatCurrency(item.value))}</span></div>`).join('');
 
                 let rciLabel, rciStars, rciClass;
                 if (tripCostPerKm <= 20) { rciLabel = 'Excellent'; rciStars = '★★★★★'; rciClass = 'excellent'; }
@@ -2364,12 +1500,9 @@
                 el.rciLabel.textContent = rciLabel;
 
                 const fuelType = variant?.fuel_type_name || result.fuel_type || '';
-                const co2PerKm = fuelType.toLowerCase() === 'electric' ? 0 : 
-                                 fuelType.toLowerCase() === 'hybrid' ? 80 : 
-                                 fuelType.toLowerCase() === 'diesel' ? 160 : 140;
+                const co2PerKm = fuelType.toLowerCase() === 'electric' ? 0 : fuelType.toLowerCase() === 'hybrid' ? 80 : fuelType.toLowerCase() === 'diesel' ? 160 : 140;
                 const co2Trip = co2PerKm * (distance || 150);
-                const fuelConsumption = result.fuel_consumption || result.consumption || 
-                                       (distance > 0 ? (fuelCost / (result.fuel_price || 200)) / distance * 100 : 0);
+                const fuelConsumption = result.fuel_consumption || result.consumption || (distance > 0 ? (fuelCost / (result.fuel_price || 200)) / distance * 100 : 0);
 
                 el.envGrid.innerHTML = `
                     <div class="env-item"><div class="env-value">${formatNumber(co2PerKm)}</div><div class="env-label">g CO₂/km</div></div>
@@ -2380,30 +1513,20 @@
 
                 const recList = el.recList;
                 const recs = [];
-                if (tripCostPerKm > 50) {
-                    recs.push({ icon: '⚠️', text: 'High running cost detected. Consider a more fuel-efficient vehicle.', type: 'warning' });
-                } else if (tripCostPerKm < 20) {
-                    recs.push({ icon: '✅', text: 'Excellent running cost efficiency! Your vehicle is economical to operate.', type: 'success' });
-                }
-                if (fuelType.toLowerCase() === 'electric') {
-                    recs.push({ icon: '🌱', text: 'Electric vehicle - zero emissions and lower running costs.', type: 'success' });
-                }
+                if (tripCostPerKm > 50) recs.push({ icon: '⚠️', text: 'High running cost detected. Consider a more fuel-efficient vehicle.', type: 'warning' });
+                else if (tripCostPerKm < 20) recs.push({ icon: '✅', text: 'Excellent running cost efficiency! Your vehicle is economical to operate.', type: 'success' });
+                if (fuelType.toLowerCase() === 'electric') recs.push({ icon: '🌱', text: 'Electric vehicle - zero emissions and lower running costs.', type: 'success' });
                 recs.push({ icon: '📊', text: `5-Year running cost: KES ${formatCurrency(total5Year)}.`, type: 'info' });
                 recList.innerHTML = recs.map(rec => `
                     <div class="rec-item ${rec.type}">
-                        <span class="icon">${rec.icon}</span>
-                        <span class="rec-text">${rec.text}</span>
+                        <span class="icon">${rec.icon}</span><span class="rec-text">${rec.text}</span>
                         <span class="rec-tag">${rec.type === 'success' ? '✅' : rec.type === 'warning' ? '⚠️' : 'ℹ️'}</span>
                     </div>
                 `).join('');
 
-                el.lastUpdated.textContent = new Date().toLocaleString('en-KE', {
-                    year: 'numeric', month: 'short', day: 'numeric',
-                    hour: '2-digit', minute: '2-digit'
-                });
+                el.lastUpdated.textContent = new Date().toLocaleString('en-KE', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             }
 
-            // ─── LOAD VARIANT DETAILS ──────────────────────────────────
             async function loadVariantAndDisplay(variantId) {
                 if (!variantId) return;
                 el.calculateBtn.disabled = true;
@@ -2419,7 +1542,7 @@
                     currentVariantData = variantData;
 
                     showProgress(45, 'Looking up base price...');
-                    currentBasePrice = await fetchBasePrice(variantData.make_name, variantData.model_name);
+                    currentBasePrice = await fetchBasePrice(variantData.variant_id);
 
                     displayVehicleInfo(variantData);
                     el.calculateBtn.disabled = false;
@@ -2436,33 +1559,22 @@
                 }
             }
 
-            // ─── EVENT LISTENERS ─────────────────────────────────────────
             function initEventListeners() {
                 el.btnSignIn.addEventListener('click', () => {
                     el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
-                    if (el.authForms.style.display === 'block') {
-                        el.authEmail.focus();
-                    }
+                    if (el.authForms.style.display === 'block') el.authEmail.focus();
                 });
-                
-                el.btnCancelAuth.addEventListener('click', () => { 
+                el.btnCancelAuth.addEventListener('click', () => {
                     el.authForms.style.display = 'none';
                     el.authEmail.value = '';
                     el.authPassword.value = '';
                 });
-
                 el.btnLogin.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
-                    
-                    if (!email || !password) {
-                        showToast('Please enter email and password', 'warning');
-                        return;
-                    }
-                    
+                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
                     el.btnLogin.disabled = true;
                     el.btnLogin.textContent = '⏳...';
-                    
                     try {
                         await signIn(email, password);
                         el.authForms.style.display = 'none';
@@ -2475,24 +1587,13 @@
                         el.btnLogin.textContent = 'Login';
                     }
                 });
-
                 el.btnSignup.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
-                    
-                    if (!email || !password) {
-                        showToast('Please enter email and password', 'warning');
-                        return;
-                    }
-                    
-                    if (password.length < 6) {
-                        showToast('Password must be at least 6 characters', 'warning');
-                        return;
-                    }
-                    
+                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
+                    if (password.length < 6) { showToast('Password must be at least 6 characters', 'warning'); return; }
                     el.btnSignup.disabled = true;
                     el.btnSignup.textContent = '⏳...';
-                    
                     try {
                         await signUp(email, password);
                         el.authForms.style.display = 'none';
@@ -2505,23 +1606,9 @@
                         el.btnSignup.textContent = 'Sign Up';
                     }
                 });
-
-                el.btnSignOut.addEventListener('click', async () => {
-                    await signOut();
-                });
-
-                el.authPassword.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        el.btnLogin.click();
-                    }
-                });
-                el.authEmail.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        el.authPassword.focus();
-                    }
-                });
+                el.btnSignOut.addEventListener('click', async () => { await signOut(); });
+                el.authPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); el.btnLogin.click(); } });
+                el.authEmail.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); el.authPassword.focus(); } });
 
                 if (supabaseClient) {
                     try {
@@ -2530,9 +1617,7 @@
                             isAuthenticated = !!session;
                             updateAuthUI();
                             if (isAuthenticated && _event === 'SIGNED_IN') {
-                                setTimeout(() => {
-                                    window.location.href = CONFIG.DASHBOARD_URL;
-                                }, 800);
+                                setTimeout(() => { window.location.href = CONFIG.DASHBOARD_URL; }, 800);
                             }
                         });
                     } catch (error) {
@@ -2543,16 +1628,11 @@
                 el.fuelFilterGroup.addEventListener('click', function(e) {
                     const btn = e.target.closest('.fuel-filter-btn');
                     if (!btn) return;
-                    document.querySelectorAll('.fuel-filter-btn').forEach(b => {
-                        b.classList.remove('active');
-                        b.setAttribute('aria-pressed', 'false');
-                    });
+                    document.querySelectorAll('.fuel-filter-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
                     btn.classList.add('active');
                     btn.setAttribute('aria-pressed', 'true');
                     selectedFuelFilter = btn.dataset.fuel || 'all';
-                    if (el.generationSelect.value) {
-                        populateEngineCapacities(el.generationSelect.value);
-                    }
+                    if (el.generationSelect.value) populateEngineCapacities(el.generationSelect.value);
                 });
 
                 el.categorySelect.addEventListener('change', async function() {
@@ -2601,7 +1681,6 @@
                     }
                 });
 
-                // CHANGED: engineCapacitySelect change handler
                 el.engineCapacitySelect.addEventListener('change', function() {
                     const selectedOption = this.options[this.selectedIndex];
                     const variantId = selectedOption ? selectedOption.value : null;
@@ -2615,8 +1694,7 @@
                 });
 
                 ['change', 'input'].forEach(evt => {
-                    [el.distanceInput, el.annualKmInput, el.fuelPriceInput, el.drivingStyle,
-                     el.tripType, el.usageType, el.yearSelect].forEach(elem => {
+                    [el.distanceInput, el.annualKmInput, el.fuelPriceInput, el.drivingStyle, el.tripType, el.usageType, el.yearSelect].forEach(elem => {
                         elem.addEventListener(evt, function() {
                             this.classList.remove('error');
                             const errorEl = document.getElementById(this.id + 'Error');
@@ -2637,11 +1715,8 @@
                 });
 
                 el.calculateBtn.addEventListener('click', () => {
-                    if (currentVariantData) {
-                        calculateAndRender(currentVariantData);
-                    } else {
-                        showToast('Please select a vehicle first', 'warning');
-                    }
+                    if (currentVariantData) calculateAndRender(currentVariantData);
+                    else showToast('Please select a vehicle first', 'warning');
                 });
 
                 el.btnCash.addEventListener('click', function() {
@@ -2681,19 +1756,13 @@
                     }
                 });
 
-                el.exportBtn.addEventListener('click', function() {
-                    showToast('📥 Export feature coming soon!', 'info');
-                });
+                el.exportBtn.addEventListener('click', function() { showToast('📥 Export feature coming soon!', 'info'); });
 
-                setInterval(async () => {
-                    await checkAuth();
-                }, 30000);
+                setInterval(async () => { await checkAuth(); }, 30000);
             }
 
-            // ─── INIT ──────────────────────────────────────────────────
             async function init() {
                 el.loadingOverlay.classList.add('active');
-
                 try {
                     const supabaseOk = initSupabase();
                     if (!supabaseOk) {
@@ -2705,24 +1774,22 @@
 
                     showProgress(10, 'Checking authentication...');
                     await checkAuth();
-                    
+
                     showProgress(25, 'Loading routes...');
                     await loadRoutes();
                     renderRouteChips();
-                    
+
                     showProgress(60, 'Loading vehicle categories...');
                     await populateCategories();
 
-                    el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
-                        year: 'numeric', month: 'short', day: 'numeric'
-                    });
+                    el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
 
                     showProgress(100, 'Ready!');
                     setTimeout(hideProgress, 500);
 
                     console.log('✅ Auto-D Kenya Mileage Calculator initialized');
                     console.log('📊 Using view: ' + CONFIG.VIEW_NAME);
-                    console.log('💰 Base price table: ' + CONFIG.BASE_PRICE_TABLE);
+                    console.log('💰 CRSP table: ' + CONFIG.CRSP_TABLE + ' (joined via engine_capacity_id = variant_id)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/running-cost/calculate`);
 
