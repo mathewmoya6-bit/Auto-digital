@@ -1101,6 +1101,7 @@
                 <div class="crsp-info" id="crspInfo">
                     <h4>🏛️ KRA CRSP Base Price Reference</h4>
                     <div id="crspInfoContent">
+                        <div class="row"><span>Queried engine_capacity_id</span><span class="value" id="crspQueriedId">—</span></div>
                         <div class="row"><span>Matched CRSP Line</span><span class="value" id="crspMatchedLine">—</span></div>
                         <div class="row"><span>CRSP Base Price</span><span class="value" id="crspBasePrice">—</span></div>
                         <div class="row"><span>Engine Capacity</span><span class="value" id="crspEngineCapacity">—</span></div>
@@ -1327,6 +1328,7 @@
             let currentVariantData = null;
             let currentBasePrice = null;
             let currentCrspData = null;
+            let lastQueriedVariantId = null;
             let routes = [];
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
@@ -1400,6 +1402,7 @@
                 printBtn: document.getElementById('printBtn'),
                 shareBtn: document.getElementById('shareBtn'),
                 crspInfo: document.getElementById('crspInfo'),
+                crspQueriedId: document.getElementById('crspQueriedId'),
                 crspMatchedLine: document.getElementById('crspMatchedLine'),
                 crspBasePrice: document.getElementById('crspBasePrice'),
                 crspEngineCapacity: document.getElementById('crspEngineCapacity'),
@@ -1615,6 +1618,7 @@
             // WHERE engine_capacity_id = :variant_id
             // LIMIT 1;
             async function fetchBasePrice(variantId) {
+                lastQueriedVariantId = variantId || null;
                 if (!supabaseClient || !variantId) {
                     console.log('ℹ️ No variantId provided for CRSP lookup');
                     return null;
@@ -1645,10 +1649,25 @@
             }
 
             function updateCRSPInfo() {
+                el.crspQueriedId.textContent = lastQueriedVariantId !== null && lastQueriedVariantId !== undefined
+                    ? String(lastQueriedVariantId)
+                    : '—';
+
                 if (!currentCrspData || !currentCrspData.crsp_kes) {
-                    el.crspInfo.classList.remove('show');
+                    // Still show the panel so the exact ID that was queried is visible —
+                    // makes it easy to cross-check against vehicle_crsp_prices.engine_capacity_id
+                    // in Supabase without opening devtools.
+                    el.crspMatchedLine.textContent = 'No CRSP row found for this ID';
+                    el.crspMatchedLine.className = 'value crsp-missing';
+                    el.crspBasePrice.textContent = '—';
+                    el.crspBasePrice.className = 'value crsp-missing';
+                    el.crspEngineCapacity.textContent = '—';
+                    el.crspFuel.textContent = '—';
+                    el.crspTransmission.textContent = '—';
+                    el.crspInfo.classList.add('show');
                     return;
                 }
+
                 const data = currentCrspData;
                 const matchedLine = `${data.make || ''} ${data.model || ''}`.trim() || '—';
                 el.crspMatchedLine.textContent = matchedLine;
