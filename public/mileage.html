@@ -1297,7 +1297,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost · CRSP Base Price<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.8
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.9
             </div>
         </footer>
     </div>
@@ -1305,7 +1305,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.8 - Fixed CRSP fallback - throws error instead of 2.5M
+        // Version 8.9 - Updated CRSP Lookup with All IDs
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1608,29 +1608,62 @@
             }
 
             // ─── CRSP BASE PRICE LOOKUP ──────────────────────────────────
-            // CRITICAL: Sources from vehicle_crsp_prices table using engine_capacity_id FK
+            // UPDATED: Uses all IDs for accurate CRSP matching
+            // SELECT crsp.id, crsp.make, crsp.model, crsp.crsp_kes, crsp.crsp_year,
+            //        crsp.generation_id, crsp.engine_capacity_id, crsp.effective_date
+            // FROM vehicle_crsp_prices crsp
+            // WHERE crsp.make_id = :make_id
+            //   AND crsp.model_id = :model_id
+            //   AND crsp.generation_id = :generation_id
+            //   AND crsp.engine_capacity_id = :engine_capacity_id
+            // ORDER BY crsp.effective_date DESC, crsp.crsp_year DESC
+            // LIMIT 1;
             async function fetchBasePrice(variantId) {
                 if (!supabaseClient || !variantId) {
                     console.log('ℹ️ No variantId provided for CRSP lookup');
                     return null;
                 }
                 try {
-                    console.log(`🔍 Looking up CRSP for variant_id: ${variantId}`);
+                    // First, get the variant details to get all the IDs
+                    console.log(`🔍 Getting variant IDs for variant_id: ${variantId}`);
+                    const { data: variantData, error: variantError } = await supabaseClient
+                        .from(CONFIG.VIEW_NAME)  // 'vehicle_master_specs'
+                        .select('make_id, model_id, generation_id, variant_id')
+                        .eq('variant_id', variantId)
+                        .limit(1)
+                        .single();
+
+                    if (variantError || !variantData) {
+                        console.error('❌ Failed to get variant IDs:', variantError);
+                        return null;
+                    }
+
+                    const { make_id, model_id, generation_id } = variantData;
+                    
+                    console.log(`🔍 Looking up CRSP with IDs: make_id=${make_id}, model_id=${model_id}, generation_id=${generation_id}, engine_capacity_id=${variantId}`);
+
+                    // Now lookup CRSP using all IDs
                     const { data, error } = await supabaseClient
-                        .from(CONFIG.CRSP_TABLE)
-                        .select('id, crsp_kes, make, model, engine_capacity, fuel, transmission, body_type, model_number, drive_configuration')
+                        .from(CONFIG.CRSP_TABLE)  // 'vehicle_crsp_prices'
+                        .select('id, crsp_kes, make, model, engine_capacity, fuel, transmission, body_type, model_number, drive_configuration, crsp_year, effective_date')
+                        .eq('make_id', make_id)
+                        .eq('model_id', model_id)
+                        .eq('generation_id', generation_id)
                         .eq('engine_capacity_id', variantId)
+                        .order('effective_date', { ascending: false })
+                        .order('crsp_year', { ascending: false })
                         .limit(1);
+
                     if (error) {
                         console.error('❌ CRSP lookup error:', error);
                         return null;
                     }
                     if (!data || data.length === 0) {
-                        console.log(`ℹ️ No CRSP record found for variant_id: ${variantId}`);
+                        console.log(`ℹ️ No CRSP record found for IDs: make=${make_id}, model=${model_id}, gen=${generation_id}, engine=${variantId}`);
                         return null;
                     }
                     currentCrspData = data[0];
-                    console.log(`✅ CRSP record found: KES ${currentCrspData.crsp_kes} for ${currentCrspData.make} ${currentCrspData.model}`);
+                    console.log(`✅ CRSP record found: KES ${currentCrspData.crsp_kes} for ${currentCrspData.make} ${currentCrspData.model} (effective: ${currentCrspData.effective_date})`);
                     return data[0].crsp_kes || null;
                 } catch (error) {
                     console.warn('⚠️ Base price lookup failed:', error.message);
@@ -2607,7 +2640,7 @@
 
                     console.log('✅ Auto-D Kenya Mileage Calculator initialized');
                     console.log('📊 Using view: ' + CONFIG.VIEW_NAME);
-                    console.log('💰 CRSP table: ' + CONFIG.CRSP_TABLE + ' (joined via engine_capacity_id = variant_id)');
+                    console.log('💰 CRSP table: ' + CONFIG.CRSP_TABLE + ' (joined via make_id, model_id, generation_id, engine_capacity_id)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/running-cost/calculate`);
 
