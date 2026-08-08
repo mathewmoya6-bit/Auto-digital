@@ -2268,6 +2268,15 @@
                     showToast('Please select an engine capacity', 'error');
                     return;
                 }
+                const flaggedPhotos = photos.filter(p => p.status === 'flagged').length;
+                if (flaggedPhotos > 0) {
+                    showToast(`⚠️ Remove or replace ${flaggedPhotos} flagged photo${flaggedPhotos === 1 ? '' : 's'} before valuating`, 'warning');
+                    return;
+                }
+                if (photos.some(p => p.status === 'checking')) {
+                    showToast('⏳ Still scanning photos — please wait', 'info');
+                    return;
+                }
                 const variant = await loadVariantDetails(variantId);
                 if (!variant) {
                     showToast('Failed to load vehicle details', 'error');
@@ -2314,8 +2323,7 @@
                     el.loadingSteps.classList.remove('show');
                     showToast('❌ Valuation failed: ' + err.message, 'error');
                 }
-                el.valuateBtn.disabled = false;
-                el.valuateBtn.innerHTML = '🚀 Get AI Valuation';
+                updateValuateButtonState();
             }
 
             // ─── SHOW RESULT ──────────────────────────────────────────
@@ -2576,6 +2584,7 @@
                         photos[idx] = { dataUrl: null, fileName: null, status: 'empty', reason: '' };
                         renderPhotoGrid();
                         updatePhotoAuthSummary();
+                        updateValuateButtonState();
                     });
                 });
             }
@@ -2594,11 +2603,16 @@
                     photos[index] = { dataUrl: e.target.result, fileName: file.name, status: 'checking', reason: 'Analyzing…' };
                     renderPhotoGrid();
                     updatePhotoAuthSummary();
+                    updateValuateButtonState();
                     const result = await checkImageAuthenticity(file);
                     photos[index].status = result.flagged ? 'flagged' : 'verified';
                     photos[index].reason = result.reason;
                     renderPhotoGrid();
                     updatePhotoAuthSummary();
+                    updateValuateButtonState();
+                    if (result.flagged) {
+                        showToast('⚠️ Photo flagged — resolve before valuating', 'warning');
+                    }
                 };
                 reader.onerror = function() {
                     showToast('Could not read that image file', 'error');
@@ -2646,7 +2660,7 @@
                 let msg = `<strong>${uploaded.length}/${MAX_PHOTOS} photo${uploaded.length === 1 ? '' : 's'} uploaded.</strong> `;
                 if (checking) msg += `${checking} scanning… `;
                 if (verified) msg += `<span class="ok">${verified} passed metadata check.</span> `;
-                if (flagged) msg += `<span class="warn">${flagged} flagged for manual review (no camera metadata / possible AI or edited image).</span>`;
+                if (flagged) msg += `<span class="warn">⚠️ ${flagged} flagged for manual review — remove or replace before you can get a valuation.</span>`;
                 el.photoAuthSummary.innerHTML = msg;
             }
 
@@ -2663,6 +2677,29 @@
                     </div>
                 `).join('');
                 el.reportPhotosSection.style.display = 'block';
+            }
+
+            function updateValuateButtonState() {
+                const hasVariant = !!el.variantSelect.value;
+                const flaggedCount = photos.filter(p => p.status === 'flagged').length;
+                const checkingCount = photos.filter(p => p.status === 'checking').length;
+
+                if (!isAuthenticated || !hasVariant) {
+                    el.valuateBtn.disabled = true;
+                    return;
+                }
+                if (checkingCount > 0) {
+                    el.valuateBtn.disabled = true;
+                    el.valuateBtn.innerHTML = '<span class="spinner"></span> Scanning photos...';
+                    return;
+                }
+                if (flaggedCount > 0) {
+                    el.valuateBtn.disabled = true;
+                    el.valuateBtn.innerHTML = `🔒 Resolve ${flaggedCount} flagged photo${flaggedCount === 1 ? '' : 's'} to continue`;
+                    return;
+                }
+                el.valuateBtn.disabled = false;
+                el.valuateBtn.innerHTML = '🚀 Get AI Valuation';
             }
 
             // ─── EVENT LISTENERS ─────────────────────────────────────────
@@ -2750,7 +2787,7 @@
                     if (!isAuthenticated) return;
                     const variantId = this.value;
                     if (variantId) {
-                        el.valuateBtn.disabled = false;
+                        updateValuateButtonState();
                         const variant = await loadVariantDetails(variantId);
                         if (variant) {
                             currentVariantData = variant;
@@ -2809,6 +2846,7 @@
                 try {
                     populateYearSelect();
                     renderPhotoGrid();
+                    updateValuateButtonState();
                     const supabaseOk = initSupabase();
                     if (!supabaseOk) {
                         setStatus('error', "Connection failed — please refresh");
