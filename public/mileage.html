@@ -905,6 +905,40 @@
             margin-left: 8px;
         }
 
+        /* ─── CRSP INFO PANEL ───────────────────────────────────────── */
+        .crsp-info {
+            background: #0f172a;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin: 12px 0;
+            display: none;
+        }
+        .crsp-info.show { display: block; }
+        .crsp-info h4 {
+            font-size: 10px;
+            color: #06b6d4;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-family: var(--font-mono);
+            margin-bottom: 6px;
+        }
+        .crsp-info .row {
+            display: flex;
+            justify-content: space-between;
+            padding: 3px 0;
+            font-size: 11px;
+            color: #94a3b8;
+            border-bottom: 1px solid rgba(45, 58, 78, 0.3);
+        }
+        .crsp-info .row:last-child { border-bottom: none; }
+        .crsp-info .row .value {
+            font-weight: 600;
+            color: #06b6d4;
+            font-family: var(--font-mono);
+            font-size: 10px;
+        }
+
         /* ─── RESPONSIVE ───────────────────────────────────────────── */
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
@@ -1084,6 +1118,18 @@
                 <div class="form-group">
                     <label for="yearSelect">Vehicle Year of Manufacture</label>
                     <select id="yearSelect"></select>
+                </div>
+
+                <!-- ─── CRSP INFO ───────────────────────────────────────── -->
+                <div class="crsp-info" id="crspInfo">
+                    <h4>🏛️ KRA CRSP Base Price Reference</h4>
+                    <div id="crspInfoContent">
+                        <div class="row"><span>Matched CRSP Line</span><span class="value" id="crspMatchedLine">—</span></div>
+                        <div class="row"><span>CRSP Base Price</span><span class="value" id="crspBasePrice">—</span></div>
+                        <div class="row"><span>Engine Capacity</span><span class="value" id="crspEngineCapacity">—</span></div>
+                        <div class="row"><span>Fuel Type</span><span class="value" id="crspFuel">—</span></div>
+                        <div class="row"><span>Transmission</span><span class="value" id="crspTransmission">—</span></div>
+                    </div>
                 </div>
 
                 <!-- ─── TRIP PARAMETERS ─────────────────────────────────── -->
@@ -1273,7 +1319,7 @@
         <footer class="report-footer" role="contentinfo">
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
-                <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost<br />
+                <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost · CRSP Base Price<br />
                 <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.5
             </div>
         </footer>
@@ -1303,6 +1349,7 @@
             let isFinanced = false;
             let currentVariantData = null;
             let currentBasePrice = null;
+            let currentCrspData = null;
             let routes = [];
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
@@ -1374,7 +1421,13 @@
                 progressPercent: document.getElementById('progressPercent'),
                 exportBtn: document.getElementById('exportBtn'),
                 printBtn: document.getElementById('printBtn'),
-                shareBtn: document.getElementById('shareBtn')
+                shareBtn: document.getElementById('shareBtn'),
+                crspInfo: document.getElementById('crspInfo'),
+                crspMatchedLine: document.getElementById('crspMatchedLine'),
+                crspBasePrice: document.getElementById('crspBasePrice'),
+                crspEngineCapacity: document.getElementById('crspEngineCapacity'),
+                crspFuel: document.getElementById('crspFuel'),
+                crspTransmission: document.getElementById('crspTransmission')
             };
 
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
@@ -1574,21 +1627,38 @@
                 return data;
             }
 
+            // ─── CRSP BASE PRICE LOOKUP ──────────────────────────────────
+            // Uses vehicle_crsp_prices table with engine_capacity_id FK
             async function fetchBasePrice(variantId) {
                 if (!supabaseClient || !variantId) return null;
                 try {
                     const { data, error } = await supabaseClient
                         .from(CONFIG.CRSP_TABLE)
-                        .select('crsp_kes, make, model, engine_capacity')
+                        .select('id, crsp_kes, make, model, engine_capacity, fuel, transmission, body_type, model_number, drive_configuration')
                         .eq('engine_capacity_id', variantId)
                         .limit(1);
                     if (error) throw error;
                     if (!data || data.length === 0) return null;
+                    currentCrspData = data[0];
                     return data[0].crsp_kes || null;
                 } catch (error) {
                     console.warn('⚠️ Base price lookup failed:', error.message);
                     return null;
                 }
+            }
+
+            function updateCRSPInfo() {
+                if (!currentCrspData || !currentCrspData.crsp_kes) {
+                    el.crspInfo.classList.remove('show');
+                    return;
+                }
+                const data = currentCrspData;
+                el.crspMatchedLine.textContent = `${data.make || ''} ${data.model || ''}`.trim() || '—';
+                el.crspBasePrice.textContent = `KES ${formatCurrency(data.crsp_kes)}`;
+                el.crspEngineCapacity.textContent = data.engine_capacity || '—';
+                el.crspFuel.textContent = data.fuel || '—';
+                el.crspTransmission.textContent = data.transmission || '—';
+                el.crspInfo.classList.add('show');
             }
 
             async function loadCategories() {
@@ -1884,7 +1954,7 @@
                 el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
 
                 if (currentBasePrice) {
-                    el.basePricePill.textContent = `Base: KES ${formatNumber(currentBasePrice)}`;
+                    el.basePricePill.textContent = `CRSP Base: KES ${formatNumber(currentBasePrice)}`;
                     el.basePricePill.style.display = 'inline-block';
                 } else {
                     el.basePricePill.style.display = 'none';
@@ -1977,7 +2047,7 @@
 
                 console.log("📦 Running Cost Payload:", JSON.stringify(payload, null, 2));
                 if (payload.purchase_price) {
-                    console.log(`💰 purchase_price (base price / CRSP): KES ${payload.purchase_price}`);
+                    console.log(`💰 purchase_price (CRSP base price): KES ${payload.purchase_price}`);
                 }
 
                 const token = await getAccessToken();
@@ -2114,7 +2184,7 @@
                 const remainingValue = result.resale_value || result.current_value || originalCost * 0.4;
 
                 el.fiveYearStats.innerHTML = `
-                    <div class="stat-card-sm"><div class="label">Original Price</div><div class="num amber">KES ${formatCurrency(originalCost)}</div></div>
+                    <div class="stat-card-sm"><div class="label">Original Price (CRSP)</div><div class="num amber">KES ${formatCurrency(originalCost)}</div></div>
                     <div class="stat-card-sm"><div class="label">Est. Resale Value</div><div class="num green">KES ${formatCurrency(remainingValue || 0)}</div></div>
                     <div class="stat-card-sm"><div class="label">5-Yr Depreciation</div><div class="num" style="color:var(--red);">${Math.round((1 - (remainingValue / (originalCost || 1))) * 100)}%</div></div>
                     <div class="stat-card-sm"><div class="label">Value Retention</div><div class="num blue">${originalCost > 0 ? Math.round((remainingValue / originalCost) * 100) : 0}%</div></div>
@@ -2223,14 +2293,15 @@
                     }
                     currentVariantData = variantData;
 
-                    showProgress(45, 'Looking up base price...');
+                    showProgress(45, 'Looking up CRSP base price...');
                     currentBasePrice = await fetchBasePrice(variantData.variant_id);
+                    updateCRSPInfo();
 
                     displayVehicleInfo(variantData);
                     el.calculateBtn.disabled = false;
                     hideProgress();
                     if (currentBasePrice) {
-                        showToast(`Vehicle loaded — base price KES ${formatNumber(currentBasePrice)}`, 'info');
+                        showToast(`Vehicle loaded — CRSP base price KES ${formatNumber(currentBasePrice)}`, 'info');
                     } else {
                         showToast('Vehicle loaded — click Calculate to see costs', 'info');
                     }
@@ -2339,6 +2410,8 @@
                         el.engineCapacitySelect.value = '';
                         currentVariantData = null;
                         currentBasePrice = null;
+                        currentCrspData = null;
+                        el.crspInfo.classList.remove('show');
                         el.calculateBtn.disabled = true;
                     }
                 });
@@ -2351,6 +2424,8 @@
                         el.engineCapacitySelect.value = '';
                         currentVariantData = null;
                         currentBasePrice = null;
+                        currentCrspData = null;
+                        el.crspInfo.classList.remove('show');
                         el.calculateBtn.disabled = true;
                     }
                 });
@@ -2362,6 +2437,8 @@
                         el.engineCapacitySelect.value = '';
                         currentVariantData = null;
                         currentBasePrice = null;
+                        currentCrspData = null;
+                        el.crspInfo.classList.remove('show');
                         el.calculateBtn.disabled = true;
                     }
                 });
@@ -2372,6 +2449,8 @@
                         await populateEngineCapacities(genId);
                         currentVariantData = null;
                         currentBasePrice = null;
+                        currentCrspData = null;
+                        el.crspInfo.classList.remove('show');
                         el.calculateBtn.disabled = true;
                     }
                 });
@@ -2384,6 +2463,8 @@
                     } else {
                         currentVariantData = null;
                         currentBasePrice = null;
+                        currentCrspData = null;
+                        el.crspInfo.classList.remove('show');
                         el.calculateBtn.disabled = true;
                     }
                 });
