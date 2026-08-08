@@ -8,6 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
     <style>
         /* ─── CSS Variables ────────────────────────────────────────── */
         :root {
@@ -873,6 +874,135 @@
             .value-range .range-value { font-size: 15px; }
             .flow-step { flex: 1 1 30%; }
         }
+        /* ─── CONFETTI (was missing — pieces existed in JS but never animated) ── */
+        .confetti-container {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 99998;
+            overflow: hidden;
+        }
+        .confetti-piece {
+            position: absolute;
+            top: -12px;
+            border-radius: 2px;
+            opacity: 0.95;
+            animation-name: confettiFall;
+            animation-timing-function: cubic-bezier(0.35, 0, 0.65, 1);
+            animation-iteration-count: 1;
+            animation-fill-mode: forwards;
+        }
+        @keyframes confettiFall {
+            0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+            85%  { opacity: 1; }
+            100% { transform: translateY(110vh) rotate(540deg); opacity: 0; }
+        }
+
+        /* ─── VEHICLE PHOTOS (upload + authenticity check) ─────────── */
+        .photo-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .photo-slot {
+            position: relative;
+            aspect-ratio: 4 / 3;
+            border: 1.5px dashed #334155;
+            border-radius: 8px;
+            background: #0f172a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            cursor: pointer;
+            overflow: hidden;
+            transition: border-color 0.2s, background 0.2s;
+            text-align: center;
+            padding: 6px;
+        }
+        .photo-slot:hover { border-color: var(--amber); background: rgba(234,179,8,0.05); }
+        .photo-slot input[type="file"] { display: none; }
+        .photo-slot .placeholder-icon { font-size: 20px; color: #475569; }
+        .photo-slot .placeholder-label { font-size: 9px; color: #64748b; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em; }
+        .photo-slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .photo-slot .photo-remove {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(10,12,21,0.85);
+            color: #f8fafc;
+            border: none;
+            font-size: 11px;
+            line-height: 1;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+        }
+        .photo-slot.filled .photo-remove { display: flex; }
+        .photo-slot .authenticity-badge {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            font-size: 8px;
+            font-weight: 700;
+            text-align: center;
+            padding: 3px 4px;
+            font-family: var(--font-mono);
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            z-index: 2;
+        }
+        .authenticity-badge.checking { background: rgba(59,130,246,0.85); color: #fff; }
+        .authenticity-badge.verified { background: rgba(34,197,94,0.9); color: #04150a; }
+        .authenticity-badge.flagged { background: rgba(239,68,68,0.9); color: #fff; }
+        .photo-scan-line {
+            position: absolute;
+            left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+            animation: scanMove 1.1s linear infinite;
+            z-index: 1;
+        }
+        @keyframes scanMove { 0% { top: 0%; } 100% { top: 100%; } }
+        .photo-authenticity-summary {
+            font-size: 10px;
+            color: #94a3b8;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 10px;
+            line-height: 1.6;
+            margin-top: 4px;
+        }
+        .photo-authenticity-summary strong { color: #cbd5e1; }
+        .photo-authenticity-summary .ok { color: #22c55e; }
+        .photo-authenticity-summary .warn { color: #eab308; }
+
+        .report-photos-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin: 16px 0;
+        }
+        .report-photos-grid .rp-item { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); aspect-ratio: 4/3; }
+        .report-photos-grid .rp-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .report-photos-grid .rp-item .rp-tag {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            font-size: 8px; text-align: center; padding: 2px; font-weight: 700;
+            font-family: var(--font-mono); text-transform: uppercase;
+        }
+        .report-photos-grid .rp-item .rp-tag.ok { background: rgba(34,197,94,0.85); color: #04150a; }
+        .report-photos-grid .rp-item .rp-tag.warn { background: rgba(239,68,68,0.85); color: #fff; }
+        @media (max-width: 480px) { .report-photos-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media print { .photo-slot .photo-remove { display: none !important; } }
+
         @media print {
             .calculator-panel, .action-bar, .report-footer, .auth-section { display: none !important; }
             .main-grid { display: block !important; }
@@ -1137,6 +1267,15 @@
                     </select>
                 </div>
 
+                <!-- ─── VEHICLE PHOTOS ──────────────────────────────────── -->
+                <div class="panel-label"><span class="num">📷</span> Vehicle Photos <span style="color:#64748b;font-weight:500;text-transform:none;letter-spacing:0;">(up to 4)</span></div>
+                <div class="photo-grid" id="photoGrid" role="group" aria-label="Upload up to 4 vehicle photos">
+                    <!-- 4 photo slots injected by JS -->
+                </div>
+                <div class="photo-authenticity-summary" id="photoAuthSummary">
+                    📤 Upload clear photos of the front, rear, sides and interior. Each photo is automatically screened for signs it may be an AI-generated or non-original image.
+                </div>
+
                 <div class="loading-steps" id="loadingSteps">
                     <div class="loading-step" data-step="1">
                         <span class="icon">⏳</span>
@@ -1240,6 +1379,11 @@
                         <div class="vehicle-detail-item"><span class="label">Fuel Type</span><span class="value" id="resultFuelType">-</span></div>
                         <div class="vehicle-detail-item"><span class="label">Transmission</span><span class="value" id="resultTransmission">-</span></div>
                         <div class="vehicle-detail-item"><span class="label">Engine Size</span><span class="value" id="resultEngine">-</span></div>
+                    </div>
+
+                    <div id="reportPhotosSection" style="display:none;">
+                        <div class="panel-label" style="margin-top:0;"><span class="num">📷</span> Vehicle Photos</div>
+                        <div class="report-photos-grid" id="reportPhotosGrid"></div>
                     </div>
 
                     <div class="report-disclaimer">
@@ -1384,8 +1528,17 @@
                 rCrspAge: document.getElementById('rCrspAge'),
                 rCrspRef: document.getElementById('rCrspRef'),
                 rCrspVariance: document.getElementById('rCrspVariance'),
-                flowSteps: document.getElementById('flowSteps')
+                flowSteps: document.getElementById('flowSteps'),
+                photoGrid: document.getElementById('photoGrid'),
+                photoAuthSummary: document.getElementById('photoAuthSummary'),
+                reportPhotosSection: document.getElementById('reportPhotosSection'),
+                reportPhotosGrid: document.getElementById('reportPhotosGrid')
             };
+
+            // ─── PHOTO / AUTHENTICITY STATE ────────────────────────────
+            // 4 fixed slots. Each entry: { dataUrl, fileName, status: 'empty'|'checking'|'verified'|'flagged', reason }
+            const MAX_PHOTOS = 4;
+            let photos = Array.from({ length: MAX_PHOTOS }, () => ({ dataUrl: null, fileName: null, status: 'empty', reason: '' }));
 
             // ─── HELPERS ──────────────────────────────────────────────
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
@@ -1834,7 +1987,7 @@
                     if (data && data.length > 0) return data[0];
                     return null;
                 } catch (error) {
-                    console.error('Error loading variant details:', error);
+                    console.error('Error loading vehicle details:', error);
                     setStatus('error', 'Failed to load vehicle details');
                     return null;
                 }
@@ -2302,6 +2455,9 @@
                 // CRSP cross-check
                 renderCRSPResult(currentValue, formData.year || el.yearSelect.value);
 
+                // Vehicle photos + authenticity screening result
+                renderReportPhotos();
+
                 // Show result
                 el.resultBox.classList.add('show');
                 el.resultBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2356,6 +2512,157 @@
                     container.appendChild(piece);
                 }
                 setTimeout(() => container.remove(), 5000);
+            }
+
+            // ─── PHOTO UPLOAD + AUTHENTICITY CHECK ──────────────────────
+            // NOTE ON WHAT THIS CHECK IS AND ISN'T:
+            // There is no reliable way to prove an image is "definitely a real
+            // photo" purely in the browser. What we CAN do without a server-side
+            // ML model is look at signals real camera photos usually carry (EXIF
+            // camera make/model, capture timestamp) and flag images that lack
+            // them, plus catch known AI-tool "Software" tags. That makes this a
+            // screening heuristic for manual review — not a certified deepfake
+            // detector. It will occasionally flag genuine photos (e.g. ones that
+            // were re-saved, screenshotted, or stripped of metadata by messaging
+            // apps) and will not catch every AI-generated image. Flag results are
+            // shown to the reviewer, they are never used to silently reject an
+            // upload.
+            function renderPhotoGrid() {
+                el.photoGrid.innerHTML = '';
+                photos.forEach((p, i) => {
+                    const slot = document.createElement('div');
+                    slot.className = 'photo-slot' + (p.status !== 'empty' ? ' filled' : '');
+                    slot.dataset.index = i;
+
+                    if (p.dataUrl) {
+                        slot.innerHTML = `
+                            <img src="${p.dataUrl}" alt="Vehicle photo ${i + 1}" />
+                            <button type="button" class="photo-remove" data-index="${i}" aria-label="Remove photo ${i + 1}" title="Remove">✕</button>
+                            ${p.status === 'checking' ? '<div class="photo-scan-line"></div><div class="authenticity-badge checking">Scanning…</div>' : ''}
+                            ${p.status === 'verified' ? '<div class="authenticity-badge verified">✅ Camera metadata found</div>' : ''}
+                            ${p.status === 'flagged' ? '<div class="authenticity-badge flagged">⚠️ Flagged for review</div>' : ''}
+                        `;
+                    } else {
+                        slot.innerHTML = `
+                            <span class="placeholder-icon">📷</span>
+                            <span class="placeholder-label">Photo ${i + 1}</span>
+                            <input type="file" accept="image/*" data-index="${i}" />
+                        `;
+                    }
+                    el.photoGrid.appendChild(slot);
+                });
+
+                // wire up click-to-upload on empty slots
+                el.photoGrid.querySelectorAll('input[type="file"]').forEach(input => {
+                    input.addEventListener('change', function() {
+                        const idx = parseInt(this.dataset.index, 10);
+                        if (this.files && this.files[0]) onPhotoFileChosen(idx, this.files[0]);
+                    });
+                });
+                el.photoGrid.querySelectorAll('.photo-slot').forEach(slotEl => {
+                    slotEl.addEventListener('click', function(e) {
+                        if (e.target.classList.contains('photo-remove')) return;
+                        const idx = parseInt(this.dataset.index, 10);
+                        if (photos[idx].status === 'empty') {
+                            const input = this.querySelector('input[type="file"]');
+                            if (input) input.click();
+                        }
+                    });
+                });
+                el.photoGrid.querySelectorAll('.photo-remove').forEach(btn => {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        const idx = parseInt(this.dataset.index, 10);
+                        photos[idx] = { dataUrl: null, fileName: null, status: 'empty', reason: '' };
+                        renderPhotoGrid();
+                        updatePhotoAuthSummary();
+                    });
+                });
+            }
+
+            function onPhotoFileChosen(index, file) {
+                if (!file.type || !file.type.startsWith('image/')) {
+                    showToast('Please choose an image file', 'warning');
+                    return;
+                }
+                if (file.size > 12 * 1024 * 1024) {
+                    showToast('Image is too large (max 12MB)', 'warning');
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = async function(e) {
+                    photos[index] = { dataUrl: e.target.result, fileName: file.name, status: 'checking', reason: 'Analyzing…' };
+                    renderPhotoGrid();
+                    updatePhotoAuthSummary();
+                    const result = await checkImageAuthenticity(file);
+                    photos[index].status = result.flagged ? 'flagged' : 'verified';
+                    photos[index].reason = result.reason;
+                    renderPhotoGrid();
+                    updatePhotoAuthSummary();
+                };
+                reader.onerror = function() {
+                    showToast('Could not read that image file', 'error');
+                };
+                reader.readAsDataURL(file);
+            }
+
+            async function checkImageAuthenticity(file) {
+                // Heuristic screen only — see note above renderPhotoGrid().
+                try {
+                    if (typeof exifr === 'undefined') {
+                        return { flagged: true, reason: 'Metadata scanner unavailable — flagged for manual review' };
+                    }
+                    const meta = await exifr.parse(file, ['Make', 'Model', 'Software', 'DateTimeOriginal']).catch(() => null);
+
+                    const software = (meta && meta.Software) ? String(meta.Software).toLowerCase() : '';
+                    const aiToolPattern = /midjourney|dall-?e|stable diffusion|stablediffusion|firefly|dreamstudio|leonardo\.ai|runwayml|imagen|nightcafe|craiyon/;
+                    if (software && aiToolPattern.test(software)) {
+                        return { flagged: true, reason: `AI image-generation tool detected in file metadata (${meta.Software})` };
+                    }
+
+                    const hasCameraInfo = !!(meta && (meta.Make || meta.Model));
+                    if (!hasCameraInfo) {
+                        return {
+                            flagged: true,
+                            reason: 'No camera metadata found in this file — could be a screenshot, a download, an edited image, or AI-generated. Flagged for manual review, not auto-rejected.'
+                        };
+                    }
+                    const camera = [meta.Make, meta.Model].filter(Boolean).join(' ');
+                    return { flagged: false, reason: `Camera metadata found (${camera})` };
+                } catch (e) {
+                    return { flagged: true, reason: 'Could not read image metadata — flagged for manual review' };
+                }
+            }
+
+            function updatePhotoAuthSummary() {
+                const uploaded = photos.filter(p => p.status !== 'empty');
+                if (uploaded.length === 0) {
+                    el.photoAuthSummary.innerHTML = '📤 Upload clear photos of the front, rear, sides and interior. Each photo is automatically screened for signs it may be an AI-generated or non-original image.';
+                    return;
+                }
+                const checking = uploaded.filter(p => p.status === 'checking').length;
+                const flagged = uploaded.filter(p => p.status === 'flagged').length;
+                const verified = uploaded.filter(p => p.status === 'verified').length;
+                let msg = `<strong>${uploaded.length}/${MAX_PHOTOS} photo${uploaded.length === 1 ? '' : 's'} uploaded.</strong> `;
+                if (checking) msg += `${checking} scanning… `;
+                if (verified) msg += `<span class="ok">${verified} passed metadata check.</span> `;
+                if (flagged) msg += `<span class="warn">${flagged} flagged for manual review (no camera metadata / possible AI or edited image).</span>`;
+                el.photoAuthSummary.innerHTML = msg;
+            }
+
+            function renderReportPhotos() {
+                const uploaded = photos.filter(p => p.dataUrl);
+                if (uploaded.length === 0) {
+                    el.reportPhotosSection.style.display = 'none';
+                    return;
+                }
+                el.reportPhotosGrid.innerHTML = uploaded.map(p => `
+                    <div class="rp-item">
+                        <img src="${p.dataUrl}" alt="${escapeHTML(p.fileName || 'Vehicle photo')}" />
+                        <div class="rp-tag ${p.status === 'flagged' ? 'warn' : 'ok'}">${p.status === 'flagged' ? '⚠️ Review' : '✅ Verified'}</div>
+                    </div>
+                `).join('');
+                el.reportPhotosSection.style.display = 'block';
             }
 
             // ─── EVENT LISTENERS ─────────────────────────────────────────
@@ -2501,6 +2808,7 @@
                 showLoadingBar();
                 try {
                     populateYearSelect();
+                    renderPhotoGrid();
                     const supabaseOk = initSupabase();
                     if (!supabaseOk) {
                         setStatus('error', "Connection failed — please refresh");
