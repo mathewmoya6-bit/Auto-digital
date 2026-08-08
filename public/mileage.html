@@ -1295,7 +1295,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost · CRSP Base Price<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.6
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.7
             </div>
         </footer>
     </div>
@@ -1303,7 +1303,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.6 - CRSP base price properly sourced from vehicle_crsp_prices
+        // Version 8.7 - Fixed CRSP lookup and vehicle data loading
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1598,7 +1598,10 @@
                 if (filter) query = query.eq(filter.column, filter.value);
                 if (order) query = query.order(order.column, { ascending: order.ascending !== false });
                 const { data, error } = await query;
-                if (error) throw error;
+                if (error) {
+                    console.error('Query error:', error);
+                    throw error;
+                }
                 return data;
             }
 
@@ -1767,10 +1770,13 @@
                 try {
                     setStatus('info', 'Loading vehicle details...');
                     const data = await queryView('*', { column: 'variant_id', value: variantId });
-                    if (data && data.length > 0) return data[0];
+                    if (data && data.length > 0) {
+                        console.log(`✅ Loaded variant: ${data[0].make_name} ${data[0].model_name} ${data[0].engine_size_cc}cc`);
+                        return data[0];
+                    }
                     return null;
                 } catch (error) {
-                    console.error('Error loading vehicle details:', error);
+                    console.error('Error loading variant details:', error);
                     setStatus('error', error.message);
                     return null;
                 }
@@ -1948,18 +1954,18 @@
                     el.basePricePill.style.display = 'inline-block';
                     el.basePricePill.className = 'base-price-pill';
                 } else {
-                    el.basePricePill.textContent = '⚠️ No CRSP record found';
+                    el.basePricePill.textContent = '⚠️ No CRSP Record Found';
                     el.basePricePill.style.display = 'inline-block';
                     el.basePricePill.className = 'base-price-pill missing';
                 }
 
                 const specItems = [
                     { label: '🔧', value: variant.trim_level || 'Standard' },
-                    { label: '⚡', value: `${variant.power_hp || 0} HP` },
-                    { label: '🔄', value: `${variant.torque_nm || 0} Nm` },
-                    { label: '⛽', value: `${variant.fuel_consumption_combined || 0} km/L` },
-                    { label: '💺', value: `${variant.seats || 5} seats` },
-                    { label: '🚪', value: `${variant.doors || 4} doors` },
+                    { label: '⚡', value: variant.power_hp ? `${variant.power_hp} HP` : '—' },
+                    { label: '🔄', value: variant.torque_nm ? `${variant.torque_nm} Nm` : '—' },
+                    { label: '⛽', value: variant.fuel_consumption_combined ? `${variant.fuel_consumption_combined} km/L` : '—' },
+                    { label: '💺', value: variant.seats ? `${variant.seats} seats` : '—' },
+                    { label: '🚪', value: variant.doors ? `${variant.doors} doors` : '—' },
                     { label: '🚗', value: variant.body_type_name || variant.model_body_type || '—' },
                     { label: '🏷️', value: variant.category_name || '—' }
                 ];
@@ -2039,7 +2045,7 @@
                     payload.purchase_price = parseFloat(formData.purchase_price);
                     console.log(`💰 Using CRSP base price: KES ${payload.purchase_price}`);
                 } else {
-                    console.warn('⚠️ No CRSP base price available — API will use its own fallback');
+                    console.warn('⚠️ No CRSP base price available — using fallback');
                 }
 
                 console.log("📦 Running Cost Payload:", JSON.stringify(payload, null, 2));
@@ -2109,7 +2115,7 @@
                     down_payment_percent: parseInt(el.downPct.value) || 30,
                     interest_rate: parseFloat(el.rate.value) || 16,
                     loan_term: parseInt(el.term.value) || 4,
-                    purchase_price: currentBasePrice || null  // ← CRSP base price
+                    purchase_price: currentBasePrice || null
                 };
 
                 // Log what we're sending
