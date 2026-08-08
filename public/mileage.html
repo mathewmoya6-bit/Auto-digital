@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mileage & Running Cost Calculator — Auto-D Kenya</title>
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -1295,7 +1297,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost · CRSP Base Price<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.7
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.8
             </div>
         </footer>
     </div>
@@ -1303,7 +1305,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.7 - Fixed CRSP lookup and vehicle data loading
+        // Version 8.8 - Fixed CRSP fallback - throws error instead of 2.5M
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -2045,7 +2047,7 @@
                     payload.purchase_price = parseFloat(formData.purchase_price);
                     console.log(`💰 Using CRSP base price: KES ${payload.purchase_price}`);
                 } else {
-                    console.warn('⚠️ No CRSP base price available — using fallback');
+                    console.warn('⚠️ No CRSP base price available');
                 }
 
                 console.log("📦 Running Cost Payload:", JSON.stringify(payload, null, 2));
@@ -2101,6 +2103,16 @@
                 el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
                 showProgress(10, 'Loading vehicle data...');
 
+                // CRITICAL: Check if CRSP price exists BEFORE sending to API
+                if (!currentBasePrice) {
+                    showProgress(0, 'Checking CRSP data...');
+                    showToast('⚠️ No CRSP record found for this vehicle. Cannot calculate accurate costs.', 'warning');
+                    el.calculateBtn.disabled = false;
+                    el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
+                    hideProgress();
+                    return;
+                }
+
                 const inputs = {
                     variant_id: variant.variant_id,
                     distance: distance,
@@ -2115,15 +2127,10 @@
                     down_payment_percent: parseInt(el.downPct.value) || 30,
                     interest_rate: parseFloat(el.rate.value) || 16,
                     loan_term: parseInt(el.term.value) || 4,
-                    purchase_price: currentBasePrice || null
+                    purchase_price: currentBasePrice
                 };
 
-                // Log what we're sending
-                if (inputs.purchase_price) {
-                    console.log(`✅ Using CRSP base price: KES ${inputs.purchase_price}`);
-                } else {
-                    console.warn('⚠️ No CRSP base price found — API will use fallback');
-                }
+                console.log(`✅ Using CRSP base price: KES ${inputs.purchase_price}`);
 
                 showProgress(60, 'Calling API...');
 
@@ -2189,9 +2196,10 @@
                 const total5Year = result.five_year_total || result.total_5yr_cost || 0;
 
                 // CRITICAL FIX: Use the actual CRSP base price from vehicle_crsp_prices
+                // NO FALLBACK - throw error if no CRSP price
                 let originalCost = currentBasePrice;
                 
-                // If no CRSP price, check if result has it
+                // If no CRSP price, check if result has it from the backend
                 if (!originalCost && result.purchase_price) {
                     originalCost = result.purchase_price;
                 }
@@ -2201,13 +2209,15 @@
                     originalCost = result.original_cost;
                 }
                 
-                // ONLY use fallback if absolutely nothing else is available
+                // CRITICAL FIX: Throw error instead of using 2.5M fallback
                 if (!originalCost) {
-                    console.warn('⚠️ No CRSP or purchase price found — using fallback');
-                    originalCost = 2500000; // This is the fallback when no CRSP record exists
-                } else {
-                    console.log(`✅ Original price (CRSP): KES ${originalCost}`);
+                    const errorMsg = 'CRSP price unavailable for this vehicle. Cannot calculate an accurate 5-year ownership cost.';
+                    console.error('❌ ' + errorMsg);
+                    showToast('❌ ' + errorMsg, 'error');
+                    throw new Error(errorMsg);
                 }
+                
+                console.log(`✅ Original price (CRSP): KES ${originalCost}`);
                 
                 const remainingValue = result.resale_value || result.current_value || originalCost * 0.4;
 
@@ -2331,7 +2341,9 @@
                     if (currentBasePrice) {
                         showToast(`✅ CRSP base price: KES ${formatNumber(currentBasePrice)}`, 'success');
                     } else {
-                        showToast('⚠️ No CRSP record found for this vehicle', 'warning');
+                        showToast('⚠️ No CRSP record found for this vehicle. Cannot calculate accurate costs.', 'warning');
+                        // Disable calculate button if no CRSP
+                        el.calculateBtn.disabled = true;
                     }
                 } catch (error) {
                     console.error('Error loading variant:', error);
