@@ -4,7 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mileage & Running Cost Calculator — Auto-D Kenya</title>
-    <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -402,7 +401,7 @@
                     <select id="yearSelect"></select>
                 </div>
 
-                <!-- ─── CRSP INFO (aligned with Instant Value Check) ──── -->
+                <!-- ─── CRSP INFO ───────────────────────────────────────── -->
                 <div class="crsp-info" id="crspInfo">
                     <h4>🏛️ KRA CRSP Base Price Reference</h4>
                     <div id="crspInfoContent">
@@ -603,7 +602,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost · CRSP Base Price<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.10
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.11
             </div>
         </footer>
     </div>
@@ -611,7 +610,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.10 - CRSP lookup fully aligned with Instant Value Check
+        // Version 8.11 - CRSP lookup FIXED: queries ALL sibling variant IDs
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -634,13 +633,12 @@
             let currentUser = null;
             let isFinanced = false;
             let currentVariantData = null;
-            // ─── CRSP STATE (aligned with Instant Value Check) ───
-            let crspReferenceData = null;      // Full matched row from vehicle_crsp_prices
-            let currentBasePrice = null;        // crsp_kes from the matched row
+            let crspReferenceData = null;
+            let currentBasePrice = null;
             let routes = [];
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
-            let lastQueriedVariantId = null;
+            let lastQueriedVariantIds = [];
 
             const el = {
                 categorySelect: document.getElementById('categorySelect'),
@@ -921,25 +919,17 @@
             }
 
             // ═══════════════════════════════════════════════════════════════
-            // ─── CRSP LOOKUP — FULLY ALIGNED WITH INSTANT VALUE CHECK ───
+            // ─── CRSP LOOKUP — QUERIES ALL SIBLING VARIANT IDs ──────────
             // ═══════════════════════════════════════════════════════════════
             //
-            // Same function signature as Instant Value Check:
-            //   lookupCRSPBasePrice(variantId)
-            //   returns { id, make, model, model_number, transmission,
-            //             drive_configuration, engine_capacity, body_type,
-            //             fuel, crsp_kes, matchQuality } or null
-            //
-            // But to support the "grouped by engine capacity" dropdown in the
-            // Mileage calculator, we also accept an array of variant IDs
-            // (all siblings sharing the same cc) and query them with .in()
-            //
-            // This is the ONLY difference from the valuation file — it's a
-            // superset that handles both single ID and multiple ID lookups.
+            // FIX: Instead of querying just the selected variant ID (which may
+            // not have a CRSP record), we query ALL variant IDs that share the
+            // same engine capacity. This ensures we find the CRSP record even
+            // if it's keyed to a different trim level with the same cc.
 
             async function lookupCRSPBasePrice(variantIdOrIds) {
                 const ids = Array.isArray(variantIdOrIds) ? variantIdOrIds.filter(Boolean) : [variantIdOrIds].filter(Boolean);
-                lastQueriedVariantId = ids.length ? ids.join(', ') : null;
+                lastQueriedVariantIds = ids;
 
                 if (!supabaseClient || !isAuthenticated || ids.length === 0) {
                     console.log('ℹ️ CRSP lookup skipped (no client, not authenticated, or no variantId)');
@@ -953,7 +943,7 @@
                         .from(CONFIG.CRSP_TABLE)
                         .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes');
 
-                    // Use .in() for multiple IDs, .eq() for single — same result either way
+                    // CRITICAL FIX: Use .in() to query ALL sibling variant IDs
                     if (ids.length > 1) {
                         query = query.in('engine_capacity_id', ids);
                     } else {
@@ -971,11 +961,11 @@
                     const matched = {
                         ...data[0],
                         matchQuality: ids.length > 1
-                            ? 'exact engine capacity match (sibling trim)'
-                            : 'exact engine capacity match'
+                            ? `Found via sibling trim (${ids.length} variants checked)`
+                            : 'Found via exact variant match'
                     };
 
-                    console.log(`✅ CRSP record found: KES ${matched.crsp_kes} for ${matched.make} ${matched.model}`);
+                    console.log(`✅ CRSP record found: KES ${matched.crsp_kes} for ${matched.make} ${matched.model} (queried ${ids.length} variants)`);
                     return matched;
 
                 } catch (error) {
@@ -984,8 +974,6 @@
                 }
             }
 
-            // ─── REFRESH CRSP — updates module state and UI ──────────
-            // Same pattern as Instant Value Check's refreshCRSPReference()
             async function refreshCRSPReference(variantIdOrIds) {
                 crspReferenceData = await lookupCRSPBasePrice(variantIdOrIds);
                 currentBasePrice = crspReferenceData?.crsp_kes ?? null;
@@ -994,20 +982,22 @@
                 return crspReferenceData;
             }
 
-            // ─── UPDATE CRSP INFO PANEL ──────────────────────────────
-            // Matches the Instant Value Check's CRSP panel display
             function updateCRSPInfo() {
+                const idsDisplay = lastQueriedVariantIds.length > 0
+                    ? `[${lastQueriedVariantIds.join(', ')}] (${lastQueriedVariantIds.length} variants)`
+                    : '—';
+
                 if (!crspReferenceData || !crspReferenceData.crsp_kes) {
-                    el.crspMatchedLine.textContent = 'No CRSP row found for this ID';
+                    el.crspMatchedLine.textContent = 'No CRSP row found for these IDs';
                     el.crspMatchedLine.className = 'value crsp-missing';
                     el.crspBasePrice.textContent = '—';
                     el.crspBasePrice.className = 'value crsp-missing';
                     el.crspEngineCapacity.textContent = '—';
                     el.crspFuel.textContent = '—';
                     el.crspTransmission.textContent = '—';
-                    el.crspQueryMethod.textContent = lastQueriedVariantId ? `Queried ID(s): ${lastQueriedVariantId}` : '—';
+                    el.crspQueryMethod.textContent = `Queried IDs: ${idsDisplay}`;
                     el.crspInfo.classList.add('show');
-                    // Update pill
+
                     el.basePricePill.textContent = '⚠️ No CRSP Record Found';
                     el.basePricePill.style.display = 'inline-block';
                     el.basePricePill.className = 'base-price-pill missing';
@@ -1024,10 +1014,11 @@
                 el.crspEngineCapacity.textContent = data.engine_capacity || '—';
                 el.crspFuel.textContent = data.fuel || '—';
                 el.crspTransmission.textContent = data.transmission || '—';
-                el.crspQueryMethod.textContent = data.matchQuality || `Queried ID(s): ${lastQueriedVariantId || '—'}`;
+
+                const method = data.matchQuality || `Found via querying ${lastQueriedVariantIds.length} variant(s)`;
+                el.crspQueryMethod.textContent = `${method} | IDs: ${idsDisplay}`;
                 el.crspInfo.classList.add('show');
 
-                // Update pill
                 el.basePricePill.textContent = `CRSP Base: KES ${formatNumber(data.crsp_kes)}`;
                 el.basePricePill.style.display = 'inline-block';
                 el.basePricePill.className = 'base-price-pill';
@@ -1331,11 +1322,17 @@
                     setStatus('warning', 'No engine capacities match the selected fuel type');
                     return;
                 }
+
                 engineGroups.forEach(group => {
                     const opt = document.createElement('option');
+                    // Store the REPRESENTATIVE variant ID as the value
                     opt.value = group.variants[0].variant_id;
-                    // Store ALL variant IDs for this engine capacity — used for CRSP lookup
-                    opt.dataset.variantIds = group.variants.map(v => v.variant_id).join(',');
+                    // Store ALL variant IDs for this engine capacity in a data attribute
+                    // This is the key fix: we store all siblings so CRSP lookup can query all of them
+                    const allVariantIds = group.variants.map(v => v.variant_id);
+                    opt.dataset.variantIds = allVariantIds.join(',');
+                    opt.dataset.variantCount = allVariantIds.length;
+
                     const fuelTypes = [...new Set(group.variants.map(v => v.fuel_type_name || 'Unknown'))];
                     let label = `${group.engine_size_cc}cc`;
                     if (fuelTypes.length > 0) label += ` (${fuelTypes.join('/')})`;
@@ -1343,8 +1340,17 @@
                     opt.textContent = label;
                     select.appendChild(opt);
                 });
+
+                // Log the data-variant-ids for debugging
+                console.log('🔍 Engine capacity options loaded with sibling variant IDs:');
+                select.querySelectorAll('option').forEach(opt => {
+                    if (opt.value) {
+                        console.log(`  ${opt.textContent} → IDs: ${opt.dataset.variantIds}`);
+                    }
+                });
+
                 select.disabled = false;
-                setStatus('success', `✅ Loaded ${engineGroups.length} engine capacities`);
+                setStatus('success', `✅ Loaded ${engineGroups.length} engine capacities (with sibling variant data)`);
             }
 
             function displayVehicleInfo(variant) {
@@ -1359,7 +1365,6 @@
                 const engineCC = variant.engine_size_cc || null;
                 el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
 
-                // Show CRSP base price if available (updated by updateCRSPInfo)
                 if (currentBasePrice) {
                     el.basePricePill.textContent = `CRSP Base: KES ${formatNumber(currentBasePrice)}`;
                     el.basePricePill.style.display = 'inline-block';
@@ -1457,7 +1462,6 @@
                     include_depreciation: true
                 };
 
-                // CRITICAL: Use the actual CRSP base price from vehicle_crsp_prices table
                 if (formData.purchase_price) {
                     payload.purchase_price = parseFloat(formData.purchase_price);
                     console.log(`💰 Using CRSP base price: KES ${payload.purchase_price}`);
@@ -1497,10 +1501,6 @@
                 return result;
             }
 
-            // ═══════════════════════════════════════════════════════════════
-            // SCHEMA-ALIGNED PERSISTENCE
-            // ═══════════════════════════════════════════════════════════════
-
             async function fetchRunningCostRate(variant, annualKm) {
                 if (!supabaseClient || !variant) return null;
                 try {
@@ -1521,8 +1521,7 @@
                     if (error) throw error;
                     if (!data || data.length === 0) {
                         console.warn('⚠️ No vehicle_running_cost_rates row for engine_capacity_id ' +
-                            `${variant.variant_id} (fuel_type=${variant.fuel_type_name}). ` +
-                            'running_cost_rate_id cannot be resolved.');
+                            `${variant.variant_id} (fuel_type=${variant.fuel_type_name}).`);
                         return null;
                     }
 
@@ -1585,8 +1584,7 @@
                 try {
                     const rateRow = await fetchRunningCostRate(variant, annualKm);
                     if (!rateRow) {
-                        console.error('❌ Skipping save: no matching vehicle_running_cost_rates row ' +
-                            `(engine_capacity_id=${variant.variant_id}). running_cost_rate_id is NOT NULL.`);
+                        console.error('❌ Skipping save: no matching vehicle_running_cost_rates row.');
                         showToast('⚠️ Calculation shown, but not saved — no rate row for this vehicle yet', 'warning');
                         return null;
                     }
@@ -1606,9 +1604,8 @@
             }
 
             async function saveOwnershipCost(result, variant, annualKm, fuelPrice) {
-                // Use crspReferenceData.id (the matched CRSP row's primary key)
                 if (!crspReferenceData || !crspReferenceData.id) {
-                    console.error('❌ Skipping ownership-cost save: no CRSP row loaded (crsp_id is NOT NULL).');
+                    console.error('❌ Skipping ownership-cost save: no CRSP row loaded.');
                     return null;
                 }
 
@@ -1632,7 +1629,7 @@
                 const total_ownership_cost = result.five_year_total || result.total_5yr_cost || 0;
 
                 const row = {
-                    crsp_id: crspReferenceData.id,  // FK to vehicle_crsp_prices.id
+                    crsp_id: crspReferenceData.id,
                     annual_mileage: annualKm,
                     ownership_years: 5,
                     crsp_price: currentBasePrice,
@@ -1651,7 +1648,7 @@
                     monthly_running_cost,
                     cost_per_km,
                     total_ownership_cost,
-                    calculation_version: 'v8.10',
+                    calculation_version: 'v8.11',
                     calculated_at: new Date().toISOString(),
                     created_at: new Date().toISOString()
                 };
@@ -1692,7 +1689,6 @@
                 el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
                 showProgress(10, 'Loading vehicle data...');
 
-                // CRSP check — must have a base price to proceed
                 if (!currentBasePrice) {
                     showProgress(0, 'Checking CRSP data...');
                     showToast('⚠️ No CRSP record found for this vehicle. Cannot calculate accurate costs.', 'warning');
@@ -1716,7 +1712,7 @@
                     down_payment_percent: parseInt(el.downPct.value) || 30,
                     interest_rate: parseFloat(el.rate.value) || 16,
                     loan_term: parseInt(el.term.value) || 4,
-                    purchase_price: currentBasePrice  // <-- same as Instant Value Check
+                    purchase_price: currentBasePrice
                 };
 
                 console.log(`✅ Using CRSP base price: KES ${inputs.purchase_price}`);
@@ -1787,8 +1783,6 @@
                 const fiveYearData = result.fiveYearData || result.yearly_breakdown || [];
                 const total5Year = result.five_year_total || result.total_5yr_cost || 0;
 
-                // Original price MUST come from the CRSP lookup (currentBasePrice),
-                // same as the valuation file — no synthetic fallback figure.
                 let originalCost = currentBasePrice;
                 if (!originalCost && result.purchase_price) originalCost = result.purchase_price;
                 if (!originalCost && result.original_cost) originalCost = result.original_cost;
@@ -1967,29 +1961,48 @@
                     if (genId) await populateEngineCapacities(genId);
                 });
 
+                // ─── CRITICAL FIX: Engine Capacity Change Handler ──────
                 el.engineCapacitySelect.addEventListener('change', async function() {
-                    const variantId = this.value;
                     const selectedOpt = this.options[this.selectedIndex];
+                    if (!selectedOpt || !selectedOpt.value) {
+                        el.calculateBtn.disabled = true;
+                        currentVariantData = null;
+                        crspReferenceData = null;
+                        currentBasePrice = null;
+                        return;
+                    }
+
+                    // Get the representative variant ID (the one shown in the dropdown)
+                    const variantId = selectedOpt.value;
+
                     // Get ALL sibling variant IDs that share this engine capacity
-                    const siblingIds = selectedOpt?.dataset?.variantIds
-                        ? selectedOpt.dataset.variantIds.split(',').filter(Boolean)
-                        : (variantId ? [variantId] : []);
+                    const siblingIds = selectedOpt.dataset.variantIds
+                        ? selectedOpt.dataset.variantIds.split(',').filter(Boolean).map(Number)
+                        : [parseInt(variantId)];
+
+                    const variantCount = parseInt(selectedOpt.dataset.variantCount) || siblingIds.length;
+
+                    console.log(`🔍 Engine capacity selected: ${selectedOpt.textContent}`);
+                    console.log(`   Representative variant ID: ${variantId}`);
+                    console.log(`   All sibling variant IDs (${variantCount}): [${siblingIds.join(', ')}]`);
 
                     el.calculateBtn.disabled = true;
                     currentVariantData = null;
                     crspReferenceData = null;
                     currentBasePrice = null;
 
-                    if (!variantId) return;
-
+                    // Load the representative variant details for display
                     const variant = await loadVariantDetails(variantId);
                     if (variant) {
                         currentVariantData = variant;
-                        // ─── CRSP LOOKUP (aligned with Instant Value Check) ───
-                        // Pass ALL sibling variant IDs so the lookup finds the CRSP
-                        // row even if it's keyed to a different trim with the same cc
-                        await refreshCRSPReference(siblingIds.length ? siblingIds : variantId);
+
+                        // CRITICAL FIX: Query ALL sibling variant IDs, not just the representative
+                        // This ensures we find the CRSP record even if it's keyed to a different trim
+                        await refreshCRSPReference(siblingIds);
+
                         el.calculateBtn.disabled = false;
+                    } else {
+                        showToast('Failed to load vehicle details', 'error');
                     }
                 });
 
@@ -2057,7 +2070,7 @@
                     await loadRoutes();
                     renderRouteChips();
                     el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
-                    console.log('✅ Auto-D Kenya Mileage & Running Cost Calculator initialized');
+                    console.log('✅ Auto-D Kenya Mileage & Running Cost Calculator initialized (v8.11)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🏛️ CRSP Table: ${CONFIG.CRSP_TABLE}`);
                 } catch (error) {
