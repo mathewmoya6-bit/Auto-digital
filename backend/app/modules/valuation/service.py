@@ -209,54 +209,223 @@ class ValuationService:
         
         logger.info(f"Base price: KES {base_price:,.2f}")
         
-        # ─── CALL DATABASE VALUATION FUNCTION ──────────────────────────
-        
-        try:
-            # Call the database function directly with the variant_id
-            result_data = (
-                self.supabase
-                .rpc(
-                    "calculate_vehicle_value",
-                    {
-                        "p_crsp_id": variant_id,
-                        "p_manufacture_year": year,
-                        "p_mileage": mileage,
-                        "p_condition": condition,
-                        "p_accident_status": accident_history,
-                        "p_location": location.upper()
-                    }
+        # ─── RESOLVE CRSP ID + MODEL ID ────────────────────────────────
+
+        # The PostgreSQL function requires:
+        #
+        # p_crsp_id
+        # p_model_id
+        # p_manufacture_year
+        # p_mileage
+        # p_condition
+        # p_accident_status
+        # p_location
+        #
+        # variant_id is retained for backwards compatibility with the API,
+        # but it must not automatically be assumed to be model_id.
+
+        crsp_id = variant_id
+        model_id = None
+
+        # Try to obtain model_id from vehicle_master_specs first.
+        model_id_candidates = [
+            variant_data.get("model_id"),
+            variant_data.get("vehicle_model_id"),
+            variant_data.get("crsp_model_id"),
+        ]
+
+        for candidate in model_id_candidates:
+            if candidate is not None:
+                try:
+                    candidate_id = int(candidate)
+                    if candidate_id > 0:
+                        model_id = candidate_id
+                        break
+                except (ValueError, TypeError):
+                    continue
+
+        # If vehicle_master_specs did not provide model_id, try resolving it
+        # from the CRSP/master vehicle table.
+        if model_id is None:
+            try:
+                logger.info(
+                    f"Resolving model_id for CRSP/variant {crsp_id}"
                 )
-                .execute()
+
+                crsp_response = (
+                    self.supabase
+                    .table("vehicle_crsp")
+                    .select("id, model_id")
+                    .eq("id", crsp_id)
+                    .limit(1)
+                    .execute()
+                )
+
+                if crsp_response.data:
+                    resolved_model_id = crsp_response.data[0].get("model_id")
+
+                    if resolved_model_id is not None:
+                        model_id = int(resolved_model_id)
+
+                        logger.info(
+                            f"Resolved CRSP {crsp_id} -> model_id {model_id}"
+                        )
+
+            except Exception as e:
+                logger.warning(
+                    f"Could not resolve model_id from vehicle_crsp: {e}"
+                )
+
+        # Final validation before calling PostgreSQL.
+        if model_id is None or model_id <= 0:
+            logger.error(
+                f"Unable to resolve model_id for CRSP/variant {crsp_id}"
             )
-            
-            if not result_data.data:
-                raise Exception("Database valuation returned no result")
-            
-            db_value = result_data.data[0]
-            
-            # Build result from database response
-            result = {
-                "market_value": float(db_value["final_value"]),
-                "retail_value": float(db_value["final_value"]) * 1.08,
-                "trade_value": float(db_value["final_value"]) * 0.85,
-                "dealer_value": float(db_value["final_value"]) * 0.95,
-                "confidence_score": float(db_value["confidence_score"]),
-                "adjustments": {
-                    "mileage": db_value["mileage_adjustment"],
-                    "condition": db_value["condition_adjustment"],
-                    "accident": db_value["accident_adjustment"],
-                    "location": db_value["location_adjustment"],
-                },
-                "sample_size": 0,
-                "comparables": []
-            }
-            
-            logger.info("Valuation calculation completed successfully using database function")
-            
-        except Exception as e:
-            logger.error(f"Database valuation failed: {e}")
-            # Fallback to local calculation if database function fails
-            result = self._create_fallback_valuation(vehicle, year, mileage, base_price)
+
+            # Do not send an invalid RPC request.
+            # Fall back to the local valuation engine.
+            result = self._create_fallback_valuation(
+                vehicle,
+                year,
+                mileage,
+                base_price
+            )
+
+        else:
+
+            # ─── CALL DATABASE VALUATION FUNCTION ──────────────────────
+
+            try:
+                logger.info(
+                    "Calling calculate_vehicle_value: "
+                    f"crsp_id={crsp_id}, "
+                    f"model_id={model_id}, "
+                    f"year={year}, "
+                    f"mileage={mileage}, "
+                    f"condition={condition}, "
+                    f"accident={accident_history}, "
+                    f"location={location.upper()}"
+                )
+
+                result_data = (
+                    self.supabase
+                    .rpc(
+                        "calculate_vehicle_value",
+                        {
+                            "p_crsp_id": int(crsp_id),
+                            "p_model_id": int(model_id),
+                            "p_manufacture_year": int(year),
+                            "p_mileage": int(mileage),
+                            "p_condition": condition,
+                            "p_accident_status": accident_history,
+                            "p_location": location.upper(),
+                        }
+                    )
+                    .execute()
+                )
+
+                if not result_data.data:
+                    raise Exception(
+                        "Database valuation returned no result"
+                    )
+
+                db_value = result_data.data[0]
+
+                logger.info(
+                    "Database valuation result: "
+                    f"crsp_value={db_value.get('crsp_value')}, "
+                    f"fair_market_value={db_value.get('fair_market_value')}, "
+                    f"final_value={db_value.get('final_value')}, "
+                    f"confidence={db_value.get('confidence_score')}"
+                )
+
+                # Use the database's calculated final value.
+                final_value = float(
+                    db_value.get("final_value") or
+                    db_value.get("fair_market_value") or
+                    db_value.get("depreciated_value") or
+                    0
+                )
+
+                if final_value <= 0:
+                    raise Exception(
+                        "Database valuation returned an invalid final value"
+                    )
+
+                result = {
+                    "market_value": final_value,
+
+                    # Preserve your existing API contract.
+                    "retail_value": final_value * 1.08,
+                    "trade_value": final_value * 0.85,
+                    "dealer_value": final_value * 0.95,
+
+                    "confidence_score": float(
+                        db_value.get("confidence_score") or 0
+                    ),
+
+                    "adjustments": {
+                        "mileage": float(
+                            db_value.get("mileage_adjustment") or 0
+                        ),
+                        "condition": float(
+                            db_value.get("condition_adjustment") or 0
+                        ),
+                        "accident": float(
+                            db_value.get("accident_adjustment") or 0
+                        ),
+                        "location": float(
+                            db_value.get("location_adjustment") or 0
+                        ),
+                        "market": float(
+                            db_value.get("market_adjustment") or 0
+                        ),
+                    },
+
+                    # Additional database calculation details.
+                    "crsp_value": float(
+                        db_value.get("crsp_value") or 0
+                    ),
+                    "vehicle_age": int(
+                        db_value.get("vehicle_age") or 0
+                    ),
+                    "depreciation_rate": float(
+                        db_value.get("depreciation_rate") or 0
+                    ),
+                    "depreciated_value": float(
+                        db_value.get("depreciated_value") or 0
+                    ),
+                    "fair_market_value": float(
+                        db_value.get("fair_market_value") or 0
+                    ),
+                    "profit_margin_rate": float(
+                        db_value.get("profit_margin_rate") or 0
+                    ),
+                    "profit_margin_amount": float(
+                        db_value.get("profit_margin_amount") or 0
+                    ),
+
+                    "sample_size": 0,
+                    "comparables": [],
+                }
+
+                logger.info(
+                    "Valuation calculation completed successfully "
+                    "using database function"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"Database valuation failed: {e}"
+                )
+
+                # Fallback to local calculation if database valuation fails.
+                result = self._create_fallback_valuation(
+                    vehicle,
+                    year,
+                    mileage,
+                    base_price
+                )
         
         # ─── FIX CONFIDENCE SCORE ───────────────────────────────────────
         
