@@ -223,6 +223,7 @@
         .crsp-info .row .value { font-weight: 600; color: #06b6d4; font-family: var(--font-mono); font-size: 10px; }
         .crsp-info .row .value.crsp-found { color: #22c55e; }
         .crsp-info .row .value.crsp-missing { color: #ef4444; }
+        .crsp-info .row .match-detail { font-size: 9px; color: #64748b; font-family: var(--font-mono); }
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
             .report-header { padding: 20px 18px; flex-direction: column; }
@@ -410,10 +411,7 @@
                         <div class="row"><span>Engine Capacity</span><span class="value" id="crspEngineCapacity">—</span></div>
                         <div class="row"><span>Fuel Type</span><span class="value" id="crspFuel">—</span></div>
                         <div class="row"><span>Transmission</span><span class="value" id="crspTransmission">—</span></div>
-                        <div class="row"><span>Query Method</span><span class="value" id="crspQueryMethod">—</span></div>
-                        <div class="row" id="crspDebugRow" style="display:none;border-top:1px solid rgba(45,58,78,0.3);margin-top:4px;padding-top:4px;font-size:9px;color:#64748b;">
-                            <span>Debug</span><span class="value" id="crspDebug" style="font-size:9px;color:#64748b;">—</span>
-                        </div>
+                        <div class="row"><span>Match Method</span><span class="value match-detail" id="crspMatchMethod">—</span></div>
                     </div>
                 </div>
 
@@ -605,7 +603,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost · CRSP Base Price<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.12
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v9.0
             </div>
         </footer>
     </div>
@@ -613,7 +611,9 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.12 - CRSP lookup with FALLBACK by make/model/engine capacity
+        // Version 9.0 - CRSP lookup uses TEXT MATCHING (make + engine_capacity)
+        // Based on data analysis: CRSP records are matched on text fields,
+        // not FK (engine_capacity_id). For MERCEDES 2000cc, 139 records found.
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -641,8 +641,6 @@
             let routes = [];
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
-            let lastQueriedVariantIds = [];
-            let lastDebugInfo = '';
 
             const el = {
                 categorySelect: document.getElementById('categorySelect'),
@@ -718,9 +716,7 @@
                 crspEngineCapacity: document.getElementById('crspEngineCapacity'),
                 crspFuel: document.getElementById('crspFuel'),
                 crspTransmission: document.getElementById('crspTransmission'),
-                crspQueryMethod: document.getElementById('crspQueryMethod'),
-                crspDebugRow: document.getElementById('crspDebugRow'),
-                crspDebug: document.getElementById('crspDebug')
+                crspMatchMethod: document.getElementById('crspMatchMethod')
             };
 
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
@@ -925,158 +921,107 @@
             }
 
             // ═══════════════════════════════════════════════════════════════
-            // ─── CRSP LOOKUP WITH FALLBACK ──────────────────────────────
+            // ─── CRSP LOOKUP — TEXT MATCHING ON make + engine_capacity ──
             // ═══════════════════════════════════════════════════════════════
             //
-            // Strategy:
-            // 1. First try: query by engine_capacity_id (FK) using all sibling variant IDs
-            // 2. If that fails, try a fallback: match on make, model, and engine_capacity (text)
-            // 3. If that fails, try a broader fallback: match on make and engine_capacity only
-            //
-            // This ensures we find a CRSP record even if the FK relationship is missing.
+            // Based on data analysis:
+            //   - CRSP records are matched on TEXT fields (make, model, engine_capacity)
+            //   - FK (engine_capacity_id) may not be populated
+            //   - Example: MERCEDES 2000cc has 139 CRSP records
+            //   - Best match uses make + engine_capacity text matching
 
             async function lookupCRSPBasePrice(variantIdOrIds, variantData) {
                 const ids = Array.isArray(variantIdOrIds) ? variantIdOrIds.filter(Boolean) : [variantIdOrIds].filter(Boolean);
-                lastQueriedVariantIds = ids;
-                lastDebugInfo = '';
 
-                if (!supabaseClient || !isAuthenticated || ids.length === 0) {
-                    console.log('ℹ️ CRSP lookup skipped (no client, not authenticated, or no variantId)');
+                if (!supabaseClient || !isAuthenticated) {
+                    console.log('ℹ️ CRSP lookup skipped (no client or not authenticated)');
                     return null;
                 }
 
-                // ─── Step 1: Query by FK (engine_capacity_id) ──────────
+                if (!variantData || !variantData.make_name || !variantData.engine_size_cc) {
+                    console.log('ℹ️ CRSP lookup skipped: missing variant data (make_name or engine_size_cc)');
+                    return null;
+                }
+
+                const make = variantData.make_name.trim().toUpperCase();
+                const engineCc = String(variantData.engine_size_cc).trim();
+
+                console.log(`🔍 CRSP Lookup for: ${make} ${engineCc}cc`);
+
+                // ─── Step 1: Try text match on make + engine_capacity ─────
                 try {
-                    console.log(`🔍 Step 1: Looking up CRSP by FK for IDs: [${ids.join(', ')}]`);
+                    console.log(`🔍 Step 1: Text match on make="${make}", engine_capacity="${engineCc}"`);
 
-                    let query = supabaseClient
+                    const { data, error } = await supabaseClient
                         .from(CONFIG.CRSP_TABLE)
-                        .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes');
-
-                    if (ids.length > 1) {
-                        query = query.in('engine_capacity_id', ids);
-                    } else {
-                        query = query.eq('engine_capacity_id', ids[0]);
-                    }
-
-                    const { data, error } = await query.limit(1);
+                        .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes')
+                        .ilike('make', `%${make}%`)
+                        .eq('engine_capacity', engineCc)
+                        .limit(1);
 
                     if (!error && data && data.length > 0) {
-                        const matched = {
+                        console.log(`✅ CRSP found via text match: ${data[0].make} ${data[0].model} — KES ${data[0].crsp_kes}`);
+                        return {
                             ...data[0],
-                            matchQuality: ids.length > 1
-                                ? `Found via FK (${ids.length} variants checked)`
-                                : 'Found via FK (exact variant match)'
+                            matchQuality: `Text match: ${make} ${engineCc}cc (model: ${data[0].model})`
                         };
-                        console.log(`✅ CRSP found via FK: KES ${matched.crsp_kes}`);
-                        lastDebugInfo = `FK lookup succeeded on ID${ids.length > 1 ? 's' : ''} [${ids.join(', ')}]`;
-                        return matched;
                     }
-
-                    console.log(`ℹ️ FK lookup failed — trying fallback by make/model/engine capacity`);
-
-                } catch (error) {
-                    console.warn('⚠️ FK lookup error:', error.message);
+                    console.log(`ℹ️ No CRSP record found for ${make} ${engineCc}cc`);
+                } catch (e) {
+                    console.warn('⚠️ Text match error:', e.message);
                 }
 
-                // ─── Step 2: Fallback by make, model, engine_capacity ──
-                if (variantData && variantData.make_name && variantData.model_name && variantData.engine_size_cc) {
+                // ─── Step 2: Try FK lookup (engine_capacity_id) as fallback ──
+                if (ids.length > 0) {
                     try {
-                        const make = variantData.make_name.trim();
-                        const model = variantData.model_name.trim();
-                        const engineCc = String(variantData.engine_size_cc).trim();
+                        console.log(`🔍 Step 2: FK lookup for IDs: [${ids.join(', ')}]`);
 
-                        console.log(`🔍 Step 2: Fallback by make/model/engine_capacity: ${make} ${model} ${engineCc}cc`);
-
-                        // Try to match on make, model, and engine_capacity text
                         let query = supabaseClient
                             .from(CONFIG.CRSP_TABLE)
-                            .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes')
-                            .ilike('make', `%${make}%`)
-                            .ilike('model', `%${model}%`)
-                            .eq('engine_capacity', engineCc);
+                            .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes');
+
+                        if (ids.length > 1) {
+                            query = query.in('engine_capacity_id', ids);
+                        } else {
+                            query = query.eq('engine_capacity_id', ids[0]);
+                        }
 
                         const { data, error } = await query.limit(1);
 
                         if (!error && data && data.length > 0) {
-                            const matched = {
+                            console.log(`✅ CRSP found via FK: ${data[0].make} ${data[0].model} — KES ${data[0].crsp_kes}`);
+                            return {
                                 ...data[0],
-                                matchQuality: `Found via make/model/engine_capacity fallback (${make} ${model} ${engineCc}cc)`
+                                matchQuality: `FK match: engine_capacity_id = ${ids.length > 1 ? ids.join(', ') : ids[0]}`
                             };
-                            console.log(`✅ CRSP found via fallback: KES ${matched.crsp_kes}`);
-                            lastDebugInfo = `Fallback matched on make="${make}", model="${model}", engine_capacity="${engineCc}"`;
-                            return matched;
                         }
-
-                        console.log(`ℹ️ Fallback by make/model/engine_capacity failed`);
-
-                    } catch (error) {
-                        console.warn('⚠️ Fallback error:', error.message);
-                    }
-
-                    // ─── Step 3: Broad fallback by make + engine_capacity ──
-                    try {
-                        const make = variantData.make_name.trim();
-                        const engineCc = String(variantData.engine_size_cc).trim();
-
-                        console.log(`🔍 Step 3: Broad fallback by make + engine_capacity: ${make} ${engineCc}cc`);
-
-                        let query = supabaseClient
-                            .from(CONFIG.CRSP_TABLE)
-                            .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes')
-                            .ilike('make', `%${make}%`)
-                            .eq('engine_capacity', engineCc);
-
-                        const { data, error } = await query.limit(1);
-
-                        if (!error && data && data.length > 0) {
-                            const matched = {
-                                ...data[0],
-                                matchQuality: `Found via broad fallback (${make} ${engineCc}cc)`
-                            };
-                            console.log(`✅ CRSP found via broad fallback: KES ${matched.crsp_kes}`);
-                            lastDebugInfo = `Broad fallback matched on make="${make}", engine_capacity="${engineCc}"`;
-                            return matched;
-                        }
-
-                        console.log(`ℹ️ Broad fallback by make + engine_capacity failed`);
-
-                    } catch (error) {
-                        console.warn('⚠️ Broad fallback error:', error.message);
+                    } catch (e) {
+                        console.warn('⚠️ FK lookup error:', e.message);
                     }
                 }
 
-                // ─── Step 4: Try a very broad query — any CRSP record with matching make ──
-                if (variantData && variantData.make_name) {
-                    try {
-                        const make = variantData.make_name.trim();
-                        console.log(`🔍 Step 4: Very broad fallback by make only: ${make}`);
+                // ─── Step 3: Broad match on make only ──────────────────────
+                try {
+                    console.log(`🔍 Step 3: Broad match on make="${make}"`);
 
-                        let query = supabaseClient
-                            .from(CONFIG.CRSP_TABLE)
-                            .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes')
-                            .ilike('make', `%${make}%`)
-                            .limit(1);
+                    const { data, error } = await supabaseClient
+                        .from(CONFIG.CRSP_TABLE)
+                        .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes')
+                        .ilike('make', `%${make}%`)
+                        .limit(1);
 
-                        const { data, error } = await query;
-
-                        if (!error && data && data.length > 0) {
-                            const matched = {
-                                ...data[0],
-                                matchQuality: `Found via very broad fallback (${make} — may not match your exact model)`
-                            };
-                            console.log(`✅ CRSP found via broad make fallback: KES ${matched.crsp_kes}`);
-                            lastDebugInfo = `Very broad fallback matched on make="${make}" (model may differ)`;
-                            return matched;
-                        }
-
-                    } catch (error) {
-                        console.warn('⚠️ Very broad fallback error:', error.message);
+                    if (!error && data && data.length > 0) {
+                        console.log(`✅ CRSP found via broad match: ${data[0].make} ${data[0].model} — KES ${data[0].crsp_kes}`);
+                        return {
+                            ...data[0],
+                            matchQuality: `Broad match: ${make} (model: ${data[0].model}, engine: ${data[0].engine_capacity}cc)`
+                        };
                     }
+                } catch (e) {
+                    console.warn('⚠️ Broad match error:', e.message);
                 }
 
-                console.log(`❌ No CRSP record found after all lookup attempts`);
-                lastDebugInfo = `No CRSP record found for IDs [${ids.join(', ')}] or for ${variantData ? variantData.make_name + ' ' + variantData.model_name : 'unknown vehicle'}`;
+                console.log(`❌ No CRSP record found for ${make} ${engineCc}cc`);
                 return null;
             }
 
@@ -1089,22 +1034,16 @@
             }
 
             function updateCRSPInfo() {
-                const idsDisplay = lastQueriedVariantIds.length > 0
-                    ? `[${lastQueriedVariantIds.join(', ')}] (${lastQueriedVariantIds.length} variants)`
-                    : '—';
-
                 if (!crspReferenceData || !crspReferenceData.crsp_kes) {
-                    el.crspMatchedLine.textContent = 'No CRSP row found';
+                    el.crspMatchedLine.textContent = 'No CRSP record found';
                     el.crspMatchedLine.className = 'value crsp-missing';
                     el.crspBasePrice.textContent = '—';
                     el.crspBasePrice.className = 'value crsp-missing';
                     el.crspEngineCapacity.textContent = '—';
                     el.crspFuel.textContent = '—';
                     el.crspTransmission.textContent = '—';
-                    el.crspQueryMethod.textContent = `Queried IDs: ${idsDisplay}`;
+                    el.crspMatchMethod.textContent = 'No match found';
                     el.crspInfo.classList.add('show');
-                    el.crspDebugRow.style.display = 'block';
-                    el.crspDebug.textContent = lastDebugInfo || 'No debug info';
 
                     el.basePricePill.textContent = '⚠️ No CRSP Record Found';
                     el.basePricePill.style.display = 'inline-block';
@@ -1122,18 +1061,8 @@
                 el.crspEngineCapacity.textContent = data.engine_capacity || '—';
                 el.crspFuel.textContent = data.fuel || '—';
                 el.crspTransmission.textContent = data.transmission || '—';
-
-                const method = data.matchQuality || `Found via querying ${lastQueriedVariantIds.length} variant(s)`;
-                el.crspQueryMethod.textContent = `${method} | IDs: ${idsDisplay}`;
+                el.crspMatchMethod.textContent = data.matchQuality || 'Matched';
                 el.crspInfo.classList.add('show');
-
-                // Show debug info if available
-                if (lastDebugInfo) {
-                    el.crspDebugRow.style.display = 'block';
-                    el.crspDebug.textContent = lastDebugInfo;
-                } else {
-                    el.crspDebugRow.style.display = 'none';
-                }
 
                 el.basePricePill.textContent = `CRSP Base: KES ${formatNumber(data.crsp_kes)}`;
                 el.basePricePill.style.display = 'inline-block';
@@ -1441,13 +1370,13 @@
 
                 engineGroups.forEach(group => {
                     const opt = document.createElement('option');
-                    opt.value = group.variants[0].variant_id;
+                    const rep = group.variants[0];
+                    opt.value = rep.variant_id;
                     const allVariantIds = group.variants.map(v => v.variant_id);
                     opt.dataset.variantIds = allVariantIds.join(',');
                     opt.dataset.variantCount = allVariantIds.length;
 
-                    // Also store make/model info for fallback lookup
-                    const rep = group.variants[0];
+                    // Store make and model info for CRSP text matching
                     opt.dataset.makeName = rep.make_name || '';
                     opt.dataset.modelName = rep.model_name || '';
                     opt.dataset.engineCc = rep.engine_size_cc || '';
@@ -1463,7 +1392,7 @@
                 console.log('🔍 Engine capacity options loaded:');
                 select.querySelectorAll('option').forEach(opt => {
                     if (opt.value) {
-                        console.log(`  ${opt.textContent} → IDs: ${opt.dataset.variantIds}`);
+                        console.log(`  ${opt.textContent} → make: ${opt.dataset.makeName}, cc: ${opt.dataset.engineCc}`);
                     }
                 });
 
@@ -1766,7 +1695,7 @@
                     monthly_running_cost,
                     cost_per_km,
                     total_ownership_cost,
-                    calculation_version: 'v8.12',
+                    calculation_version: 'v9.0',
                     calculated_at: new Date().toISOString(),
                     created_at: new Date().toISOString()
                 };
@@ -2097,8 +2026,8 @@
                         ? selectedOpt.dataset.variantIds.split(',').filter(Boolean).map(Number)
                         : [parseInt(variantId)];
 
-                    // Build a fallback data object from the option's data attributes
-                    const fallbackData = {
+                    // Build variant data object for CRSP text matching
+                    const variantData = {
                         make_name: selectedOpt.dataset.makeName || '',
                         model_name: selectedOpt.dataset.modelName || '',
                         engine_size_cc: parseInt(selectedOpt.dataset.engineCc) || null
@@ -2107,9 +2036,8 @@
                     const variantCount = parseInt(selectedOpt.dataset.variantCount) || siblingIds.length;
 
                     console.log(`🔍 Engine capacity selected: ${selectedOpt.textContent}`);
-                    console.log(`   Representative variant ID: ${variantId}`);
-                    console.log(`   All sibling variant IDs (${variantCount}): [${siblingIds.join(', ')}]`);
-                    console.log(`   Fallback data:`, fallbackData);
+                    console.log(`   Make: ${variantData.make_name}, Engine: ${variantData.engine_size_cc}cc`);
+                    console.log(`   Sibling variant IDs (${variantCount}): [${siblingIds.join(', ')}]`);
 
                     el.calculateBtn.disabled = true;
                     currentVariantData = null;
@@ -2121,7 +2049,7 @@
                     if (variant) {
                         currentVariantData = variant;
 
-                        // Pass both the IDs AND the variant data for fallback
+                        // CRSP lookup uses TEXT MATCHING on make + engine_capacity
                         await refreshCRSPReference(siblingIds, variant);
 
                         el.calculateBtn.disabled = false;
@@ -2194,9 +2122,10 @@
                     await loadRoutes();
                     renderRouteChips();
                     el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
-                    console.log('✅ Auto-D Kenya Mileage & Running Cost Calculator initialized (v8.12)');
+                    console.log('✅ Auto-D Kenya Mileage & Running Cost Calculator initialized (v9.0)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🏛️ CRSP Table: ${CONFIG.CRSP_TABLE}`);
+                    console.log(`🔍 CRSP lookup strategy: TEXT MATCHING (make + engine_capacity)`);
                 } catch (error) {
                     console.error('Init error:', error);
                     setStatus('error', 'Something went wrong — please refresh');
