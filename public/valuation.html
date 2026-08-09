@@ -874,7 +874,7 @@
             .value-range .range-value { font-size: 15px; }
             .flow-step { flex: 1 1 30%; }
         }
-        /* ─── CONFETTI (was missing — pieces existed in JS but never animated) ── */
+        /* ─── CONFETTI ────────────────────────────────────────────────── */
         .confetti-container {
             position: fixed;
             inset: 0;
@@ -898,7 +898,7 @@
             100% { transform: translateY(110vh) rotate(540deg); opacity: 0; }
         }
 
-        /* ─── VEHICLE PHOTOS (upload + authenticity check) ─────────── */
+        /* ─── VEHICLE PHOTOS ──────────────────────────────────────────── */
         .photo-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -984,6 +984,7 @@
         .photo-authenticity-summary strong { color: #cbd5e1; }
         .photo-authenticity-summary .ok { color: #22c55e; }
         .photo-authenticity-summary .warn { color: #eab308; }
+        .photo-authenticity-summary .proceed-note { color: #94a3b8; font-style: italic; }
 
         .report-photos-grid {
             display: grid;
@@ -1381,6 +1382,17 @@
                         <div class="vehicle-detail-item"><span class="label">Engine Size</span><span class="value" id="resultEngine">-</span></div>
                     </div>
 
+                    <!-- Photo Authenticity Warning in Report -->
+                    <div id="photoWarningSection" style="display:none; margin: 12px 0; padding: 12px 16px; background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.2); border-radius: 8px;">
+                        <p style="font-size: 11px; color: #eab308; margin: 0;">
+                            <strong>⚠️ Photo Authenticity Note:</strong> One or more uploaded photos were flagged during the automated metadata screening. 
+                            This does not mean the images are definitely AI-generated or fake — many legitimate photos (e.g. screenshots, 
+                            images shared via messaging apps, or photos taken with older cameras) may lack metadata. 
+                            The valuation below is provided for informational purposes only and should not be relied upon as a certified appraisal. 
+                            We strongly recommend a physical inspection before any financial decision.
+                        </p>
+                    </div>
+
                     <div id="reportPhotosSection" style="display:none;">
                         <div class="panel-label" style="margin-top:0;"><span class="num">📷</span> Vehicle Photos</div>
                         <div class="report-photos-grid" id="reportPhotosGrid"></div>
@@ -1429,7 +1441,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> AI Valuation · Real-time Market Data · KRA CRSP Cross-Check<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.0
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.1
             </div>
         </footer>
     </div>
@@ -1437,7 +1449,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK
-        // Version 5.0 - Full Flow: Make → Model → Generation → Engine → CRSP → Valuation
+        // Version 5.1 - Allows valuation even with flagged photos (with warnings)
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1459,6 +1471,7 @@
             let currentVariantData = null;
             let crspReferenceData = null;
             let currentStep = 0;
+            let hasFlaggedPhotos = false;
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1532,7 +1545,8 @@
                 photoGrid: document.getElementById('photoGrid'),
                 photoAuthSummary: document.getElementById('photoAuthSummary'),
                 reportPhotosSection: document.getElementById('reportPhotosSection'),
-                reportPhotosGrid: document.getElementById('reportPhotosGrid')
+                reportPhotosGrid: document.getElementById('reportPhotosGrid'),
+                photoWarningSection: document.getElementById('photoWarningSection')
             };
 
             // ─── PHOTO / AUTHENTICITY STATE ────────────────────────────
@@ -2242,7 +2256,14 @@
                     service_history: true,
                     location: formData.location || 'nairobi',
                     fuel_type: formData.fuel_type || 'petrol',
-                    transmission: formData.transmission || 'automatic'
+                    transmission: formData.transmission || 'automatic',
+                    // Include photo status in payload for logging
+                    photo_authenticity_check: {
+                        total_uploaded: photos.filter(p => p.status !== 'empty').length,
+                        verified: photos.filter(p => p.status === 'verified').length,
+                        flagged: photos.filter(p => p.status === 'flagged').length,
+                        has_flagged: photos.some(p => p.status === 'flagged')
+                    }
                 };
                 const response = await apiRequest('/valuation/calculate', {
                     method: 'POST',
@@ -2268,15 +2289,21 @@
                     showToast('Please select an engine capacity', 'error');
                     return;
                 }
-                const flaggedPhotos = photos.filter(p => p.status === 'flagged').length;
-                if (flaggedPhotos > 0) {
-                    showToast(`⚠️ Remove or replace ${flaggedPhotos} flagged photo${flaggedPhotos === 1 ? '' : 's'} before valuating`, 'warning');
-                    return;
-                }
+
+                // Check if any photos are still being scanned
                 if (photos.some(p => p.status === 'checking')) {
                     showToast('⏳ Still scanning photos — please wait', 'info');
                     return;
                 }
+
+                // Track if we have flagged photos for the warning
+                hasFlaggedPhotos = photos.some(p => p.status === 'flagged');
+                
+                // Show warning but allow proceeding
+                if (hasFlaggedPhotos) {
+                    showToast('⚠️ Some photos were flagged — valuation will proceed with a warning on the report', 'warning');
+                }
+
                 const variant = await loadVariantDetails(variantId);
                 if (!variant) {
                     showToast('Failed to load vehicle details', 'error');
@@ -2466,6 +2493,13 @@
                 // Vehicle photos + authenticity screening result
                 renderReportPhotos();
 
+                // Show photo warning if any photos were flagged
+                if (hasFlaggedPhotos) {
+                    el.photoWarningSection.style.display = 'block';
+                } else {
+                    el.photoWarningSection.style.display = 'none';
+                }
+
                 // Show result
                 el.resultBox.classList.add('show');
                 el.resultBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2523,18 +2557,9 @@
             }
 
             // ─── PHOTO UPLOAD + AUTHENTICITY CHECK ──────────────────────
-            // NOTE ON WHAT THIS CHECK IS AND ISN'T:
-            // There is no reliable way to prove an image is "definitely a real
-            // photo" purely in the browser. What we CAN do without a server-side
-            // ML model is look at signals real camera photos usually carry (EXIF
-            // camera make/model, capture timestamp) and flag images that lack
-            // them, plus catch known AI-tool "Software" tags. That makes this a
-            // screening heuristic for manual review — not a certified deepfake
-            // detector. It will occasionally flag genuine photos (e.g. ones that
-            // were re-saved, screenshotted, or stripped of metadata by messaging
-            // apps) and will not catch every AI-generated image. Flag results are
-            // shown to the reviewer, they are never used to silently reject an
-            // upload.
+            // Note: This is a heuristic screening, not a certified deepfake detector.
+            // Flagged photos allow valuation but with a warning on the report.
+            
             function renderPhotoGrid() {
                 el.photoGrid.innerHTML = '';
                 photos.forEach((p, i) => {
@@ -2611,7 +2636,8 @@
                     updatePhotoAuthSummary();
                     updateValuateButtonState();
                     if (result.flagged) {
-                        showToast('⚠️ Photo flagged — resolve before valuating', 'warning');
+                        // Allow valuation but show warning
+                        showToast('⚠️ Photo flagged — valuation will proceed with a warning on the report', 'warning');
                     }
                 };
                 reader.onerror = function() {
@@ -2621,7 +2647,8 @@
             }
 
             async function checkImageAuthenticity(file) {
-                // Heuristic screen only — see note above renderPhotoGrid().
+                // Heuristic screen only — not a certified deepfake detector.
+                // Flagged photos allow valuation with a report warning.
                 try {
                     if (typeof exifr === 'undefined') {
                         return { flagged: true, reason: 'Metadata scanner unavailable — flagged for manual review' };
@@ -2638,7 +2665,7 @@
                     if (!hasCameraInfo) {
                         return {
                             flagged: true,
-                            reason: 'No camera metadata found in this file — could be a screenshot, a download, an edited image, or AI-generated. Flagged for manual review, not auto-rejected.'
+                            reason: 'No camera metadata found — could be screenshot/download/edited image. Valuation proceeds with warning.'
                         };
                     }
                     const camera = [meta.Make, meta.Model].filter(Boolean).join(' ');
@@ -2660,7 +2687,8 @@
                 let msg = `<strong>${uploaded.length}/${MAX_PHOTOS} photo${uploaded.length === 1 ? '' : 's'} uploaded.</strong> `;
                 if (checking) msg += `${checking} scanning… `;
                 if (verified) msg += `<span class="ok">${verified} passed metadata check.</span> `;
-                if (flagged) msg += `<span class="warn">⚠️ ${flagged} flagged for manual review — remove or replace before you can get a valuation.</span>`;
+                if (flagged) msg += `<span class="warn">⚠️ ${flagged} flagged for manual review — valuation will proceed with a warning on the report.</span>`;
+                msg += ` <span class="proceed-note">(Photo screening is a heuristic — flagged images may still be genuine.)</span>`;
                 el.photoAuthSummary.innerHTML = msg;
             }
 
@@ -2681,11 +2709,11 @@
 
             function updateValuateButtonState() {
                 const hasVariant = !!el.variantSelect.value;
-                const flaggedCount = photos.filter(p => p.status === 'flagged').length;
                 const checkingCount = photos.filter(p => p.status === 'checking').length;
 
                 if (!isAuthenticated || !hasVariant) {
                     el.valuateBtn.disabled = true;
+                    el.valuateBtn.innerHTML = '🚀 Get AI Valuation';
                     return;
                 }
                 if (checkingCount > 0) {
@@ -2693,11 +2721,7 @@
                     el.valuateBtn.innerHTML = '<span class="spinner"></span> Scanning photos...';
                     return;
                 }
-                if (flaggedCount > 0) {
-                    el.valuateBtn.disabled = true;
-                    el.valuateBtn.innerHTML = `🔒 Resolve ${flaggedCount} flagged photo${flaggedCount === 1 ? '' : 's'} to continue`;
-                    return;
-                }
+                // Allow valuation even with flagged photos — we just show a warning
                 el.valuateBtn.disabled = false;
                 el.valuateBtn.innerHTML = '🚀 Get AI Valuation';
             }
@@ -2862,9 +2886,10 @@
                     el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
                         year: 'numeric', month: 'short', day: 'numeric'
                     });
-                    console.log('✅ Auto-D Kenya Instant Value Check initialized');
+                    console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.1)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🏛️ CRSP Table: ${CONFIG.CRSP_TABLE_NAME}`);
+                    console.log(`📷 Photo screening: Flagged photos allow valuation with warning`);
                 } catch (error) {
                     console.error('Init error:', error);
                     setStatus('error', "Something went wrong — please refresh");
