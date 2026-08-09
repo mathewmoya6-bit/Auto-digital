@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
+        /* ... (same styles as before) ... */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -135,6 +136,7 @@
         .engine-cc-display { font-family: 'JetBrains Mono', monospace; font-size: 9px; background: #0a0c15; color: #06b6d4; padding: 3px 12px; border-radius: 20px; letter-spacing: 0.04em; font-weight: 600; border: 1px solid rgba(6,182,212,0.2); }
         .base-price-pill { font-family: 'JetBrains Mono', monospace; font-size: 9px; background: #0a0c15; color: #22c55e; padding: 3px 12px; border-radius: 20px; letter-spacing: 0.04em; font-weight: 600; border: 1px solid rgba(34,197,94,0.2); }
         .base-price-pill.missing { border-color: var(--red); color: var(--red); }
+        .base-price-pill.estimated { border-color: var(--amber); color: var(--amber); }
         .vehicle-specs { margin-top: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #64748b; display: flex; flex-wrap: wrap; gap: 12px; }
         .vehicle-specs .spec-item { display: flex; align-items: center; gap: 4px; }
         .vehicle-specs .spec-item .spec-value { color: #cbd5e1; }
@@ -203,6 +205,7 @@
         .stat-card-sm .num.green { color: #22c55e; }
         .stat-card-sm .num.blue { color: #3b82f6; }
         .stat-card-sm .num.red { color: #ef4444; }
+        .stat-card-sm .num.orange { color: #f59e0b; }
         .table-wrap { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
         th, td { text-align: right; padding: 6px 8px; white-space: nowrap; }
@@ -234,6 +237,7 @@
         .crsp-info .row .value { font-weight: 600; color: #06b6d4; font-family: var(--font-mono); font-size: 10px; }
         .crsp-info .row .value.crsp-found { color: #22c55e; }
         .crsp-info .row .value.crsp-missing { color: #ef4444; }
+        .crsp-info .row .value.crsp-estimated { color: #f59e0b; }
         .crsp-info .row .match-detail { font-size: 9px; color: #64748b; font-family: var(--font-mono); }
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
@@ -641,7 +645,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 9.0 - Schema-Aligned Implementation
+        // Version 9.1 - Allows calculations even without CRSP
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -670,7 +674,8 @@
             let currentBasePrice = null;
             let selectedFuelFilter = 'all';
             let routes = [];
-            let vehicleDataCache = { categories: [], makes: [], models: [], generations: [], engines: [] };
+            let hasCRSP = false;
+            let calculationAllowed = true; // Always allow calculations
 
             // ─── DOM REFS ──────────────────────────────────────────────
             const el = {
@@ -1053,6 +1058,7 @@
             async function refreshCRSPReference(variantIdOrIds, variantData) {
                 crspReferenceData = await lookupCRSPBasePrice(variantIdOrIds, variantData);
                 currentBasePrice = crspReferenceData?.crsp_kes ?? null;
+                hasCRSP = !!crspReferenceData?.crsp_kes;
                 updateCRSPInfo();
                 if (currentVariantData) displayVehicleInfo(currentVariantData);
                 return crspReferenceData;
@@ -1060,19 +1066,23 @@
 
             function updateCRSPInfo() {
                 if (!crspReferenceData || !crspReferenceData.crsp_kes) {
-                    el.crspMatchedLine.textContent = 'No CRSP record found';
+                    el.crspMatchedLine.textContent = 'No CRSP record found — using estimated values';
                     el.crspMatchedLine.className = 'value crsp-missing';
-                    el.crspBasePrice.textContent = '—';
+                    el.crspBasePrice.textContent = '⚠️ Not Found';
                     el.crspBasePrice.className = 'value crsp-missing';
                     el.crspEngineCapacity.textContent = '—';
                     el.crspFuel.textContent = '—';
                     el.crspTransmission.textContent = '—';
-                    el.crspMatchMethod.textContent = 'No match found';
+                    el.crspMatchMethod.textContent = 'No match found — calculations will use estimates';
                     el.crspInfo.classList.add('show');
 
-                    el.basePricePill.textContent = '⚠️ No CRSP Record Found';
+                    el.basePricePill.textContent = '⚠️ No CRSP Record — Estimates Used';
                     el.basePricePill.style.display = 'inline-block';
-                    el.basePricePill.className = 'base-price-pill missing';
+                    el.basePricePill.className = 'base-price-pill estimated';
+                    
+                    // Enable calculate button even without CRSP
+                    el.calculateBtn.disabled = false;
+                    showToast('ℹ️ No CRSP record found. Using estimated values.', 'warning');
                     return;
                 }
 
@@ -1092,6 +1102,10 @@
                 el.basePricePill.textContent = `CRSP Base: KES ${formatNumber(data.crsp_kes)}`;
                 el.basePricePill.style.display = 'inline-block';
                 el.basePricePill.className = 'base-price-pill';
+                
+                // Enable calculate button
+                el.calculateBtn.disabled = false;
+                showToast('✅ CRSP record found!', 'success');
             }
 
             // ─── VEHICLE DATA LOADING ──────────────────────────────────
@@ -1293,6 +1307,7 @@
                 currentVariantData = null;
                 crspReferenceData = null;
                 currentBasePrice = null;
+                hasCRSP = false;
                 el.crspInfo.classList.remove('show');
                 if (!categoryId) return;
                 const makes = await loadMakes(categoryId);
@@ -1324,6 +1339,7 @@
                 currentVariantData = null;
                 crspReferenceData = null;
                 currentBasePrice = null;
+                hasCRSP = false;
                 el.crspInfo.classList.remove('show');
                 if (!makeId) return;
                 const models = await loadModels(makeId);
@@ -1353,6 +1369,7 @@
                 currentVariantData = null;
                 crspReferenceData = null;
                 currentBasePrice = null;
+                hasCRSP = false;
                 el.crspInfo.classList.remove('show');
                 if (!modelId) return;
                 const generations = await loadGenerations(modelId);
@@ -1379,6 +1396,7 @@
                 currentVariantData = null;
                 crspReferenceData = null;
                 currentBasePrice = null;
+                hasCRSP = false;
                 el.crspInfo.classList.remove('show');
                 if (!generationId) return;
                 let engineGroups = await loadEngineCapacities(generationId);
@@ -1415,6 +1433,8 @@
                 });
 
                 select.disabled = false;
+                // Enable calculate button regardless of CRSP
+                el.calculateBtn.disabled = false;
                 setStatus('success', `✅ Loaded ${engineGroups.length} engine capacities`);
             }
 
@@ -1435,9 +1455,9 @@
                     el.basePricePill.style.display = 'inline-block';
                     el.basePricePill.className = 'base-price-pill';
                 } else {
-                    el.basePricePill.textContent = '⚠️ No CRSP Record Found';
+                    el.basePricePill.textContent = '⚠️ No CRSP — Using Estimates';
                     el.basePricePill.style.display = 'inline-block';
-                    el.basePricePill.className = 'base-price-pill missing';
+                    el.basePricePill.className = 'base-price-pill estimated';
                 }
 
                 const specItems = [
@@ -1529,11 +1549,12 @@
                     include_depreciation: true
                 };
 
+                // Add purchase price if available, otherwise let API estimate
                 if (formData.purchase_price) {
                     payload.purchase_price = parseFloat(formData.purchase_price);
                     console.log(`💰 Using CRSP base price: KES ${payload.purchase_price}`);
                 } else {
-                    console.warn('⚠️ No CRSP base price available');
+                    console.log('ℹ️ No CRSP base price available — API will use estimates');
                 }
 
                 console.log("📦 Running Cost Payload:", JSON.stringify(payload, null, 2));
@@ -1640,23 +1661,22 @@
                     (total_cost_per_km * 1.15);
 
                 return {
-                    // Schema columns in order:
-                    user_id: currentUser?.user?.id || null,           // uuid
-                    engine_capacity_id: variant.variant_id,            // bigint
-                    running_cost_rate_id: rateRow?.id || null,         // bigint
-                    annual_mileage: annualKm || 0,                     // numeric
-                    fuel_price_per_liter: fuelPrice || 0,              // numeric (nullable)
-                    crsp_kes: currentBasePrice || null,                // numeric (nullable)
-                    fuel_cost_per_km: fuel_cost_per_km,                // numeric (nullable)
-                    service_cost_per_km: service_cost_per_km,          // numeric (nullable)
-                    tyre_cost_per_km: tyre_cost_per_km,                // numeric (nullable)
-                    repair_cost_per_km: repair_cost_per_km,            // numeric (nullable)
-                    depreciation_per_km: depreciation_per_km,          // numeric (nullable)
-                    total_cost_per_km: total_cost_per_km,              // numeric (nullable)
-                    annual_cost: annual_cost,                          // numeric (nullable)
-                    monthly_cost: monthly_cost,                        // numeric (nullable)
-                    recommended_rate_per_km: recommended_rate_per_km,  // numeric (nullable)
-                    calculated_at: new Date().toISOString()            // timestamp without time zone (nullable)
+                    user_id: currentUser?.user?.id || null,
+                    engine_capacity_id: variant.variant_id,
+                    running_cost_rate_id: rateRow?.id || null,
+                    annual_mileage: annualKm || 0,
+                    fuel_price_per_liter: fuelPrice || 0,
+                    crsp_kes: currentBasePrice || null,
+                    fuel_cost_per_km: fuel_cost_per_km,
+                    service_cost_per_km: service_cost_per_km,
+                    tyre_cost_per_km: tyre_cost_per_km,
+                    repair_cost_per_km: repair_cost_per_km,
+                    depreciation_per_km: depreciation_per_km,
+                    total_cost_per_km: total_cost_per_km,
+                    annual_cost: annual_cost,
+                    monthly_cost: monthly_cost,
+                    recommended_rate_per_km: recommended_rate_per_km,
+                    calculated_at: new Date().toISOString()
                 };
             }
 
@@ -1740,11 +1760,17 @@
                 let originalCost = currentBasePrice;
                 if (!originalCost && result.purchase_price) originalCost = result.purchase_price;
                 if (!originalCost && result.original_cost) originalCost = result.original_cost;
+                
+                // If still no cost, use a placeholder estimate
+                if (!originalCost) {
+                    originalCost = result.estimated_purchase_price || 1500000;
+                    console.log('ℹ️ Using estimated purchase price:', originalCost);
+                }
 
                 const remainingValue = result.resale_value || result.current_value || originalCost * 0.4;
 
                 el.fiveYearStats.innerHTML = `
-                    <div class="stat-card-sm"><div class="label">Original Price (CRSP)</div><div class="num amber">KES ${formatCurrency(originalCost)}</div></div>
+                    <div class="stat-card-sm"><div class="label">${originalCost === currentBasePrice ? 'CRSP Price' : 'Est. Price'}</div><div class="num amber">KES ${formatCurrency(originalCost)}</div></div>
                     <div class="stat-card-sm"><div class="label">Est. Resale Value</div><div class="num green">KES ${formatCurrency(remainingValue || 0)}</div></div>
                     <div class="stat-card-sm"><div class="label">5-Yr Depreciation</div><div class="num red">${Math.round((1 - (remainingValue / (originalCost || 1))) * 100)}%</div></div>
                     <div class="stat-card-sm"><div class="label">Value Retention</div><div class="num blue">${originalCost > 0 ? Math.round((remainingValue / originalCost) * 100) : 0}%</div></div>
@@ -1830,10 +1856,17 @@
                 // Recommendations
                 const recList = el.recList;
                 const recs = [];
+                
+                // Add CRSP warning if not found
+                if (!hasCRSP) {
+                    recs.push({ icon: '⚠️', text: 'No CRSP record found — using estimated purchase price and depreciation values.', type: 'warning' });
+                }
+                
                 if (tripCostPerKm > 50) recs.push({ icon: '⚠️', text: 'High running cost detected. Consider a more fuel-efficient vehicle.', type: 'warning' });
                 else if (tripCostPerKm < 20) recs.push({ icon: '✅', text: 'Excellent running cost efficiency! Your vehicle is economical to operate.', type: 'success' });
                 if (fuelType.toLowerCase() === 'electric') recs.push({ icon: '🌱', text: 'Electric vehicle - zero emissions and lower running costs.', type: 'success' });
                 recs.push({ icon: '📊', text: `5-Year running cost: KES ${formatCurrency(total5Year)}.`, type: 'info' });
+                
                 recList.innerHTML = recs.map(rec => `
                     <div class="rec-item ${rec.type}">
                         <span class="icon">${rec.icon}</span><span class="rec-text">${rec.text}</span>
@@ -1864,15 +1897,11 @@
 
                 el.calculateBtn.disabled = true;
                 el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
-                showProgress(10, 'Loading vehicle data...');
+                showProgress(10, 'Preparing calculation...');
 
+                // Show warning if no CRSP but continue anyway
                 if (!currentBasePrice) {
-                    showProgress(0, 'Checking CRSP data...');
-                    showToast('⚠️ No CRSP record found for this vehicle. Cannot calculate accurate costs.', 'warning');
-                    el.calculateBtn.disabled = false;
-                    el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
-                    hideProgress();
-                    return;
+                    showToast('ℹ️ No CRSP record found — using estimated values', 'warning');
                 }
 
                 const inputs = {
@@ -1889,10 +1918,14 @@
                     down_payment_percent: parseInt(el.downPct.value) || 30,
                     interest_rate: parseFloat(el.rate.value) || 16,
                     loan_term: parseInt(el.term.value) || 4,
-                    purchase_price: currentBasePrice
+                    purchase_price: currentBasePrice || undefined // Let API handle missing
                 };
 
-                console.log(`✅ Using CRSP base price: KES ${inputs.purchase_price}`);
+                if (inputs.purchase_price) {
+                    console.log(`💰 Using CRSP base price: KES ${inputs.purchase_price}`);
+                } else {
+                    console.log('ℹ️ No CRSP base price — API will use estimates');
+                }
 
                 showProgress(60, 'Calling API...');
 
@@ -1996,6 +2029,7 @@
                         currentVariantData = null;
                         crspReferenceData = null;
                         currentBasePrice = null;
+                        hasCRSP = false;
                         return;
                     }
 
@@ -2014,12 +2048,18 @@
                     currentVariantData = null;
                     crspReferenceData = null;
                     currentBasePrice = null;
+                    hasCRSP = false;
 
                     const variant = await loadVariantDetails(variantId);
                     if (variant) {
                         currentVariantData = variant;
                         await refreshCRSPReference(siblingIds, variant);
-                        el.calculateBtn.disabled = false;
+                        // Calculate button is enabled by refreshCRSPReference or falls through
+                        if (!currentBasePrice) {
+                            // Enable even without CRSP
+                            el.calculateBtn.disabled = false;
+                            setStatus('warning', 'No CRSP record found — calculations will use estimates');
+                        }
                     } else {
                         showToast('Failed to load vehicle details', 'error');
                     }
@@ -2094,11 +2134,12 @@
                     await loadRoutes();
                     renderRouteChips();
                     el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
-                    console.log('✅ Auto-D Kenya Mileage & Running Cost Calculator initialized (v9.0)');
+                    console.log('✅ Auto-D Kenya Mileage & Running Cost Calculator initialized (v9.1)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🏛️ CRSP Table: ${CONFIG.CRSP_TABLE}`);
                     console.log(`📊 Results Table: ${CONFIG.RESULTS_TABLE} (schema-aligned)`);
                     console.log(`🔍 CRSP lookup strategy: TEXT MATCHING (make + engine_capacity)`);
+                    console.log(`💡 Calculations will proceed even without CRSP`);
                 } catch (error) {
                     console.error('Init error:', error);
                     setStatus('error', 'Something went wrong — please refresh');
