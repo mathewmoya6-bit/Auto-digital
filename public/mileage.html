@@ -930,26 +930,35 @@
             // FROM vehicle_crsp_prices
             // WHERE engine_capacity_id = :variant_id
             // LIMIT 1;
-            async function fetchBasePrice(variantId) {
-                lastQueriedVariantId = variantId || null;
-                if (!supabaseClient || !isAuthenticated || !variantId) {
+            // variantIdOrIds: a single variant_id, OR an array of variant_ids that
+            // all share the same engine_size_cc (i.e. the full sibling group behind
+            // one "Engine Capacity" dropdown option). We query ALL of them —
+            // engine_capacity_id in vehicle_crsp_prices is a FK to one specific
+            // variant_id, and the dropdown only shows one representative label per
+            // cc, so restricting the lookup to that single representative id was
+            // causing false "No CRSP Record Found" results whenever the CRSP row
+            // was actually keyed to a sibling trim with the same cc.
+            async function fetchBasePrice(variantIdOrIds) {
+                const ids = Array.isArray(variantIdOrIds) ? variantIdOrIds.filter(Boolean) : [variantIdOrIds].filter(Boolean);
+                lastQueriedVariantId = ids.length ? ids.join(', ') : null;
+                if (!supabaseClient || !isAuthenticated || ids.length === 0) {
                     console.log('ℹ️ CRSP lookup skipped (no client, not authenticated, or no variantId)');
                     return null;
                 }
                 try {
-                    console.log(`🔍 Looking up CRSP for engine_capacity_id: ${variantId}`);
-                    const { data, error } = await supabaseClient
+                    console.log(`🔍 Looking up CRSP for engine_capacity_id in: [${ids.join(', ')}]`);
+                    let query = supabaseClient
                         .from(CONFIG.CRSP_TABLE)  // 'vehicle_crsp_prices'
-                        .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes')
-                        .eq('engine_capacity_id', variantId)
-                        .limit(1);
+                        .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes');
+                    query = ids.length > 1 ? query.in('engine_capacity_id', ids) : query.eq('engine_capacity_id', ids[0]);
+                    const { data, error } = await query.limit(1);
 
                     if (error || !data || data.length === 0) {
                         if (error) console.error('❌ CRSP lookup error:', error);
-                        else console.log(`ℹ️ No CRSP record found for engine_capacity_id: ${variantId}`);
+                        else console.log(`ℹ️ No CRSP record found for engine_capacity_id in: [${ids.join(', ')}]`);
                         return null;
                     }
-                    const matched = { ...data[0], matchQuality: 'exact engine capacity match (FK)' };
+                    const matched = { ...data[0], matchQuality: ids.length > 1 ? 'exact engine capacity match (FK, sibling trim)' : 'exact engine capacity match (FK)' };
                     console.log(`✅ CRSP record found: KES ${matched.crsp_kes} for ${matched.make} ${matched.model}`);
                     return matched;
                 } catch (error) {
@@ -959,9 +968,10 @@
             }
 
             // Refreshes module-level CRSP state (currentCrspData / currentBasePrice)
-            // for a given variant and repaints the CRSP panel + vehicle-profile pill.
-            async function refreshCRSPReference(variantId) {
-                currentCrspData = await fetchBasePrice(variantId);
+            // for a given variant (or group of sibling variant_ids sharing the same
+            // engine capacity) and repaints the CRSP panel + vehicle-profile pill.
+            async function refreshCRSPReference(variantIdOrIds) {
+                currentCrspData = await fetchBasePrice(variantIdOrIds);
                 currentBasePrice = currentCrspData?.crsp_kes ?? null;
                 updateCRSPInfo();
                 if (currentVariantData) displayVehicleInfo(currentVariantData);
@@ -1301,6 +1311,9 @@
                 engineGroups.forEach(group => {
                     const opt = document.createElement('option');
                     opt.value = group.variants[0].variant_id;
+                    // Full sibling group sharing this engine_size_cc — used so the
+                    // CRSP lookup isn't limited to just the representative variant.
+                    opt.dataset.variantIds = group.variants.map(v => v.variant_id).join(',');
                     const fuelTypes = [...new Set(group.variants.map(v => v.fuel_type_name || 'Unknown'))];
                     let label = `${group.engine_size_cc}cc`;
                     if (fuelTypes.length > 0) label += ` (${fuelTypes.join('/')})`;
@@ -1932,6 +1945,10 @@
 
                 el.engineCapacitySelect.addEventListener('change', async function() {
                     const variantId = this.value;
+                    const selectedOpt = this.options[this.selectedIndex];
+                    const siblingIds = selectedOpt?.dataset?.variantIds
+                        ? selectedOpt.dataset.variantIds.split(',').filter(Boolean)
+                        : (variantId ? [variantId] : []);
                     el.calculateBtn.disabled = true;
                     currentVariantData = null;
                     currentCrspData = null;
@@ -1940,7 +1957,9 @@
                     const variant = await loadVariantDetails(variantId);
                     if (variant) {
                         currentVariantData = variant;
-                        await refreshCRSPReference(variantId);
+                        // Check CRSP against every sibling trim sharing this cc, not
+                        // just the representative variant shown in the dropdown.
+                        await refreshCRSPReference(siblingIds.length ? siblingIds : variantId);
                         el.calculateBtn.disabled = false;
                     }
                 });
