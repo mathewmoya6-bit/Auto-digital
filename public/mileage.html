@@ -1317,6 +1317,9 @@
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_master_specs',
                 CRSP_TABLE: 'vehicle_crsp_prices',
+                RESULTS_TABLE: 'running_cost_calculations',
+                RATES_TABLE: 'vehicle_running_cost_rates',
+                OWNERSHIP_TABLE: 'vehicle_running_costs',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html'
             };
@@ -2107,6 +2110,205 @@
                 return result;
             }
 
+            // ═══════════════════════════════════════════════════════════════
+            // SCHEMA-ALIGNED PERSISTENCE
+            // ═══════════════════════════════════════════════════════════════
+
+            // ─── running_cost_rate_id (NOT NULL on running_cost_calculations)
+            //     confirmed via information_schema to have no DB-level FK, but
+            //     vehicle_running_cost_rates is the matching source table — same
+            //     engine_capacity_id, same per-km column names, versioned by
+            //     effective_date/effective_to/is_active, bracketed by
+            //     annual_mileage_from/annual_mileage_to. Take the most recent
+            //     active row within the mileage bracket.
+            async function fetchRunningCostRate(variant, annualKm) {
+                if (!supabaseClient || !variant) return null;
+                try {
+                    const today = new Date().toISOString().slice(0, 10);
+                    let query = supabaseClient
+                        .from(CONFIG.RATES_TABLE) // 'vehicle_running_cost_rates'
+                        .select('*')
+                        .eq('engine_capacity_id', variant.variant_id)
+                        .eq('is_active', true)
+                        .lte('effective_date', today)
+                        .order('effective_date', { ascending: false });
+
+                    if (variant.fuel_type_name) {
+                        query = query.eq('fuel_type', variant.fuel_type_name);
+                    }
+
+                    const { data, error } = await query;
+                    if (error) throw error;
+                    if (!data || data.length === 0) {
+                        console.warn('⚠️ No vehicle_running_cost_rates row for engine_capacity_id ' +
+                            `${variant.variant_id} (fuel_type=${variant.fuel_type_name}). ` +
+                            'running_cost_rate_id cannot be resolved.');
+                        return null;
+                    }
+
+                    const candidates = data.filter(r => {
+                        const notExpired = !r.effective_to || r.effective_to >= today;
+                        const mileageOk =
+                            (r.annual_mileage_from == null || annualKm >= r.annual_mileage_from) &&
+                            (r.annual_mileage_to == null || annualKm <= r.annual_mileage_to);
+                        return notExpired && mileageOk;
+                    });
+
+                    return (candidates.length > 0 ? candidates : data)[0]; // full row — .id plus base rate columns
+                } catch (e) {
+                    console.warn('⚠️ vehicle_running_cost_rates lookup failed:', e.message);
+                    return null;
+                }
+            }
+
+            // Builds a row matching running_cost_calculations exactly.
+            // rateRow (from fetchRunningCostRate) is used as a fallback source
+            // for per-km costs if the API response ever omits a component.
+            function buildCalculationRow({ result, variant, distance, annualKm, fuelPrice, rateRow }) {
+                const fuelCost = result.fuel_cost || result.fuel || 0;
+                const serviceCost = result.service_cost || result.maintenance || 0;
+                const tyreCost = result.tyre_cost || result.tyres || 0;
+                // Schema has no insurance column here — only repair. Insurance
+                // belongs in vehicle_running_costs.annual_insurance_cost (see
+                // saveOwnershipCost), not relabeled into repair_cost_per_km.
+                const repairCost = result.repair_cost || 0;
+                const depreciationCost = result.depreciation_cost || result.depreciation || 0;
+
+                const d = distance || 1;
+                const fuel_cost_per_km = fuelCost ? fuelCost / d : (rateRow?.fuel_cost_per_km ?? 0);
+                const service_cost_per_km = serviceCost ? serviceCost / d : (rateRow?.service_cost_per_km ?? 0);
+                const tyre_cost_per_km = tyreCost ? tyreCost / d : (rateRow?.tyre_cost_per_km ?? 0);
+                const repair_cost_per_km = repairCost ? repairCost / d : (rateRow?.repair_cost_per_km ?? 0);
+                const depreciation_per_km = depreciationCost ? depreciationCost / d : (rateRow?.depreciation_per_km ?? 0);
+                const total_cost_per_km = result.cost_per_km || result.per_km ||
+                    (fuel_cost_per_km + service_cost_per_km + tyre_cost_per_km + repair_cost_per_km + depreciation_per_km);
+
+                const annual_cost = total_cost_per_km * (annualKm || 0);
+                const monthly_cost = annual_cost / 12;
+                const recommended_rate_per_km = result.recommended_rate_per_km ?? rateRow?.recommended_rate_per_km ?? (total_cost_per_km * 1.15);
+
+                return {
+                    user_id: currentUser?.user?.id || null,
+                    engine_capacity_id: variant.variant_id,
+                    running_cost_rate_id: rateRow.id, // NOT NULL — caller verifies rateRow exists first
+                    annual_mileage: annualKm,
+                    fuel_price_per_liter: fuelPrice,
+                    crsp_kes: currentBasePrice,
+                    fuel_cost_per_km,
+                    service_cost_per_km,
+                    tyre_cost_per_km,
+                    repair_cost_per_km,
+                    depreciation_per_km,
+                    total_cost_per_km,
+                    annual_cost,
+                    monthly_cost,
+                    recommended_rate_per_km,
+                    calculated_at: new Date().toISOString()
+                };
+            }
+
+            async function saveCalculationResult(result, variant, distance, annualKm, fuelPrice) {
+                try {
+                    const rateRow = await fetchRunningCostRate(variant, annualKm);
+                    if (!rateRow) {
+                        console.error('❌ Skipping save: no matching vehicle_running_cost_rates row ' +
+                            `(engine_capacity_id=${variant.variant_id}). running_cost_rate_id is NOT NULL.`);
+                        showToast('⚠️ Calculation shown, but not saved — no rate row for this vehicle yet', 'warning');
+                        return null;
+                    }
+                    const row = buildCalculationRow({ result, variant, distance, annualKm, fuelPrice, rateRow });
+                    const { data, error } = await supabaseClient
+                        .from(CONFIG.RESULTS_TABLE) // 'running_cost_calculations'
+                        .insert(row)
+                        .select();
+                    if (error) throw error;
+                    console.log('✅ Saved calculation:', data[0]);
+                    return data[0];
+                } catch (e) {
+                    console.error('❌ Failed to save calculation:', e.message);
+                    showToast('⚠️ Could not save this calculation: ' + e.message, 'warning');
+                    return null;
+                }
+            }
+
+            // ─── vehicle_running_costs — the 5-year / insurance figures the
+            //     "5-Year Running Cost Projection" card renders. ASSUMPTION:
+            //     crsp_id references the same row as currentCrspData.id (the
+            //     id column already selected in fetchBasePrice() from
+            //     vehicle_crsp_prices) — confirm before relying on this.
+            async function saveOwnershipCost(result, variant, annualKm, fuelPrice) {
+                if (!currentCrspData || !currentCrspData.id) {
+                    console.error('❌ Skipping ownership-cost save: no CRSP row loaded (crsp_id is NOT NULL).');
+                    return null;
+                }
+
+                // Year-1 figures come from the 5-year breakdown, not the trip
+                // totals — fuel_cost/service_cost/etc. in `result` are for the
+                // trip distance, while vehicle_running_costs wants annual amounts.
+                const fiveYearData = result.fiveYearData || result.yearly_breakdown || [];
+                const year1 = fiveYearData[0] || {};
+
+                const annual_fuel_cost = year1.fuel ?? year1.fuel_cost ?? 0;
+                const annual_service_cost = year1.service ?? year1.maintenance ?? 0;
+                const annual_tyre_cost = year1.tyres ?? year1.tyre_cost ?? 0;
+                const annual_repair_cost = year1.repair ?? result.repair_cost ?? 0;
+                const annual_insurance_cost = year1.insurance ?? year1.insurance_cost ?? 0;
+                // Not tracked anywhere in the current API response/UI — left at
+                // 0 until there's a real source (flagging, not guessing).
+                const annual_inspection_cost = 0;
+                const annual_licence_cost = 0;
+                const annual_depreciation_cost = year1.depreciation ?? year1.depreciation_cost ?? 0;
+
+                // "running cost" = operating cost excluding depreciation;
+                // total_ownership_cost separately includes depreciation via
+                // total5Year. Assumption — adjust if your definition differs.
+                const annual_running_cost = annual_fuel_cost + annual_service_cost + annual_tyre_cost +
+                    annual_repair_cost + annual_insurance_cost + annual_inspection_cost + annual_licence_cost;
+                const monthly_running_cost = annual_running_cost / 12;
+
+                const cost_per_km = result.cost_per_km || result.per_km || 0;
+                const total_ownership_cost = result.five_year_total || result.total_5yr_cost || 0;
+
+                const row = {
+                    crsp_id: currentCrspData.id,
+                    annual_mileage: annualKm,
+                    ownership_years: 5,
+                    crsp_price: currentBasePrice,
+                    fuel_type: variant.fuel_type_name || null,
+                    fuel_price_per_litre: fuelPrice,
+                    fuel_consumption_l_per_100km: result.fuel_consumption || result.consumption || null,
+                    annual_fuel_cost,
+                    annual_service_cost,
+                    annual_tyre_cost,
+                    annual_repair_cost,
+                    annual_insurance_cost,
+                    annual_inspection_cost,
+                    annual_licence_cost,
+                    annual_depreciation_cost,
+                    annual_running_cost,
+                    monthly_running_cost,
+                    cost_per_km,
+                    total_ownership_cost,
+                    calculation_version: 'v8.9', // matches the footer version string — bump alongside it
+                    calculated_at: new Date().toISOString(),
+                    created_at: new Date().toISOString()
+                };
+
+                try {
+                    const { data, error } = await supabaseClient
+                        .from(CONFIG.OWNERSHIP_TABLE) // 'vehicle_running_costs'
+                        .insert(row)
+                        .select();
+                    if (error) throw error;
+                    console.log('✅ Saved ownership cost:', data[0]);
+                    return data[0];
+                } catch (e) {
+                    console.error('❌ Failed to save ownership cost:', e.message);
+                    showToast('⚠️ Could not save the 5-year projection: ' + e.message, 'warning');
+                    return null;
+                }
+            }
+
             async function calculateAndRender(variant = null) {
                 if (!variant) variant = currentVariantData;
                 if (!variant) {
@@ -2164,6 +2366,9 @@
                     showProgress(90, 'Rendering results...');
                     if (result) {
                         renderResults(result, variant);
+                        showProgress(95, 'Saving calculation...');
+                        await saveCalculationResult(result, variant, distance, annualKm, fuelPrice);
+                        await saveOwnershipCost(result, variant, annualKm, fuelPrice);
                         showProgress(100, 'Complete!');
                         setTimeout(hideProgress, 500);
                         showToast('✅ Running cost calculated!', 'success');
@@ -2341,318 +2546,3 @@
 
                 el.lastUpdated.textContent = new Date().toLocaleString('en-KE', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             }
-
-            async function loadVariantAndDisplay(variantId) {
-                if (!variantId) return;
-                el.calculateBtn.disabled = true;
-                showProgress(5, 'Loading vehicle details...');
-
-                try {
-                    const variantData = await loadVariantDetails(variantId);
-                    if (!variantData) {
-                        showToast('Failed to load vehicle details', 'error');
-                        hideProgress();
-                        return;
-                    }
-                    currentVariantData = variantData;
-
-                    showProgress(45, 'Looking up CRSP base price...');
-                    currentBasePrice = await fetchBasePrice(variantData.variant_id);
-                    updateCRSPInfo();
-
-                    displayVehicleInfo(variantData);
-                    el.calculateBtn.disabled = false;
-                    hideProgress();
-                    if (currentBasePrice) {
-                        showToast(`✅ CRSP base price: KES ${formatNumber(currentBasePrice)}`, 'success');
-                    } else {
-                        showToast('⚠️ No CRSP record found for this vehicle. Cannot calculate accurate costs.', 'warning');
-                        // Disable calculate button if no CRSP
-                        el.calculateBtn.disabled = true;
-                    }
-                } catch (error) {
-                    console.error('Error loading variant:', error);
-                    showToast('Error loading vehicle details: ' + error.message, 'error');
-                    hideProgress();
-                }
-            }
-
-            function populateYearSelect() {
-                const select = el.yearSelect;
-                select.innerHTML = '';
-                const currentYear = new Date().getFullYear();
-                for (let y = currentYear; y >= 1990; y--) {
-                    const opt = document.createElement('option');
-                    opt.value = y;
-                    opt.textContent = y;
-                    if (y === currentYear - 10) opt.selected = true;
-                    select.appendChild(opt);
-                }
-            }
-
-            function initEventListeners() {
-                el.btnSignIn.addEventListener('click', () => {
-                    el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
-                    if (el.authForms.style.display === 'block') el.authEmail.focus();
-                });
-                el.btnCancelAuth.addEventListener('click', () => {
-                    el.authForms.style.display = 'none';
-                    el.authEmail.value = '';
-                    el.authPassword.value = '';
-                });
-                el.btnLogin.addEventListener('click', async () => {
-                    const email = el.authEmail.value.trim();
-                    const password = el.authPassword.value;
-                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
-                    el.btnLogin.disabled = true;
-                    el.btnLogin.textContent = '⏳...';
-                    try {
-                        await signIn(email, password);
-                        el.authForms.style.display = 'none';
-                        el.authEmail.value = '';
-                        el.authPassword.value = '';
-                    } catch (error) {
-                        showToast('Login error: ' + error.message, 'error');
-                    } finally {
-                        el.btnLogin.disabled = false;
-                        el.btnLogin.textContent = 'Login';
-                    }
-                });
-                el.btnSignup.addEventListener('click', async () => {
-                    const email = el.authEmail.value.trim();
-                    const password = el.authPassword.value;
-                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
-                    if (password.length < 6) { showToast('Password must be at least 6 characters', 'warning'); return; }
-                    el.btnSignup.disabled = true;
-                    el.btnSignup.textContent = '⏳...';
-                    try {
-                        await signUp(email, password);
-                        el.authForms.style.display = 'none';
-                        el.authEmail.value = '';
-                        el.authPassword.value = '';
-                    } catch (error) {
-                        showToast('Sign up error: ' + error.message, 'error');
-                    } finally {
-                        el.btnSignup.disabled = false;
-                        el.btnSignup.textContent = 'Sign Up';
-                    }
-                });
-                el.btnSignOut.addEventListener('click', async () => { await signOut(); });
-                el.authPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); el.btnLogin.click(); } });
-                el.authEmail.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); el.authPassword.focus(); } });
-
-                if (supabaseClient) {
-                    try {
-                        supabaseClient.auth.onAuthStateChange((_event, session) => {
-                            currentUser = session;
-                            isAuthenticated = !!session;
-                            updateAuthUI();
-                            if (isAuthenticated && _event === 'SIGNED_IN') {
-                                setTimeout(() => { window.location.href = CONFIG.DASHBOARD_URL; }, 800);
-                            }
-                        });
-                    } catch (error) {
-                        console.warn('⚠️ Could not set up auth listener:', error.message);
-                    }
-                }
-
-                el.fuelFilterGroup.addEventListener('click', function(e) {
-                    const btn = e.target.closest('.fuel-filter-btn');
-                    if (!btn) return;
-                    document.querySelectorAll('.fuel-filter-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
-                    btn.classList.add('active');
-                    btn.setAttribute('aria-pressed', 'true');
-                    selectedFuelFilter = btn.dataset.fuel || 'all';
-                    if (el.generationSelect.value) populateEngineCapacities(el.generationSelect.value);
-                });
-
-                el.categorySelect.addEventListener('change', async function() {
-                    selectedCategoryId = this.value;
-                    if (selectedCategoryId) {
-                        await populateMakes(selectedCategoryId);
-                        el.modelSelect.value = '';
-                        el.generationSelect.value = '';
-                        el.engineCapacitySelect.value = '';
-                        currentVariantData = null;
-                        currentBasePrice = null;
-                        currentCrspData = null;
-                        el.crspInfo.classList.remove('show');
-                        el.calculateBtn.disabled = true;
-                    }
-                });
-
-                el.makeSelect.addEventListener('change', async function() {
-                    const makeId = this.value;
-                    if (makeId) {
-                        await populateModels(makeId);
-                        el.generationSelect.value = '';
-                        el.engineCapacitySelect.value = '';
-                        currentVariantData = null;
-                        currentBasePrice = null;
-                        currentCrspData = null;
-                        el.crspInfo.classList.remove('show');
-                        el.calculateBtn.disabled = true;
-                    }
-                });
-
-                el.modelSelect.addEventListener('change', async function() {
-                    const modelId = this.value;
-                    if (modelId) {
-                        await populateGenerations(modelId);
-                        el.engineCapacitySelect.value = '';
-                        currentVariantData = null;
-                        currentBasePrice = null;
-                        currentCrspData = null;
-                        el.crspInfo.classList.remove('show');
-                        el.calculateBtn.disabled = true;
-                    }
-                });
-
-                el.generationSelect.addEventListener('change', async function() {
-                    const genId = this.value;
-                    if (genId) {
-                        await populateEngineCapacities(genId);
-                        currentVariantData = null;
-                        currentBasePrice = null;
-                        currentCrspData = null;
-                        el.crspInfo.classList.remove('show');
-                        el.calculateBtn.disabled = true;
-                    }
-                });
-
-                el.engineCapacitySelect.addEventListener('change', function() {
-                    const selectedOption = this.options[this.selectedIndex];
-                    const variantId = selectedOption ? selectedOption.value : null;
-                    if (variantId) {
-                        loadVariantAndDisplay(variantId);
-                    } else {
-                        currentVariantData = null;
-                        currentBasePrice = null;
-                        currentCrspData = null;
-                        el.crspInfo.classList.remove('show');
-                        el.calculateBtn.disabled = true;
-                    }
-                });
-
-                ['change', 'input'].forEach(evt => {
-                    [el.distanceInput, el.annualKmInput, el.fuelPriceInput, el.drivingStyle, el.tripType, el.usageType, el.yearSelect].forEach(elem => {
-                        elem.addEventListener(evt, function() {
-                            this.classList.remove('error');
-                            const errorEl = document.getElementById(this.id + 'Error');
-                            if (errorEl) errorEl.classList.remove('show');
-                        });
-                    });
-                });
-
-                el.routeChips.addEventListener('click', function(e) {
-                    const chip = e.target.closest('.chip');
-                    if (!chip) return;
-                    const km = parseInt(chip.dataset.km, 10);
-                    if (!isNaN(km) && km > 0) {
-                        el.distanceInput.value = km;
-                        el.distanceInput.classList.remove('error');
-                        document.getElementById('distanceError')?.classList.remove('show');
-                    }
-                });
-
-                el.calculateBtn.addEventListener('click', () => {
-                    if (currentVariantData) calculateAndRender(currentVariantData);
-                    else showToast('Please select a vehicle first', 'warning');
-                });
-
-                el.btnCash.addEventListener('click', function() {
-                    this.classList.add('active');
-                    el.btnFinanced.classList.remove('active');
-                    el.financedFields.classList.remove('show');
-                    isFinanced = false;
-                });
-                el.btnFinanced.addEventListener('click', function() {
-                    this.classList.add('active');
-                    el.btnCash.classList.remove('active');
-                    el.financedFields.classList.add('show');
-                    isFinanced = true;
-                });
-
-                function bindSlider(id, valId, formatter) {
-                    const elem = document.getElementById(id);
-                    const out = document.getElementById(valId);
-                    const update = () => out.textContent = formatter(elem.value);
-                    elem.addEventListener("input", update);
-                    update();
-                }
-                bindSlider("downPct", "valDown", v => v + "%");
-                bindSlider("rate", "valRate", v => v + "%");
-                bindSlider("term", "valTerm", v => v + (v == 1 ? " year" : " years"));
-
-                el.printBtn.addEventListener('click', () => window.print());
-                el.shareBtn.addEventListener('click', function() {
-                    const url = window.location.href;
-                    const text = `Auto-D Kenya Mileage & 5-Year Cost Report\nVehicle: ${el.vehicleLabel.textContent}\nTrip Total: KES ${el.tripTotal.textContent}`;
-                    if (navigator.share) {
-                        navigator.share({ title: 'Auto-D Kenya Mileage Report', text, url }).catch(() => {});
-                    } else {
-                        navigator.clipboard.writeText(`${text}\n${url}`).then(() => {
-                            showToast('Report copied to clipboard!', 'success');
-                        }).catch(() => showToast('Share not available', 'error'));
-                    }
-                });
-
-                el.exportBtn.addEventListener('click', function() { showToast('📥 Export feature coming soon!', 'info'); });
-
-                setInterval(async () => { await checkAuth(); }, 30000);
-            }
-
-            async function init() {
-                el.loadingOverlay.classList.add('active');
-                try {
-                    const supabaseOk = initSupabase();
-                    if (!supabaseOk) {
-                        setStatus('error', '❌ Failed to initialize Supabase');
-                        showToast('Failed to initialize Supabase', 'error');
-                        el.loadingOverlay.classList.remove('active');
-                        return;
-                    }
-
-                    populateYearSelect();
-
-                    showProgress(10, 'Checking authentication...');
-                    await checkAuth();
-
-                    showProgress(25, 'Loading routes...');
-                    await loadRoutes();
-                    renderRouteChips();
-
-                    showProgress(60, 'Loading vehicle categories...');
-                    await populateCategories();
-
-                    el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
-
-                    showProgress(100, 'Ready!');
-                    setTimeout(hideProgress, 500);
-
-                    console.log('✅ Auto-D Kenya Mileage Calculator initialized');
-                    console.log('📊 Using view: ' + CONFIG.VIEW_NAME);
-                    console.log('💰 CRSP table: ' + CONFIG.CRSP_TABLE + ' (direct lookup via engine_capacity_id)');
-                    console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
-                    console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/running-cost/calculate`);
-
-                } catch (error) {
-                    console.error('❌ Init error:', error);
-                    setStatus('error', `❌ ${error.message}`);
-                    showToast('Error initializing calculator: ' + error.message, 'error');
-                    hideProgress();
-                } finally {
-                    el.loadingOverlay.classList.remove('active');
-                }
-            }
-
-            document.addEventListener('DOMContentLoaded', function() {
-                initEventListeners();
-                init();
-            });
-
-        })();
-    </script>
-
-</body>
-</html>
