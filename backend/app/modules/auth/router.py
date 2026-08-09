@@ -23,7 +23,7 @@ REFRESH_COOKIE_NAME = "sb_refresh_token"
 
 # In production this MUST be True (cookie only sent over HTTPS).
 COOKIE_SECURE = settings.ENVIRONMENT == "production"
-COOKIE_SAMESITE = "lax"  # use "none" (+ secure=True) if frontend is on a different domain than the API
+COOKIE_SAMESITE = "lax"  # same-domain frontend + API confirmed
 
 
 def _set_session_cookies(response: Response, access_token: str, refresh_token: str, expires_in: int):
@@ -74,7 +74,12 @@ async def login(request: LoginRequest, response: Response):
 @router.post("/register")
 async def register(request: RegisterRequest, response: Response):
     """Register a new user. Sets session cookies if auto-confirmed."""
-    result = await auth_service.register(request.email, request.password, request.full_name)
+    result = await auth_service.register(
+        request.email,
+        request.password,
+        request.full_name,
+        request.account_type,
+    )
 
     if result.get("access_token") and result.get("refresh_token"):
         _set_session_cookies(
