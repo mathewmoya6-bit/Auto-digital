@@ -402,16 +402,16 @@
                     <select id="yearSelect"></select>
                 </div>
 
-                <!-- ─── CRSP INFO ───────────────────────────────────────── -->
+                <!-- ─── CRSP INFO (aligned with Instant Value Check) ──── -->
                 <div class="crsp-info" id="crspInfo">
                     <h4>🏛️ KRA CRSP Base Price Reference</h4>
                     <div id="crspInfoContent">
-                        <div class="row"><span>Queried engine_capacity_id</span><span class="value" id="crspQueriedId">—</span></div>
                         <div class="row"><span>Matched CRSP Line</span><span class="value" id="crspMatchedLine">—</span></div>
                         <div class="row"><span>CRSP Base Price</span><span class="value" id="crspBasePrice">—</span></div>
                         <div class="row"><span>Engine Capacity</span><span class="value" id="crspEngineCapacity">—</span></div>
                         <div class="row"><span>Fuel Type</span><span class="value" id="crspFuel">—</span></div>
                         <div class="row"><span>Transmission</span><span class="value" id="crspTransmission">—</span></div>
+                        <div class="row"><span>Query Method</span><span class="value" id="crspQueryMethod">—</span></div>
                     </div>
                 </div>
 
@@ -611,7 +611,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.10 - CRSP lookup aligned with Instant Value Check (isAuthenticated guard + FK match)
+        // Version 8.10 - CRSP lookup fully aligned with Instant Value Check
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -634,12 +634,13 @@
             let currentUser = null;
             let isFinanced = false;
             let currentVariantData = null;
-            let currentBasePrice = null;
-            let currentCrspData = null;
-            let lastQueriedVariantId = null;
+            // ─── CRSP STATE (aligned with Instant Value Check) ───
+            let crspReferenceData = null;      // Full matched row from vehicle_crsp_prices
+            let currentBasePrice = null;        // crsp_kes from the matched row
             let routes = [];
             let selectedCategoryId = null;
             let selectedFuelFilter = 'all';
+            let lastQueriedVariantId = null;
 
             const el = {
                 categorySelect: document.getElementById('categorySelect'),
@@ -710,12 +711,12 @@
                 printBtn: document.getElementById('printBtn'),
                 shareBtn: document.getElementById('shareBtn'),
                 crspInfo: document.getElementById('crspInfo'),
-                crspQueriedId: document.getElementById('crspQueriedId'),
                 crspMatchedLine: document.getElementById('crspMatchedLine'),
                 crspBasePrice: document.getElementById('crspBasePrice'),
                 crspEngineCapacity: document.getElementById('crspEngineCapacity'),
                 crspFuel: document.getElementById('crspFuel'),
-                crspTransmission: document.getElementById('crspTransmission')
+                crspTransmission: document.getElementById('crspTransmission'),
+                crspQueryMethod: document.getElementById('crspQueryMethod')
             };
 
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
@@ -919,38 +920,46 @@
                 return data;
             }
 
-            // ─── CRSP BASE PRICE LOOKUP ──────────────────────────────
-            // Aligned with Instant Value Check's lookupCRSPBasePrice(): same
-            // table, same FK column, same isAuthenticated guard, same return
-            // shape (full matched row + matchQuality tag), so both calculators
-            // treat "original price" identically.
+            // ═══════════════════════════════════════════════════════════════
+            // ─── CRSP LOOKUP — FULLY ALIGNED WITH INSTANT VALUE CHECK ───
+            // ═══════════════════════════════════════════════════════════════
             //
-            // SELECT id, make, model, model_number, transmission, drive_configuration,
-            //        engine_capacity, body_type, fuel, crsp_kes
-            // FROM vehicle_crsp_prices
-            // WHERE engine_capacity_id = :variant_id
-            // LIMIT 1;
-            // variantIdOrIds: a single variant_id, OR an array of variant_ids that
-            // all share the same engine_size_cc (i.e. the full sibling group behind
-            // one "Engine Capacity" dropdown option). We query ALL of them —
-            // engine_capacity_id in vehicle_crsp_prices is a FK to one specific
-            // variant_id, and the dropdown only shows one representative label per
-            // cc, so restricting the lookup to that single representative id was
-            // causing false "No CRSP Record Found" results whenever the CRSP row
-            // was actually keyed to a sibling trim with the same cc.
-            async function fetchBasePrice(variantIdOrIds) {
+            // Same function signature as Instant Value Check:
+            //   lookupCRSPBasePrice(variantId)
+            //   returns { id, make, model, model_number, transmission,
+            //             drive_configuration, engine_capacity, body_type,
+            //             fuel, crsp_kes, matchQuality } or null
+            //
+            // But to support the "grouped by engine capacity" dropdown in the
+            // Mileage calculator, we also accept an array of variant IDs
+            // (all siblings sharing the same cc) and query them with .in()
+            //
+            // This is the ONLY difference from the valuation file — it's a
+            // superset that handles both single ID and multiple ID lookups.
+
+            async function lookupCRSPBasePrice(variantIdOrIds) {
                 const ids = Array.isArray(variantIdOrIds) ? variantIdOrIds.filter(Boolean) : [variantIdOrIds].filter(Boolean);
                 lastQueriedVariantId = ids.length ? ids.join(', ') : null;
+
                 if (!supabaseClient || !isAuthenticated || ids.length === 0) {
                     console.log('ℹ️ CRSP lookup skipped (no client, not authenticated, or no variantId)');
                     return null;
                 }
+
                 try {
                     console.log(`🔍 Looking up CRSP for engine_capacity_id in: [${ids.join(', ')}]`);
+
                     let query = supabaseClient
-                        .from(CONFIG.CRSP_TABLE)  // 'vehicle_crsp_prices'
+                        .from(CONFIG.CRSP_TABLE)
                         .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes');
-                    query = ids.length > 1 ? query.in('engine_capacity_id', ids) : query.eq('engine_capacity_id', ids[0]);
+
+                    // Use .in() for multiple IDs, .eq() for single — same result either way
+                    if (ids.length > 1) {
+                        query = query.in('engine_capacity_id', ids);
+                    } else {
+                        query = query.eq('engine_capacity_id', ids[0]);
+                    }
+
                     const { data, error } = await query.limit(1);
 
                     if (error || !data || data.length === 0) {
@@ -958,35 +967,37 @@
                         else console.log(`ℹ️ No CRSP record found for engine_capacity_id in: [${ids.join(', ')}]`);
                         return null;
                     }
-                    const matched = { ...data[0], matchQuality: ids.length > 1 ? 'exact engine capacity match (FK, sibling trim)' : 'exact engine capacity match (FK)' };
+
+                    const matched = {
+                        ...data[0],
+                        matchQuality: ids.length > 1
+                            ? 'exact engine capacity match (sibling trim)'
+                            : 'exact engine capacity match'
+                    };
+
                     console.log(`✅ CRSP record found: KES ${matched.crsp_kes} for ${matched.make} ${matched.model}`);
                     return matched;
+
                 } catch (error) {
-                    console.warn('⚠️ Base price lookup failed:', error.message);
+                    console.warn('⚠️ CRSP lookup failed:', error.message);
                     return null;
                 }
             }
 
-            // Refreshes module-level CRSP state (currentCrspData / currentBasePrice)
-            // for a given variant (or group of sibling variant_ids sharing the same
-            // engine capacity) and repaints the CRSP panel + vehicle-profile pill.
+            // ─── REFRESH CRSP — updates module state and UI ──────────
+            // Same pattern as Instant Value Check's refreshCRSPReference()
             async function refreshCRSPReference(variantIdOrIds) {
-                currentCrspData = await fetchBasePrice(variantIdOrIds);
-                currentBasePrice = currentCrspData?.crsp_kes ?? null;
+                crspReferenceData = await lookupCRSPBasePrice(variantIdOrIds);
+                currentBasePrice = crspReferenceData?.crsp_kes ?? null;
                 updateCRSPInfo();
                 if (currentVariantData) displayVehicleInfo(currentVariantData);
-                return currentCrspData;
+                return crspReferenceData;
             }
 
+            // ─── UPDATE CRSP INFO PANEL ──────────────────────────────
+            // Matches the Instant Value Check's CRSP panel display
             function updateCRSPInfo() {
-                el.crspQueriedId.textContent = lastQueriedVariantId !== null && lastQueriedVariantId !== undefined
-                    ? String(lastQueriedVariantId)
-                    : '—';
-
-                if (!currentCrspData || !currentCrspData.crsp_kes) {
-                    // Still show the panel so the exact ID that was queried is visible —
-                    // makes it easy to cross-check against vehicle_crsp_prices.engine_capacity_id
-                    // in Supabase without opening devtools.
+                if (!crspReferenceData || !crspReferenceData.crsp_kes) {
                     el.crspMatchedLine.textContent = 'No CRSP row found for this ID';
                     el.crspMatchedLine.className = 'value crsp-missing';
                     el.crspBasePrice.textContent = '—';
@@ -994,12 +1005,18 @@
                     el.crspEngineCapacity.textContent = '—';
                     el.crspFuel.textContent = '—';
                     el.crspTransmission.textContent = '—';
+                    el.crspQueryMethod.textContent = lastQueriedVariantId ? `Queried ID(s): ${lastQueriedVariantId}` : '—';
                     el.crspInfo.classList.add('show');
+                    // Update pill
+                    el.basePricePill.textContent = '⚠️ No CRSP Record Found';
+                    el.basePricePill.style.display = 'inline-block';
+                    el.basePricePill.className = 'base-price-pill missing';
                     return;
                 }
 
-                const data = currentCrspData;
+                const data = crspReferenceData;
                 const matchedLine = `${data.make || ''} ${data.model || ''}`.trim() || '—';
+
                 el.crspMatchedLine.textContent = matchedLine;
                 el.crspMatchedLine.className = 'value crsp-found';
                 el.crspBasePrice.textContent = `KES ${formatCurrency(data.crsp_kes)}`;
@@ -1007,7 +1024,13 @@
                 el.crspEngineCapacity.textContent = data.engine_capacity || '—';
                 el.crspFuel.textContent = data.fuel || '—';
                 el.crspTransmission.textContent = data.transmission || '—';
+                el.crspQueryMethod.textContent = data.matchQuality || `Queried ID(s): ${lastQueriedVariantId || '—'}`;
                 el.crspInfo.classList.add('show');
+
+                // Update pill
+                el.basePricePill.textContent = `CRSP Base: KES ${formatNumber(data.crsp_kes)}`;
+                el.basePricePill.style.display = 'inline-block';
+                el.basePricePill.className = 'base-price-pill';
             }
 
             async function loadCategories() {
@@ -1205,7 +1228,7 @@
                 el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
                 currentVariantData = null;
-                currentCrspData = null;
+                crspReferenceData = null;
                 currentBasePrice = null;
                 el.crspInfo.classList.remove('show');
                 if (!categoryId) return;
@@ -1236,7 +1259,7 @@
                 el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
                 currentVariantData = null;
-                currentCrspData = null;
+                crspReferenceData = null;
                 currentBasePrice = null;
                 el.crspInfo.classList.remove('show');
                 if (!makeId) return;
@@ -1265,7 +1288,7 @@
                 el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
                 currentVariantData = null;
-                currentCrspData = null;
+                crspReferenceData = null;
                 currentBasePrice = null;
                 el.crspInfo.classList.remove('show');
                 if (!modelId) return;
@@ -1291,7 +1314,7 @@
                 select.disabled = true;
                 el.calculateBtn.disabled = true;
                 currentVariantData = null;
-                currentCrspData = null;
+                crspReferenceData = null;
                 currentBasePrice = null;
                 el.crspInfo.classList.remove('show');
                 if (!generationId) return;
@@ -1311,8 +1334,7 @@
                 engineGroups.forEach(group => {
                     const opt = document.createElement('option');
                     opt.value = group.variants[0].variant_id;
-                    // Full sibling group sharing this engine_size_cc — used so the
-                    // CRSP lookup isn't limited to just the representative variant.
+                    // Store ALL variant IDs for this engine capacity — used for CRSP lookup
                     opt.dataset.variantIds = group.variants.map(v => v.variant_id).join(',');
                     const fuelTypes = [...new Set(group.variants.map(v => v.fuel_type_name || 'Unknown'))];
                     let label = `${group.engine_size_cc}cc`;
@@ -1337,7 +1359,7 @@
                 const engineCC = variant.engine_size_cc || null;
                 el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
 
-                // Show CRSP base price if available
+                // Show CRSP base price if available (updated by updateCRSPInfo)
                 if (currentBasePrice) {
                     el.basePricePill.textContent = `CRSP Base: KES ${formatNumber(currentBasePrice)}`;
                     el.basePricePill.style.display = 'inline-block';
@@ -1484,7 +1506,7 @@
                 try {
                     const today = new Date().toISOString().slice(0, 10);
                     let query = supabaseClient
-                        .from(CONFIG.RATES_TABLE) // 'vehicle_running_cost_rates'
+                        .from(CONFIG.RATES_TABLE)
                         .select('*')
                         .eq('engine_capacity_id', variant.variant_id)
                         .eq('is_active', true)
@@ -1584,7 +1606,8 @@
             }
 
             async function saveOwnershipCost(result, variant, annualKm, fuelPrice) {
-                if (!currentCrspData || !currentCrspData.id) {
+                // Use crspReferenceData.id (the matched CRSP row's primary key)
+                if (!crspReferenceData || !crspReferenceData.id) {
                     console.error('❌ Skipping ownership-cost save: no CRSP row loaded (crsp_id is NOT NULL).');
                     return null;
                 }
@@ -1609,7 +1632,7 @@
                 const total_ownership_cost = result.five_year_total || result.total_5yr_cost || 0;
 
                 const row = {
-                    crsp_id: currentCrspData.id,
+                    crsp_id: crspReferenceData.id,  // FK to vehicle_crsp_prices.id
                     annual_mileage: annualKm,
                     ownership_years: 5,
                     crsp_price: currentBasePrice,
@@ -1669,6 +1692,7 @@
                 el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
                 showProgress(10, 'Loading vehicle data...');
 
+                // CRSP check — must have a base price to proceed
                 if (!currentBasePrice) {
                     showProgress(0, 'Checking CRSP data...');
                     showToast('⚠️ No CRSP record found for this vehicle. Cannot calculate accurate costs.', 'warning');
@@ -1692,7 +1716,7 @@
                     down_payment_percent: parseInt(el.downPct.value) || 30,
                     interest_rate: parseFloat(el.rate.value) || 16,
                     loan_term: parseInt(el.term.value) || 4,
-                    purchase_price: currentBasePrice
+                    purchase_price: currentBasePrice  // <-- same as Instant Value Check
                 };
 
                 console.log(`✅ Using CRSP base price: KES ${inputs.purchase_price}`);
@@ -1946,19 +1970,24 @@
                 el.engineCapacitySelect.addEventListener('change', async function() {
                     const variantId = this.value;
                     const selectedOpt = this.options[this.selectedIndex];
+                    // Get ALL sibling variant IDs that share this engine capacity
                     const siblingIds = selectedOpt?.dataset?.variantIds
                         ? selectedOpt.dataset.variantIds.split(',').filter(Boolean)
                         : (variantId ? [variantId] : []);
+
                     el.calculateBtn.disabled = true;
                     currentVariantData = null;
-                    currentCrspData = null;
+                    crspReferenceData = null;
                     currentBasePrice = null;
+
                     if (!variantId) return;
+
                     const variant = await loadVariantDetails(variantId);
                     if (variant) {
                         currentVariantData = variant;
-                        // Check CRSP against every sibling trim sharing this cc, not
-                        // just the representative variant shown in the dropdown.
+                        // ─── CRSP LOOKUP (aligned with Instant Value Check) ───
+                        // Pass ALL sibling variant IDs so the lookup finds the CRSP
+                        // row even if it's keyed to a different trim with the same cc
                         await refreshCRSPReference(siblingIds.length ? siblingIds : variantId);
                         el.calculateBtn.disabled = false;
                     }
