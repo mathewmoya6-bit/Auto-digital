@@ -11,913 +11,219 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        /* ─── CSS Variables ────────────────────────────────────────── */
         :root {
-            --amber: #eab308;
-            --amber-dark: #ca8a04;
-            --green: #22c55e;
-            --blue: #3b82f6;
-            --cyan: #06b6d4;
-            --red: #ef4444;
-            --bg: #0a0c15;
-            --bg-panel: #111827;
-            --text-primary: #f8fafc;
-            --text-secondary: #cbd5e1;
-            --text-muted: #64748b;
+            --amber: #eab308; --amber-dark: #ca8a04; --green: #22c55e; --blue: #3b82f6;
+            --cyan: #06b6d4; --red: #ef4444; --bg: #0a0c15; --bg-panel: #111827;
+            --text-primary: #f8fafc; --text-secondary: #cbd5e1; --text-muted: #64748b;
             --border: rgba(255, 255, 255, 0.06);
-            --font-heading: 'Space Grotesk', sans-serif;
-            --font-body: 'Inter', sans-serif;
-            --font-mono: 'JetBrains Mono', monospace;
+            --font-heading: 'Space Grotesk', sans-serif; --font-body: 'Inter', sans-serif; --font-mono: 'JetBrains Mono', monospace;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Inter', sans-serif; background: #0a0c15; color: #f8fafc; min-height: 100vh; }
         .wrap { max-width: 1440px; margin: 0 auto; padding: 28px 32px 60px; }
         .skip-link { position: absolute; top: -40px; left: 0; background: #eab308; color: #0a0c10; padding: 8px 16px; z-index: 100; transition: top 0.3s; font-weight: 600; font-size: 14px; }
         .skip-link:focus { top: 0; }
-
-        .report-header {
-            background: linear-gradient(135deg, #111827, #0a0c15);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 28px 32px;
-            margin-bottom: 28px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            flex-wrap: wrap;
-            gap: 20px;
-            position: relative;
-            overflow: hidden;
-        }
-        .report-header::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            right: -10%;
-            width: 40%;
-            height: 200%;
-            background: radial-gradient(ellipse, rgba(234, 179, 8, 0.03), transparent 70%);
-            pointer-events: none;
-        }
-        .header-left .badge {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: #eab308;
-            background: rgba(234, 179, 8, 0.12);
-            padding: 4px 14px;
-            border-radius: 20px;
-            display: inline-block;
-            margin-bottom: 8px;
-            border: 1px solid rgba(234, 179, 8, 0.15);
-        }
-        .header-left h1 {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 30px;
-            font-weight: 700;
-            color: #f8fafc;
-            letter-spacing: -0.02em;
-            line-height: 1.2;
-        }
+        .report-header { background: linear-gradient(135deg, #111827, #0a0c15); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 28px 32px; margin-bottom: 28px; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px; position: relative; overflow: hidden; }
+        .report-header::before { content: ''; position: absolute; top: -50%; right: -10%; width: 40%; height: 200%; background: radial-gradient(ellipse, rgba(234,179,8,0.03), transparent 70%); pointer-events: none; }
+        .header-left .badge { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #eab308; background: rgba(234,179,8,0.12); padding: 4px 14px; border-radius: 20px; display: inline-block; margin-bottom: 8px; border: 1px solid rgba(234,179,8,0.15); }
+        .header-left h1 { font-family: 'Space Grotesk', sans-serif; font-size: 30px; font-weight: 700; color: #f8fafc; letter-spacing: -0.02em; line-height: 1.2; }
         .header-left h1 span { color: #eab308; }
-        .header-left .subtitle {
-            font-size: 14px;
-            color: #cbd5e1;
-            margin-top: 4px;
-        }
+        .header-left .subtitle { font-size: 14px; color: #cbd5e1; margin-top: 4px; }
         .header-left .subtitle strong { color: #eab308; }
-        .header-right {
-            text-align: right;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            color: #64748b;
-            line-height: 1.9;
-            flex-shrink: 0;
-        }
+        .header-right { text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #64748b; line-height: 1.9; flex-shrink: 0; }
         .header-right .version { color: #cbd5e1; font-weight: 600; font-size: 13px; }
         .header-right .version span { color: #eab308; }
-        .header-right .auth-status {
-            font-size: 10px;
-            padding: 2px 10px;
-            border-radius: 12px;
-            display: inline-block;
-        }
-        .header-right .auth-status.authenticated {
-            background: rgba(34, 197, 94, 0.15);
-            color: #22c55e;
-        }
-        .header-right .auth-status.unauthenticated {
-            background: rgba(239, 68, 68, 0.15);
-            color: #ef4444;
-        }
-        .dashboard-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 18px;
-            background: rgba(234, 179, 8, 0.12);
-            border: 1px solid rgba(234, 179, 8, 0.2);
-            border-radius: 8px;
-            color: #eab308;
-            font-family: 'Inter', sans-serif;
-            font-size: 13px;
-            font-weight: 600;
-            text-decoration: none;
-            transition: all 0.3s ease;
-            margin-top: 8px;
-        }
-        .dashboard-link:hover {
-            background: rgba(234, 179, 8, 0.2);
-            border-color: #eab308;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 20px rgba(234, 179, 8, 0.15);
-        }
+        .header-right .auth-status { font-size: 10px; padding: 2px 10px; border-radius: 12px; display: inline-block; }
+        .header-right .auth-status.authenticated { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .header-right .auth-status.unauthenticated { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .dashboard-link { display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; background: rgba(234,179,8,0.12); border: 1px solid rgba(234,179,8,0.2); border-radius: 8px; color: #eab308; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; text-decoration: none; transition: all 0.3s ease; margin-top: 8px; }
+        .dashboard-link:hover { background: rgba(234,179,8,0.2); border-color: #eab308; transform: translateY(-2px); box-shadow: 0 4px 20px rgba(234,179,8,0.15); }
         .dashboard-link .arrow { font-size: 16px; transition: transform 0.3s ease; }
         .dashboard-link:hover .arrow { transform: translateX(-4px); }
-
-        .main-grid {
-            display: grid;
-            grid-template-columns: 420px 1fr;
-            gap: 28px;
-        }
-        @media (max-width: 1024px) {
-            .main-grid { grid-template-columns: 1fr; }
-            .calculator-panel { position: static !important; max-height: none !important; }
-        }
-
-        .calculator-panel {
-            background: #111827;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-            height: fit-content;
-            position: sticky;
-            top: 20px;
-            max-height: calc(100vh - 40px);
-            overflow-y: auto;
-        }
+        .main-grid { display: grid; grid-template-columns: 420px 1fr; gap: 28px; }
+        @media (max-width: 1024px) { .main-grid { grid-template-columns: 1fr; } .calculator-panel { position: static !important; max-height: none !important; } }
+        .calculator-panel { background: #111827; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 24px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); height: fit-content; position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; }
         .calculator-panel::-webkit-scrollbar { width: 4px; }
         .calculator-panel::-webkit-scrollbar-track { background: transparent; }
         .calculator-panel::-webkit-scrollbar-thumb { background: #eab308; border-radius: 10px; }
-
-        .auth-section {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 12px;
-        }
-        .auth-section .auth-buttons {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
-        }
-        .auth-section .auth-buttons button {
-            flex: 1;
-            padding: 6px 12px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            background: transparent;
-            color: var(--text-secondary);
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
+        .auth-section { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+        .auth-section .auth-buttons { display: flex; gap: 8px; margin-top: 8px; }
+        .auth-section .auth-buttons button { flex: 1; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
         .auth-section .auth-buttons button:hover { border-color: var(--amber); color: var(--amber); }
         .auth-section .auth-buttons button.primary { background: var(--amber); color: #0a0c10; border-color: var(--amber); }
         .auth-section .auth-buttons button.primary:hover { background: var(--amber-dark); }
         .auth-section .user-email { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); padding: 4px 0; }
-
-        .panel-label {
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 600;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: #eab308;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 12px;
-            margin-top: 16px;
-        }
+        .panel-label { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #eab308; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: 16px; }
         .panel-label:first-of-type { margin-top: 0; }
-        .panel-label .num {
-            font-family: 'JetBrains Mono', monospace;
-            color: #64748b;
-            background: #1e293b;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 700;
-        }
-
+        .panel-label .num { font-family: 'JetBrains Mono', monospace; color: #64748b; background: #1e293b; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
         .form-group { margin-bottom: 12px; }
-        .form-group label {
-            display: block;
-            font-size: 9px;
-            color: #cbd5e1;
-            margin-bottom: 3px;
-            font-family: 'JetBrains Mono', monospace;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-        }
+        .form-group label { display: block; font-size: 9px; color: #cbd5e1; margin-bottom: 3px; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em; text-transform: uppercase; }
         .form-group .error-text { font-size: 10px; color: var(--red); margin-top: 3px; display: none; }
         .form-group .error-text.show { display: block; }
         .form-group input.error, .form-group select.error { border: 2px solid var(--red); outline: none; }
-        select, input[type="number"], input[type="text"], input[type="password"] {
-            width: 100%;
-            background: #f0ece4;
-            color: #0a0c10;
-            border: none;
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-family: 'Inter', sans-serif;
-            font-size: 12px;
-            font-weight: 500;
-            appearance: none;
-            transition: outline 0.15s;
-        }
+        select, input[type="number"], input[type="text"], input[type="password"] { width: 100%; background: #f0ece4; color: #0a0c10; border: none; border-radius: 6px; padding: 8px 12px; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500; appearance: none; transition: outline 0.15s; }
         select:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
         select:focus, input:focus { outline: 2px solid #eab308; outline-offset: 1px; }
-
         .fuel-filter-group { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-        .fuel-filter-btn {
-            padding: 3px 10px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 14px;
-            background: transparent;
-            color: #cbd5e1;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
+        .fuel-filter-btn { padding: 3px 10px; border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; background: transparent; color: #cbd5e1; font-family: 'JetBrains Mono', monospace; font-size: 8px; cursor: pointer; transition: all 0.3s; }
         .fuel-filter-btn:hover { border-color: #eab308; color: #eab308; }
         .fuel-filter-btn.active { background: #eab308; border-color: #eab308; color: #0a0c10; font-weight: 600; }
-        .fuel-filter-btn .fuel-dot {
-            display: inline-block;
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            margin-right: 3px;
-        }
+        .fuel-filter-btn .fuel-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; }
         .fuel-filter-btn .fuel-dot.petrol { background: #eab308; }
         .fuel-filter-btn .fuel-dot.diesel { background: #22c55e; }
         .fuel-filter-btn .fuel-dot.electric { background: #8b5cf6; }
         .fuel-filter-btn .fuel-dot.hybrid { background: linear-gradient(135deg, #eab308, #22c55e); }
-
         .toggle-group { display: flex; gap: 6px; margin-top: 4px; }
-        .toggle-btn {
-            flex: 1;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            color: #64748b;
-            font-size: 10px;
-            font-weight: 600;
-            padding: 6px 8px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .toggle-btn.active {
-            background: rgba(234, 179, 8, 0.12);
-            border-color: rgba(234, 179, 8, 0.4);
-            color: #eab308;
-        }
+        .toggle-btn { flex: 1; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); color: #64748b; font-size: 10px; font-weight: 600; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: all 0.3s; }
+        .toggle-btn.active { background: rgba(234,179,8,0.12); border-color: rgba(234,179,8,0.4); color: #eab308; }
         .financed-fields { display: none; padding-top: 4px; }
         .financed-fields.show { display: block; }
-
         .quick-routes { margin-top: 4px; }
-        .quick-routes-title {
-            font-size: 8px;
-            color: #cbd5e1;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-family: 'JetBrains Mono', monospace;
-            margin-bottom: 4px;
-            opacity: 0.7;
-        }
-        .route-chips {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            max-height: 60px;
-            overflow-y: auto;
-            padding-right: 4px;
-        }
+        .quick-routes-title { font-size: 8px; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.08em; font-family: 'JetBrains Mono', monospace; margin-bottom: 4px; opacity: 0.7; }
+        .route-chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 60px; overflow-y: auto; padding-right: 4px; }
         .route-chips::-webkit-scrollbar { width: 3px; }
         .route-chips::-webkit-scrollbar-track { background: transparent; }
         .route-chips::-webkit-scrollbar-thumb { background: #eab308; border-radius: 10px; }
-        .chip {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            color: #cbd5e1;
-            padding: 3px 8px;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.3s;
-            white-space: nowrap;
-            background: rgba(255, 255, 255, 0.03);
-        }
-        .chip:hover { border-color: #eab308; color: #eab308; background: rgba(234, 179, 8, 0.08); }
+        .chip { font-family: 'JetBrains Mono', monospace; font-size: 8px; border: 1px solid rgba(255,255,255,0.06); color: #cbd5e1; padding: 3px 8px; border-radius: 4px; cursor: pointer; transition: all 0.3s; white-space: nowrap; background: rgba(255,255,255,0.03); }
+        .chip:hover { border-color: #eab308; color: #eab308; background: rgba(234,179,8,0.08); }
         .chip .km-badge { font-size: 7px; opacity: 0.6; margin-left: 3px; }
-
-        .calc-btn {
-            width: 100%;
-            padding: 12px;
-            background: #eab308;
-            color: #0a0c10;
-            border: none;
-            border-radius: 6px;
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 13px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s;
-            margin-top: 8px;
-        }
-        .calc-btn:hover:not(:disabled) {
-            background: #ca8a04;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 20px rgba(234, 179, 8, 0.3);
-        }
-        .calc-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-        .calc-btn .spinner {
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-            border: 2px solid rgba(0, 0, 0, 0.1);
-            border-top: 2px solid #0a0c10;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin-right: 8px;
-            vertical-align: middle;
-        }
+        .calc-btn { width: 100%; padding: 12px; background: #eab308; color: #0a0c10; border: none; border-radius: 6px; font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.3s; margin-top: 8px; }
+        .calc-btn:hover:not(:disabled) { background: #ca8a04; transform: translateY(-2px); box-shadow: 0 4px 20px rgba(234,179,8,0.3); }
+        .calc-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .calc-btn .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(0,0,0,0.1); border-top: 2px solid #0a0c10; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle; }
         @keyframes spin { to { transform: rotate(360deg); } }
-
-        .disclaimer {
-            font-size: 10px;
-            color: #64748b;
-            margin-top: 12px;
-            padding: 8px 12px;
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
-            line-height: 1.5;
-        }
+        .disclaimer { font-size: 10px; color: #64748b; margin-top: 12px; padding: 8px 12px; border-top: 1px solid rgba(255,255,255,0.06); line-height: 1.5; }
         .disclaimer strong { color: #eab308; }
-
-        .status-message {
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .status-message.error { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; }
-        .status-message.warning { background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.2); color: #eab308; }
-        .status-message.success { background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.2); color: #22c55e; }
-        .status-message.info { background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.2); color: #3b82f6; }
-
-        .progress-container {
-            display: none;
-            margin: 12px 0;
-            padding: 8px 12px;
-            background: rgba(255,255,255,0.03);
-            border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.06);
-        }
+        .status-message { padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; display: flex; align-items: center; gap: 10px; }
+        .status-message.error { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.2); color: #ef4444; }
+        .status-message.warning { background: rgba(234,179,8,0.12); border: 1px solid rgba(234,179,8,0.2); color: #eab308; }
+        .status-message.success { background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.2); color: #22c55e; }
+        .status-message.info { background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.2); color: #3b82f6; }
+        .progress-container { display: none; margin: 12px 0; padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); }
         .progress-container.show { display: block; }
-        .progress-bar-track {
-            width: 100%;
-            height: 4px;
-            background: rgba(255,255,255,0.06);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        .progress-bar-track .progress-fill {
-            height: 100%;
-            background: var(--amber);
-            border-radius: 4px;
-            transition: width 0.5s ease;
-            width: 0%;
-        }
-        .progress-text {
-            font-size: 10px;
-            color: var(--text-muted);
-            margin-top: 4px;
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .loading-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(10, 12, 21, 0.85);
-            z-index: 99999;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-            gap: 20px;
-        }
+        .progress-bar-track { width: 100%; height: 4px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+        .progress-bar-track .progress-fill { height: 100%; background: var(--amber); border-radius: 4px; transition: width 0.5s ease; width: 0%; }
+        .progress-text { font-size: 10px; color: var(--text-muted); margin-top: 4px; display: flex; justify-content: space-between; }
+        .loading-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10,12,21,0.85); z-index: 99999; justify-content: center; align-items: center; flex-direction: column; gap: 20px; }
         .loading-overlay.active { display: flex; }
-        .loading-overlay .spinner-large {
-            width: 50px;
-            height: 50px;
-            border: 4px solid rgba(234, 179, 8, 0.2);
-            border-top: 4px solid #eab308;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        .loading-overlay .loading-text {
-            color: #eab308;
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-        }
-        .loading-overlay .loading-sub {
-            color: #64748b;
-            font-size: 12px;
-            font-family: 'Inter', sans-serif;
-        }
-
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            border-radius: 8px;
-            z-index: 9999;
-            font-weight: 500;
-            animation: slideIn .3s ease;
-            max-width: 380px;
-            font-size: 12px;
-        }
+        .loading-overlay .spinner-large { width: 50px; height: 50px; border: 4px solid rgba(234,179,8,0.2); border-top: 4px solid #eab308; border-radius: 50%; animation: spin 1s linear infinite; }
+        .loading-overlay .loading-text { color: #eab308; font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 600; letter-spacing: 0.05em; }
+        .loading-overlay .loading-sub { color: #64748b; font-size: 12px; font-family: 'Inter', sans-serif; }
+        .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; border-radius: 8px; z-index: 9999; font-weight: 500; animation: slideIn .3s ease; max-width: 380px; font-size: 12px; }
         .toast-success { background: #22c55e; color: #000; }
         .toast-error { background: #ef4444; color: #fff; }
         .toast-info { background: #3b82f6; color: #fff; }
         .toast-warning { background: #eab308; color: #000; }
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateX(80px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-
+        @keyframes slideIn { from { opacity: 0; transform: translateX(80px); } to { opacity: 1; transform: translateX(0); } }
         .results-panel { display: flex; flex-direction: column; gap: 16px; }
-        .result-card {
-            background: #111827;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 16px 20px;
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-        }
-        .result-card .card-title {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 13px;
-            font-weight: 600;
-            color: #eab308;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 12px;
-        }
-        .result-card .card-title .badge {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            background: rgba(234, 179, 8, 0.12);
-            color: #eab308;
-            padding: 2px 10px;
-            border-radius: 12px;
-            font-weight: 500;
-        }
-
-        .vehicle-tag {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-        .vehicle-tag #vehicleLabel {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 600;
-            color: #f8fafc;
-        }
-        .fuel-pill {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            background: #0a0c15;
-            color: #eab308;
-            padding: 3px 12px;
-            border-radius: 20px;
-            letter-spacing: 0.04em;
-            font-weight: 600;
-        }
-        .transmission-pill {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            background: #0a0c15;
-            color: #3b82f6;
-            padding: 3px 12px;
-            border-radius: 20px;
-            letter-spacing: 0.04em;
-            font-weight: 600;
-        }
-        .engine-cc-display {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            background: #0a0c15;
-            color: #06b6d4;
-            padding: 3px 12px;
-            border-radius: 20px;
-            letter-spacing: 0.04em;
-            font-weight: 600;
-            border: 1px solid rgba(6, 182, 212, 0.2);
-        }
-        .base-price-pill {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            background: #0a0c15;
-            color: #22c55e;
-            padding: 3px 12px;
-            border-radius: 20px;
-            letter-spacing: 0.04em;
-            font-weight: 600;
-            border: 1px solid rgba(34, 197, 94, 0.2);
-        }
-        .base-price-pill.missing {
-            border-color: var(--red);
-            color: var(--red);
-        }
-        .vehicle-specs {
-            margin-top: 6px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            color: #64748b;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
+        .result-card { background: #111827; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 16px 20px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); }
+        .result-card .card-title { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 600; color: #eab308; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .result-card .card-title .badge { font-family: 'JetBrains Mono', monospace; font-size: 8px; background: rgba(234,179,8,0.12); color: #eab308; padding: 2px 10px; border-radius: 12px; font-weight: 500; }
+        .vehicle-tag { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .vehicle-tag #vehicleLabel { font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 600; color: #f8fafc; }
+        .fuel-pill { font-family: 'JetBrains Mono', monospace; font-size: 9px; background: #0a0c15; color: #eab308; padding: 3px 12px; border-radius: 20px; letter-spacing: 0.04em; font-weight: 600; }
+        .transmission-pill { font-family: 'JetBrains Mono', monospace; font-size: 9px; background: #0a0c15; color: #3b82f6; padding: 3px 12px; border-radius: 20px; letter-spacing: 0.04em; font-weight: 600; }
+        .engine-cc-display { font-family: 'JetBrains Mono', monospace; font-size: 9px; background: #0a0c15; color: #06b6d4; padding: 3px 12px; border-radius: 20px; letter-spacing: 0.04em; font-weight: 600; border: 1px solid rgba(6,182,212,0.2); }
+        .base-price-pill { font-family: 'JetBrains Mono', monospace; font-size: 9px; background: #0a0c15; color: #22c55e; padding: 3px 12px; border-radius: 20px; letter-spacing: 0.04em; font-weight: 600; border: 1px solid rgba(34,197,94,0.2); }
+        .base-price-pill.missing { border-color: var(--red); color: var(--red); }
+        .vehicle-specs { margin-top: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #64748b; display: flex; flex-wrap: wrap; gap: 12px; }
         .vehicle-specs .spec-item { display: flex; align-items: center; gap: 4px; }
         .vehicle-specs .spec-item .spec-value { color: #cbd5e1; }
-
-        .trip-total {
-            background: linear-gradient(135deg, #0a0c15, #1a2332);
-            border-radius: 8px;
-            padding: 14px 20px;
-            text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        .trip-total .label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: #eab308;
-        }
-        .trip-total .amount {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 32px;
-            font-weight: 700;
-            color: #f8fafc;
-            margin: 4px 0 2px;
-        }
+        .trip-total { background: linear-gradient(135deg, #0a0c15, #1a2332); border-radius: 8px; padding: 14px 20px; text-align: center; border: 1px solid rgba(255,255,255,0.06); }
+        .trip-total .label { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: #eab308; }
+        .trip-total .amount { font-family: 'Space Grotesk', sans-serif; font-size: 32px; font-weight: 700; color: #f8fafc; margin: 4px 0 2px; }
         .trip-total .amount .currency { color: #eab308; font-size: 18px; }
         .trip-total .sub { font-size: 11px; color: #cbd5e1; }
         .trip-total .sub strong { color: #eab308; }
-
-        .cost-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-            gap: 6px;
-            margin-top: 8px;
-        }
-        .cost-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 10px;
-            background: #0a0c15;
-            border-radius: 4px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-        }
+        .cost-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; margin-top: 8px; }
+        .cost-item { display: flex; justify-content: space-between; padding: 5px 10px; background: #0a0c15; border-radius: 4px; border: 1px solid rgba(255,255,255,0.06); font-family: 'JetBrains Mono', monospace; font-size: 10px; }
         .cost-item .label { color: #64748b; }
         .cost-item .value { font-weight: 600; color: #f8fafc; }
-        .cost-item.total-item { background: rgba(234, 179, 8, 0.08); border-color: #eab308; }
+        .cost-item.total-item { background: rgba(234,179,8,0.08); border-color: #eab308; }
         .cost-item.total-item .label { color: #eab308; font-weight: 700; }
         .cost-item.total-item .value { color: #eab308; font-weight: 700; }
-
-        .perkm-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-            gap: 4px;
-        }
-        .perkm-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 4px 8px;
-            background: #0a0c15;
-            border-radius: 3px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-        }
+        .perkm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px; }
+        .perkm-item { display: flex; justify-content: space-between; padding: 4px 8px; background: #0a0c15; border-radius: 3px; border: 1px solid rgba(255,255,255,0.06); font-family: 'JetBrains Mono', monospace; font-size: 9px; }
         .perkm-item .label { color: #64748b; }
         .perkm-item .value { font-weight: 600; }
-        .perkm-item.highlight { background: rgba(234, 179, 8, 0.08); border-color: #eab308; }
+        .perkm-item.highlight { background: rgba(234,179,8,0.08); border-color: #eab308; }
         .perkm-item.highlight .label { color: #eab308; font-weight: 700; }
         .perkm-item.highlight .value { color: #eab308; font-weight: 700; }
-
-        .commercial-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-        }
+        .commercial-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
         @media (max-width: 768px) { .commercial-grid { grid-template-columns: 1fr 1fr; } }
         @media (max-width: 480px) { .commercial-grid { grid-template-columns: 1fr; } }
-        .commercial-card {
-            padding: 10px 12px;
-            background: #0a0c15;
-            border-radius: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        .commercial-card .commercial-label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-        .commercial-card .commercial-value {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 18px;
-            font-weight: 700;
-            color: #f8fafc;
-            margin-top: 2px;
-        }
+        .commercial-card { padding: 10px 12px; background: #0a0c15; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); }
+        .commercial-card .commercial-label { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+        .commercial-card .commercial-value { font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 700; color: #f8fafc; margin-top: 2px; }
         .commercial-card .commercial-value .currency { color: #eab308; font-size: 13px; }
         .commercial-card .commercial-sub { font-size: 9px; color: #cbd5e1; }
-        .commercial-card.highlight { border-color: #eab308; background: rgba(234, 179, 8, 0.05); }
-
+        .commercial-card.highlight { border-color: #eab308; background: rgba(234,179,8,0.05); }
         .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         @media (max-width: 480px) { .metrics-grid { grid-template-columns: 1fr; } }
-        .rci-display {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 10px 14px;
-            background: #0a0c15;
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            flex-wrap: wrap;
-        }
-        .rci-display .rci-value {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 28px;
-            font-weight: 700;
-        }
+        .rci-display { display: flex; align-items: center; gap: 16px; padding: 10px 14px; background: #0a0c15; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); flex-wrap: wrap; }
+        .rci-display .rci-value { font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; }
         .rci-display .rci-value.excellent { color: #22c55e; }
         .rci-display .rci-value.good { color: #3b82f6; }
         .rci-display .rci-value.average { color: #eab308; }
         .rci-display .rci-value.expensive { color: #ef4444; }
         .rci-display .rci-value.very-expensive { color: #dc2626; }
-        .rci-display .rci-label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
-            color: #cbd5e1;
-        }
+        .rci-display .rci-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #cbd5e1; }
         .rci-display .rci-stars { font-size: 18px; letter-spacing: 2px; }
-
-        .env-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            gap: 6px;
-        }
-        .env-item {
-            padding: 6px 10px;
-            background: #0a0c15;
-            border-radius: 4px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            text-align: center;
-        }
-        .env-item .env-value {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 700;
-            color: #f8fafc;
-        }
-        .env-item .env-label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            color: #64748b;
-            text-transform: uppercase;
-        }
-
+        .env-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+        .env-item { padding: 6px 10px; background: #0a0c15; border-radius: 4px; border: 1px solid rgba(255,255,255,0.06); text-align: center; }
+        .env-item .env-value { font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 700; color: #f8fafc; }
+        .env-item .env-label { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: #64748b; text-transform: uppercase; }
         .rec-list { display: flex; flex-direction: column; gap: 4px; }
-        .rec-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 10px;
-            background: #0a0c15;
-            border-radius: 4px;
-            border-left: 3px solid #eab308;
-            font-size: 11px;
-            color: #cbd5e1;
-        }
+        .rec-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #0a0c15; border-radius: 4px; border-left: 3px solid #eab308; font-size: 11px; color: #cbd5e1; }
         .rec-item .icon { font-size: 14px; }
         .rec-item .rec-text { color: #f8fafc; }
-        .rec-item .rec-tag {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 7px;
-            text-transform: uppercase;
-            padding: 2px 8px;
-            border-radius: 10px;
-            background: rgba(234, 179, 8, 0.12);
-            color: #eab308;
-            margin-left: auto;
-            flex-shrink: 0;
-        }
+        .rec-item .rec-tag { font-family: 'JetBrains Mono', monospace; font-size: 7px; text-transform: uppercase; padding: 2px 8px; border-radius: 10px; background: rgba(234,179,8,0.12); color: #eab308; margin-left: auto; flex-shrink: 0; }
         .rec-item.warning { border-left-color: #ef4444; }
-        .rec-item.warning .rec-tag { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+        .rec-item.warning .rec-tag { background: rgba(239,68,68,0.12); color: #ef4444; }
         .rec-item.success { border-left-color: #22c55e; }
-        .rec-item.success .rec-tag { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
+        .rec-item.success .rec-tag { background: rgba(34,197,94,0.12); color: #22c55e; }
         .rec-item.info { border-left-color: #3b82f6; }
-        .rec-item.info .rec-tag { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
-
-        .stats-grid-5 {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 8px;
-        }
+        .rec-item.info .rec-tag { background: rgba(59,130,246,0.12); color: #3b82f6; }
+        .stats-grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
         @media (max-width: 768px) { .stats-grid-5 { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 480px) { .stats-grid-5 { grid-template-columns: 1fr 1fr; } }
-        .stat-card-sm {
-            background: #0a0c15;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 8px;
-            padding: 10px 12px;
-            text-align: center;
-        }
-        .stat-card-sm .label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 7px;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-        .stat-card-sm .num {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 700;
-            margin-top: 2px;
-        }
+        .stat-card-sm { background: #0a0c15; border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 12px; text-align: center; }
+        .stat-card-sm .label { font-family: 'JetBrains Mono', monospace; font-size: 7px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+        .stat-card-sm .num { font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 700; margin-top: 2px; }
         .stat-card-sm .num.amber { color: #eab308; }
         .stat-card-sm .num.green { color: #22c55e; }
         .stat-card-sm .num.blue { color: #3b82f6; }
-
         .table-wrap { overflow-x: auto; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 11px;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        th, td {
-            text-align: right;
-            padding: 6px 8px;
-            white-space: nowrap;
-        }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+        th, td { text-align: right; padding: 6px 8px; white-space: nowrap; }
         th:first-child, td:first-child { text-align: left; }
-        th {
-            color: #64748b;
-            font-weight: 600;
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
+        th { color: #64748b; font-weight: 600; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid rgba(255,255,255,0.06); }
         td { border-bottom: 1px solid rgba(51,65,85,0.4); }
         tr:last-child td { border-bottom: none; font-weight: 700; color: #eab308; }
-
-        .action-bar {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin-top: 4px;
-        }
-        .action-btn {
-            padding: 5px 12px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 6px;
-            background: transparent;
-            color: #64748b;
-            cursor: pointer;
-            font-family: 'Inter', sans-serif;
-            font-size: 10px;
-            font-weight: 500;
-            transition: all 0.3s;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .action-btn:hover:not(:disabled) { border-color: #eab308; color: #eab308; background: rgba(234, 179, 8, 0.05); }
+        .action-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+        .action-btn { padding: 5px 12px; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; background: transparent; color: #64748b; cursor: pointer; font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 500; transition: all 0.3s; display: inline-flex; align-items: center; gap: 6px; }
+        .action-btn:hover:not(:disabled) { border-color: #eab308; color: #eab308; background: rgba(234,179,8,0.05); }
         .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .action-btn.print { border-color: #3b82f6; color: #3b82f6; }
-        .action-btn.print:hover:not(:disabled) { background: rgba(59, 130, 246, 0.08); }
+        .action-btn.print:hover:not(:disabled) { background: rgba(59,130,246,0.08); }
         .action-btn.share { border-color: #22c55e; color: #22c55e; }
-        .action-btn.share:hover:not(:disabled) { background: rgba(34, 197, 94, 0.08); }
+        .action-btn.share:hover:not(:disabled) { background: rgba(34,197,94,0.08); }
         .action-btn.export { border-color: var(--amber); color: var(--amber); }
-        .action-btn.export:hover:not(:disabled) { background: rgba(234, 179, 8, 0.08); }
-
-        .report-footer {
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
-            padding-top: 20px;
-            margin-top: 24px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 16px;
-        }
-        .report-footer .brand {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 13px;
-            font-weight: 600;
-            color: #cbd5e1;
-        }
+        .action-btn.export:hover:not(:disabled) { background: rgba(234,179,8,0.08); }
+        .report-footer { border-top: 1px solid rgba(255,255,255,0.06); padding-top: 20px; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+        .report-footer .brand { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 600; color: #cbd5e1; }
         .report-footer .brand span { color: #eab308; }
-        .report-footer .meta {
-            font-size: 10px;
-            color: #64748b;
-            text-align: right;
-            line-height: 1.8;
-        }
+        .report-footer .meta { font-size: 10px; color: #64748b; text-align: right; line-height: 1.8; }
         .report-footer .meta strong { color: #cbd5e1; }
-
-        .auto-d-badge {
-            display: inline-block;
-            background: rgba(234, 179, 8, 0.15);
-            color: #eab308;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            padding: 2px 8px;
-            border-radius: 10px;
-            border: 1px solid rgba(234, 179, 8, 0.2);
-            margin-left: 8px;
-        }
-
-        .crsp-info {
-            background: #0f172a;
-            border: 1px solid rgba(6, 182, 212, 0.2);
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin: 12px 0;
-            display: none;
-        }
+        .auto-d-badge { display: inline-block; background: rgba(234,179,8,0.15); color: #eab308; font-family: 'JetBrains Mono', monospace; font-size: 8px; padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(234,179,8,0.2); margin-left: 8px; }
+        .crsp-info { background: #0f172a; border: 1px solid rgba(6,182,212,0.2); border-radius: 8px; padding: 12px 16px; margin: 12px 0; display: none; }
         .crsp-info.show { display: block; }
-        .crsp-info h4 {
-            font-size: 10px;
-            color: #06b6d4;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            font-family: var(--font-mono);
-            margin-bottom: 6px;
-        }
-        .crsp-info .row {
-            display: flex;
-            justify-content: space-between;
-            padding: 3px 0;
-            font-size: 11px;
-            color: #94a3b8;
-            border-bottom: 1px solid rgba(45, 58, 78, 0.3);
-        }
+        .crsp-info h4 { font-size: 10px; color: #06b6d4; text-transform: uppercase; letter-spacing: 0.04em; font-family: var(--font-mono); margin-bottom: 6px; }
+        .crsp-info .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 11px; color: #94a3b8; border-bottom: 1px solid rgba(45,58,78,0.3); }
         .crsp-info .row:last-child { border-bottom: none; }
-        .crsp-info .row .value {
-            font-weight: 600;
-            color: #06b6d4;
-            font-family: var(--font-mono);
-            font-size: 10px;
-        }
+        .crsp-info .row .value { font-weight: 600; color: #06b6d4; font-family: var(--font-mono); font-size: 10px; }
         .crsp-info .row .value.crsp-found { color: #22c55e; }
         .crsp-info .row .value.crsp-missing { color: #ef4444; }
-
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
             .report-header { padding: 20px 18px; flex-direction: column; }
@@ -941,7 +247,6 @@
             .vehicle-tag { flex-direction: column; align-items: flex-start; }
             .vehicle-specs { flex-direction: column; gap: 4px; }
         }
-
         @media print {
             .calculator-panel, .action-bar, .report-footer, .dashboard-link { display: none !important; }
             .result-card { background: #fff !important; border-color: #ddd !important; }
@@ -1298,7 +603,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost · CRSP Base Price<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.9
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v8.10
             </div>
         </footer>
     </div>
@@ -1306,7 +611,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 8.9 - Updated CRSP Lookup with All IDs
+        // Version 8.10 - CRSP lookup aligned with Instant Value Check (isAuthenticated guard + FK match)
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1588,6 +893,7 @@
                     el.btnSignIn.style.display = 'none';
                     el.btnSignOut.style.display = 'inline-block';
                     el.authForms.style.display = 'none';
+                    el.categorySelect.disabled = false;
                 } else {
                     el.authStatus.textContent = '🔓 Not Authenticated';
                     el.authStatus.className = 'auth-status unauthenticated';
@@ -1614,7 +920,11 @@
             }
 
             // ─── CRSP BASE PRICE LOOKUP ──────────────────────────────
-            // Matches Instant Value Check: direct lookup by engine_capacity_id only
+            // Aligned with Instant Value Check's lookupCRSPBasePrice(): same
+            // table, same FK column, same isAuthenticated guard, same return
+            // shape (full matched row + matchQuality tag), so both calculators
+            // treat "original price" identically.
+            //
             // SELECT id, make, model, model_number, transmission, drive_configuration,
             //        engine_capacity, body_type, fuel, crsp_kes
             // FROM vehicle_crsp_prices
@@ -1622,8 +932,8 @@
             // LIMIT 1;
             async function fetchBasePrice(variantId) {
                 lastQueriedVariantId = variantId || null;
-                if (!supabaseClient || !variantId) {
-                    console.log('ℹ️ No variantId provided for CRSP lookup');
+                if (!supabaseClient || !isAuthenticated || !variantId) {
+                    console.log('ℹ️ CRSP lookup skipped (no client, not authenticated, or no variantId)');
                     return null;
                 }
                 try {
@@ -1634,21 +944,28 @@
                         .eq('engine_capacity_id', variantId)
                         .limit(1);
 
-                    if (error) {
-                        console.error('❌ CRSP lookup error:', error);
+                    if (error || !data || data.length === 0) {
+                        if (error) console.error('❌ CRSP lookup error:', error);
+                        else console.log(`ℹ️ No CRSP record found for engine_capacity_id: ${variantId}`);
                         return null;
                     }
-                    if (!data || data.length === 0) {
-                        console.log(`ℹ️ No CRSP record found for engine_capacity_id: ${variantId}`);
-                        return null;
-                    }
-                    currentCrspData = data[0];
-                    console.log(`✅ CRSP record found: KES ${currentCrspData.crsp_kes} for ${currentCrspData.make} ${currentCrspData.model}`);
-                    return data[0].crsp_kes || null;
+                    const matched = { ...data[0], matchQuality: 'exact engine capacity match (FK)' };
+                    console.log(`✅ CRSP record found: KES ${matched.crsp_kes} for ${matched.make} ${matched.model}`);
+                    return matched;
                 } catch (error) {
                     console.warn('⚠️ Base price lookup failed:', error.message);
                     return null;
                 }
+            }
+
+            // Refreshes module-level CRSP state (currentCrspData / currentBasePrice)
+            // for a given variant and repaints the CRSP panel + vehicle-profile pill.
+            async function refreshCRSPReference(variantId) {
+                currentCrspData = await fetchBasePrice(variantId);
+                currentBasePrice = currentCrspData?.crsp_kes ?? null;
+                updateCRSPInfo();
+                if (currentVariantData) displayVehicleInfo(currentVariantData);
+                return currentCrspData;
             }
 
             function updateCRSPInfo() {
@@ -1833,6 +1150,19 @@
                 }
             }
 
+            function populateYearSelect() {
+                const select = el.yearSelect;
+                select.innerHTML = '';
+                const currentYear = new Date().getFullYear();
+                for (let y = currentYear; y >= 1990; y--) {
+                    const opt = document.createElement('option');
+                    opt.value = y;
+                    opt.textContent = y;
+                    if (y === currentYear - 5) opt.selected = true;
+                    select.appendChild(opt);
+                }
+            }
+
             async function populateCategories() {
                 const select = el.categorySelect;
                 select.innerHTML = '<option value="">Select Category...</option>';
@@ -1849,7 +1179,7 @@
                     opt.textContent = cat.name;
                     select.appendChild(opt);
                 });
-                select.disabled = false;
+                select.disabled = !isAuthenticated;
                 setStatus('success', `✅ Loaded ${categories.length} categories — select one to begin`);
             }
 
@@ -1864,6 +1194,10 @@
                 el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
+                currentVariantData = null;
+                currentCrspData = null;
+                currentBasePrice = null;
+                el.crspInfo.classList.remove('show');
                 if (!categoryId) return;
                 const makes = await loadMakes(categoryId);
                 if (!makes || makes.length === 0) {
@@ -1891,6 +1225,10 @@
                 el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
+                currentVariantData = null;
+                currentCrspData = null;
+                currentBasePrice = null;
+                el.crspInfo.classList.remove('show');
                 if (!makeId) return;
                 const models = await loadModels(makeId);
                 if (!models || models.length === 0) {
@@ -1916,6 +1254,10 @@
                 el.engineCapacitySelect.innerHTML = '<option value="">Select a generation first</option>';
                 el.engineCapacitySelect.disabled = true;
                 el.calculateBtn.disabled = true;
+                currentVariantData = null;
+                currentCrspData = null;
+                currentBasePrice = null;
+                el.crspInfo.classList.remove('show');
                 if (!modelId) return;
                 const generations = await loadGenerations(modelId);
                 if (!generations || generations.length === 0) {
@@ -1938,6 +1280,10 @@
                 select.innerHTML = '<option value="">Select Engine Capacity...</option>';
                 select.disabled = true;
                 el.calculateBtn.disabled = true;
+                currentVariantData = null;
+                currentCrspData = null;
+                currentBasePrice = null;
+                el.crspInfo.classList.remove('show');
                 if (!generationId) return;
                 let engineGroups = await loadEngineCapacities(generationId);
 
@@ -2012,9 +1358,15 @@
                 }
                 routes.slice(0, 12).forEach(r => {
                     const chip = document.createElement('button');
+                    chip.type = 'button';
                     chip.className = 'chip';
                     chip.dataset.km = r.km;
                     chip.innerHTML = `${escapeHTML(r.from_city || '?')} → ${escapeHTML(r.to_city || '?')} <span class="km-badge">${escapeHTML(String(r.km))}km</span>`;
+                    chip.addEventListener('click', () => {
+                        el.distanceInput.value = r.km;
+                        document.getElementById('distanceError').classList.remove('show');
+                        el.distanceInput.classList.remove('error');
+                    });
                     el.routeChips.appendChild(chip);
                 });
             }
@@ -2114,13 +1466,6 @@
             // SCHEMA-ALIGNED PERSISTENCE
             // ═══════════════════════════════════════════════════════════════
 
-            // ─── running_cost_rate_id (NOT NULL on running_cost_calculations)
-            //     confirmed via information_schema to have no DB-level FK, but
-            //     vehicle_running_cost_rates is the matching source table — same
-            //     engine_capacity_id, same per-km column names, versioned by
-            //     effective_date/effective_to/is_active, bracketed by
-            //     annual_mileage_from/annual_mileage_to. Take the most recent
-            //     active row within the mileage bracket.
             async function fetchRunningCostRate(variant, annualKm) {
                 if (!supabaseClient || !variant) return null;
                 try {
@@ -2154,23 +1499,17 @@
                         return notExpired && mileageOk;
                     });
 
-                    return (candidates.length > 0 ? candidates : data)[0]; // full row — .id plus base rate columns
+                    return (candidates.length > 0 ? candidates : data)[0];
                 } catch (e) {
                     console.warn('⚠️ vehicle_running_cost_rates lookup failed:', e.message);
                     return null;
                 }
             }
 
-            // Builds a row matching running_cost_calculations exactly.
-            // rateRow (from fetchRunningCostRate) is used as a fallback source
-            // for per-km costs if the API response ever omits a component.
             function buildCalculationRow({ result, variant, distance, annualKm, fuelPrice, rateRow }) {
                 const fuelCost = result.fuel_cost || result.fuel || 0;
                 const serviceCost = result.service_cost || result.maintenance || 0;
                 const tyreCost = result.tyre_cost || result.tyres || 0;
-                // Schema has no insurance column here — only repair. Insurance
-                // belongs in vehicle_running_costs.annual_insurance_cost (see
-                // saveOwnershipCost), not relabeled into repair_cost_per_km.
                 const repairCost = result.repair_cost || 0;
                 const depreciationCost = result.depreciation_cost || result.depreciation || 0;
 
@@ -2190,7 +1529,7 @@
                 return {
                     user_id: currentUser?.user?.id || null,
                     engine_capacity_id: variant.variant_id,
-                    running_cost_rate_id: rateRow.id, // NOT NULL — caller verifies rateRow exists first
+                    running_cost_rate_id: rateRow.id,
                     annual_mileage: annualKm,
                     fuel_price_per_liter: fuelPrice,
                     crsp_kes: currentBasePrice,
@@ -2218,7 +1557,7 @@
                     }
                     const row = buildCalculationRow({ result, variant, distance, annualKm, fuelPrice, rateRow });
                     const { data, error } = await supabaseClient
-                        .from(CONFIG.RESULTS_TABLE) // 'running_cost_calculations'
+                        .from(CONFIG.RESULTS_TABLE)
                         .insert(row)
                         .select();
                     if (error) throw error;
@@ -2231,20 +1570,12 @@
                 }
             }
 
-            // ─── vehicle_running_costs — the 5-year / insurance figures the
-            //     "5-Year Running Cost Projection" card renders. ASSUMPTION:
-            //     crsp_id references the same row as currentCrspData.id (the
-            //     id column already selected in fetchBasePrice() from
-            //     vehicle_crsp_prices) — confirm before relying on this.
             async function saveOwnershipCost(result, variant, annualKm, fuelPrice) {
                 if (!currentCrspData || !currentCrspData.id) {
                     console.error('❌ Skipping ownership-cost save: no CRSP row loaded (crsp_id is NOT NULL).');
                     return null;
                 }
 
-                // Year-1 figures come from the 5-year breakdown, not the trip
-                // totals — fuel_cost/service_cost/etc. in `result` are for the
-                // trip distance, while vehicle_running_costs wants annual amounts.
                 const fiveYearData = result.fiveYearData || result.yearly_breakdown || [];
                 const year1 = fiveYearData[0] || {};
 
@@ -2253,15 +1584,10 @@
                 const annual_tyre_cost = year1.tyres ?? year1.tyre_cost ?? 0;
                 const annual_repair_cost = year1.repair ?? result.repair_cost ?? 0;
                 const annual_insurance_cost = year1.insurance ?? year1.insurance_cost ?? 0;
-                // Not tracked anywhere in the current API response/UI — left at
-                // 0 until there's a real source (flagging, not guessing).
                 const annual_inspection_cost = 0;
                 const annual_licence_cost = 0;
                 const annual_depreciation_cost = year1.depreciation ?? year1.depreciation_cost ?? 0;
 
-                // "running cost" = operating cost excluding depreciation;
-                // total_ownership_cost separately includes depreciation via
-                // total5Year. Assumption — adjust if your definition differs.
                 const annual_running_cost = annual_fuel_cost + annual_service_cost + annual_tyre_cost +
                     annual_repair_cost + annual_insurance_cost + annual_inspection_cost + annual_licence_cost;
                 const monthly_running_cost = annual_running_cost / 12;
@@ -2289,14 +1615,14 @@
                     monthly_running_cost,
                     cost_per_km,
                     total_ownership_cost,
-                    calculation_version: 'v8.9', // matches the footer version string — bump alongside it
+                    calculation_version: 'v8.10',
                     calculated_at: new Date().toISOString(),
                     created_at: new Date().toISOString()
                 };
 
                 try {
                     const { data, error } = await supabaseClient
-                        .from(CONFIG.OWNERSHIP_TABLE) // 'vehicle_running_costs'
+                        .from(CONFIG.OWNERSHIP_TABLE)
                         .insert(row)
                         .select();
                     if (error) throw error;
@@ -2330,7 +1656,6 @@
                 el.calculateBtn.innerHTML = '<span class="spinner"></span> Calculating...';
                 showProgress(10, 'Loading vehicle data...');
 
-                // CRITICAL: Check if CRSP price exists BEFORE sending to API
                 if (!currentBasePrice) {
                     showProgress(0, 'Checking CRSP data...');
                     showToast('⚠️ No CRSP record found for this vehicle. Cannot calculate accurate costs.', 'warning');
@@ -2425,30 +1750,21 @@
                 const fiveYearData = result.fiveYearData || result.yearly_breakdown || [];
                 const total5Year = result.five_year_total || result.total_5yr_cost || 0;
 
-                // CRITICAL FIX: Use the actual CRSP base price from vehicle_crsp_prices
-                // NO FALLBACK - throw error if no CRSP price
+                // Original price MUST come from the CRSP lookup (currentBasePrice),
+                // same as the valuation file — no synthetic fallback figure.
                 let originalCost = currentBasePrice;
-                
-                // If no CRSP price, check if result has it from the backend
-                if (!originalCost && result.purchase_price) {
-                    originalCost = result.purchase_price;
-                }
-                
-                // If still no price, check if result.original_cost has it
-                if (!originalCost && result.original_cost) {
-                    originalCost = result.original_cost;
-                }
-                
-                // CRITICAL FIX: Throw error instead of using 2.5M fallback
+                if (!originalCost && result.purchase_price) originalCost = result.purchase_price;
+                if (!originalCost && result.original_cost) originalCost = result.original_cost;
+
                 if (!originalCost) {
                     const errorMsg = 'CRSP price unavailable for this vehicle. Cannot calculate an accurate 5-year ownership cost.';
                     console.error('❌ ' + errorMsg);
                     showToast('❌ ' + errorMsg, 'error');
                     throw new Error(errorMsg);
                 }
-                
+
                 console.log(`✅ Original price (CRSP): KES ${originalCost}`);
-                
+
                 const remainingValue = result.resale_value || result.current_value || originalCost * 0.4;
 
                 el.fiveYearStats.innerHTML = `
@@ -2546,3 +1862,171 @@
 
                 el.lastUpdated.textContent = new Date().toLocaleString('en-KE', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             }
+
+            function exportData() {
+                try {
+                    const rows = Array.from(el.yearlyBody.querySelectorAll('tr')).map(tr =>
+                        Array.from(tr.children).map(td => td.textContent.trim())
+                    );
+                    const header = ['Year', 'Fuel', 'Service', 'Tyres', 'Insurance', 'Depreciation', 'Total', 'Value'];
+                    const csv = [header, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `auto-d-running-cost-${Date.now()}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+                    showToast('📥 Data exported', 'success');
+                } catch (e) {
+                    showToast('Export failed: ' + e.message, 'error');
+                }
+            }
+
+            // ─── EVENT LISTENERS ─────────────────────────────────────────
+            function initEventListeners() {
+                el.btnSignIn.addEventListener('click', () => {
+                    el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
+                });
+                el.btnCancelAuth.addEventListener('click', () => { el.authForms.style.display = 'none'; });
+                el.btnLogin.addEventListener('click', async () => {
+                    const email = el.authEmail.value.trim();
+                    const password = el.authPassword.value;
+                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
+                    await signIn(email, password);
+                });
+                el.btnSignup.addEventListener('click', async () => {
+                    const email = el.authEmail.value.trim();
+                    const password = el.authPassword.value;
+                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
+                    if (password.length < 6) { showToast('Password must be at least 6 characters', 'warning'); return; }
+                    await signUp(email, password);
+                    el.authForms.style.display = 'none';
+                    el.authEmail.value = '';
+                    el.authPassword.value = '';
+                });
+                el.btnSignOut.addEventListener('click', signOut);
+
+                el.categorySelect.addEventListener('change', async function() {
+                    const catId = this.value;
+                    selectedCategoryId = catId;
+                    if (catId) await populateMakes(catId);
+                });
+
+                el.makeSelect.addEventListener('change', async function() {
+                    const makeId = this.value;
+                    if (makeId) await populateModels(makeId);
+                });
+
+                el.modelSelect.addEventListener('change', async function() {
+                    const modelId = this.value;
+                    if (modelId) await populateGenerations(modelId);
+                });
+
+                el.generationSelect.addEventListener('change', async function() {
+                    const genId = this.value;
+                    if (genId) await populateEngineCapacities(genId);
+                });
+
+                el.engineCapacitySelect.addEventListener('change', async function() {
+                    const variantId = this.value;
+                    el.calculateBtn.disabled = true;
+                    currentVariantData = null;
+                    currentCrspData = null;
+                    currentBasePrice = null;
+                    if (!variantId) return;
+                    const variant = await loadVariantDetails(variantId);
+                    if (variant) {
+                        currentVariantData = variant;
+                        await refreshCRSPReference(variantId);
+                        el.calculateBtn.disabled = false;
+                    }
+                });
+
+                el.fuelFilterGroup.addEventListener('click', function(e) {
+                    const btn = e.target.closest('.fuel-filter-btn');
+                    if (!btn) return;
+                    selectedFuelFilter = btn.dataset.fuel;
+                    this.querySelectorAll('.fuel-filter-btn').forEach(b => {
+                        b.classList.toggle('active', b === btn);
+                        b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+                    });
+                    if (el.generationSelect.value) populateEngineCapacities(el.generationSelect.value);
+                });
+
+                el.btnCash.addEventListener('click', () => {
+                    isFinanced = false;
+                    el.btnCash.classList.add('active');
+                    el.btnFinanced.classList.remove('active');
+                    el.financedFields.classList.remove('show');
+                });
+                el.btnFinanced.addEventListener('click', () => {
+                    isFinanced = true;
+                    el.btnFinanced.classList.add('active');
+                    el.btnCash.classList.remove('active');
+                    el.financedFields.classList.add('show');
+                });
+                el.downPct.addEventListener('input', () => { el.valDown.textContent = `${el.downPct.value}%`; });
+                el.rate.addEventListener('input', () => { el.valRate.textContent = `${el.rate.value}%`; });
+                el.term.addEventListener('input', () => { el.valTerm.textContent = `${el.term.value} year${el.term.value == 1 ? '' : 's'}`; });
+
+                el.calculateBtn.addEventListener('click', () => calculateAndRender());
+
+                el.printBtn.addEventListener('click', () => setTimeout(() => window.print(), 300));
+                el.exportBtn.addEventListener('click', exportData);
+                el.shareBtn.addEventListener('click', () => {
+                    const url = window.location.href;
+                    const text = `Auto-D Kenya Running Cost\nVehicle: ${el.vehicleLabel.textContent}\nTotal: KES ${el.tripTotal.textContent}`;
+                    if (navigator.share) {
+                        navigator.share({ title: 'Auto-D Kenya Running Cost', text, url }).catch(() => {});
+                    } else {
+                        navigator.clipboard.writeText(`${text}\n${url}`).then(() => {
+                            showToast('📋 Report copied to clipboard!', 'success');
+                        }).catch(() => showToast('Share not available', 'error'));
+                    }
+                });
+
+                setInterval(async () => { await checkAuth(); }, 30000);
+            }
+
+            // ─── INIT ──────────────────────────────────────────────────
+            async function init() {
+                el.loadingOverlay.classList.add('active');
+                try {
+                    populateYearSelect();
+                    const supabaseOk = initSupabase();
+                    if (!supabaseOk) {
+                        setStatus('error', 'Connection failed — please refresh');
+                        return;
+                    }
+                    el.loadingStatus.textContent = 'Checking session...';
+                    await checkAuth();
+                    el.loadingStatus.textContent = 'Loading categories...';
+                    await populateCategories();
+                    el.loadingStatus.textContent = 'Loading routes...';
+                    await loadRoutes();
+                    renderRouteChips();
+                    el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
+                    console.log('✅ Auto-D Kenya Mileage & Running Cost Calculator initialized');
+                    console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
+                    console.log(`🏛️ CRSP Table: ${CONFIG.CRSP_TABLE}`);
+                } catch (error) {
+                    console.error('Init error:', error);
+                    setStatus('error', 'Something went wrong — please refresh');
+                } finally {
+                    el.loadingOverlay.classList.remove('active');
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                initEventListeners();
+                init();
+            });
+
+        })();
+    </script>
+
+</body>
+</html>
