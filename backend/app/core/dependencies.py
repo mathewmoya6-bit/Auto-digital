@@ -20,27 +20,38 @@ logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
 
+# Must match the cookie name set in app/modules/auth/router.py
+ACCESS_COOKIE_NAME = "sb_access_token"
+
 
 # ================================================================
 # USERS
 # ================================================================
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> Dict[str, Any]:
     """
     Validate Supabase JWT token and return the authenticated user.
-    
+
+    Token is resolved in this order:
+      1. Authorization: Bearer <token> header (used by SPA fetch/XHR calls)
+      2. HttpOnly session cookie (used by plain browser navigation,
+         e.g. someone typing a page URL directly, where no custom
+         header is attached)
+
     Uses Supabase Auth's get_user() which validates the token
     and returns the user from Supabase's internal auth system.
     """
-    if credentials is None:
+    token = credentials.credentials if credentials else request.cookies.get(ACCESS_COOKIE_NAME)
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
         )
 
-    token = credentials.credentials
     supabase = get_supabase()
 
     if supabase is None:
@@ -101,7 +112,7 @@ async def get_current_user(
         # - Invalid token
         # - Expired token
         logger.exception(f"Authentication failed: {str(e)}")
-        
+
         # Check for specific Supabase error messages
         error_message = str(e).lower()
         if "session" in error_message and "does not exist" in error_message:
@@ -126,17 +137,19 @@ async def get_current_user(
 # ================================================================
 
 async def get_current_user_optional(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> Optional[Dict[str, Any]]:
     """
-    Returns the authenticated user if a valid token is supplied.
-    Otherwise returns None.
+    Returns the authenticated user if a valid token is supplied
+    (header or cookie). Otherwise returns None.
     """
-    if credentials is None:
+    token = credentials.credentials if credentials else request.cookies.get(ACCESS_COOKIE_NAME)
+    if not token:
         return None
 
     try:
-        return await get_current_user(credentials)
+        return await get_current_user(request, credentials)
     except HTTPException:
         return None
 
@@ -298,14 +311,7 @@ async def get_pagination_params(
 ) -> Dict[str, int]:
     """
     Get pagination parameters from query string.
-
-    Usage:
-        @router.get("/items")
-        async def list_items(pagination: dict = Depends(get_pagination_params)):
-            offset = pagination["offset"]
-            limit = pagination["limit"]
     """
-    # Validate
     if page < 1:
         page = 1
 
@@ -332,12 +338,6 @@ async def get_search_params(
 ) -> Dict[str, Any]:
     """
     Get search parameters from query string.
-
-    Usage:
-        @router.get("/search")
-        async def search_items(search: dict = Depends(get_search_params)):
-            query = search["q"]
-            fields = search["fields"]
     """
     return {
         "q": q or "",
@@ -355,11 +355,6 @@ async def get_filter_params(
 ) -> Dict[str, Any]:
     """
     Get filter parameters from query string.
-
-    Usage:
-        @router.get("/items")
-        async def list_items(filters: dict = Depends(get_filter_params)):
-            # filters = {"status": "active", "category": "cars"}
     """
     filters = {}
 
@@ -378,12 +373,7 @@ async def get_filter_params(
 async def get_rate_limiter() -> Dict[str, Any]:
     """
     Get rate limiter instance.
-
-    Returns a simple rate limiter that can be used to check
-    request rates per client.
     """
-    # This is a placeholder - actual rate limiting is implemented
-    # in the M-Pesa router using the rate_limit() function
     return {
         "enabled": True,
         "requests": settings.RATE_LIMIT_REQUESTS,
