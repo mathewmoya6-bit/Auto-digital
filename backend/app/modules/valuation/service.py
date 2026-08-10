@@ -372,13 +372,20 @@ class ValuationService:
     # ================================================================
 
     def _get_crsp_vehicle(self, crsp_id: int) -> Dict[str, Any]:
-        """Get a vehicle from vehicle_crsp_prices using crsp_id."""
+        """
+        Get a vehicle from vehicle_crsp_prices.
+
+        The table's actual primary key column is 'id' (not 'crsp_id' —
+        there is no such column on this table). 'crsp_id' as used
+        throughout this service is the caller-facing identifier that
+        maps onto that 'id' column.
+        """
         try:
             response = (
                 self.supabase
                 .table("vehicle_crsp_prices")
                 .select("*")
-                .eq("crsp_id", crsp_id)
+                .eq("id", crsp_id)
                 .limit(1)
                 .execute()
             )
@@ -391,7 +398,7 @@ class ValuationService:
             vehicle = response.data[0]
 
             logger.info(
-                "CRSP vehicle found: crsp_id=%s make=%s model=%s",
+                "CRSP vehicle found: id=%s make=%s model=%s",
                 crsp_id,
                 vehicle.get("make"),
                 vehicle.get("model"),
@@ -412,10 +419,17 @@ class ValuationService:
             )
 
     def _get_crsp_price(self, crsp_vehicle: Dict[str, Any]) -> float:
-        """Extract a valid CRSP base price."""
+        """
+        Extract a valid CRSP base price.
+
+        'crsp_kes' is the real column on vehicle_crsp_prices. The other
+        field names are kept as fallbacks only in case this method is
+        ever called with a row shaped differently (e.g. from a cache or
+        a future schema change).
+        """
         price_fields = (
-            "crsp_price",
             "crsp_kes",
+            "crsp_price",
             "base_price",
             "price",
             "market_value",
@@ -436,7 +450,7 @@ class ValuationService:
             if price > 0:
                 return price
 
-        crsp_id = crsp_vehicle.get("crsp_id")
+        crsp_id = crsp_vehicle.get("id")
 
         logger.error(
             "CRSP vehicle %s has no valid price",
@@ -927,7 +941,7 @@ class ValuationService:
                 else "degraded"
             ),
             "service": "valuation",
-            "version": "2.2",
+            "version": "2.3",
             "timestamp": self._utc_now().isoformat(),
             "database": db_status,
         }
