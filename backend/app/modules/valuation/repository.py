@@ -124,8 +124,11 @@ class ValuationRepository:
                 "transmission": valuation_data.get("transmission"),
                 "body_type": valuation_data.get("body_type"),
                 "adjustments": valuation_data.get("adjustments", {}),
-                "created_at": valuation_data.get("created_at"),
+                "created_at": valuation_data.get("created_at", datetime.now().isoformat()),
             }
+
+            # Remove None values to avoid Supabase errors
+            data = {k: v for k, v in data.items() if v is not None}
 
             response = (
                 self.supabase
@@ -164,10 +167,49 @@ class ValuationRepository:
                     "lowest_value": 0.0,
                     "total_value": 0.0,
                     "average_confidence": 0.0,
+                    "last_valuation_date": None,
+                    "valuations_by_make": {},
+                    "valuations_by_month": {},
                 }
 
-            values = [h.get("estimated_value", 0) for h in history if h.get("estimated_value")]
-            confidences = [h.get("confidence_score", 0) for h in history if h.get("confidence_score")]
+            values = []
+            confidences = []
+            makes = {}
+            months = {}
+
+            for item in history:
+                # Extract value
+                value = item.get("estimated_value")
+                if value is not None:
+                    try:
+                        values.append(float(value))
+                    except (TypeError, ValueError):
+                        pass
+
+                # Extract confidence
+                confidence = item.get("confidence_score")
+                if confidence is not None:
+                    try:
+                        confidences.append(float(confidence))
+                    except (TypeError, ValueError):
+                        pass
+
+                # Count by make
+                make = item.get("make") or "Unknown"
+                makes[make] = makes.get(make, 0) + 1
+
+                # Count by month
+                created_at = item.get("created_at")
+                if created_at:
+                    try:
+                        if isinstance(created_at, str):
+                            dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                        else:
+                            dt = created_at
+                        month_key = dt.strftime("%Y-%m")
+                        months[month_key] = months.get(month_key, 0) + 1
+                    except (TypeError, ValueError):
+                        pass
 
             return {
                 "total_valuations": len(history),
@@ -176,6 +218,9 @@ class ValuationRepository:
                 "lowest_value": min(values) if values else 0.0,
                 "total_value": sum(values),
                 "average_confidence": sum(confidences) / len(confidences) if confidences else 0.0,
+                "last_valuation_date": history[0].get("created_at") if history else None,
+                "valuations_by_make": makes,
+                "valuations_by_month": months,
             }
 
         except Exception as exc:
@@ -187,4 +232,7 @@ class ValuationRepository:
                 "lowest_value": 0.0,
                 "total_value": 0.0,
                 "average_confidence": 0.0,
+                "last_valuation_date": None,
+                "valuations_by_make": {},
+                "valuations_by_month": {},
             }
