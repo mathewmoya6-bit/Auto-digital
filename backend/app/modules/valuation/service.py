@@ -1,154 +1,40 @@
-# app/modules/vehicles/service.py
-"""
-AUTO-D Kenya
-Vehicle Service Layer
-
-Responsibilities:
-- Vehicle lookup and normalization
-- Category normalization
-- Make/model/engine resolution
-- CRSP lookup
-- Depreciation category resolution
-- Vehicle profile preparation for valuation
-- Safe handling of missing master-data records
-
-IMPORTANT:
-The frontend category is treated as a hint only.
-The master vehicle data is authoritative.
-"""
+# app/modules/valuation/service.py
 
 from __future__ import annotations
 
 import logging
-import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from app.core.database import get_supabase
 
 logger = logging.getLogger(__name__)
 
 
-class VehicleService:
-    """Business logic for vehicle master data and valuation preparation."""
+class ValuationService:
+    """
+    AUTO-D Kenya
+    Vehicle Valuation Service
 
-    # ============================================================
-    # CATEGORY DEFINITIONS
-    # ============================================================
+    Flow:
 
-    VALID_CATEGORIES = {
-        "SEDAN",
-        "SUV",
-        "HATCHBACK",
-        "WAGON",
-        "MPV",
-        "COUPE",
-        "CONVERTIBLE",
-        "PICKUP",
-        "COMMERCIAL",
-        "BUS",
-        "TRUCK",
-        "ELECTRIC",
-        "LUXURY",
-        "OTHER",
-    }
-
-    # Categories that should normally use passenger-vehicle depreciation.
-    PASSENGER_CATEGORIES = {
-        "SEDAN",
-        "SUV",
-        "HATCHBACK",
-        "WAGON",
-        "MPV",
-        "COUPE",
-        "CONVERTIBLE",
-        "LUXURY",
-        "ELECTRIC",
-    }
-
-    COMMERCIAL_CATEGORIES = {
-        "COMMERCIAL",
-        "BUS",
-        "TRUCK",
-        "PICKUP",
-    }
-
-    # ============================================================
-    # TOYOTA NORMALIZATION
-    # ============================================================
-
-    # Toyota models which have historically been incorrectly placed
-    # under COMMERCIAL/VAN but are fundamentally passenger vehicles.
-    TOYOTA_PASSENGER_PATTERNS = (
-        "ALPHARD",
-        "VELLFIRE",
-        "NOAH",
-        "VOXY",
-        "ESQUIRE",
-        "SIENTA",
-        "ESTIMA",
-        "AERAS/ESTIMA",
-        "ROOMY",
-        "TANK",
-        "PORTE",
-        "SPADE",
-        "ISIS",
-        "WISH",
-        "GRANACE",
-        "COROLLA AXIO",
-        "COROLLA FIELDER",
-        "COROLLA TOURING",
-        "PRIUS VAN CRUISE",
-        "JPN TAXI",
-        "JPN TAXI TAKUMI",
-        "AQUA",
-        "PIXIS",
-        "PASSO",
-        "YARIS",
-        "VITZ",
-        "RAIZE",
-        "RUMION",
-        "CROWN",
-        "CAMRY",
-        "COROLLA",
-        "PREMIO",
-        "ALLION",
-        "MARK X",
-        "SAI",
-        "CENTURY",
-        "BELTA",
-        "AVENSIS",
-        "MIRAI",
-        "AURIS",
-        "FJ CRUISER",
-        "LAND CRUISER",
-        "HARRIER",
-        "RAV4",
-        "FORTUNER",
-        "C-HR",
-        "YARIS CROSS",
-        "COROLLA CROSS",
-        "PRADO",
-        "BZ4X",
-    )
-
-    # Toyota models that should remain commercial.
-    TOYOTA_TRUE_COMMERCIAL_PATTERNS = (
-        "DYNA",
-        "TOYOACE",
-        "HIACE",
-        "REGIUSACE",
-        "LITE ACE TRUCK",
-        "TOWN ACE TRUCK",
-        "TOWN ACE TRUCK",
-        "COASTER",
-        "PIXIS TRUCK",
-        "HILUX",
-        "LANDCRUISERVD SINGLE CABIN",
-    )
-
-    # ============================================================
-    # INIT
-    # ============================================================
+        Vehicle
+          ↓
+        CRSP
+          ↓
+        Category
+          ↓
+        Depreciation
+          ↓
+        Mileage adjustment
+          ↓
+        Condition adjustment
+          ↓
+        Accident adjustment
+          ↓
+        Location adjustment
+          ↓
+        Estimated market value
+    """
 
     def __init__(self):
         self.supabase = get_supabase()
@@ -158,30 +44,25 @@ class VehicleService:
     # ============================================================
 
     @staticmethod
-    def clean_text(value: Any) -> str:
+    def _number(value: Any, default: float = 0.0) -> float:
+        try:
+            if value is None:
+                return default
+
+            if isinstance(value, str):
+                value = value.replace(",", "").strip()
+
+            return float(value)
+
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _text(value: Any) -> str:
         if value is None:
             return ""
 
-        value = str(value).upper().strip()
-
-        # Normalize whitespace
-        value = re.sub(r"\s+", " ", value)
-
-        return value
-
-    @staticmethod
-    def normalize_make(make: Any) -> str:
-        value = VehicleService.clean_text(make)
-
-        aliases = {
-            "MITSUBISHI FUSO": "MITSUBISHI FUSO",
-            "MITSUBISHI": "MITSUBISHI",
-            "NISSAN DIESEL/UD": "NISSAN DIESEL/UD",
-            "UD": "NISSAN DIESEL/UD",
-            "TOYOTA MOTOR": "TOYOTA",
-        }
-
-        return aliases.get(value, value)
+        return str(value).strip().upper()
 
     # ============================================================
     # CATEGORY NORMALIZATION
@@ -191,208 +72,163 @@ class VehicleService:
         self,
         make: Optional[str],
         model: Optional[str],
+        category: Optional[str] = None,
         body_type: Optional[str] = None,
-        requested_category: Optional[str] = None,
     ) -> str:
-        """
-        Resolve the real vehicle category.
 
-        Priority:
-        1. Explicit body type from master data
-        2. Toyota model intelligence
-        3. Requested frontend category
-        4. OTHER
-        """
-
-        make_n = self.normalize_make(make)
-        model_n = self.clean_text(model)
-        body_n = self.clean_text(body_type)
-        requested_n = self.clean_text(requested_category)
+        make = self._text(make)
+        model = self._text(model)
+        category = self._text(category)
+        body_type = self._text(body_type)
 
         # --------------------------------------------------------
-        # Toyota-specific correction
+        # Toyota passenger vehicles
         # --------------------------------------------------------
 
-        if make_n == "TOYOTA":
+        if make == "TOYOTA":
 
-            # Genuine Toyota commercial vehicles first.
-            for pattern in self.TOYOTA_TRUE_COMMERCIAL_PATTERNS:
-                if pattern in model_n:
-                    if "COASTER" in model_n:
+            passenger_mpv = (
+                "ALPHARD",
+                "VELLFIRE",
+                "NOAH",
+                "VOXY",
+                "ESQUIRE",
+                "SIENTA",
+                "ESTIMA",
+                "AERAS/ESTIMA",
+                "ROOMY",
+                "TANK",
+                "PORTE",
+                "SPADE",
+                "ISIS",
+                "WISH",
+                "GRANACE",
+            )
+
+            passenger_sedan = (
+                "COROLLA AXIO",
+                "COROLLA",
+                "CAMRY",
+                "PREMIO",
+                "ALLION",
+                "CROWN",
+                "MARK X",
+                "SAI",
+                "CENTURY",
+                "BELTA",
+                "AVENSIS",
+                "MIRAI",
+                "JPN TAXI",
+            )
+
+            passenger_suv = (
+                "LAND CRUISER",
+                "LANDCRUISER",
+                "PRADO",
+                "HARRIER",
+                "RAV4",
+                "FORTUNER",
+                "FJ CRUISER",
+                "C-HR",
+                "YARIS CROSS",
+                "COROLLA CROSS",
+                "RAIZE",
+                "BZ4X",
+            )
+
+            passenger_hatchback = (
+                "AQUA",
+                "PIXIS",
+                "PASSO",
+                "VITZ",
+                "YARIS",
+                "RUMION",
+                "AURIS",
+                "PRIUS",
+            )
+
+            passenger_wagon = (
+                "FIELDER",
+                "TOURING",
+                "PROBOX",
+                "SUCCEED",
+            )
+
+            true_commercial = (
+                "DYNA",
+                "TOYOACE",
+                "HIACE",
+                "REGIUSACE",
+                "COASTER",
+                "LITE ACE TRUCK",
+                "TOWN ACE TRUCK",
+                "PIXIS TRUCK",
+                "HILUX",
+            )
+
+            for pattern in true_commercial:
+                if pattern in model:
+
+                    if "COASTER" in model:
                         return "BUS"
 
-                    if "DYNA" in model_n:
+                    if "DYNA" in model or "TOYOACE" in model:
                         return "TRUCK"
 
-                    if "HILUX" in model_n:
+                    if "HILUX" in model:
                         return "PICKUP"
 
                     return "COMMERCIAL"
 
-            # Toyota passenger vehicles incorrectly stored as VAN.
-            for pattern in self.TOYOTA_PASSENGER_PATTERNS:
-                if pattern in model_n:
-                    return self._infer_toyota_passenger_category(
-                        model_n,
-                        body_n,
-                    )
+            for pattern in passenger_mpv:
+                if pattern in model:
+                    return "MPV"
+
+            for pattern in passenger_suv:
+                if pattern in model:
+                    return "SUV"
+
+            for pattern in passenger_sedan:
+                if pattern in model:
+                    return "SEDAN"
+
+            for pattern in passenger_hatchback:
+                if pattern in model:
+                    return "HATCHBACK"
+
+            for pattern in passenger_wagon:
+                if pattern in model:
+                    return "WAGON"
 
         # --------------------------------------------------------
-        # Body type from database
+        # Generic body type
         # --------------------------------------------------------
-
-        if body_n:
-            mapped = self._map_body_type(body_n)
-
-            if mapped:
-                return mapped
-
-        # --------------------------------------------------------
-        # Frontend category
-        # --------------------------------------------------------
-
-        if requested_n in self.VALID_CATEGORIES:
-            return requested_n
-
-        return "OTHER"
-
-    # ============================================================
-    # TOYOTA PASSENGER CATEGORY
-    # ============================================================
-
-    def _infer_toyota_passenger_category(
-        self,
-        model: str,
-        body_type: str = "",
-    ) -> str:
-
-        # SUVs
-        suv_patterns = (
-            "LAND CRUISER",
-            "LANDCRUISER",
-            "PRADO",
-            "HARRIER",
-            "RAV4",
-            "FORTUNER",
-            "FJ CRUISER",
-            "C-HR",
-            "YARIS CROSS",
-            "COROLLA CROSS",
-            "RAIZE",
-            "BZ4X",
-        )
-
-        for pattern in suv_patterns:
-            if pattern in model:
-                return "SUV"
-
-        # Coupes
-        if any(x in model for x in ("86", "SUPRA", "GR86", "GR SUPRA")):
-            return "COUPE"
-
-        # Hatchbacks
-        hatch_patterns = (
-            "AQUA",
-            "PIXIS",
-            "PASSO",
-            "VITZ",
-            "YARIS",
-            "RUMION",
-            "AURIS",
-            "PRIUS",
-        )
-
-        for pattern in hatch_patterns:
-            if pattern in model:
-                return "HATCHBACK"
-
-        # Wagons
-        wagon_patterns = (
-            "FIELDER",
-            "FIELDER",
-            "TOURING",
-            "PROBOX",
-            "SUCCEED",
-        )
-
-        for pattern in wagon_patterns:
-            if pattern in model:
-                return "WAGON"
-
-        # Sedans
-        sedan_patterns = (
-            "COROLLA",
-            "CAMRY",
-            "PREMIO",
-            "ALLION",
-            "CROWN",
-            "MARK X",
-            "SAI",
-            "CENTURY",
-            "BELTA",
-            "AVENSIS",
-            "MIRAI",
-            "JPN TAXI",
-        )
-
-        for pattern in sedan_patterns:
-            if pattern in model:
-                return "SEDAN"
-
-        # MPVs
-        mpv_patterns = (
-            "ALPHARD",
-            "VELLFIRE",
-            "NOAH",
-            "VOXY",
-            "ESQUIRE",
-            "SIENTA",
-            "ESTIMA",
-            "AERAS",
-            "ROOMY",
-            "TANK",
-            "PORTE",
-            "SPADE",
-            "ISIS",
-            "WISH",
-            "GRANACE",
-        )
-
-        for pattern in mpv_patterns:
-            if pattern in model:
-                return "MPV"
-
-        # If database body says VAN, treat passenger Toyota vans
-        # as MPV rather than COMMERCIAL.
-        if body_type == "VAN":
-            return "MPV"
-
-        return "OTHER"
-
-    # ============================================================
-    # BODY TYPE MAPPING
-    # ============================================================
-
-    @staticmethod
-    def _map_body_type(body_type: str) -> Optional[str]:
 
         mappings = {
-            "VAN": "COMMERCIAL",
-            "MINIVAN": "MPV",
-            "MPV": "MPV",
             "SEDAN": "SEDAN",
             "SUV": "SUV",
             "HATCHBACK": "HATCHBACK",
             "WAGON": "WAGON",
+            "MPV": "MPV",
+            "MINIVAN": "MPV",
             "COUPE": "COUPE",
             "CONVERTIBLE": "CONVERTIBLE",
             "PICKUP": "PICKUP",
             "TRUCK": "TRUCK",
             "BUS": "BUS",
+            "COMMERCIAL": "COMMERCIAL",
+            "VAN": "COMMERCIAL",
             "ELECTRIC": "ELECTRIC",
+            "LUXURY": "LUXURY",
         }
 
-        return mappings.get(body_type)
+        if body_type in mappings:
+            return mappings[body_type]
+
+        if category in mappings:
+            return mappings[category]
+
+        return "OTHER"
 
     # ============================================================
     # DEPRECIATION CATEGORY
@@ -405,110 +241,16 @@ class VehicleService:
         category: Optional[str],
         body_type: Optional[str] = None,
     ) -> str:
-        """
-        Returns the category that should be passed to depreciation.
 
-        This is deliberately separate from the display category.
-        """
-
-        resolved = self.normalize_category(
+        return self.normalize_category(
             make=make,
             model=model,
+            category=category,
             body_type=body_type,
-            requested_category=category,
         )
 
-        return resolved
-
     # ============================================================
-    # VEHICLE LOOKUP
-    # ============================================================
-
-    def get_vehicle_by_id(self, vehicle_id: int) -> Optional[Dict[str, Any]]:
-        try:
-            response = (
-                self.supabase
-                .table("vehicle_models")
-                .select("*")
-                .eq("id", vehicle_id)
-                .maybe_single()
-                .execute()
-            )
-
-            return response.data
-
-        except Exception as exc:
-            logger.exception(
-                "Failed to get vehicle by id %s: %s",
-                vehicle_id,
-                exc,
-            )
-            return None
-
-    # ============================================================
-    # SEARCH VEHICLES
-    # ============================================================
-
-    def search_vehicles(
-        self,
-        make: Optional[str] = None,
-        model: Optional[str] = None,
-        category: Optional[str] = None,
-        limit: int = 50,
-    ) -> List[Dict[str, Any]]:
-
-        try:
-            query = (
-                self.supabase
-                .table("vehicle_models")
-                .select("*")
-            )
-
-            if make:
-                query = query.ilike(
-                    "make",
-                    f"%{self.clean_text(make)}%",
-                )
-
-            if model:
-                query = query.ilike(
-                    "model",
-                    f"%{self.clean_text(model)}%",
-                )
-
-            response = query.limit(limit).execute()
-
-            vehicles = response.data or []
-
-            result = []
-
-            for vehicle in vehicles:
-                resolved_category = self.normalize_category(
-                    make=vehicle.get("make"),
-                    model=vehicle.get("model"),
-                    body_type=vehicle.get("body_type"),
-                    requested_category=category,
-                )
-
-                if category:
-                    if resolved_category != self.clean_text(category):
-                        continue
-
-                vehicle["resolved_category"] = resolved_category
-
-                result.append(vehicle)
-
-            return result
-
-        except Exception as exc:
-            logger.exception(
-                "Vehicle search failed: %s",
-                exc,
-            )
-            return []
-
-    # ============================================================
-    # CRSP LOOKUP
+    # CRSP
     # ============================================================
 
     def get_crsp(
@@ -516,12 +258,12 @@ class VehicleService:
         vehicle_id: Optional[int] = None,
         make: Optional[str] = None,
         model: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[float]:
 
         try:
 
             # ----------------------------------------------------
-            # Direct vehicle ID
+            # Vehicle ID lookup
             # ----------------------------------------------------
 
             if vehicle_id:
@@ -529,24 +271,17 @@ class VehicleService:
                 response = (
                     self.supabase
                     .table("vehicle_models")
-                    .select("*")
+                    .select("id,make,model,crsp_kes")
                     .eq("id", vehicle_id)
                     .maybe_single()
                     .execute()
                 )
 
                 if response.data:
-                    vehicle = response.data
+                    value = response.data.get("crsp_kes")
 
-                    if vehicle.get("crsp_kes") is not None:
-                        return {
-                            "vehicle_id": vehicle.get("id"),
-                            "make": vehicle.get("make"),
-                            "model": vehicle.get("model"),
-                            "crsp_kes": float(
-                                vehicle["crsp_kes"]
-                            ),
-                        }
+                    if value is not None:
+                        return self._number(value)
 
             # ----------------------------------------------------
             # Make + model lookup
@@ -557,132 +292,455 @@ class VehicleService:
                 response = (
                     self.supabase
                     .table("vehicle_models")
-                    .select("*")
-                    .ilike("make", self.clean_text(make))
-                    .ilike("model", self.clean_text(model))
+                    .select("id,make,model,crsp_kes")
+                    .ilike("make", self._text(make))
+                    .ilike("model", self._text(model))
                     .limit(1)
                     .execute()
                 )
 
-                if response.data:
+                rows = response.data or []
 
-                    vehicle = response.data[0]
+                if rows:
+                    value = rows[0].get("crsp_kes")
 
-                    if vehicle.get("crsp_kes") is not None:
-                        return {
-                            "vehicle_id": vehicle.get("id"),
-                            "make": vehicle.get("make"),
-                            "model": vehicle.get("model"),
-                            "crsp_kes": float(
-                                vehicle["crsp_kes"]
-                            ),
-                        }
-
-            return None
+                    if value is not None:
+                        return self._number(value)
 
         except Exception as exc:
             logger.exception(
                 "CRSP lookup failed: %s",
                 exc,
             )
-            return None
+
+        return None
 
     # ============================================================
-    # PREPARE VEHICLE FOR VALUATION
+    # DEPRECIATION
     # ============================================================
 
-    def prepare_vehicle_for_valuation(
+    def calculate_depreciation(
         self,
         vehicle: Dict[str, Any],
-    ) -> Dict[str, Any]:
+    ) -> float:
 
-        make = vehicle.get("make")
-        model = vehicle.get("model")
-        body_type = vehicle.get("body_type")
-        requested_category = vehicle.get("category")
-
-        category = self.normalize_category(
-            make=make,
-            model=model,
-            body_type=body_type,
-            requested_category=requested_category,
+        year = self._number(
+            vehicle.get("year")
+            or vehicle.get("year_of_manufacture")
         )
 
-        depreciation_category = self.get_depreciation_category(
-            make=make,
-            model=model,
-            category=category,
-            body_type=body_type,
+        current_year = 2026
+
+        age = max(
+            0,
+            current_year - int(year)
         )
 
-        result = dict(vehicle)
-
-        result["make"] = self.normalize_make(make)
-        result["model"] = self.clean_text(model)
-
-        result["category"] = category
-
-        result["depreciation_category"] = (
-            depreciation_category
+        category = self.get_depreciation_category(
+            vehicle.get("make"),
+            vehicle.get("model"),
+            vehicle.get("category"),
+            vehicle.get("body_type"),
         )
 
-        # Keep original database body type for traceability.
-        result["source_body_type"] = body_type
-
-        # Flag potentially corrected records.
-        result["category_corrected"] = (
-            self.clean_text(requested_category)
-            != category
-            if requested_category
-            else False
-        )
-
-        return result
-
-    # ============================================================
-    # VALIDATE VEHICLE
-    # ============================================================
-
-    def validate_vehicle(
-        self,
-        vehicle: Dict[str, Any],
-    ) -> Dict[str, Any]:
-
-        errors = []
-        warnings = []
-
-        make = self.clean_text(vehicle.get("make"))
-        model = self.clean_text(vehicle.get("model"))
-
-        if not make:
-            errors.append("Vehicle make is required.")
-
-        if not model:
-            errors.append("Vehicle model is required.")
-
-        category = self.normalize_category(
-            make=make,
-            model=model,
-            body_type=vehicle.get("body_type"),
-            requested_category=vehicle.get("category"),
-        )
-
-        if category == "OTHER":
-            warnings.append(
-                "Vehicle category could not be confidently resolved."
-            )
-
-        if not vehicle.get("crsp_kes"):
-            warnings.append(
-                "No matching KRA CRSP value was found."
-            )
-
-        return {
-            "valid": len(errors) == 0,
-            "errors": errors,
-            "warnings": warnings,
-            "category": category,
+        # Conservative fallback rates.
+        rates = {
+            "SEDAN": 0.10,
+            "SUV": 0.09,
+            "HATCHBACK": 0.10,
+            "WAGON": 0.10,
+            "MPV": 0.09,
+            "COUPE": 0.08,
+            "CONVERTIBLE": 0.08,
+            "PICKUP": 0.10,
+            "COMMERCIAL": 0.12,
+            "TRUCK": 0.12,
+            "BUS": 0.13,
+            "ELECTRIC": 0.10,
+            "LUXURY": 0.12,
+            "OTHER": 0.10,
         }
+
+        annual_rate = rates.get(
+            category,
+            rates["OTHER"],
+        )
+
+        # Compound depreciation.
+        factor = (1 - annual_rate) ** age
+
+        return max(0.05, factor)
+
+    # ============================================================
+    # MILEAGE ADJUSTMENT
+    # ============================================================
+
+    def calculate_mileage_factor(
+        self,
+        vehicle: Dict[str, Any],
+    ) -> float:
+
+        mileage = self._number(
+            vehicle.get("mileage")
+            or vehicle.get("odometer")
+            or vehicle.get("odometer_km")
+        )
+
+        if mileage <= 0:
+            return 1.0
+
+        if mileage <= 20_000:
+            return 1.05
+
+        if mileage <= 50_000:
+            return 1.02
+
+        if mileage <= 100_000:
+            return 1.00
+
+        if mileage <= 150_000:
+            return 0.95
+
+        if mileage <= 200_000:
+            return 0.90
+
+        if mileage <= 250_000:
+            return 0.85
+
+        return 0.80
+
+    # ============================================================
+    # CONDITION
+    # ============================================================
+
+    def calculate_condition_factor(
+        self,
+        vehicle: Dict[str, Any],
+    ) -> float:
+
+        condition = self._text(
+            vehicle.get("condition")
+            or vehicle.get("overall_condition")
+        )
+
+        factors = {
+            "EXCELLENT": 1.08,
+            "VERY GOOD": 1.04,
+            "GOOD": 1.00,
+            "FAIR": 0.92,
+            "POOR": 0.80,
+        }
+
+        return factors.get(condition, 1.00)
+
+    # ============================================================
+    # ACCIDENT
+    # ============================================================
+
+    def calculate_accident_factor(
+        self,
+        vehicle: Dict[str, Any],
+    ) -> float:
+
+        accident = self._text(
+            vehicle.get("accident_history")
+            or vehicle.get("accident")
+        )
+
+        factors = {
+            "NONE": 1.00,
+            "MINOR": 0.95,
+            "MAJOR": 0.80,
+            "TOTAL LOSS": 0.50,
+        }
+
+        return factors.get(accident, 1.00)
+
+    # ============================================================
+    # LOCATION
+    # ============================================================
+
+    def calculate_location_factor(
+        self,
+        vehicle: Dict[str, Any],
+    ) -> float:
+
+        location = self._text(
+            vehicle.get("location")
+            or vehicle.get("county")
+        )
+
+        factors = {
+            "NAIROBI": 1.02,
+            "MOMBASA": 1.00,
+            "KISUMU": 0.98,
+            "NAKURU": 0.99,
+            "ELDORET": 0.98,
+            "THIKA": 1.00,
+            "KIAMBU": 1.01,
+            "KAJIADO": 1.00,
+            "MACHAKOS": 0.98,
+            "MERU": 0.97,
+            "NYERI": 0.97,
+            "EMBU": 0.97,
+            "MALINDI": 0.98,
+            "NANYUKI": 0.97,
+            "OTHER": 0.97,
+        }
+
+        return factors.get(location, 1.00)
+
+    # ============================================================
+    # MAIN CALCULATION
+    # ============================================================
+
+    def calculate_valuation(
+        self,
+        vehicle: Dict[str, Any],
+    ) -> Dict[str, Any]:
+
+        try:
+
+            vehicle = dict(vehicle)
+
+            make = vehicle.get("make")
+            model = vehicle.get("model")
+
+            # ----------------------------------------------------
+            # Resolve category
+            # ----------------------------------------------------
+
+            category = self.normalize_category(
+                make=make,
+                model=model,
+                category=vehicle.get("category"),
+                body_type=vehicle.get("body_type"),
+            )
+
+            depreciation_category = (
+                self.get_depreciation_category(
+                    make=make,
+                    model=model,
+                    category=category,
+                    body_type=vehicle.get("body_type"),
+                )
+            )
+
+            # ----------------------------------------------------
+            # CRSP
+            # ----------------------------------------------------
+
+            crsp = self._number(
+                vehicle.get("crsp_kes")
+                or vehicle.get("crsp")
+            )
+
+            if crsp <= 0:
+
+                found_crsp = self.get_crsp(
+                    vehicle_id=vehicle.get("vehicle_id")
+                    or vehicle.get("id"),
+                    make=make,
+                    model=model,
+                )
+
+                if found_crsp:
+                    crsp = found_crsp
+
+            # ----------------------------------------------------
+            # If no CRSP, don't silently return nonsense.
+            # ----------------------------------------------------
+
+            if crsp <= 0:
+
+                return {
+                    "success": False,
+                    "estimated_value": 0,
+                    "estimated_value_min": 0,
+                    "estimated_value_max": 0,
+                    "crsp_kes": 0,
+                    "confidence_score": 0,
+                    "category": category,
+                    "depreciation_category": depreciation_category,
+                    "adjustments": [],
+                    "warning": (
+                        "No matching CRSP/master vehicle price "
+                        "was found."
+                    ),
+                }
+
+            # ----------------------------------------------------
+            # Factors
+            # ----------------------------------------------------
+
+            depreciation_factor = (
+                self.calculate_depreciation(vehicle)
+            )
+
+            mileage_factor = (
+                self.calculate_mileage_factor(vehicle)
+            )
+
+            condition_factor = (
+                self.calculate_condition_factor(vehicle)
+            )
+
+            accident_factor = (
+                self.calculate_accident_factor(vehicle)
+            )
+
+            location_factor = (
+                self.calculate_location_factor(vehicle)
+            )
+
+            # ----------------------------------------------------
+            # Final value
+            # ----------------------------------------------------
+
+            estimated_value = (
+                crsp
+                * depreciation_factor
+                * mileage_factor
+                * condition_factor
+                * accident_factor
+                * location_factor
+            )
+
+            estimated_value = max(
+                0,
+                round(estimated_value, 2),
+            )
+
+            # ----------------------------------------------------
+            # Range
+            # ----------------------------------------------------
+
+            minimum = round(
+                estimated_value * 0.90,
+                2,
+            )
+
+            maximum = round(
+                estimated_value * 1.10,
+                2,
+            )
+
+            # ----------------------------------------------------
+            # Confidence
+            # ----------------------------------------------------
+
+            confidence = 85
+
+            if crsp > 0:
+                confidence += 5
+
+            if vehicle.get("year"):
+                confidence += 2
+
+            if vehicle.get("mileage") is not None:
+                confidence += 2
+
+            if vehicle.get("condition"):
+                confidence += 2
+
+            confidence = min(
+                99,
+                confidence,
+            )
+
+            return {
+                "success": True,
+
+                "estimated_value": estimated_value,
+
+                "estimated_value_min": minimum,
+
+                "estimated_value_max": maximum,
+
+                "crsp_kes": round(crsp, 2),
+
+                "confidence_score": confidence,
+
+                "category": category,
+
+                "depreciation_category": (
+                    depreciation_category
+                ),
+
+                "factors": {
+                    "depreciation": depreciation_factor,
+                    "mileage": mileage_factor,
+                    "condition": condition_factor,
+                    "accident": accident_factor,
+                    "location": location_factor,
+                },
+
+                "adjustments": [
+                    {
+                        "name": "Depreciation",
+                        "factor": depreciation_factor,
+                    },
+                    {
+                        "name": "Mileage",
+                        "factor": mileage_factor,
+                    },
+                    {
+                        "name": "Condition",
+                        "factor": condition_factor,
+                    },
+                    {
+                        "name": "Accident history",
+                        "factor": accident_factor,
+                    },
+                    {
+                        "name": "Location",
+                        "factor": location_factor,
+                    },
+                ],
+            }
+
+        except Exception as exc:
+
+            logger.exception(
+                "Vehicle valuation failed: %s",
+                exc,
+            )
+
+            return {
+                "success": False,
+                "estimated_value": 0,
+                "estimated_value_min": 0,
+                "estimated_value_max": 0,
+                "crsp_kes": 0,
+                "confidence_score": 0,
+                "adjustments": [],
+                "error": str(exc),
+            }
+
+    # ============================================================
+    # COMPATIBILITY METHODS
+    # ============================================================
+
+    def get_valuation(
+        self,
+        vehicle: Dict[str, Any],
+    ) -> Dict[str, Any]:
+
+        return self.calculate_valuation(vehicle)
+
+    def value_vehicle(
+        self,
+        vehicle: Dict[str, Any],
+    ) -> Dict[str, Any]:
+
+        return self.calculate_valuation(vehicle)
+
+    def valuate(
+        self,
+        vehicle: Dict[str, Any],
+    ) -> Dict[str, Any]:
+
+        return self.calculate_valuation(vehicle)
 
     # ============================================================
     # PROFILE
@@ -693,33 +751,45 @@ class VehicleService:
         vehicle: Dict[str, Any],
     ) -> Dict[str, Any]:
 
-        prepared = self.prepare_vehicle_for_valuation(vehicle)
+        category = self.normalize_category(
+            make=vehicle.get("make"),
+            model=vehicle.get("model"),
+            category=vehicle.get("category"),
+            body_type=vehicle.get("body_type"),
+        )
 
-        validation = self.validate_vehicle(prepared)
+        depreciation_category = (
+            self.get_depreciation_category(
+                make=vehicle.get("make"),
+                model=vehicle.get("model"),
+                category=category,
+                body_type=vehicle.get("body_type"),
+            )
+        )
 
         return {
-            "vehicle": prepared,
-            "validation": validation,
-            "valuation_inputs": {
-                "make": prepared.get("make"),
-                "model": prepared.get("model"),
-                "category": prepared.get("category"),
-                "depreciation_category": prepared.get(
-                    "depreciation_category"
-                ),
-                "body_type": prepared.get("body_type"),
-                "fuel": prepared.get("fuel"),
-                "transmission": prepared.get("transmission"),
-                "engine_capacity": prepared.get(
-                    "engine_capacity"
-                ),
-                "crsp_kes": prepared.get("crsp_kes"),
-            },
+            "make": vehicle.get("make"),
+            "model": vehicle.get("model"),
+            "category": category,
+            "depreciation_category": depreciation_category,
+            "body_type": vehicle.get("body_type"),
+            "engine_capacity": vehicle.get(
+                "engine_capacity"
+            ),
+            "fuel": vehicle.get("fuel"),
+            "transmission": vehicle.get(
+                "transmission"
+            ),
+            "year": vehicle.get("year"),
+            "mileage": vehicle.get("mileage"),
+            "condition": vehicle.get("condition"),
+            "location": vehicle.get("location"),
+            "crsp_kes": vehicle.get("crsp_kes"),
         }
 
 
 # ================================================================
-# SERVICE SINGLETON
+# SINGLETON
 # ================================================================
 
-vehicle_service = VehicleService()
+valuation_service = ValuationService()
