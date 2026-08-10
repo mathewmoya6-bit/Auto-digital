@@ -1,5 +1,6 @@
 # app/modules/valuation/routes.py
 import logging
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -54,8 +55,17 @@ async def calculate_valuation(
             body_type=request.body_type,
         )
 
-        # Save to history if user is authenticated
-        if user and result.get("success") and result.get("crsp_found"):
+        # Ensure adjustments field exists (safety check)
+        if "adjustments" not in result:
+            result["adjustments"] = {}
+
+        # Save to history if user is authenticated and valuation successful
+        if (
+            user 
+            and result.get("success") 
+            and result.get("crsp_found")
+            and result.get("estimated_value") is not None
+        ):
             try:
                 service.repository.save_valuation_history(
                     user_id=user.get("id"),
@@ -68,6 +78,8 @@ async def calculate_valuation(
                         "fuel_type": request.fuel_type,
                         "transmission": request.transmission,
                         "body_type": request.body_type,
+                        "manufacture_year": request.manufacture_year,
+                        "created_at": datetime.now().isoformat(),
                     },
                 )
             except Exception as exc:
@@ -75,6 +87,8 @@ async def calculate_valuation(
 
         return ValuationResponse(**result)
 
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Valuation calculation failed: %s", exc)
         raise HTTPException(
