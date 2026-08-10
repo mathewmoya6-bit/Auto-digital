@@ -19,157 +19,223 @@ from pydantic import BaseModel, Field, field_validator
 class ValuationRequest(BaseModel):
     """
     Vehicle valuation request.
-
+    
     Calculates:
     - Current market value
     - Depreciation
     - Price range
     - Confidence score
     """
+    
+    vehicle_crsp_id: int = Field(
+        ...,
+        gt=0,
+        description="Vehicle CRSP ID"
+    )
+    
+    manufacture_year: int = Field(
+        ...,
+        ge=1900,
+        le=2100,
+        description="Manufacturing year"
+    )
+    
+    mileage_km: int = Field(
+        0,
+        ge=0,
+        description="Current mileage in KM"
+    )
+    
+    vehicle_type: str = Field(
+        "SEDAN",
+        description="Vehicle type (SEDAN, SUV, PICKUP, etc.)"
+    )
+    
+    condition_name: str = Field(
+        "GOOD",
+        description="Vehicle condition (EXCELLENT, GOOD, FAIR, POOR)"
+    )
+    
+    accident_status: str = Field(
+        "NONE",
+        description="Accident status (NONE, MINOR_REPAIR, ACCIDENT_REPAIRED, STRUCTURAL_DAMAGE)"
+    )
+    
+    location_name: str = Field(
+        "NAIROBI",
+        description="Vehicle location"
+    )
+    
+    profit_margin_percent: float = Field(
+        5.00,
+        ge=0,
+        le=100,
+        description="Profit margin percentage for dealer pricing"
+    )
+    
+    @field_validator("condition_name")
+    @classmethod
+    def validate_condition(cls, value: str):
+        value = value.upper().strip()
+        allowed = ["EXCELLENT", "GOOD", "FAIR", "POOR"]
+        
+        if value not in allowed:
+            raise ValueError(f"Condition must be one of {allowed}")
+        
+        return value
+    
+    @field_validator("accident_status")
+    @classmethod
+    def validate_accident(cls, value: str):
+        value = value.upper().strip()
+        allowed = ["NONE", "MINOR_REPAIR", "ACCIDENT_REPAIRED", "STRUCTURAL_DAMAGE"]
+        
+        if value not in allowed:
+            raise ValueError(f"Accident status must be one of {allowed}")
+        
+        return value
+    
+    @field_validator("vehicle_type")
+    @classmethod
+    def validate_vehicle_type(cls, value: str):
+        value = value.upper().strip()
+        allowed = ["SEDAN", "SUV", "PICKUP", "VAN", "HATCHBACK", "COUPE", "CONVERTIBLE"]
+        
+        if value not in allowed:
+            raise ValueError(f"Vehicle type must be one of {allowed}")
+        
+        return value
+    
+    @field_validator("location_name")
+    @classmethod
+    def validate_location(cls, value: str):
+        return value.upper().strip()
 
+
+# ================================================================
+# LEGACY REQUEST SCHEMA (for backward compatibility)
+# ================================================================
+
+class LegacyValuationRequest(BaseModel):
+    """
+    Legacy valuation request for backward compatibility.
+    Maps to the new ValuationRequest.
+    """
+    
     variant_id: int = Field(
         ...,
         gt=0,
         description="Vehicle variant database ID"
     )
-
-    # FIX 1: Renamed vehicle_year → year
+    
     year: int = Field(
         ...,
         ge=1980,
         description="Manufacturing year"
     )
-
+    
     mileage: int = Field(
         0,
         ge=0,
         description="Current mileage in KM"
     )
-
+    
     condition: str = Field(
         "good",
-        description="Vehicle condition"
+        description="Vehicle condition (excellent, very_good, good, fair, poor)"
     )
-
+    
     location: str = Field(
         "nairobi",
         description="Vehicle location"
     )
-
+    
     fuel_type: Optional[str] = Field(
         None,
         description="Fuel type"
     )
-
+    
     transmission: Optional[str] = Field(
         None,
         description="Transmission type"
     )
-
-    # FIX 2: Changed accident_history from bool to str
+    
     accident_history: str = Field(
         "none",
         description="none | minor | major | total_loss"
     )
-
+    
     ownership_count: int = Field(
         1,
         ge=1,
         description="Number of previous owners"
     )
-
+    
     service_history: bool = Field(
         True,
         description="Has service records"
     )
-
-    # FIX 3: Added very_good to allowed conditions
-    @field_validator("condition")
-    @classmethod
-    def validate_condition(cls, value: str):
-        allowed = [
-            "excellent",
-            "very_good",
-            "good",
-            "fair",
-            "poor"
-        ]
-
-        value = value.lower()
-
-        if value not in allowed:
-            raise ValueError(
-                f"Condition must be one of {allowed}"
-            )
-
-        return value
-
-    # FIX 1: Updated validator name to match field
-    @field_validator("year")
-    @classmethod
-    def validate_year(cls, value: int):
-
-        current_year = datetime.now(
-            timezone.utc
-        ).year
-
-        if value > current_year + 1:
-            raise ValueError(
-                "Vehicle year cannot be in the future"
-            )
-
-        return value
-
-    # FIX 2: Added validator for accident_history
-    @field_validator("accident_history")
-    @classmethod
-    def validate_accident(cls, value: str):
-        value = value.lower()
-
-        allowed = [
-            "none",
-            "minor",
-            "major",
-            "total_loss"
-        ]
-
-        if value not in allowed:
-            raise ValueError(
-                f"accident_history must be one of {allowed}"
-            )
-
-        return value
-
-    @field_validator("location")
-    @classmethod
-    def validate_location(cls, value: str):
-        return value.lower().strip()
+    
+    profit_margin_percent: float = Field(
+        5.00,
+        ge=0,
+        le=100,
+        description="Profit margin percentage"
+    )
+    
+    def to_valuation_request(self) -> ValuationRequest:
+        """Convert to new ValuationRequest format."""
+        # Map condition
+        condition_map = {
+            "excellent": "EXCELLENT",
+            "very_good": "EXCELLENT",
+            "good": "GOOD",
+            "fair": "FAIR",
+            "poor": "POOR"
+        }
+        
+        # Map accident status
+        accident_map = {
+            "none": "NONE",
+            "minor": "MINOR_REPAIR",
+            "major": "ACCIDENT_REPAIRED",
+            "total_loss": "STRUCTURAL_DAMAGE"
+        }
+        
+        # Map vehicle type based on body type (if available)
+        # This would normally be resolved from the database
+        vehicle_type = "SEDAN"
+        
+        return ValuationRequest(
+            vehicle_crsp_id=self.variant_id,
+            manufacture_year=self.year,
+            mileage_km=self.mileage,
+            vehicle_type=vehicle_type,
+            condition_name=condition_map.get(self.condition.lower(), "GOOD"),
+            accident_status=accident_map.get(self.accident_history.lower(), "NONE"),
+            location_name=self.location.upper(),
+            profit_margin_percent=self.profit_margin_percent
+        )
 
 
 # ================================================================
 # VEHICLE DETAILS
 # ================================================================
 
-# FIX 4: Updated to match service response
 class VehicleDetails(BaseModel):
-
-    variant_id: int
-
-    make: str
-
-    model: str
-
-    variant_name: str  # Changed from variant to variant_name
-
-    year: int
-
-    fuel_type: Optional[str] = None
-
-    transmission: Optional[str] = None
-
-    engine_size_cc: Optional[int] = None  # Changed from engine_size to engine_size_cc
-
-    body_type: Optional[str] = None
+    """Vehicle details for valuation responses."""
+    
+    vehicle_crsp_id: int = Field(..., description="Vehicle CRSP ID")
+    variant_id: Optional[int] = Field(None, description="Vehicle variant ID")
+    make: str = Field(..., description="Vehicle make")
+    model: str = Field(..., description="Vehicle model")
+    variant_name: Optional[str] = Field(None, description="Variant name")
+    year: int = Field(..., description="Manufacturing year")
+    fuel_type: Optional[str] = Field(None, description="Fuel type")
+    transmission: Optional[str] = Field(None, description="Transmission type")
+    engine_size_cc: Optional[int] = Field(None, description="Engine size in CC")
+    body_type: Optional[str] = Field(None, description="Body type")
+    vehicle_type: Optional[str] = Field(None, description="Vehicle type category")
 
 
 # ================================================================
@@ -177,47 +243,31 @@ class VehicleDetails(BaseModel):
 # ================================================================
 
 class ValuationAdjustment(BaseModel):
-
-    factor: str = Field(
-        ...,
-        description="Adjustment factor"
-    )
-
-    adjustment: float = Field(
-        ...,
-        description="Amount adjusted"
-    )
-
-    percentage: float = Field(
-        ...,
-        description="Percentage adjustment"
-    )
-
-    reason: str
+    """Individual valuation adjustment."""
+    
+    factor: str = Field(..., description="Adjustment factor name")
+    adjustment: float = Field(..., description="Amount adjusted")
+    percentage: float = Field(..., description="Percentage adjustment")
+    reason: str = Field(..., description="Reason for adjustment")
 
 
 class DepreciationDetails(BaseModel):
-
-    original_value: float
-
-    current_value: float
-
-    depreciation_amount: float
-
-    depreciation_percentage: float
-
-    annual_rate: float
+    """Depreciation details."""
+    
+    original_value: float = Field(..., description="Original vehicle value")
+    current_value: float = Field(..., description="Current depreciated value")
+    depreciation_amount: float = Field(..., description="Total depreciation amount")
+    depreciation_percentage: float = Field(..., description="Depreciation percentage")
+    annual_rate: float = Field(..., description="Annual depreciation rate")
 
 
 class MarketComparison(BaseModel):
-
-    average_price: float
-
-    lowest_price: float
-
-    highest_price: float
-
-    listings_count: int = 0
+    """Market comparison details."""
+    
+    average_price: float = Field(..., description="Average market price")
+    lowest_price: float = Field(..., description="Lowest market price")
+    highest_price: float = Field(..., description="Highest market price")
+    listings_count: int = Field(0, description="Number of listings analyzed")
 
 
 class ComparableVehicle(BaseModel):
@@ -237,77 +287,43 @@ class ComparableVehicle(BaseModel):
 
 
 # ================================================================
-# RESPONSE SCHEMA
+# VALUATION RESPONSE SCHEMAS
 # ================================================================
 
-class ValuationResponse(BaseModel):
-
-    vehicle: VehicleDetails
-
-    market_value: float = Field(
-        ...,
-        description="Estimated market value in KES"
-    )
-
-    price_range_low: float
-
-    price_range_high: float
-
-    confidence_score: float = Field(
-        ...,
-        ge=0,
-        le=100
-    )
-
-    depreciation: DepreciationDetails
-
-    adjustments: List[ValuationAdjustment] = Field(
-        default_factory=list
-    )
-
-    market_comparison: Optional[
-        MarketComparison
-    ] = None
-
-    recommendation: Optional[str] = None
-
-    currency: str = "KES"
-
-    calculated_at: str
-
-
-# ================================================================
-# VALUATION REPORT RESPONSE (NEW)
-# ================================================================
-
-# FIX 5: Updated ReportMetadata to match service response
-class ReportMetadata(BaseModel):
-    """Report metadata."""
-    
-    title: str = Field("AUTO-D Vehicle Valuation Report", description="Report title")
-    report_number: str = Field(..., description="Unique report number")
-    generated_at: datetime = Field(..., description="Report generation timestamp")
-    status: str = Field("completed", description="Report status")
-    version: str = Field("1.0", description="Report version")
-    description: Optional[str] = Field(None, description="Report description")
-
-
-# FIX 9: Confidence score uses percentage (0-100)
 class ValuationResult(BaseModel):
-    """Valuation result details."""
+    """Core valuation result details."""
     
+    # Core value
     estimated_vehicle_value: float = Field(..., description="Estimated vehicle value")
     retail_value: float = Field(..., description="Retail value")
     trade_value: float = Field(..., description="Trade-in value")
     dealer_value: float = Field(..., description="Dealer value")
+    
+    # Currency
     currency: str = Field("KES", description="Currency code")
+    
+    # Confidence
     confidence_score: float = Field(..., ge=0, le=100, description="Confidence score (0-100)")
-    # FIX 8: Use minimum/maximum (not min/max)
-    estimated_value_range: Dict[str, float] = Field(..., description="Min and max value range")
+    
+    # Range
+    estimated_value_range: Dict[str, float] = Field(
+        ...,
+        description="Min and max value range"
+    )
+    
+    # Sample
     sample_size: int = Field(0, description="Number of comparable vehicles used")
+    
+    # Additional database fields
+    crsp_value: Optional[float] = Field(None, description="CRSP reference value")
+    vehicle_age: Optional[int] = Field(None, description="Vehicle age in years")
+    depreciation_rate: Optional[float] = Field(None, description="Depreciation rate")
+    depreciated_value: Optional[float] = Field(None, description="Value after depreciation")
+    fair_market_value: Optional[float] = Field(None, description="Fair market value")
+    profit_margin_rate: Optional[float] = Field(None, description="Profit margin rate")
+    profit_margin_amount: Optional[float] = Field(None, description="Profit margin amount")
 
 
-# FIX 6: Updated Analysis to match service response
 class ValuationAnalysis(BaseModel):
     """Analysis details."""
     
@@ -320,17 +336,20 @@ class ValuationAnalysis(BaseModel):
         description="Adjustments applied"
     )
     engine_version: str = Field(
-        "AUTO-D AI Valuation Engine v1.2",
+        "AUTO-D AI Valuation Engine v2.0",
         description="Engine version used"
     )
 
 
-# FIX 7: Simplified disclaimer to string
-class Disclaimer(BaseModel):
-    """Disclaimer text."""
+class ReportMetadata(BaseModel):
+    """Report metadata."""
     
-    text: str = Field(..., description="Disclaimer text")
-    type: str = Field("standard", description="Disclaimer type")
+    title: str = Field("AUTO-D Vehicle Valuation Report", description="Report title")
+    report_number: str = Field(..., description="Unique report number")
+    generated_at: datetime = Field(..., description="Report generation timestamp")
+    status: str = Field("completed", description="Report status")
+    version: str = Field("2.0", description="Report version")
+    description: Optional[str] = Field(None, description="Report description")
 
 
 class ValuationReportResponse(BaseModel):
@@ -343,7 +362,10 @@ class ValuationReportResponse(BaseModel):
     report: ReportMetadata = Field(..., description="Report metadata")
     vehicle: VehicleDetails = Field(..., description="Vehicle information")
     valuation: ValuationResult = Field(..., description="Valuation results")
-    comparables: List[ComparableVehicle] = Field(default_factory=list, description="Comparable vehicles")
+    comparables: List[ComparableVehicle] = Field(
+        default_factory=list,
+        description="Comparable vehicles"
+    )
     analysis: ValuationAnalysis = Field(..., description="Analysis details")
     disclaimer: str = Field(..., description="Disclaimer text")
     
@@ -353,11 +375,12 @@ class ValuationReportResponse(BaseModel):
                 "report": {
                     "title": "AUTO-D Vehicle Valuation Report",
                     "report_number": "AUTO-VAL-20260115103000-ABCD",
-                    "generated_at": "2026-01-15T10:30:00",
+                    "generated_at": "2026-01-15T10:30:00Z",
                     "status": "completed",
-                    "version": "1.0"
+                    "version": "2.0"
                 },
                 "vehicle": {
+                    "vehicle_crsp_id": 123,
                     "variant_id": 123,
                     "make": "Toyota",
                     "model": "Corolla",
@@ -366,7 +389,8 @@ class ValuationReportResponse(BaseModel):
                     "fuel_type": "Petrol",
                     "transmission": "Automatic",
                     "engine_size_cc": 1800,
-                    "body_type": "Sedan"
+                    "body_type": "Sedan",
+                    "vehicle_type": "SEDAN"
                 },
                 "valuation": {
                     "estimated_vehicle_value": 3500000.00,
@@ -379,7 +403,14 @@ class ValuationReportResponse(BaseModel):
                         "minimum": 3325000.00,
                         "maximum": 3675000.00
                     },
-                    "sample_size": 15
+                    "sample_size": 15,
+                    "crsp_value": 4000000.00,
+                    "vehicle_age": 4,
+                    "depreciation_rate": 0.15,
+                    "depreciated_value": 3400000.00,
+                    "fair_market_value": 3500000.00,
+                    "profit_margin_rate": 0.05,
+                    "profit_margin_amount": 175000.00
                 },
                 "comparables": [],
                 "analysis": {
@@ -393,12 +424,13 @@ class ValuationReportResponse(BaseModel):
                         "Market comparables analysis"
                     ],
                     "adjustments": {
-                        "age": 0.95,
-                        "mileage": 0.98,
-                        "condition": 1.05,
-                        "location": 1.02
+                        "mileage": -50000.00,
+                        "condition": 0.05,
+                        "accident": 0.00,
+                        "location": 0.02,
+                        "market": 0.01
                     },
-                    "engine_version": "AUTO-D AI Valuation Engine v1.2"
+                    "engine_version": "AUTO-D AI Valuation Engine v2.0"
                 },
                 "disclaimer": "This valuation is generated using the AUTO-D vehicle valuation model. It represents an indicative estimate based on vehicle specifications, age, mileage, condition, depreciation modelling and regional factors. It should not be interpreted as the current market asking price, dealer retail price, trade-in value or guaranteed selling price. Actual transaction values may vary depending on inspection results, ownership history, maintenance records and prevailing market conditions."
             }
@@ -410,16 +442,13 @@ class ValuationReportResponse(BaseModel):
 # ================================================================
 
 class QuickValuationResponse(BaseModel):
-
-    variant_id: int
-
-    estimated_value: float
-
-    currency: str = "KES"
-
-    confidence_score: float
-
-    calculated_at: str
+    """Quick valuation response for simple value checks."""
+    
+    vehicle_crsp_id: int = Field(..., description="Vehicle CRSP ID")
+    estimated_value: float = Field(..., description="Estimated market value")
+    currency: str = Field("KES", description="Currency code")
+    confidence_score: float = Field(..., ge=0, le=100, description="Confidence score")
+    calculated_at: str = Field(..., description="Calculation timestamp")
 
 
 # ================================================================
@@ -427,25 +456,22 @@ class QuickValuationResponse(BaseModel):
 # ================================================================
 
 class ValuationHistoryItem(BaseModel):
-
-    id: str
-
-    vehicle_id: str
-
-    market_value: float
-
-    mileage: int
-
-    valuation_date: datetime
+    """Single history item."""
+    
+    id: str = Field(..., description="History entry ID")
+    vehicle_id: str = Field(..., description="Vehicle ID")
+    market_value: float = Field(..., description="Market value at time of valuation")
+    mileage: int = Field(..., description="Mileage at time of valuation")
+    valuation_date: datetime = Field(..., description="Valuation date")
+    report_number: Optional[str] = Field(None, description="Valuation report number")
+    confidence_score: Optional[float] = Field(None, description="Confidence score")
 
 
 class ValuationHistoryResponse(BaseModel):
-
-    items: List[
-        ValuationHistoryItem
-    ] = Field(default_factory=list)
-
-    total: int
+    """Valuation history response."""
+    
+    items: List[ValuationHistoryItem] = Field(default_factory=list, description="History items")
+    total: int = Field(0, description="Total number of history items")
 
 
 # ================================================================
@@ -461,8 +487,14 @@ class ValuationStats(BaseModel):
     lowest_value: float = Field(0, description="Lowest valuation value")
     last_valuation_date: Optional[datetime] = Field(None, description="Last valuation date")
     total_value: float = Field(0, description="Total value of all valuations")
-    valuations_by_make: Dict[str, int] = Field(default_factory=dict, description="Valuations by make")
-    valuations_by_month: Dict[str, int] = Field(default_factory=dict, description="Valuations by month")
+    valuations_by_make: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Valuations by make"
+    )
+    valuations_by_month: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Valuations by month"
+    )
     average_confidence: float = Field(0, description="Average confidence score")
 
 
@@ -471,14 +503,13 @@ class ValuationStats(BaseModel):
 # ================================================================
 
 class ValuationHealthResponse(BaseModel):
-
-    status: str
-
-    service: str = "valuation"
-
-    version: str = "1.0"
-
-    timestamp: str
+    """Health check response."""
+    
+    status: str = Field(..., description="Service health status")
+    service: str = Field("valuation", description="Service name")
+    version: str = Field("2.0", description="Service version")
+    timestamp: str = Field(..., description="Health check timestamp")
+    database: Optional[str] = Field(None, description="Database health status")
 
 
 # ================================================================
@@ -495,29 +526,24 @@ def create_valuation_response(
     adjustments: Optional[List[Dict[str, Any]]] = None,
     market_comparison: Optional[Dict[str, Any]] = None,
     recommendation: Optional[str] = None
-) -> ValuationResponse:
-
-    return ValuationResponse(
-        vehicle=VehicleDetails(**vehicle),
-        market_value=round(market_value, 2),
-        price_range_low=round(price_range_low, 2),
-        price_range_high=round(price_range_high, 2),
-        confidence_score=round(confidence_score, 2),
-        depreciation=DepreciationDetails(**depreciation),
-        adjustments=[
-            ValuationAdjustment(**item)
-            for item in (adjustments or [])
-        ],
-        market_comparison=(
-            MarketComparison(**market_comparison)
-            if market_comparison
-            else None
-        ),
-        recommendation=recommendation,
-        calculated_at=datetime.now(
-            timezone.utc
-        ).isoformat()
-    )
+) -> Dict[str, Any]:
+    """
+    Create a valuation response dict.
+    (Legacy function for backward compatibility)
+    """
+    return {
+        "vehicle": vehicle,
+        "market_value": round(market_value, 2),
+        "price_range_low": round(price_range_low, 2),
+        "price_range_high": round(price_range_high, 2),
+        "confidence_score": round(confidence_score, 2),
+        "depreciation": depreciation,
+        "adjustments": adjustments or [],
+        "market_comparison": market_comparison,
+        "recommendation": recommendation,
+        "currency": "KES",
+        "calculated_at": datetime.now(timezone.utc).isoformat()
+    }
 
 
 def create_valuation_report_response(
@@ -543,7 +569,8 @@ def create_valuation_report_response(
         ValuationReportResponse
     """
     if not report_number:
-        report_number = f"VAL-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{datetime.now(timezone.utc).timestamp():.0f}"
+        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+        report_number = f"AUTO-VAL-{timestamp}-0000"
     
     if not disclaimer_text:
         disclaimer_text = (
@@ -562,7 +589,7 @@ def create_valuation_report_response(
             report_number=report_number,
             generated_at=datetime.now(timezone.utc),
             status="completed",
-            version="1.0",
+            version="2.0",
             description=f"Valuation report for {vehicle.get('make', '')} {vehicle.get('model', '')} {vehicle.get('year', '')}"
         ),
         vehicle=VehicleDetails(**vehicle),
@@ -573,6 +600,51 @@ def create_valuation_report_response(
     )
 
 
+def create_valuation_from_database(
+    db_result: Dict[str, Any],
+    vehicle_details: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Create valuation dictionary from database result.
+    
+    Args:
+        db_result: Database valuation result
+        vehicle_details: Vehicle details
+        
+    Returns:
+        Dict[str, Any]: Formatted valuation dictionary
+    """
+    final_value = float(db_result.get("final_value", 0))
+    fair_market_value = float(db_result.get("fair_market_value", final_value))
+    
+    return {
+        "market_value": final_value,
+        "retail_value": final_value * 1.08,
+        "trade_value": final_value * 0.85,
+        "dealer_value": final_value * 0.95,
+        "confidence_score": float(db_result.get("confidence_score", 65)),
+        "estimated_value_range": {
+            "minimum": final_value * 0.90,
+            "maximum": final_value * 1.10
+        },
+        "sample_size": 0,
+        "crsp_value": float(db_result.get("crsp_value", 0)),
+        "vehicle_age": int(db_result.get("vehicle_age", 0)),
+        "depreciation_rate": float(db_result.get("depreciation_rate", 0)),
+        "depreciated_value": float(db_result.get("depreciated_value", 0)),
+        "fair_market_value": fair_market_value,
+        "profit_margin_rate": float(db_result.get("profit_margin_rate", 0)),
+        "profit_margin_amount": float(db_result.get("profit_margin_amount", 0)),
+        "adjustments": {
+            "mileage": float(db_result.get("mileage_adjustment", 0)),
+            "condition": float(db_result.get("condition_adjustment", 0)),
+            "accident": float(db_result.get("accident_adjustment", 0)),
+            "location": float(db_result.get("location_adjustment", 0)),
+            "market": float(db_result.get("market_adjustment", 0)),
+        }
+    }
+
+
 # ================================================================
 # EXPORTS
 # ================================================================
@@ -580,9 +652,9 @@ def create_valuation_report_response(
 __all__ = [
     # Request schemas
     "ValuationRequest",
+    "LegacyValuationRequest",
     
     # Response schemas
-    "ValuationResponse",
     "ValuationReportResponse",
     "QuickValuationResponse",
     "ValuationHealthResponse",
@@ -599,9 +671,9 @@ __all__ = [
     "ReportMetadata",
     "ValuationResult",
     "ValuationAnalysis",
-    "Disclaimer",
     
     # Factory functions
     "create_valuation_response",
     "create_valuation_report_response",
+    "create_valuation_from_database",
 ]
