@@ -8,7 +8,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <!-- Pinned to an exact version rather than @2 so a breaking upstream release can't ship to production unnoticed. -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script>
     <style>
         /* ... (same styles as before - keeping all CSS unchanged) ... */
@@ -665,7 +664,7 @@
             justify-content: space-between;
         }
 
-        /* ─── CRSP Info (aligned with valuation & mileage calculators) ─── */
+        /* ─── CRSP Info ──────────────────────────────────────── */
         .crsp-info {
             background: var(--bg);
             border: 1px solid rgba(6, 182, 212, 0.2);
@@ -1173,7 +1172,7 @@
                 </a>
             </div>
             <div class="header-right">
-                <div class="version">Version <span>v9.1</span> <span class="auto-d-badge" style="display:inline-block;background:rgba(234,179,8,0.15);color:#eab308;font-family:var(--font-mono);font-size:8px;padding:2px 8px;border-radius:10px;border:1px solid rgba(234,179,8,0.2);margin-left:6px;">Auto-D</span></div>
+                <div class="version">Version <span>v9.2</span> <span class="auto-d-badge" style="display:inline-block;background:rgba(234,179,8,0.15);color:#eab308;font-family:var(--font-mono);font-size:8px;padding:2px 8px;border-radius:10px;border:1px solid rgba(234,179,8,0.2);margin-left:6px;">Auto-D</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus" aria-live="polite">🔓 Not Authenticated</span>
@@ -1331,7 +1330,7 @@
                     </select>
                 </div>
 
-                <!-- CRSP Base Price Reference (aligned with valuation & mileage calculators) -->
+                <!-- CRSP Base Price Reference -->
                 <div class="crsp-info" id="crspInfo">
                     <h4>🏛️ KRA CRSP Base Price Reference</h4>
                     <div id="crspInfoContent">
@@ -1544,7 +1543,6 @@
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                // ✅ CHANGED: Using vehicle_crsp_lookup instead of vehicle_master_specs
                 VIEW_NAME: 'vehicle_crsp_lookup',
                 CRSP_TABLE: 'vehicle_crsp_prices',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
@@ -1554,6 +1552,23 @@
                 EV_PRICE_PER_KWH: 30,
                 REQUEST_TIMEOUT: 30000,
                 COLD_START_TIMEOUT: 55000
+            };
+
+            // ─── CRSP Category Mapping ────────────────────────────
+            const CRSP_CATEGORIES = {
+                SEDAN: 'SEDAN',
+                COMMERCIAL: 'COMMERCIAL',
+                ELECTRIC: 'ELECTRIC',
+                LUXURY: 'LUXURY',
+                PICKUP: 'PICKUP'
+            };
+
+            const CATEGORY_DISPLAY_NAMES = {
+                SEDAN: 'Sedan',
+                COMMERCIAL: 'Commercial',
+                ELECTRIC: 'Electric',
+                LUXURY: 'Luxury',
+                PICKUP: 'Pickup'
             };
 
             let supabaseClient = null;
@@ -1689,7 +1704,6 @@
                 financeFields: document.getElementById('financeFields'),
                 evAssumptionsNote: document.getElementById('evAssumptionsNote'),
                 inflationAssumptionNote: document.getElementById('inflationAssumptionNote'),
-                // CRSP info panel refs
                 crspInfo: document.getElementById('crspInfo'),
                 crspMatchedLine: document.getElementById('crspMatchedLine'),
                 crspBasePrice: document.getElementById('crspBasePrice'),
@@ -2005,7 +2019,7 @@
                 el.calculateBtn.disabled = true;
             }
 
-            // ─── Data Query Functions (UPDATED for vehicle_crsp_lookup) ──
+            // ─── Data Query Functions ──────────────────────────────
             async function queryCRSPView(select, filter, order, signal) {
                 if (!isAuthenticated) {
                     setStatus('warning', 'Please sign in to load vehicle data');
@@ -2023,47 +2037,46 @@
                 return data;
             }
 
-            // ─── Load Data (UPDATED for vehicle_crsp_lookup) ──────
+            // ─── Load Categories ──────────────────────────────────
             async function loadCategories() {
                 try {
                     setStatus('info', 'Loading categories...');
-                    // Try to get categories from vehicle_makes table
+                    
+                    // First try: Get categories from vehicle_crsp_lookup's vehicle_category column
                     const { data, error } = await supabaseClient
-                        .from('vehicle_makes')
-                        .select('category_id, category_name')
-                        .order('category_name');
+                        .from(CONFIG.VIEW_NAME)
+                        .select('vehicle_category')
+                        .not('vehicle_category', 'is', null)
+                        .order('vehicle_category');
 
                     if (!error && data && data.length > 0) {
                         const unique = {};
                         data.forEach(item => {
-                            if (item.category_id && !unique[item.category_id]) {
-                                unique[item.category_id] = {
-                                    id: item.category_id,
-                                    name: item.category_name || 'Uncategorized'
+                            const cat = item.vehicle_category;
+                            if (cat && !unique[cat]) {
+                                unique[cat] = { 
+                                    id: cat, 
+                                    name: CATEGORY_DISPLAY_NAMES[cat] || cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase()
                                 };
                             }
                         });
                         const result = Object.values(unique);
-                        if (result.length > 0) return result;
+                        if (result.length > 0) {
+                            console.log('✅ Categories loaded from vehicle_category column:', result);
+                            setStatus('success', `✅ Loaded ${result.length} categories`);
+                            return result;
+                        }
                     }
 
-                    // Fallback: Get distinct makes as categories
-                    const { data: makesData, error: makesError } = await supabaseClient
-                        .from(CONFIG.VIEW_NAME)
-                        .select('make')
-                        .order('make');
-
-                    if (!makesError && makesData && makesData.length > 0) {
-                        const unique = {};
-                        makesData.forEach(item => {
-                            if (item.make && !unique[item.make]) {
-                                unique[item.make] = { id: item.make, name: item.make };
-                            }
-                        });
-                        return Object.values(unique);
-                    }
-
-                    return [];
+                    // Fallback: Hard-coded categories
+                    const fallback = Object.keys(CRSP_CATEGORIES).map(key => ({
+                        id: key,
+                        name: CATEGORY_DISPLAY_NAMES[key] || key
+                    }));
+                    
+                    console.log('✅ Using fallback categories:', fallback);
+                    setStatus('success', `✅ Loaded ${fallback.length} categories`);
+                    return fallback;
                 } catch (error) {
                     console.error('Error loading categories:', error);
                     setStatus('error', 'Failed to load categories');
@@ -2071,18 +2084,27 @@
                 }
             }
 
+            // ─── Load Makes ────────────────────────────────────────
             async function loadMakes(categoryId, signal) {
                 try {
                     setStatus('info', 'Loading makes...');
                     const data = await queryCRSPView(
-                        'make, make_id',
+                        'make, make_id, vehicle_category',
                         null,
                         { column: 'make', ascending: true },
                         signal
                     );
 
+                    // Filter by category if provided
+                    let filteredData = data;
+                    if (categoryId && categoryId !== 'all') {
+                        filteredData = data.filter(item => 
+                            (item.vehicle_category || '').toUpperCase() === categoryId.toUpperCase()
+                        );
+                    }
+
                     const unique = {};
-                    data.forEach(item => {
+                    filteredData.forEach(item => {
                         if (item.make && !unique[item.make]) {
                             unique[item.make] = {
                                 id: item.make_id || item.make,
@@ -2120,6 +2142,7 @@
                 }
             }
 
+            // ─── Load Models ────────────────────────────────────────
             async function loadModels(makeName, signal) {
                 try {
                     setStatus('info', 'Loading models...');
@@ -2151,6 +2174,7 @@
                 }
             }
 
+            // ─── Load Generations ────────────────────────────────────
             async function loadGenerations(modelName, makeName, signal) {
                 try {
                     setStatus('info', 'Loading generations...');
@@ -2191,13 +2215,14 @@
                 }
             }
 
+            // ─── Load Engine Capacities ──────────────────────────────
             async function loadEngineCapacities(generationId, signal) {
                 try {
                     setStatus('info', 'Loading engine capacities...');
                     const filter = { column: 'manufacture_year', value: parseInt(generationId) };
 
                     const data = await queryCRSPView(
-                        `crsp_id, engine_capacity, engine_capacity_id, fuel, transmission, body_type, make, model, manufacture_year, crsp_kes`,
+                        `crsp_id, engine_capacity, engine_capacity_id, fuel, transmission, body_type, make, model, manufacture_year, crsp_kes, vehicle_category`,
                         filter,
                         { column: 'engine_capacity', ascending: true },
                         signal
@@ -2213,7 +2238,8 @@
                                 crsp_kes: v.crsp_kes,
                                 fuel: v.fuel,
                                 transmission: v.transmission,
-                                body_type: v.body_type
+                                body_type: v.body_type,
+                                vehicle_category: v.vehicle_category
                             };
                         }
                         grouped[key].variants.push(v);
@@ -2228,6 +2254,7 @@
                 }
             }
 
+            // ─── Load Variant Details ──────────────────────────────
             async function loadVariantDetails(crspId) {
                 try {
                     setStatus('info', 'Loading vehicle details...');
@@ -2251,14 +2278,14 @@
                             doors: null,
                             drive_type_name: v.drive_configuration,
                             trim_level: null,
-                            category_name: null,
+                            category_name: v.vehicle_category,
                             crsp_kes: v.crsp_kes,
                             manufacture_year: v.manufacture_year
                         };
                     }
                     return null;
                 } catch (error) {
-                    console.error('Error loading variant details:', error);
+                    console.error('Error loading vehicle details:', error);
                     setStatus('error', 'Failed to load vehicle details');
                     return null;
                 }
@@ -2345,7 +2372,7 @@
             // ─── Populate UI ──────────────────────────────────────
             async function populateCategories() {
                 const select = el.categorySelect;
-                select.innerHTML = '<option value="">Select Category...</option>';
+                select.innerHTML = '<option value="all">All Categories</option>';
                 select.disabled = true;
                 const categories = await loadCategories();
                 if (!categories || categories.length === 0) {
@@ -2376,7 +2403,7 @@
                 el.calculateBtn.disabled = true;
                 currentVariantData = null;
                 resetCRSPInfo();
-                if (!categoryId || !isAuthenticated) return;
+                if (!isAuthenticated) return;
                 const signal = startCascade('makes');
                 const makes = await loadMakes(categoryId, signal);
                 if (makes === null) return;
@@ -2483,6 +2510,7 @@
                     opt.dataset.modelName = rep.model || '';
                     opt.dataset.engineCc = group.engine_size_cc || '';
                     opt.dataset.crspKes = group.crsp_kes || '';
+                    opt.dataset.category = group.vehicle_category || '';
 
                     const fuelTypes = group.fuel ? [group.fuel] : ['Unknown'];
                     let label = `${group.engine_size_cc}cc`;
@@ -2529,6 +2557,7 @@
                 }
 
                 const extraSpecs = [
+                    { label: 'Category', value: CATEGORY_DISPLAY_NAMES[variant.category_name] || variant.category_name || '—' },
                     { label: 'Trim', value: variant.trim_level || 'Standard' },
                     { label: 'Power', value: `${variant.power_hp || 0} HP` },
                     { label: 'Torque', value: `${variant.torque_nm || 0} Nm` },
@@ -3072,28 +3101,65 @@
                     if (currentVariantData) displayVehicleInfo(currentVariantData);
                 });
 
-                // Track manual edits to purchase price so we stop overwriting it once
-                // the person has typed their own number.
+                // Track manual edits to purchase price
                 el.purchasePrice.addEventListener('input', function() {
                     purchasePriceEditedByUser = true;
                 });
 
-                // Vehicle selection cascading (updated for vehicle_crsp_lookup)
+                // Vehicle selection cascading
                 el.categorySelect.addEventListener('change', async function() {
-                    if (this.value && isAuthenticated) await populateMakes(this.value);
+                    const categoryId = this.value;
+                    if (isAuthenticated) {
+                        await populateMakes(categoryId);
+                        el.modelSelect.value = '';
+                        el.generationSelect.value = '';
+                        el.engineCapacitySelect.value = '';
+                        el.calculateBtn.disabled = true;
+                        el.resultBox.classList.remove('show');
+                        el.crspInfo.classList.remove('show');
+                        el.crspPill.classList.remove('show');
+                    }
                 });
+
                 el.makeSelect.addEventListener('change', async function() {
+                    if (!isAuthenticated) return;
                     const makeName = this.value;
-                    if (makeName && isAuthenticated) await populateModels(makeName);
+                    if (makeName) {
+                        await populateModels(makeName);
+                        el.generationSelect.value = '';
+                        el.engineCapacitySelect.value = '';
+                        el.calculateBtn.disabled = true;
+                        el.resultBox.classList.remove('show');
+                        el.crspInfo.classList.remove('show');
+                        el.crspPill.classList.remove('show');
+                    }
                 });
+
                 el.modelSelect.addEventListener('change', async function() {
+                    if (!isAuthenticated) return;
                     const modelName = this.value;
-                    if (modelName && isAuthenticated) await populateGenerations(modelName);
+                    if (modelName) {
+                        await populateGenerations(modelName);
+                        el.engineCapacitySelect.value = '';
+                        el.calculateBtn.disabled = true;
+                        el.resultBox.classList.remove('show');
+                        el.crspInfo.classList.remove('show');
+                        el.crspPill.classList.remove('show');
+                    }
                 });
+
                 el.generationSelect.addEventListener('change', async function() {
+                    if (!isAuthenticated) return;
                     const genId = this.value;
-                    if (genId && isAuthenticated) await populateEngineCapacities(genId);
+                    if (genId) {
+                        await populateEngineCapacities(genId);
+                        el.calculateBtn.disabled = true;
+                        el.resultBox.classList.remove('show');
+                        el.crspInfo.classList.remove('show');
+                        el.crspPill.classList.remove('show');
+                    }
                 });
+
                 el.engineCapacitySelect.addEventListener('change', async function() {
                     const selectedOpt = this.options[this.selectedIndex];
                     const hasSelection = this.value && isAuthenticated;
@@ -3105,7 +3171,8 @@
                         make_name: selectedOpt.dataset.makeName || '',
                         model_name: selectedOpt.dataset.modelName || '',
                         engine_size_cc: parseInt(selectedOpt.dataset.engineCc) || null,
-                        crsp_kes: parseFloat(selectedOpt.dataset.crspKes) || null
+                        crsp_kes: parseFloat(selectedOpt.dataset.crspKes) || null,
+                        category: selectedOpt.dataset.category || ''
                     };
 
                     const variant = await loadVariantDetails(crspId);
@@ -3190,8 +3257,9 @@
 
                     el.loadingOverlay.classList.remove('active');
 
-                    console.log('✅ Auto-D Kenya TCO Calculator v9.1');
+                    console.log('✅ Auto-D Kenya TCO Calculator v9.2');
                     console.log('✅ Using view: ' + CONFIG.VIEW_NAME);
+                    console.log('📂 CRSP Categories: SEDAN, COMMERCIAL, ELECTRIC, LUXURY, PICKUP');
                     console.log('💰 CRSP table: ' + CONFIG.CRSP_TABLE + ' (joined via engine_capacity_id = variant_id)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/ownership/calculate`);
