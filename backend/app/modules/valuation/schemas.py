@@ -17,173 +17,74 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # ================================================================
 
 class ValuationRequest(BaseModel):
-    """Request payload for vehicle valuation."""
+    """Vehicle valuation request aligned to CRSP database."""
     
-    # Support both field naming conventions
-    vehicle_crsp_id: Optional[int] = Field(
-        None,
+    vehicle_crsp_id: int = Field(
+        ...,
         gt=0,
-        description="CRSP vehicle ID from vehicle_base_prices"
+        description="CRSP vehicle ID"
     )
-    
-    crsp_id: Optional[int] = Field(
-        None,
-        gt=0,
-        description="Authoritative vehicle CRSP ID"
-    )
-    
-    manufacture_year: Optional[int] = Field(
-        None,
-        ge=1900,
-        le=2100,
+
+    manufacture_year: int = Field(
+        ...,
+        ge=1980,
         description="Vehicle manufacture year"
     )
-    
+
     year: Optional[int] = Field(
         None,
-        ge=1900,
-        le=2100,
         description="Valuation year"
     )
-    
-    mileage_km: Optional[float] = Field(
-        None,
+
+    mileage_km: int = Field(
+        ...,
         ge=0,
         description="Vehicle mileage in kilometres"
     )
-    
-    mileage: Optional[int] = Field(
-        None,
-        ge=0,
-        description="Vehicle mileage in KM"
-    )
-    
-    vehicle_type: Optional[str] = Field(
+
+    vehicle_type: str = Field(
         "SEDAN",
-        description="Vehicle type (SEDAN, SUV, PICKUP, etc.)"
+        description="Vehicle type"
     )
-    
-    condition_name: Optional[str] = Field(
-        None,
-        description="Vehicle condition (EXCELLENT, GOOD, FAIR, POOR)"
+
+    condition_name: str = Field(
+        "GOOD",
+        description="Vehicle condition"
     )
-    
-    condition: Optional[str] = Field(
-        None,
-        description="Vehicle condition (excellent, very_good, good, fair, poor)"
+
+    accident_status: str = Field(
+        "NONE",
+        description="Accident status"
     )
-    
-    accident_status: Optional[str] = Field(
-        None,
-        description="Accident status (NONE, MINOR_REPAIR, ACCIDENT_REPAIRED, STRUCTURAL_DAMAGE)"
-    )
-    
-    accident_history: Optional[str] = Field(
-        None,
-        description="Accident history (none, minor, major, total_loss)"
-    )
-    
-    location_name: Optional[str] = Field(
-        None,
-        description="Vehicle location (NAIROBI, MOMBASA, etc.)"
-    )
-    
-    location: Optional[str] = Field(
-        None,
+
+    location_name: str = Field(
+        "NAIROBI",
         description="Vehicle location"
     )
-    
-    service_history: bool = Field(
-        False,
-        description="Whether service history is available"
-    )
-    
-    ownership_count: int = Field(
-        1,
-        ge=1,
-        description="Number of previous owners"
-    )
-    
+
     profit_margin_percent: float = Field(
-        5.00,
+        5.0,
         ge=0,
-        le=100,
         description="Profit margin percentage"
     )
+
+    @field_validator(
+        "vehicle_type",
+        "condition_name",
+        "accident_status",
+        "location_name"
+    )
+    @classmethod
+    def normalize_strings(cls, value: str) -> str:
+        return value.strip().upper()
     
-    @model_validator(mode="after")
-    def normalize_fields(self):
-        """Normalize fields from alternative names."""
-        # Normalize crsp_id
-        if self.crsp_id is None and self.vehicle_crsp_id is not None:
-            self.crsp_id = self.vehicle_crsp_id
-        
-        # Normalize year
-        if self.year is None and self.manufacture_year is not None:
-            self.year = self.manufacture_year
-        
-        # Normalize mileage
-        if self.mileage is None and self.mileage_km is not None:
-            self.mileage = int(self.mileage_km)
-        
-        # Normalize condition
-        if self.condition is None and self.condition_name is not None:
-            self.condition = self.condition_name.lower()
-        
-        # Normalize accident_history
-        if self.accident_history is None and self.accident_status is not None:
-            self.accident_history = self.accident_status.lower()
-        
-        # Normalize location
-        if self.location is None and self.location_name is not None:
-            self.location = self.location_name.lower()
-        
-        # Validate required fields
-        if self.crsp_id is None:
-            raise ValueError("crsp_id or vehicle_crsp_id is required")
-        
-        if self.year is None:
-            raise ValueError("year or manufacture_year is required")
-        
-        return self
-
-    @field_validator("condition")
-    @classmethod
-    def validate_condition(cls, value: str):
-        if value is None:
-            return "good"
-        value = value.lower().strip()
-        allowed = ["excellent", "very_good", "good", "fair", "poor"]
-        if value not in allowed:
-            raise ValueError(f"Condition must be one of {allowed}")
-        return value
-
-    @field_validator("accident_history")
-    @classmethod
-    def validate_accident(cls, value: str):
-        if value is None:
-            return "none"
-        value = value.lower().strip()
-        allowed = ["none", "minor", "major", "total_loss"]
-        if value not in allowed:
-            raise ValueError(f"Accident history must be one of {allowed}")
-        return value
-
-    @field_validator("location")
-    @classmethod
-    def validate_location(cls, value: str):
-        if value is None:
-            return "nairobi"
-        return value.lower().strip()
-
     @field_validator("year")
     @classmethod
-    def validate_year(cls, value: int):
-        if value is None:
-            return datetime.now(timezone.utc).year
-        current_year = datetime.now(timezone.utc).year
-        if value > current_year + 1:
-            raise ValueError("Vehicle year cannot be in the future")
+    def validate_year(cls, value: Optional[int]) -> Optional[int]:
+        if value is not None:
+            current_year = datetime.now(timezone.utc).year
+            if value > current_year + 1:
+                raise ValueError("Vehicle year cannot be in the future")
         return value
 
 
@@ -209,21 +110,29 @@ class LegacyValuationRequest(BaseModel):
     def to_valuation_request(self) -> ValuationRequest:
         """Convert to new ValuationRequest format."""
         condition_map = {
-            "excellent": "excellent",
-            "very_good": "very_good",
-            "good": "good",
-            "fair": "fair",
-            "poor": "poor"
+            "excellent": "EXCELLENT",
+            "very_good": "EXCELLENT",
+            "good": "GOOD",
+            "fair": "FAIR",
+            "poor": "POOR"
         }
+        
+        accident_map = {
+            "none": "NONE",
+            "minor": "MINOR_REPAIR",
+            "major": "ACCIDENT_REPAIRED",
+            "total_loss": "STRUCTURAL_DAMAGE"
+        }
+        
         return ValuationRequest(
-            crsp_id=self.variant_id,
+            vehicle_crsp_id=self.variant_id,
+            manufacture_year=self.year,
             year=self.year,
-            mileage=self.mileage,
-            condition=condition_map.get(self.condition.lower(), "good"),
-            accident_history=self.accident_history.lower(),
-            location=self.location.lower(),
-            service_history=self.service_history,
-            ownership_count=self.ownership_count,
+            mileage_km=self.mileage,
+            vehicle_type="SEDAN",
+            condition_name=condition_map.get(self.condition.lower(), "GOOD"),
+            accident_status=accident_map.get(self.accident_history.lower(), "NONE"),
+            location_name=self.location.upper(),
             profit_margin_percent=self.profit_margin_percent
         )
 
