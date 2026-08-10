@@ -1,18 +1,16 @@
 # app/modules/valuation/service.py
 # Auto-D Kenya - Valuation Service
 # ================================================================
-# TYPE: MODULE - Valuation business logic
-# ================================================================
 
 import logging
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
 import secrets
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
-from app.modules.valuation.engine import ValuationEngine
-from app.modules.valuation.repository import ValuationRepository
 from app.core.database import get_supabase
 from app.core.exceptions import NotFoundException, ValidationException
+from app.modules.valuation.engine import ValuationEngine
+from app.modules.valuation.repository import ValuationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -20,34 +18,71 @@ logger = logging.getLogger(__name__)
 class ValuationService:
     """
     Valuation service for business logic.
-    
-    Handles:
-    - Vehicle valuation calculation
-    - Vehicle data retrieval from vehicle_crsp_prices (CRSP)
-    - Report generation
-    - History management
-    - Statistics
+
+    Canonical vehicle identifier:
+        crsp_id
+
+    For backward compatibility this service also accepts:
+        vehicle_crsp_id
+        variant_id
+
+    The CRSP record is read from vehicle_base_prices.
     """
-    
-    # ✅ FIXED: Use the correct table name
-    CRSP_TABLE = "vehicle_crsp_prices"
-    
+
     def __init__(self):
-        """Initialize the valuation service."""
         self.engine = ValuationEngine()
         self.repository = ValuationRepository()
         self.supabase = get_supabase()
-        logger.info(f"ValuationService initialized (using CRSP table: {self.CRSP_TABLE})")
-    
+        logger.info("ValuationService initialized")
+
+    # ================================================================
+    # HELPERS
+    # ================================================================
+
+    @staticmethod
+    def _utc_now() -> datetime:
+        return datetime.now(timezone.utc)
+
+    @staticmethod
+    def _resolve_crsp_id(
+        crsp_id: Optional[int],
+        vehicle_crsp_id: Optional[int],
+        variant_id: Optional[int],
+    ) -> int:
+        """
+        Resolve the vehicle identifier.
+
+        Priority:
+            1. crsp_id
+            2. vehicle_crsp_id
+            3. variant_id
+
+        variant_id is retained only for compatibility with older routers.
+        """
+        resolved = crsp_id or vehicle_crsp_id or variant_id
+
+        if resolved is None:
+            raise ValidationException("Vehicle CRSP ID is required")
+
+        try:
+            resolved = int(resolved)
+        except (TypeError, ValueError):
+            raise ValidationException("Vehicle CRSP ID must be an integer")
+
+        if resolved <= 0:
+            raise ValidationException("Vehicle CRSP ID must be greater than zero")
+
+        return resolved
+
     # ================================================================
     # MAIN VALUATION METHOD
     # ================================================================
-    
+
     async def calculate_valuation(
         self,
-        vehicle_crsp_id: int,
-        year: int,
-        mileage: int,
+        crsp_id: Optional[int] = None,
+        year: int = 0,
+        mileage: int = 0,
         condition: str = "good",
         accident_history: str = "none",
         location: str = "nairobi",
@@ -56,182 +91,156 @@ class ValuationService:
         ownership_count: int = 1,
         service_history: bool = True,
         user_id: Optional[str] = None,
-        profit_margin_percent: float = 5.00
+        profit_margin_percent: float = 5.00,
+        # Backward-compatible aliases:
+        vehicle_crsp_id: Optional[int] = None,
+        variant_id: Optional[int] = None,
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         Calculate vehicle valuation.
-        
-        Args:
-            vehicle_crsp_id: Vehicle CRSP ID from vehicle_crsp_prices
-            year: Vehicle year of manufacture
-            mileage: Odometer reading in km
-            condition: Vehicle condition (excellent, very_good, good, fair, poor)
-            accident_history: Accident history (none, minor, major, total_loss)
-            location: Vehicle location
-            fuel_type: Optional fuel type override
-            transmission: Optional transmission override
-            ownership_count: Number of previous owners
-            service_history: Whether service records exist
-            user_id: Optional user ID for saving history
-            profit_margin_percent: Profit margin percentage for valuation
-            
-        Returns:
-            Dict[str, Any]: Complete valuation report matching ValuationReportResponse
-            
-        Raises:
-            NotFoundException: If vehicle data cannot be found
-            ValidationException: If input validation fails
+
+        Canonical caller argument:
+            crsp_id
+
+        Backward-compatible arguments:
+            vehicle_crsp_id
+            variant_id
+
+        This prevents failures when an older router still sends
+        variant_id while the API schema uses crsp_id.
         """
-        
-        logger.info(f"Starting valuation calculation for vehicle_crsp_id: {vehicle_crsp_id}")
-        
-        # ─── VALIDATION ──────────────────────────────────────────────────
-        
-        if not vehicle_crsp_id or vehicle_crsp_id <= 0:
-            raise ValidationException("Valid vehicle CRSP ID required")
-        
-        if year < 1980 or year > datetime.now().year + 1:
+
+        resolved_crsp_id = self._resolve_crsp_id(
+            crsp_id=crsp_id,
+            vehicle_crsp_id=vehicle_crsp_id,
+            variant_id=variant_id,
+        )
+
+        logger.info(
+            "Starting valuation: crsp_id=%s year=%s mileage=%s",
+            resolved_crsp_id,
+            year,
+            mileage,
+        )
+
+        # ------------------------------------------------------------
+        # VALIDATION
+        # ------------------------------------------------------------
+
+        current_year = self._utc_now().year
+
+        if year < 1980 or year > current_year + 1:
             raise ValidationException(f"Invalid year: {year}")
-        
+
         if mileage < 0:
             raise ValidationException(f"Invalid mileage: {mileage}")
-        
+
         if profit_margin_percent < 0:
             raise ValidationException("Profit margin cannot be negative")
-        
-        # Normalize inputs
-        condition = condition.lower().strip()
-        accident_history = accident_history.lower().strip()
-        location = location.upper().strip()
-        
-        # ─── CONDITION MAPPING ──────────────────────────────────────────
-        # Map Python conditions to database enum values
+
+        condition = (condition or "good").lower().strip()
+        accident_history = (accident_history or "none").lower().strip()
+        location = (location or "nairobi").upper().strip()
+
         condition_map = {
             "very_good": "EXCELLENT",
             "excellent": "EXCELLENT",
             "good": "GOOD",
             "fair": "FAIR",
-            "poor": "POOR"
+            "poor": "POOR",
         }
-        
         condition_db = condition_map.get(condition, "GOOD")
-        
-        # ─── ACCIDENT MAPPING ───────────────────────────────────────────
-        # Map Python accident values to database enum values
+
         accident_map = {
             "none": "NONE",
             "minor": "MINOR_REPAIR",
             "major": "ACCIDENT_REPAIRED",
-            "total_loss": "STRUCTURAL_DAMAGE"
+            "total_loss": "STRUCTURAL_DAMAGE",
         }
-        
         accident_history_db = accident_map.get(accident_history, "NONE")
-        
+
         logger.info(
-            f"Valuation request: vehicle_crsp_id={vehicle_crsp_id}, year={year}, "
-            f"mileage={mileage}, condition={condition_db}, "
-            f"accident={accident_history_db}"
+            "Valuation request: crsp_id=%s year=%s mileage=%s "
+            "condition=%s accident=%s location=%s",
+            resolved_crsp_id,
+            year,
+            mileage,
+            condition_db,
+            accident_history_db,
+            location,
         )
-        
-        # ─── GET VEHICLE DATA FROM CRSP ────────────────────────────────
-        
+
+        # ------------------------------------------------------------
+        # GET CRSP VEHICLE
+        # ------------------------------------------------------------
+
         try:
-            crsp_vehicle = self._get_crsp_vehicle(vehicle_crsp_id)
+            crsp_vehicle = self._get_crsp_vehicle(resolved_crsp_id)
             crsp_price = self._get_crsp_price(crsp_vehicle)
-            
         except NotFoundException:
             raise
-        except Exception as e:
-            logger.error(f"Error fetching CRSP vehicle {vehicle_crsp_id}: {str(e)}")
-            raise NotFoundException(f"Failed to fetch CRSP vehicle: {str(e)}")
-        
-        # ─── BUILD VEHICLE OBJECT FROM CRSP ───────────────────────────
-        
+        except ValidationException:
+            raise
+        except Exception as exc:
+            logger.exception(
+                "Error fetching CRSP vehicle %s",
+                resolved_crsp_id,
+            )
+            raise NotFoundException(
+                f"Failed to fetch CRSP vehicle: {exc}"
+            )
+
         vehicle = {
-            "crsp_id": vehicle_crsp_id,
-            "make": (
-                crsp_vehicle.get("make")
-                or crsp_vehicle.get("make_name")
-            ),
-            "model": (
-                crsp_vehicle.get("model")
-                or crsp_vehicle.get("model_name")
-            ),
-            "variant_name": (
-                crsp_vehicle.get("variant")
-                or crsp_vehicle.get("variant_name")
-            ),
-            "fuel_type": (
-                crsp_vehicle.get("crsp_fuel")
-                or crsp_vehicle.get("fuel_type")
-                or crsp_vehicle.get("fuel_type_name")
-            ),
-            "transmission": (
-                crsp_vehicle.get("transmission")
-                or crsp_vehicle.get("transmission_type_name")
-            ),
-            "engine_size_cc": (
-                crsp_vehicle.get("engine_capacity_cc")
-                or crsp_vehicle.get("engine_capacity")
-                or crsp_vehicle.get("engine_size_cc")
-            ),
-            "body_type": (
-                crsp_vehicle.get("body_type")
-                or crsp_vehicle.get("body_type_name")
-            ),
+            "crsp_id": resolved_crsp_id,
+            "make": crsp_vehicle.get("make")
+            or crsp_vehicle.get("make_name"),
+            "model": crsp_vehicle.get("model")
+            or crsp_vehicle.get("model_name"),
+            "variant_name": crsp_vehicle.get("variant")
+            or crsp_vehicle.get("variant_name"),
+            "fuel_type": crsp_vehicle.get("crsp_fuel")
+            or crsp_vehicle.get("fuel_type")
+            or crsp_vehicle.get("fuel_type_name"),
+            "transmission": crsp_vehicle.get("transmission")
+            or crsp_vehicle.get("transmission_type_name"),
+            "engine_size_cc": crsp_vehicle.get("engine_capacity_cc")
+            or crsp_vehicle.get("engine_capacity")
+            or crsp_vehicle.get("engine_size_cc"),
+            "body_type": crsp_vehicle.get("body_type")
+            or crsp_vehicle.get("body_type_name"),
             "crsp_price": crsp_price,
             "year": year,
         }
-        
-        # Override with provided values if available
+
         if fuel_type:
             vehicle["fuel_type"] = fuel_type
+
         if transmission:
             vehicle["transmission"] = transmission
-        
-        logger.info(f"Vehicle: {vehicle['make']} {vehicle['model']} ({vehicle['variant_name']})")
-        
-        # ─── DETERMINE VEHICLE TYPE ───────────────────────────────────
-        
-        # Use the vehicle_type from request if provided, otherwise infer from body_type
-        vehicle_type = "SEDAN"  # Default
-        
-        # If we have a body_type, try to map it
-        body_type = (vehicle.get("body_type") or "").upper()
-        
-        if "SUV" in body_type or "CROSSOVER" in body_type:
-            vehicle_type = "SUV"
-        elif "PICKUP" in body_type or "TRUCK" in body_type:
-            vehicle_type = "PICKUP"
-        elif "VAN" in body_type or "MINIVAN" in body_type:
-            vehicle_type = "VAN"
-        elif "HATCHBACK" in body_type:
-            vehicle_type = "HATCHBACK"
-        elif "SEDAN" in body_type or "SALOON" in body_type:
-            vehicle_type = "SEDAN"
-        elif "COUPE" in body_type:
-            vehicle_type = "COUPE"
-        elif "CONVERTIBLE" in body_type:
-            vehicle_type = "CONVERTIBLE"
-        
-        logger.info(f"Vehicle type: {vehicle_type}")
-        
-        # ─── CALL REPOSITORY FOR VALUATION ──────────────────────────────
-        
+
+        logger.info(
+            "Vehicle: %s %s (%s)",
+            vehicle.get("make"),
+            vehicle.get("model"),
+            vehicle.get("variant_name"),
+        )
+
+        # ------------------------------------------------------------
+        # VEHICLE TYPE
+        # ------------------------------------------------------------
+
+        vehicle_type = self._infer_vehicle_type(vehicle.get("body_type"))
+
+        logger.info("Vehicle type: %s", vehicle_type)
+
+        # ------------------------------------------------------------
+        # REPOSITORY VALUATION
+        # ------------------------------------------------------------
+
         try:
-            # Validate inputs for repository
-            if vehicle_crsp_id <= 0:
-                raise ValidationException("vehicle_crsp_id must be greater than zero")
-            
-            if year < 1900:
-                raise ValidationException("Invalid manufacture year")
-            
-            if mileage < 0:
-                raise ValidationException("Mileage cannot be negative")
-            
-            # Call the repository's calculation method
             result_data = self.repository.calculate_valuation(
-                vehicle_crsp_id=vehicle_crsp_id,
+                vehicle_crsp_id=resolved_crsp_id,
                 manufacture_year=year,
                 mileage_km=mileage,
                 vehicle_type=vehicle_type,
@@ -240,133 +249,42 @@ class ValuationService:
                 location_name=location,
                 profit_margin_percent=profit_margin_percent,
             )
-            
+
+            result_data = result_data or {}
+
+            final_value = float(result_data.get("final_value") or 0)
+            confidence_score = int(
+                result_data.get("confidence_score") or 65
+            )
+
             logger.info(
-                f"Valuation calculation completed successfully: "
-                f"final_value={result_data.get('final_value')}"
+                "Valuation calculation completed: crsp_id=%s final_value=%s",
+                resolved_crsp_id,
+                final_value,
             )
-            
-            # ─── EXTRACT VALUATION VALUE ─────────────────────────────────
-            # Use the repository's extraction method
-            final_value = self._extract_valuation_value(result_data, crsp_price)
-            fair_market_value = float(
-                result_data.get(
-                    "fair_market_value",
-                    result_data.get(
-                        "market_value",
-                        final_value
-                    )
-                ) or final_value
+
+            now = self._utc_now()
+            report_number = self._generate_report_number()
+
+            vehicle_info = self._build_vehicle_info(
+                vehicle,
+                resolved_crsp_id,
+                year,
             )
-            
-            if final_value <= 0:
-                raise ValidationException(
-                    "Valuation calculation returned zero or negative value"
-                )
-            
-            # ─── ENSURE CONFIDENCE SCORE IS VALID ───────────────────────
-            
-            confidence_score = int(result_data.get("confidence_score") or 65)
-            
-            # If final value is zero or negative, set confidence to 0
-            if final_value <= 0:
-                confidence_score = 0
-            
-            # ─── GENERATE REPORT NUMBER ──────────────────────────────────
-            
-            timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
-            random_suffix = secrets.token_hex(4).upper()
-            report_number = f"AUTO-VAL-{timestamp}-{random_suffix}"
-            
-            # ─── BUILD FINAL RESPONSE ────────────────────────────────────
-            # Must match ValuationReportResponse schema
-            
-            now = datetime.utcnow()
-            
-            # Build the vehicle info with crsp_id (required by schema)
-            vehicle_info = {
-                "crsp_id": vehicle_crsp_id,
-                "variant_id": vehicle_crsp_id,
-                "make": vehicle.get("make"),
-                "model": vehicle.get("model"),
-                "variant_name": vehicle.get("variant_name"),
-                "year": year,
-                "fuel_type": vehicle.get("fuel_type"),
-                "transmission": vehicle.get("transmission"),
-                "engine_size_cc": vehicle.get("engine_size_cc"),
-                "body_type": vehicle.get("body_type"),
-                "crsp_price": round(crsp_price, 2),
-            }
-            
-            response = {
-                # Report metadata - flattened
-                "report_number": report_number,
-                "generated_at": now,
-                "status": "completed",
-                "version": "2.0",
-                
-                # Vehicle information
-                "vehicle": vehicle_info,
-                
-                # Valuation results
-                "valuation": {
-                    "vehicle": vehicle_info,
-                    "crsp_base_value": round(crsp_price, 2),
-                    "estimated_vehicle_value": round(final_value, 2),
-                    "fair_market_value": round(fair_market_value, 2),
-                    "market_value": round(final_value, 2),
-                    "retail_value": round(final_value * 1.08, 2),
-                    "trade_value": round(final_value * 0.85, 2),
-                    "dealer_value": round(final_value * 0.95, 2),
-                    "recommended_selling_price": round(final_value * 1.10, 2),
-                    "currency": "KES",
-                    "confidence_score": confidence_score,
-                    "estimated_value_range": {
-                        "minimum": round(final_value * 0.90, 2),
-                        "maximum": round(final_value * 1.10, 2),
-                    },
-                    "sample_size": result_data.get("sample_size", 0),
-                    "adjustments": [],
-                    "comparables": [],
-                    "warnings": [],
-                    "calculated_at": now,
-                },
-                
-                # Flattened value fields (required by ValuationReportResponse)
-                "market_value": round(final_value, 2),
-                "retail_value": round(final_value * 1.08, 2),
-                "trade_value": round(final_value * 0.85, 2),
-                "dealer_value": round(final_value * 0.95, 2),
-                "confidence_score": confidence_score,
-                "calculated_at": now,
-                
-                # Adjustments and comparables
-                "adjustments": [],
-                "comparables": [],
-                
-                # Analysis
-                "recommendation": None,
-                "warnings": [],
-                
-                # Currency
-                "currency": "KES",
-                
-                # Depreciation (optional)
-                "depreciation": None,
-                
-                # Disclaimer
-                "disclaimer": (
-                    "This valuation is generated using the AUTO-D vehicle valuation "
-                    "engine and should be treated as an indicative market estimate."
-                )
-            }
-            
-            # ─── SAVE TO HISTORY ─────────────────────────────────────────
-            
+
+            response = self._build_success_response(
+                report_number=report_number,
+                now=now,
+                vehicle_info=vehicle_info,
+                final_value=final_value,
+                confidence_score=confidence_score,
+                result_data=result_data,
+            )
+
             if user_id:
                 await self._save_valuation_history(
                     user_id=user_id,
-                    vehicle_crsp_id=vehicle_crsp_id,
+                    variant_id=resolved_crsp_id,
                     report_number=report_number,
                     make=vehicle.get("make"),
                     model=vehicle.get("model"),
@@ -378,83 +296,103 @@ class ValuationService:
                     mileage=mileage,
                     location=location,
                     condition=condition_db,
-                    accident_history=accident_history_db
+                    accident_history=accident_history_db,
                 )
-            
-            logger.info(f"Valuation report {report_number} generated successfully")
+
+            logger.info(
+                "Valuation report %s generated successfully",
+                report_number,
+            )
+
             return response
-            
+
         except (NotFoundException, ValidationException):
             raise
-        except ValueError as e:
-            logger.error(f"Validation error in valuation calculation: {str(e)}")
-            raise ValidationException(str(e))
-        except Exception as e:
-            logger.error(f"Valuation calculation failed: {str(e)}")
-            # Create fallback valuation
-            base_price = self._estimate_base_price(vehicle, year)
-            fallback_result = self._create_fallback_valuation(
+
+        except ValueError as exc:
+            logger.error("Valuation validation error: %s", exc)
+            raise ValidationException(str(exc))
+
+        except Exception as exc:
+            logger.exception(
+                "Valuation engine/repository failed for CRSP %s",
+                resolved_crsp_id,
+            )
+
+            # Do not return zero. Use a deterministic fallback based on
+            # the CRSP price already retrieved from the database.
+            base_price = crsp_price or self._estimate_base_price(
                 vehicle,
                 year,
-                mileage,
-                base_price
             )
-            
-            # Build response with fallback
-            fallback_response = self._build_response_from_result(
-                fallback_result,
-                vehicle,
-                vehicle_crsp_id,
-                year
+
+            fallback_result = self._create_fallback_valuation(
+                vehicle=vehicle,
+                year=year,
+                mileage=mileage,
+                base_price=base_price,
             )
-            
-            return fallback_response
-    
+
+            return self._build_response_from_result(
+                result=fallback_result,
+                vehicle=vehicle,
+                vehicle_crsp_id=resolved_crsp_id,
+                year=year,
+            )
+
     # ================================================================
-    # CRSP VEHICLE LOOKUP
+    # VEHICLE TYPE
     # ================================================================
-    
-    def _get_crsp_vehicle(
-        self,
-        vehicle_crsp_id: int
-    ) -> Dict[str, Any]:
-        """
-        Get vehicle directly from the CRSP master database.
-        """
+
+    @staticmethod
+    def _infer_vehicle_type(body_type: Optional[str]) -> str:
+        body = (body_type or "").upper().strip()
+
+        if "SUV" in body or "CROSSOVER" in body:
+            return "SUV"
+        if "PICKUP" in body or "TRUCK" in body:
+            return "PICKUP"
+        if "VAN" in body or "MINIVAN" in body:
+            return "VAN"
+        if "HATCHBACK" in body:
+            return "HATCHBACK"
+        if "COUPE" in body:
+            return "COUPE"
+        if "CONVERTIBLE" in body:
+            return "CONVERTIBLE"
+        if "WAGON" in body or "ESTATE" in body:
+            return "WAGON"
+        if "MOTORCYCLE" in body or "BIKE" in body:
+            return "MOTORCYCLE"
+
+        return "SEDAN"
+
+    # ================================================================
+    # CRSP LOOKUP
+    # ================================================================
+
+    def _get_crsp_vehicle(self, crsp_id: int) -> Dict[str, Any]:
+        """Get a vehicle from vehicle_base_prices using crsp_id."""
         try:
-            # ✅ FIXED: Use correct table name and try both column names
-            # Try with 'id' column first
             response = (
                 self.supabase
-                .table(self.CRSP_TABLE)
+                .table("vehicle_base_prices")
                 .select("*")
-                .eq("id", vehicle_crsp_id)
+                .eq("crsp_id", crsp_id)
                 .limit(1)
                 .execute()
             )
 
-            # If no result, try with 'crsp_id' column
-            if not response.data:
-                logger.info(f"No result with 'id' column, trying 'crsp_id'")
-                response = (
-                    self.supabase
-                    .table(self.CRSP_TABLE)
-                    .select("*")
-                    .eq("crsp_id", vehicle_crsp_id)
-                    .limit(1)
-                    .execute()
-                )
-
             if not response.data:
                 raise NotFoundException(
-                    f"CRSP vehicle {vehicle_crsp_id} not found in {self.CRSP_TABLE}"
+                    f"CRSP vehicle {crsp_id} not found"
                 )
 
             vehicle = response.data[0]
 
             logger.info(
                 "CRSP vehicle found: crsp_id=%s make=%s model=%s",
-                vehicle_crsp_id,
+                crsp_id,
                 vehicle.get("make"),
                 vehicle.get("model"),
             )
@@ -467,24 +405,14 @@ class ValuationService:
         except Exception as exc:
             logger.exception(
                 "Failed to fetch CRSP vehicle %s",
-                vehicle_crsp_id,
+                crsp_id,
+            )
+            raise NotFoundException(
+                f"Failed to fetch CRSP vehicle {crsp_id}: {exc}"
             )
 
-            raise NotFoundException(
-                f"Failed to fetch CRSP vehicle {vehicle_crsp_id}: {exc}"
-            )
-    
-    # ================================================================
-    # CRSP PRICE EXTRACTION
-    # ================================================================
-    
-    def _get_crsp_price(
-        self,
-        crsp_vehicle: Dict[str, Any]
-    ) -> float:
-        """
-        Extract the CRSP base price from the CRSP record.
-        """
+    def _get_crsp_price(self, crsp_vehicle: Dict[str, Any]) -> float:
+        """Extract a valid CRSP base price."""
         price_fields = (
             "crsp_price",
             "crsp_kes",
@@ -492,7 +420,6 @@ class ValuationService:
             "price",
             "market_value",
             "retail_price",
-            "estimated_value",
         )
 
         for field in price_fields:
@@ -503,107 +430,43 @@ class ValuationService:
 
             try:
                 price = float(value)
-
-                if price > 0:
-                    logger.info(f"CRSP price found in field '{field}': {price}")
-                    return price
-
             except (TypeError, ValueError):
                 continue
+
+            if price > 0:
+                return price
+
+        crsp_id = crsp_vehicle.get("crsp_id")
 
         logger.error(
-            "CRSP vehicle %s has no valid price: %s",
-            crsp_vehicle.get("crsp_id") or crsp_vehicle.get("id"),
-            crsp_vehicle,
+            "CRSP vehicle %s has no valid price",
+            crsp_id,
         )
 
         raise ValidationException(
-            f"CRSP vehicle {crsp_vehicle.get('crsp_id') or crsp_vehicle.get('id')} "
-            "does not have a valid CRSP price"
+            f"CRSP vehicle {crsp_id} does not have a valid CRSP price"
         )
-    
+
     # ================================================================
-    # VALUATION VALUE EXTRACTION
+    # RESPONSE HELPERS
     # ================================================================
-    
+
     @staticmethod
-    def _extract_valuation_value(
-        result_data: Dict[str, Any],
-        crsp_price: Optional[float] = None,
-    ) -> float:
-        """
-        Extract a valid valuation from repository result.
-        """
-        fields = (
-            "final_value",
-            "estimated_vehicle_value",
-            "estimated_value",
-            "market_value",
-            "fair_market_value",
-            "current_value",
-            "calculated_value",
-        )
+    def _generate_report_number() -> str:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        suffix = secrets.token_hex(4).upper()
+        return f"AUTO-VAL-{timestamp}-{suffix}"
 
-        for field in fields:
-            value = result_data.get(field)
-
-            if value is None:
-                continue
-
-            try:
-                value = float(value)
-
-                if value > 0:
-                    logger.info(f"Valuation value extracted from field '{field}': {value}")
-                    return value
-
-            except (TypeError, ValueError):
-                continue
-
-        # CRSP price is the final safety fallback
-        if crsp_price is not None:
-            try:
-                price = float(crsp_price)
-
-                if price > 0:
-                    logger.warning(
-                        "Repository returned no usable valuation. "
-                        "Using CRSP price as fallback: %.2f",
-                        price,
-                    )
-                    return price
-
-            except (TypeError, ValueError):
-                pass
-
-        raise ValidationException(
-            "No valid valuation value returned from CRSP valuation engine"
-        )
-    
-    # ================================================================
-    # RESPONSE BUILDER
-    # ================================================================
-    
-    def _build_response_from_result(
-        self,
-        result: Dict[str, Any],
+    @staticmethod
+    def _build_vehicle_info(
         vehicle: Dict[str, Any],
-        vehicle_crsp_id: int,
-        year: int
+        crsp_id: int,
+        year: int,
     ) -> Dict[str, Any]:
-        """Build a valuation response from a result dictionary."""
-        
-        timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
-        random_suffix = secrets.token_hex(4).upper()
-        report_number = f"AUTO-VAL-{timestamp}-{random_suffix}"
-        
-        market_value = result.get("market_value", 0)
-        now = datetime.utcnow()
-        
-        # Build vehicle info with crsp_id
-        vehicle_info = {
-            "crsp_id": vehicle_crsp_id,
-            "variant_id": vehicle_crsp_id,
+        return {
+            "crsp_id": crsp_id,
+            # Kept for compatibility with older frontend responses.
+            "variant_id": crsp_id,
             "make": vehicle.get("make"),
             "model": vehicle.get("model"),
             "variant_name": vehicle.get("variant_name"),
@@ -612,134 +475,167 @@ class ValuationService:
             "transmission": vehicle.get("transmission"),
             "engine_size_cc": vehicle.get("engine_size_cc"),
             "body_type": vehicle.get("body_type"),
-            "crsp_price": vehicle.get("crsp_price", 0),
         }
-        
+
+    def _build_success_response(
+        self,
+        report_number: str,
+        now: datetime,
+        vehicle_info: Dict[str, Any],
+        final_value: float,
+        confidence_score: int,
+        result_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        retail_value = round(final_value * 1.08, 2)
+        trade_value = round(final_value * 0.85, 2)
+        dealer_value = round(final_value * 0.95, 2)
+        recommended_price = round(final_value * 1.10, 2)
+
         return {
-            # Report metadata - flattened
             "report_number": report_number,
             "generated_at": now,
             "status": "completed",
             "version": "2.0",
-            
-            # Vehicle information
             "vehicle": vehicle_info,
-            
-            # Valuation results
             "valuation": {
                 "vehicle": vehicle_info,
-                "market_value": round(market_value, 2),
-                "retail_value": round(market_value * 1.08, 2),
-                "trade_value": round(market_value * 0.85, 2),
-                "dealer_value": round(market_value * 0.95, 2),
-                "recommended_selling_price": round(market_value * 1.10, 2),
+                "market_value": round(final_value, 2),
+                "retail_value": retail_value,
+                "trade_value": trade_value,
+                "dealer_value": dealer_value,
+                "recommended_selling_price": recommended_price,
                 "currency": "KES",
-                "confidence_score": int(result.get("confidence_score", 40)),
+                "confidence_score": confidence_score,
                 "estimated_value_range": {
-                    "minimum": round(market_value * 0.90, 2),
-                    "maximum": round(market_value * 1.10, 2),
+                    "minimum": round(final_value * 0.90, 2),
+                    "maximum": round(final_value * 1.10, 2),
                 },
-                "sample_size": result.get("sample_size", 0),
-                "adjustments": [],
-                "comparables": result.get("comparables", []),
-                "warnings": [],
+                "sample_size": result_data.get("sample_size", 0),
+                "adjustments": result_data.get("adjustments", []),
+                "comparables": result_data.get("comparables", []),
+                "warnings": result_data.get("warnings", []),
                 "calculated_at": now,
             },
-            
-            # Flattened value fields
-            "market_value": round(market_value, 2),
-            "retail_value": round(market_value * 1.08, 2),
-            "trade_value": round(market_value * 0.85, 2),
-            "dealer_value": round(market_value * 0.95, 2),
-            "confidence_score": int(result.get("confidence_score", 40)),
+            "market_value": round(final_value, 2),
+            "retail_value": retail_value,
+            "trade_value": trade_value,
+            "dealer_value": dealer_value,
+            "confidence_score": confidence_score,
             "calculated_at": now,
-            
-            # Adjustments and comparables
-            "adjustments": [],
-            "comparables": result.get("comparables", []),
-            
-            # Analysis
-            "recommendation": None,
-            "warnings": [],
-            
-            # Currency
+            "adjustments": result_data.get("adjustments", []),
+            "comparables": result_data.get("comparables", []),
+            "recommendation": result_data.get("recommendation"),
+            "warnings": result_data.get("warnings", []),
             "currency": "KES",
-            
-            # Depreciation (optional)
-            "depreciation": None,
-            
-            # Disclaimer
+            "depreciation": result_data.get("depreciation"),
             "disclaimer": (
-                "This valuation is generated using the AUTO-D vehicle valuation "
-                "engine and should be treated as an indicative market estimate."
-            )
+                "This valuation is generated using the AUTO-D vehicle "
+                "valuation engine and should be treated as an indicative "
+                "market estimate."
+            ),
         }
-    
+
+    def _build_response_from_result(
+        self,
+        result: Dict[str, Any],
+        vehicle: Dict[str, Any],
+        vehicle_crsp_id: int,
+        year: int,
+    ) -> Dict[str, Any]:
+        """Build a response from a normal or fallback result."""
+        now = self._utc_now()
+        report_number = self._generate_report_number()
+
+        market_value = float(result.get("market_value") or 0)
+        confidence_score = int(result.get("confidence_score") or 40)
+
+        vehicle_info = self._build_vehicle_info(
+            vehicle=vehicle,
+            crsp_id=vehicle_crsp_id,
+            year=year,
+        )
+
+        return self._build_success_response(
+            report_number=report_number,
+            now=now,
+            vehicle_info=vehicle_info,
+            final_value=market_value,
+            confidence_score=confidence_score,
+            result_data=result,
+        )
+
     # ================================================================
-    # BASE PRICE ESTIMATION (Fallback)
+    # FALLBACK
     # ================================================================
-    
-    def _estimate_base_price(self, vehicle: Dict[str, Any], year: int) -> float:
-        """
-        Estimate base price when no price is found in database.
-        Uses vehicle make/model to estimate.
-        """
+
+    @staticmethod
+    def _estimate_base_price(
+        vehicle: Dict[str, Any],
+        year: int,
+    ) -> float:
         make = (vehicle.get("make") or "").lower()
         model = (vehicle.get("model") or "").lower()
-        
-        # Default prices by segment (Kenya market)
+
         if "toyota" in make:
             if "land cruiser" in model or "prado" in model:
-                return 8500000.0
-            elif "hilux" in model or "fortuner" in model:
-                return 5500000.0
-            elif "corolla" in model or "premio" in model or "axio" in model:
-                return 3500000.0
-            elif "rav4" in model or "chr" in model:
-                return 4500000.0
-            elif "harrier" in model or "venza" in model:
-                return 5000000.0
-            else:
-                return 3000000.0
-        elif "mercedes" in make or "bmw" in make or "audi" in make:
-            return 6000000.0
-        elif "nissan" in make or "honda" in make or "mazda" in make:
-            return 3500000.0
-        elif "subaru" in make:
-            return 4000000.0
-        elif "volkswagen" in make or "vw" in make:
-            return 3500000.0
-        elif "ford" in make:
-            return 4000000.0
-        elif "isuzu" in make:
-            return 5000000.0
-        else:
-            return 2500000.0
-    
-    # ================================================================
-    # FALLBACK VALUATION
-    # ================================================================
-    
+                return 8_500_000.0
+            if "hilux" in model or "fortuner" in model:
+                return 5_500_000.0
+            if "corolla" in model or "premio" in model or "axio" in model:
+                return 3_500_000.0
+            if "rav4" in model or "chr" in model:
+                return 4_500_000.0
+            if "harrier" in model or "venza" in model:
+                return 5_000_000.0
+            return 3_000_000.0
+
+        if "mercedes" in make or "bmw" in make or "audi" in make:
+            return 6_000_000.0
+        if "nissan" in make or "honda" in make or "mazda" in make:
+            return 3_500_000.0
+        if "subaru" in make:
+            return 4_000_000.0
+        if "volkswagen" in make or "vw" in make:
+            return 3_500_000.0
+        if "ford" in make:
+            return 4_000_000.0
+        if "isuzu" in make:
+            return 5_000_000.0
+
+        return 2_500_000.0
+
+    @staticmethod
     def _create_fallback_valuation(
-        self,
         vehicle: Dict[str, Any],
         year: int,
         mileage: int,
-        base_price: float
+        base_price: float,
     ) -> Dict[str, Any]:
-        """Create a fallback valuation when the engine fails."""
-        logger.info("Creating fallback valuation")
-        
-        current_year = datetime.now().year
+        logger.warning(
+            "Creating fallback valuation for %s %s",
+            vehicle.get("make"),
+            vehicle.get("model"),
+        )
+
+        current_year = datetime.now(timezone.utc).year
         age = max(0, current_year - year)
+
         depreciation_rate = min(0.85, age * 0.05)
-        current_value = max(base_price * (1 - depreciation_rate), base_price * 0.15)
-        
-        # Mileage adjustment
-        if mileage > 50000:
-            mileage_penalty = min((mileage - 50000) / 50000 * 0.05, 0.20)
-            current_value = current_value * (1 - mileage_penalty)
-        
+        current_value = max(
+            base_price * (1 - depreciation_rate),
+            base_price * 0.15,
+        )
+
+        mileage_factor = 1.0
+
+        if mileage > 50_000:
+            mileage_penalty = min(
+                ((mileage - 50_000) / 50_000) * 0.05,
+                0.20,
+            )
+            mileage_factor = 1 - mileage_penalty
+            current_value *= mileage_factor
+
         return {
             "market_value": round(current_value, 2),
             "retail_value": round(current_value * 1.08, 2),
@@ -747,24 +643,25 @@ class ValuationService:
             "dealer_value": round(current_value * 0.95, 2),
             "confidence_score": 40,
             "adjustments": {
-                "age": round(1 - depreciation_rate, 2),
-                "mileage": 0.90 if mileage > 50000 else 1.00,
-                "condition": 1.00,
-                "location": 1.00,
-                "accident": 1.00
+                "age_factor": round(1 - depreciation_rate, 4),
+                "mileage_factor": round(mileage_factor, 4),
             },
-            "sample_size": 5,
-            "comparables": []
+            "sample_size": 0,
+            "comparables": [],
+            "warnings": [
+                "Fallback valuation used because the primary valuation "
+                "calculation failed."
+            ],
         }
-    
+
     # ================================================================
-    # HISTORY MANAGEMENT
+    # HISTORY
     # ================================================================
-    
+
     async def _save_valuation_history(
         self,
         user_id: str,
-        vehicle_crsp_id: int,
+        variant_id: int,
         report_number: str,
         make: str,
         model: str,
@@ -776,59 +673,73 @@ class ValuationService:
         mileage: int,
         location: str,
         condition: str,
-        accident_history: str
+        accident_history: str,
     ) -> None:
-        """Save valuation to history."""
+        """Save valuation history without breaking the valuation response."""
+        history_data = {
+            "user_id": user_id,
+            "variant_id": variant_id,
+            "report_number": report_number,
+            "make": make,
+            "model": model,
+            "market_value": market_value,
+            "retail_value": retail_value,
+            "trade_value": trade_value,
+            "confidence_score": confidence_score,
+            "year": year,
+            "mileage": mileage,
+            "location": location,
+            "condition": condition,
+            "accident_history": accident_history,
+            "created_at": self._utc_now().isoformat(),
+        }
+
         try:
-            history_data = {
-                "user_id": user_id,
-                "vehicle_crsp_id": vehicle_crsp_id,
-                "report_number": report_number,
-                "make": make,
-                "model": model,
-                "market_value": market_value,
-                "retail_value": retail_value,
-                "trade_value": trade_value,
-                "confidence_score": confidence_score,
-                "year": year,
-                "mileage": mileage,
-                "location": location,
-                "condition": condition,
-                "accident_history": accident_history,
-                "created_at": datetime.utcnow().isoformat()
+            self.supabase.table(
+                "valuation_history"
+            ).insert(history_data).execute()
+
+            logger.info(
+                "Valuation history saved for user %s",
+                user_id,
+            )
+
+        except Exception as exc:
+            logger.warning(
+                "Full valuation history insert failed: %s",
+                exc,
+            )
+
+            # Retry with the most commonly available core fields.
+            safe_history = {
+                key: value
+                for key, value in history_data.items()
+                if key not in {
+                    "accident_history",
+                    "location",
+                    "report_number",
+                }
             }
-            
-            # Try to save with all fields
+
             try:
-                self.supabase.table("valuation_history").insert(history_data).execute()
-                logger.info(f"Valuation history saved for user {user_id}")
-            except Exception as e:
-                # Try without optional columns if they don't exist
-                if "accident_history" in str(e) or "location" in str(e) or "report_number" in str(e):
-                    safe_history = {k: v for k, v in history_data.items() 
-                                  if k not in ["accident_history", "location", "report_number"]}
-                    self.supabase.table("valuation_history").insert(safe_history).execute()
-                    logger.info(f"Valuation history saved (without optional fields) for user {user_id}")
-                else:
-                    raise
-                    
-        except Exception as e:
-            logger.warning(f"Failed to save valuation history: {str(e)}")
-    
-    # ================================================================
-    # HISTORY RETRIEVAL
-    # ================================================================
-    
-    async def get_valuation_history(self, user_id: str) -> List[Dict[str, Any]]:
-        """
-        Get valuation history for a user.
-        
-        Args:
-            user_id: User ID
-            
-        Returns:
-            List[Dict[str, Any]]: List of valuation reports
-        """
+                self.supabase.table(
+                    "valuation_history"
+                ).insert(safe_history).execute()
+
+                logger.info(
+                    "Valuation history saved using core fields"
+                )
+
+            except Exception as retry_exc:
+                logger.warning(
+                    "Valuation history could not be saved: %s",
+                    retry_exc,
+                )
+
+    async def get_valuation_history(
+        self,
+        user_id: str,
+    ) -> List[Dict[str, Any]]:
         try:
             response = (
                 self.supabase
@@ -838,26 +749,20 @@ class ValuationService:
                 .order("created_at", desc=True)
                 .execute()
             )
-            return response.data
-        except Exception as e:
-            logger.error(f"Error getting valuation history: {str(e)}")
+            return response.data or []
+
+        except Exception as exc:
+            logger.error(
+                "Error getting valuation history: %s",
+                exc,
+            )
             return []
-    
+
     async def get_valuation_by_id(
         self,
         report_id: int,
-        user_id: str
+        user_id: str,
     ) -> Optional[Dict[str, Any]]:
-        """
-        Get a specific valuation report by ID.
-        
-        Args:
-            report_id: Report ID
-            user_id: User ID for authorization
-            
-        Returns:
-            Optional[Dict[str, Any]]: Valuation report or None
-        """
         try:
             response = (
                 self.supabase
@@ -865,28 +770,24 @@ class ValuationService:
                 .select("*")
                 .eq("id", report_id)
                 .eq("user_id", user_id)
+                .limit(1)
                 .execute()
             )
             return response.data[0] if response.data else None
-        except Exception as e:
-            logger.error(f"Error getting valuation {report_id}: {str(e)}")
+
+        except Exception as exc:
+            logger.error(
+                "Error getting valuation %s: %s",
+                report_id,
+                exc,
+            )
             return None
-    
+
     async def get_valuation_by_report_number(
         self,
         report_number: str,
-        user_id: str
+        user_id: str,
     ) -> Optional[Dict[str, Any]]:
-        """
-        Get a valuation report by report number.
-        
-        Args:
-            report_number: Report number
-            user_id: User ID for authorization
-            
-        Returns:
-            Optional[Dict[str, Any]]: Valuation report or None
-        """
         try:
             response = (
                 self.supabase
@@ -894,120 +795,139 @@ class ValuationService:
                 .select("*")
                 .eq("report_number", report_number)
                 .eq("user_id", user_id)
+                .limit(1)
                 .execute()
             )
             return response.data[0] if response.data else None
-        except Exception as e:
-            logger.error(f"Error getting valuation by report number: {str(e)}")
+
+        except Exception as exc:
+            logger.error(
+                "Error getting valuation by report number %s: %s",
+                report_number,
+                exc,
+            )
             return None
-    
+
     # ================================================================
     # STATISTICS
     # ================================================================
-    
-    async def get_valuation_stats(self, user_id: str) -> Dict[str, Any]:
-        """
-        Get valuation statistics for a user.
-        
-        Args:
-            user_id: User ID
-            
-        Returns:
-            Dict[str, Any]: Statistics
-        """
+
+    async def get_valuation_stats(
+        self,
+        user_id: str,
+    ) -> Dict[str, Any]:
+        empty_stats = {
+            "total_valuations": 0,
+            "average_value": 0.0,
+            "highest_value": 0.0,
+            "lowest_value": 0.0,
+            "last_valuation_date": None,
+            "total_value": 0.0,
+            "valuations_by_make": {},
+            "valuations_by_month": {},
+            "average_confidence": 0.0,
+        }
+
         try:
             history = await self.get_valuation_history(user_id)
-            
+
             if not history:
-                return {
-                    "total_valuations": 0,
-                    "average_value": 0.0,
-                    "highest_value": 0.0,
-                    "lowest_value": 0.0,
-                    "last_valuation_date": None,
-                    "total_value": 0.0,
-                    "valuations_by_make": {},
-                    "valuations_by_month": {},
-                    "average_confidence": 0.0
-                }
-            
-            values = []
-            makes = {}
-            months = {}
-            confidences = []
-            
+                return empty_stats
+
+            values: List[float] = []
+            makes: Dict[str, int] = {}
+            months: Dict[str, int] = {}
+            confidences: List[float] = []
+
             for item in history:
-                value = item.get("market_value", 0)
+                try:
+                    value = float(item.get("market_value") or 0)
+                except (TypeError, ValueError):
+                    value = 0
+
                 if value > 0:
                     values.append(value)
-                
-                confidence = item.get("confidence_score", 0)
+
+                try:
+                    confidence = float(
+                        item.get("confidence_score") or 0
+                    )
+                except (TypeError, ValueError):
+                    confidence = 0
+
                 if confidence > 0:
                     confidences.append(confidence)
-                
-                # Group by make (if available)
-                make = item.get("make", "Unknown")
+
+                make = item.get("make") or "Unknown"
                 makes[make] = makes.get(make, 0) + 1
-                
-                # Group by month
+
                 created_at = item.get("created_at")
+
                 if created_at:
                     try:
-                        date = datetime.fromisoformat(created_at)
-                        month_key = date.strftime("%Y-%m")
+                        parsed_date = datetime.fromisoformat(
+                            created_at.replace("Z", "+00:00")
+                        )
+                        month_key = parsed_date.strftime("%Y-%m")
                         months[month_key] = months.get(month_key, 0) + 1
-                    except:
+                    except (TypeError, ValueError):
                         pass
-            
+
             return {
                 "total_valuations": len(history),
-                "average_value": sum(values) / len(values) if values else 0.0,
+                "average_value": (
+                    sum(values) / len(values)
+                    if values else 0.0
+                ),
                 "highest_value": max(values) if values else 0.0,
                 "lowest_value": min(values) if values else 0.0,
-                "last_valuation_date": history[0].get("created_at") if history else None,
+                "last_valuation_date": (
+                    history[0].get("created_at")
+                    if history else None
+                ),
                 "total_value": sum(values),
                 "valuations_by_make": makes,
                 "valuations_by_month": months,
-                "average_confidence": sum(confidences) / len(confidences) if confidences else 0.0
+                "average_confidence": (
+                    sum(confidences) / len(confidences)
+                    if confidences else 0.0
+                ),
             }
-            
-        except Exception as e:
-            logger.error(f"Error getting valuation stats: {str(e)}")
-            return {
-                "total_valuations": 0,
-                "average_value": 0.0,
-                "highest_value": 0.0,
-                "lowest_value": 0.0,
-                "last_valuation_date": None,
-                "total_value": 0.0,
-                "valuations_by_make": {},
-                "valuations_by_month": {},
-                "average_confidence": 0.0
-            }
-    
+
+        except Exception as exc:
+            logger.exception(
+                "Error getting valuation statistics: %s",
+                exc,
+            )
+            return empty_stats
+
     # ================================================================
     # HEALTH CHECK
     # ================================================================
-    
+
     async def health_check(self) -> Dict[str, Any]:
-        """
-        Check the health of the valuation service.
-        
-        Returns:
-            Dict[str, Any]: Health status
-        """
         try:
-            # ✅ FIXED: Use correct table name
-            self.supabase.table(self.CRSP_TABLE).select("id").limit(1).execute()
+            self.supabase.table(
+                "vehicle_base_prices"
+            ).select("crsp_id").limit(1).execute()
+
             db_status = "healthy"
-        except Exception as e:
-            logger.error(f"Database health check failed: {str(e)}")
+
+        except Exception as exc:
+            logger.error(
+                "Database health check failed: %s",
+                exc,
+            )
             db_status = "unhealthy"
-        
+
         return {
-            "status": "healthy" if db_status == "healthy" else "degraded",
+            "status": (
+                "healthy"
+                if db_status == "healthy"
+                else "degraded"
+            ),
             "service": "valuation",
-            "version": "2.0",
-            "timestamp": datetime.utcnow().isoformat(),
-            "database": db_status
+            "version": "2.1",
+            "timestamp": self._utc_now().isoformat(),
+            "database": db_status,
         }
