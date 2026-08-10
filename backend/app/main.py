@@ -28,9 +28,6 @@ from app.modules.admin.router import router as admin_router
 from app.modules.running_cost.router import router as running_cost_router
 from app.modules.ownership.router import router as ownership_router
 
-# ✅ NEW: Vehicle Master Module
-from app.modules.vehicle_master.router import router as vehicle_master_router
-
 logger = logging.getLogger(__name__)
 
 # Mileage router — imported defensively since it's newly added and
@@ -223,13 +220,6 @@ app.include_router(
     tags=["Ownership"]
 )
 
-# ✅ NEW: Vehicle Master Routes
-app.include_router(
-    vehicle_master_router,
-    prefix=settings.API_V1_PREFIX,
-    tags=["Vehicle Master Admin"]
-)
-
 # Mileage Routes (guarded — see import block above)
 if MILEAGE_ROUTER_LOADED and mileage_router is not None:
     app.include_router(
@@ -308,7 +298,6 @@ async def health_check():
         "dependencies": {},
         "modules": {
             "mileage": MILEAGE_ROUTER_LOADED,
-            "vehicle_master": True,  # ✅ NEW
         },
         "mileage_router_loaded": MILEAGE_ROUTER_LOADED,
     }
@@ -333,9 +322,6 @@ async def readiness_check():
         "status": "ready",
         "timestamp": datetime.now(UTC).isoformat(),
         "environment": settings.ENVIRONMENT,
-        "modules": {
-            "vehicle_master": True,
-        }
     }
 
     try:
@@ -390,7 +376,6 @@ async def root():
         "cors_origins": settings.get_cors_origins(),
         "modules": {
             "mileage": MILEAGE_ROUTER_LOADED,
-            "vehicle_master": True,
         },
         "mileage_router_loaded": MILEAGE_ROUTER_LOADED,
     }
@@ -407,7 +392,6 @@ if __name__ == "__main__":
     logger.info(f"🔧 Environment: {settings.ENVIRONMENT}")
     logger.info(f"🔌 Port: {settings.PORT}")
     logger.info(f"🛣️  Mileage router loaded: {MILEAGE_ROUTER_LOADED}")
-    logger.info(f"🚗 Vehicle Master module: ✅ Loaded")
     logger.info("=" * 60)
 
     uvicorn.run(
