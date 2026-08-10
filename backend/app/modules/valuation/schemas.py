@@ -53,7 +53,7 @@ class CRSPSearchRequest(BaseModel):
 
 class ValuationResponse(BaseModel):
     """Response model for vehicle valuation."""
-
+    
     success: bool
     status: str
     crsp_found: bool
@@ -63,7 +63,7 @@ class ValuationResponse(BaseModel):
     estimated_value_min: Optional[float]
     estimated_value_max: Optional[float]
     confidence_score: int
-    adjustments: Optional[Dict[str, Any]]
+    adjustments: Optional[Dict[str, Any]] = Field(default_factory=dict)  # Fixed: Made optional
     vehicle: Dict[str, Any]
     message: str
 
@@ -86,7 +86,7 @@ class ValuationHistoryItem(BaseModel):
     fuel_type: Optional[str]
     transmission: Optional[str]
     body_type: Optional[str]
-    adjustments: Optional[Dict[str, Any]]
+    adjustments: Optional[Dict[str, Any]] = Field(default_factory=dict)
     created_at: datetime
 
 
@@ -108,9 +108,9 @@ class ValuationStatsResponse(BaseModel):
     lowest_value: float
     total_value: float
     average_confidence: float
-    last_valuation_date: Optional[datetime]
-    valuations_by_make: Dict[str, int]
-    valuations_by_month: Dict[str, int]
+    last_valuation_date: Optional[datetime] = None
+    valuations_by_make: Dict[str, int] = Field(default_factory=dict)
+    valuations_by_month: Dict[str, int] = Field(default_factory=dict)
 
 
 class HealthCheckResponse(BaseModel):
