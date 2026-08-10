@@ -11,6 +11,7 @@
     <!-- Pinned to an exact version rather than @2 so a breaking upstream release can't ship to production unnoticed. -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script>
     <style>
+        /* ... (same styles as before - keeping all CSS unchanged) ... */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -522,6 +523,43 @@
         .fuel-type-btn .dot.hybrid { background: var(--cyan); }
         .fuel-type-btn .dot.lpg { background: var(--orange); }
         .fuel-type-btn .dot.electric { background: var(--purple); }
+
+        /* ─── Vehicle Type Selector ────────────────────────── */
+        .vehicle-type-group {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 4px;
+        }
+        .vehicle-type-btn {
+            flex: 1;
+            min-width: 80px;
+            padding: 6px 10px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            background: transparent;
+            color: var(--text-secondary);
+            font-family: var(--font-body);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            text-align: center;
+        }
+        .vehicle-type-btn:hover {
+            border-color: var(--text-muted);
+        }
+        .vehicle-type-btn.active {
+            border-color: var(--amber);
+            background: rgba(234, 179, 8, 0.08);
+            color: var(--amber);
+        }
+        .vehicle-type-btn .sub {
+            font-size: 8px;
+            color: var(--text-muted);
+            display: block;
+            font-weight: 400;
+        }
 
         /* ─── Calculate Button ──────────────────────────────── */
         .calc-btn {
@@ -1068,6 +1106,9 @@
             .fuel-type-group {
                 flex-direction: column;
             }
+            .vehicle-type-group {
+                flex-direction: column;
+            }
         }
 
         @media print {
@@ -1132,7 +1173,7 @@
                 </a>
             </div>
             <div class="header-right">
-                <div class="version">Version <span>v9.0</span> <span class="auto-d-badge" style="display:inline-block;background:rgba(234,179,8,0.15);color:#eab308;font-family:var(--font-mono);font-size:8px;padding:2px 8px;border-radius:10px;border:1px solid rgba(234,179,8,0.2);margin-left:6px;">Auto-D</span></div>
+                <div class="version">Version <span>v9.1</span> <span class="auto-d-badge" style="display:inline-block;background:rgba(234,179,8,0.15);color:#eab308;font-family:var(--font-mono);font-size:8px;padding:2px 8px;border-radius:10px;border:1px solid rgba(234,179,8,0.2);margin-left:6px;">Auto-D</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus" aria-live="polite">🔓 Not Authenticated</span>
@@ -1503,9 +1544,8 @@
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                VIEW_NAME: 'vehicle_master_specs',
-                // ALIGNED: same CRSP table + FK join pattern used by the valuation
-                // and mileage/running-cost calculators (engine_capacity_id -> variant_id).
+                // ✅ CHANGED: Using vehicle_crsp_lookup instead of vehicle_master_specs
+                VIEW_NAME: 'vehicle_crsp_lookup',
                 CRSP_TABLE: 'vehicle_crsp_prices',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 DASHBOARD_URL: '/dashboard.html',
@@ -1522,7 +1562,7 @@
             let accessToken = null;
             let currentVariantData = null;
             let currentBasePrice = null;
-            let currentCrspData = null; // ALIGNED: holds the matched CRSP row (make/model/engine_capacity/fuel/transmission/crsp_kes)
+            let currentCrspData = null;
             let purchasePriceEditedByUser = false;
             let vehicleType = 'ice';
             let vehicleCondition = 'new';
@@ -1649,7 +1689,7 @@
                 financeFields: document.getElementById('financeFields'),
                 evAssumptionsNote: document.getElementById('evAssumptionsNote'),
                 inflationAssumptionNote: document.getElementById('inflationAssumptionNote'),
-                // ALIGNED: CRSP info panel refs
+                // CRSP info panel refs
                 crspInfo: document.getElementById('crspInfo'),
                 crspMatchedLine: document.getElementById('crspMatchedLine'),
                 crspBasePrice: document.getElementById('crspBasePrice'),
@@ -1965,8 +2005,8 @@
                 el.calculateBtn.disabled = true;
             }
 
-            // ─── API: Query View ──────────────────────────────────
-            async function queryView(select, filter, order, signal) {
+            // ─── Data Query Functions (UPDATED for vehicle_crsp_lookup) ──
+            async function queryCRSPView(select, filter, order, signal) {
                 if (!isAuthenticated) {
                     setStatus('warning', 'Please sign in to load vehicle data');
                     return [];
@@ -1983,10 +2023,255 @@
                 return data;
             }
 
+            // ─── Load Data (UPDATED for vehicle_crsp_lookup) ──────
+            async function loadCategories() {
+                try {
+                    setStatus('info', 'Loading categories...');
+                    // Try to get categories from vehicle_makes table
+                    const { data, error } = await supabaseClient
+                        .from('vehicle_makes')
+                        .select('category_id, category_name')
+                        .order('category_name');
+
+                    if (!error && data && data.length > 0) {
+                        const unique = {};
+                        data.forEach(item => {
+                            if (item.category_id && !unique[item.category_id]) {
+                                unique[item.category_id] = {
+                                    id: item.category_id,
+                                    name: item.category_name || 'Uncategorized'
+                                };
+                            }
+                        });
+                        const result = Object.values(unique);
+                        if (result.length > 0) return result;
+                    }
+
+                    // Fallback: Get distinct makes as categories
+                    const { data: makesData, error: makesError } = await supabaseClient
+                        .from(CONFIG.VIEW_NAME)
+                        .select('make')
+                        .order('make');
+
+                    if (!makesError && makesData && makesData.length > 0) {
+                        const unique = {};
+                        makesData.forEach(item => {
+                            if (item.make && !unique[item.make]) {
+                                unique[item.make] = { id: item.make, name: item.make };
+                            }
+                        });
+                        return Object.values(unique);
+                    }
+
+                    return [];
+                } catch (error) {
+                    console.error('Error loading categories:', error);
+                    setStatus('error', 'Failed to load categories');
+                    return [];
+                }
+            }
+
+            async function loadMakes(categoryId, signal) {
+                try {
+                    setStatus('info', 'Loading makes...');
+                    const data = await queryCRSPView(
+                        'make, make_id',
+                        null,
+                        { column: 'make', ascending: true },
+                        signal
+                    );
+
+                    const unique = {};
+                    data.forEach(item => {
+                        if (item.make && !unique[item.make]) {
+                            unique[item.make] = {
+                                id: item.make_id || item.make,
+                                name: item.make,
+                                country: null
+                            };
+                        }
+                    });
+
+                    // Try to enrich with country data
+                    if (Object.keys(unique).length > 0) {
+                        const makeNames = Object.keys(unique);
+                        try {
+                            const { data: makesData } = await supabaseClient
+                                .from('vehicle_makes')
+                                .select('make_name, make_country')
+                                .in('make_name', makeNames);
+
+                            if (makesData) {
+                                makesData.forEach(m => {
+                                    if (unique[m.make_name]) {
+                                        unique[m.make_name].country = m.make_country;
+                                    }
+                                });
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+
+                    return Object.values(unique);
+                } catch (error) {
+                    if (error.aborted) return null;
+                    console.error('Error loading makes:', error);
+                    setStatus('error', 'Failed to load makes');
+                    return [];
+                }
+            }
+
+            async function loadModels(makeName, signal) {
+                try {
+                    setStatus('info', 'Loading models...');
+                    const data = await queryCRSPView(
+                        'model, model_id, master_model_id, master_model_name',
+                        { column: 'make', value: makeName },
+                        { column: 'model', ascending: true },
+                        signal
+                    );
+
+                    const unique = {};
+                    data.forEach(item => {
+                        const modelName = item.model || item.master_model_name;
+                        if (modelName && !unique[modelName]) {
+                            unique[modelName] = {
+                                id: item.model_id || item.master_model_id || modelName,
+                                name: modelName,
+                                body_type: null
+                            };
+                        }
+                    });
+
+                    return Object.values(unique);
+                } catch (error) {
+                    if (error.aborted) return null;
+                    console.error('Error loading models:', error);
+                    setStatus('error', 'Failed to load models');
+                    return [];
+                }
+            }
+
+            async function loadGenerations(modelName, makeName, signal) {
+                try {
+                    setStatus('info', 'Loading generations...');
+                    const filter = { column: 'model', value: modelName };
+                    const data = await queryCRSPView(
+                        'manufacture_year, crsp_year, generation_id, model, make',
+                        filter,
+                        { column: 'manufacture_year', ascending: false },
+                        signal
+                    );
+
+                    let filteredData = data;
+                    if (makeName) {
+                        filteredData = data.filter(item =>
+                            (item.make || '').toLowerCase() === makeName.toLowerCase()
+                        );
+                    }
+
+                    const unique = {};
+                    filteredData.forEach(item => {
+                        const year = item.manufacture_year || item.crsp_year;
+                        if (year && !unique[year]) {
+                            unique[year] = {
+                                id: item.generation_id || year,
+                                code: `Gen ${year}`,
+                                start_year: year,
+                                end_year: year + 5
+                            };
+                        }
+                    });
+
+                    return Object.values(unique);
+                } catch (error) {
+                    if (error.aborted) return null;
+                    console.error('Error loading generations:', error);
+                    setStatus('error', 'Failed to load generations');
+                    return [];
+                }
+            }
+
+            async function loadEngineCapacities(generationId, signal) {
+                try {
+                    setStatus('info', 'Loading engine capacities...');
+                    const filter = { column: 'manufacture_year', value: parseInt(generationId) };
+
+                    const data = await queryCRSPView(
+                        `crsp_id, engine_capacity, engine_capacity_id, fuel, transmission, body_type, make, model, manufacture_year, crsp_kes`,
+                        filter,
+                        { column: 'engine_capacity', ascending: true },
+                        signal
+                    );
+
+                    const grouped = {};
+                    data.forEach(v => {
+                        const key = v.engine_capacity || 'Unknown';
+                        if (!grouped[key]) {
+                            grouped[key] = {
+                                engine_size_cc: key,
+                                variants: [],
+                                crsp_kes: v.crsp_kes,
+                                fuel: v.fuel,
+                                transmission: v.transmission,
+                                body_type: v.body_type
+                            };
+                        }
+                        grouped[key].variants.push(v);
+                    });
+
+                    return Object.values(grouped);
+                } catch (error) {
+                    if (error.aborted) return null;
+                    console.error('Error loading engine capacities:', error);
+                    setStatus('error', 'Failed to load engine capacities');
+                    return [];
+                }
+            }
+
+            async function loadVariantDetails(crspId) {
+                try {
+                    setStatus('info', 'Loading vehicle details...');
+                    const data = await queryCRSPView('*', { column: 'crsp_id', value: crspId });
+                    if (data && data.length > 0) {
+                        const v = data[0];
+                        return {
+                            variant_id: v.crsp_id,
+                            make_name: v.make,
+                            model_name: v.model,
+                            variant_name: v.model,
+                            engine_size_cc: v.engine_capacity,
+                            fuel_type_name: v.fuel,
+                            transmission_type_name: v.transmission,
+                            body_type_name: v.body_type,
+                            power_hp: null,
+                            torque_nm: null,
+                            fuel_consumption_combined: null,
+                            co2_emissions: null,
+                            seats: null,
+                            doors: null,
+                            drive_type_name: v.drive_configuration,
+                            trim_level: null,
+                            category_name: null,
+                            crsp_kes: v.crsp_kes,
+                            manufacture_year: v.manufacture_year
+                        };
+                    }
+                    return null;
+                } catch (error) {
+                    console.error('Error loading variant details:', error);
+                    setStatus('error', 'Failed to load vehicle details');
+                    return null;
+                }
+            }
+
+            function startCascade(key) {
+                if (pendingControllers[key]) pendingControllers[key].abort();
+                const controller = new AbortController();
+                pendingControllers[key] = controller;
+                return controller.signal;
+            }
+
             // ─── CRSP Base Price Lookup ─────────────────────────────
-            // ALIGNED: uses vehicle_crsp_prices joined on the engine_capacity_id
-            // foreign key, exactly like the valuation and mileage/running-cost
-            // calculators — no more fuzzy make/model text matching.
             async function fetchBasePrice(variantId) {
                 if (!supabaseClient || !variantId) return null;
                 try {
@@ -2011,7 +2296,6 @@
                 }
             }
 
-            // ALIGNED: renders the matched CRSP line, same shape as the mileage calculator's panel.
             function updateCRSPInfo() {
                 if (!currentCrspData || !currentCrspData.crsp_kes) {
                     el.crspInfo.classList.remove('show');
@@ -2058,153 +2342,6 @@
                 }
             }
 
-            // ─── Load Data ────────────────────────────────────────
-            async function loadCategories() {
-                try {
-                    setStatus('info', 'Loading categories...');
-                    const data = await queryView('category_id, category_name', null, { column: 'category_name', ascending: true });
-                    const unique = {};
-                    data.forEach(item => {
-                        if (item.category_id && !unique[item.category_id]) {
-                            unique[item.category_id] = { id: item.category_id, name: item.category_name };
-                        }
-                    });
-                    return Object.values(unique);
-                } catch (error) {
-                    console.error('Error loading categories:', error);
-                    setStatus('error', 'Failed to load categories');
-                    return [];
-                }
-            }
-
-            async function loadMakes(categoryId, signal) {
-                try {
-                    setStatus('info', 'Loading makes...');
-                    const data = await queryView(
-                        'make_id, make_name, make_country',
-                        { column: 'category_id', value: categoryId },
-                        { column: 'make_name', ascending: true },
-                        signal
-                    );
-                    const unique = {};
-                    data.forEach(item => {
-                        if (item.make_id && !unique[item.make_id]) {
-                            unique[item.make_id] = { id: item.make_id, name: item.make_name, country: item.make_country };
-                        }
-                    });
-                    return Object.values(unique);
-                } catch (error) {
-                    if (error.aborted) return null;
-                    console.error('Error loading makes:', error);
-                    setStatus('error', 'Failed to load makes');
-                    return [];
-                }
-            }
-
-            async function loadModels(makeId, signal) {
-                try {
-                    setStatus('info', 'Loading models...');
-                    const data = await queryView(
-                        'model_id, model_name, model_body_type',
-                        { column: 'make_id', value: makeId },
-                        { column: 'model_name', ascending: true },
-                        signal
-                    );
-                    const unique = {};
-                    data.forEach(item => {
-                        if (item.model_id && !unique[item.model_id]) {
-                            unique[item.model_id] = { id: item.model_id, name: item.model_name, body_type: item.model_body_type };
-                        }
-                    });
-                    return Object.values(unique);
-                } catch (error) {
-                    if (error.aborted) return null;
-                    console.error('Error loading models:', error);
-                    setStatus('error', 'Failed to load models');
-                    return [];
-                }
-            }
-
-            async function loadGenerations(modelId, signal) {
-                try {
-                    setStatus('info', 'Loading generations...');
-                    const data = await queryView(
-                        'generation_id, generation_code, generation_start_year, generation_end_year',
-                        { column: 'model_id', value: modelId },
-                        { column: 'generation_start_year', ascending: false },
-                        signal
-                    );
-                    const unique = {};
-                    data.forEach(item => {
-                        if (item.generation_id && !unique[item.generation_id]) {
-                            unique[item.generation_id] = {
-                                id: item.generation_id,
-                                code: item.generation_code,
-                                start_year: item.generation_start_year,
-                                end_year: item.generation_end_year
-                            };
-                        }
-                    });
-                    return Object.values(unique);
-                } catch (error) {
-                    if (error.aborted) return null;
-                    console.error('Error loading generations:', error);
-                    setStatus('error', 'Failed to load generations');
-                    return [];
-                }
-            }
-
-            async function loadEngineCapacities(generationId, signal) {
-                try {
-                    setStatus('info', 'Loading engine capacities...');
-                    const data = await queryView(
-                        `variant_id, variant_name, trim_level, engine_size_cc, power_hp, torque_nm,
-                         fuel_consumption_combined, co2_emissions, seats, doors, fuel_type_name,
-                         transmission_type_name, drive_type_name, body_type_name`,
-                        { column: 'generation_id', value: generationId },
-                        { column: 'engine_size_cc', ascending: true },
-                        signal
-                    );
-                    const grouped = {};
-                    data.forEach(v => {
-                        const key = v.engine_size_cc || 'Unknown';
-                        if (!grouped[key]) {
-                            grouped[key] = {
-                                engine_size_cc: key,
-                                variants: []
-                            };
-                        }
-                        grouped[key].variants.push(v);
-                    });
-                    return Object.values(grouped);
-                } catch (error) {
-                    if (error.aborted) return null;
-                    console.error('Error loading engine capacities:', error);
-                    setStatus('error', 'Failed to load engine capacities');
-                    return [];
-                }
-            }
-
-            async function loadVariantDetails(variantId) {
-                try {
-                    setStatus('info', 'Loading vehicle details...');
-                    const data = await queryView('*', { column: 'variant_id', value: variantId });
-                    if (data && data.length > 0) return data[0];
-                    return null;
-                } catch (error) {
-                    console.error('Error loading variant details:', error);
-                    setStatus('error', 'Failed to load vehicle details');
-                    return null;
-                }
-            }
-
-            function startCascade(key) {
-                if (pendingControllers[key]) pendingControllers[key].abort();
-                const controller = new AbortController();
-                pendingControllers[key] = controller;
-                return controller.signal;
-            }
-
             // ─── Populate UI ──────────────────────────────────────
             async function populateCategories() {
                 const select = el.categorySelect;
@@ -2249,7 +2386,7 @@
                 }
                 makes.forEach(make => {
                     const opt = document.createElement('option');
-                    opt.value = make.id;
+                    opt.value = make.name;
                     let label = make.name;
                     if (make.country) label += ` (${make.country})`;
                     opt.textContent = label;
@@ -2259,7 +2396,7 @@
                 setStatus('success', `✅ Loaded ${makes.length} makes`);
             }
 
-            async function populateModels(makeId) {
+            async function populateModels(makeName) {
                 const select = el.modelSelect;
                 select.innerHTML = '<option value="">Select Model...</option>';
                 select.disabled = true;
@@ -2270,9 +2407,9 @@
                 el.calculateBtn.disabled = true;
                 currentVariantData = null;
                 resetCRSPInfo();
-                if (!makeId || !isAuthenticated) return;
+                if (!makeName || !isAuthenticated) return;
                 const signal = startCascade('models');
-                const models = await loadModels(makeId, signal);
+                const models = await loadModels(makeName, signal);
                 if (models === null) return;
                 if (!models || models.length === 0) {
                     select.innerHTML = '<option value="">No models available</option>';
@@ -2280,7 +2417,7 @@
                 }
                 models.forEach(model => {
                     const opt = document.createElement('option');
-                    opt.value = model.id;
+                    opt.value = model.name;
                     let label = model.name;
                     if (model.body_type) label += ` (${model.body_type})`;
                     opt.textContent = label;
@@ -2290,7 +2427,7 @@
                 setStatus('success', `✅ Loaded ${models.length} models`);
             }
 
-            async function populateGenerations(modelId) {
+            async function populateGenerations(modelName) {
                 const select = el.generationSelect;
                 select.innerHTML = '<option value="">Select Generation...</option>';
                 select.disabled = true;
@@ -2299,9 +2436,11 @@
                 el.calculateBtn.disabled = true;
                 currentVariantData = null;
                 resetCRSPInfo();
-                if (!modelId || !isAuthenticated) return;
+                if (!modelName || !isAuthenticated) return;
+
+                const makeName = el.makeSelect.value;
                 const signal = startCascade('generations');
-                const generations = await loadGenerations(modelId, signal);
+                const generations = await loadGenerations(modelName, makeName, signal);
                 if (generations === null) return;
                 if (!generations || generations.length === 0) {
                     select.innerHTML = '<option value="">No generations available</option>';
@@ -2310,7 +2449,7 @@
                 generations.forEach(gen => {
                     const opt = document.createElement('option');
                     opt.value = gen.id;
-                    const label = `${gen.code || 'Gen'} (${gen.start_year} - ${gen.end_year || 'Present'})`;
+                    const label = `${gen.code} (${gen.start_year} - ${gen.end_year || 'Present'})`;
                     opt.textContent = label;
                     select.appendChild(opt);
                 });
@@ -2326,6 +2465,7 @@
                 currentVariantData = null;
                 resetCRSPInfo();
                 if (!generationId || !isAuthenticated) return;
+
                 const signal = startCascade('engineCapacities');
                 const engineGroups = await loadEngineCapacities(generationId, signal);
                 if (engineGroups === null) return;
@@ -2333,16 +2473,25 @@
                     select.innerHTML = '<option value="">No engine capacities available</option>';
                     return;
                 }
+
                 engineGroups.forEach(group => {
                     const opt = document.createElement('option');
-                    opt.value = group.variants[0].variant_id;
+                    const rep = group.variants[0];
+                    opt.value = rep.crsp_id;
+                    opt.dataset.crspId = rep.crsp_id;
+                    opt.dataset.makeName = rep.make || '';
+                    opt.dataset.modelName = rep.model || '';
+                    opt.dataset.engineCc = group.engine_size_cc || '';
+                    opt.dataset.crspKes = group.crsp_kes || '';
+
+                    const fuelTypes = group.fuel ? [group.fuel] : ['Unknown'];
                     let label = `${group.engine_size_cc}cc`;
-                    const fuelTypes = [...new Set(group.variants.map(v => v.fuel_type_name || 'Unknown'))];
-                    if (fuelTypes.length > 0) label += ` (${fuelTypes.join('/')})`;
+                    if (fuelTypes.length > 0 && fuelTypes[0] !== 'Unknown') label += ` (${fuelTypes.join('/')})`;
                     if (group.variants.length > 1) label += ` [${group.variants.length} variants]`;
                     opt.textContent = label;
                     select.appendChild(opt);
                 });
+
                 select.disabled = false;
                 setStatus('success', `✅ Loaded ${engineGroups.length} engine capacities`);
             }
@@ -2366,7 +2515,7 @@
                 el.transmissionPill.textContent = variant.transmission_type_name || '—';
                 const engineCC = variant.engine_size_cc || null;
                 el.engineCCDisplay.textContent = engineCC ? `${engineCC}cc` : '—';
-                el.bodyTypePill.textContent = variant.body_type_name || variant.model_body_type || '—';
+                el.bodyTypePill.textContent = variant.body_type_name || '—';
                 el.conditionPill.textContent = vehicleCondition === 'new' ? '🚗 New' : '🔧 Used';
                 el.conditionPill.className = `pill ${vehicleCondition === 'new' ? 'highlight' : ''}`;
                 el.purchaseTypePill.textContent = purchaseType === 'cash' ? '💰 Cash' : '🏦 Financing';
@@ -2485,8 +2634,8 @@
                 }
 
                 const selectedOption = el.engineCapacitySelect.options[el.engineCapacitySelect.selectedIndex];
-                const variantId = selectedOption ? selectedOption.value : null;
-                if (!variantId) {
+                const crspId = selectedOption ? selectedOption.value : null;
+                if (!crspId) {
                     showToast('Please select an engine capacity', 'error');
                     return;
                 }
@@ -2497,7 +2646,7 @@
                 }
 
                 showProgress(10, 'Loading vehicle details...');
-                const variant = await loadVariantDetails(variantId);
+                const variant = await loadVariantDetails(crspId);
                 if (!variant) {
                     showToast('Failed to load vehicle details', 'error');
                     hideProgress();
@@ -2508,7 +2657,6 @@
 
                 if (!currentBasePrice) {
                     showProgress(30, 'Looking up CRSP base price...');
-                    // ALIGNED: lookup keyed on variant_id (engine_capacity_id FK), not make/model text
                     const basePrice = await fetchBasePrice(variant.variant_id);
                     applyBasePriceToForm(basePrice);
                 }
@@ -2516,7 +2664,7 @@
                 displayVehicleInfo(variant);
 
                 const formData = {
-                    variant_id: variantId,
+                    variant_id: crspId,
                     purchase_price: num(el.purchasePrice.value) || 4500000,
                     down_payment: num(el.downPayment.value) || 1000000,
                     loan_term_years: parseInt(el.loanTermRange.value) || 3,
@@ -2930,29 +3078,40 @@
                     purchasePriceEditedByUser = true;
                 });
 
-                // Vehicle selection cascading
+                // Vehicle selection cascading (updated for vehicle_crsp_lookup)
                 el.categorySelect.addEventListener('change', async function() {
                     if (this.value && isAuthenticated) await populateMakes(this.value);
                 });
                 el.makeSelect.addEventListener('change', async function() {
-                    if (this.value && isAuthenticated) await populateModels(this.value);
+                    const makeName = this.value;
+                    if (makeName && isAuthenticated) await populateModels(makeName);
                 });
                 el.modelSelect.addEventListener('change', async function() {
-                    if (this.value && isAuthenticated) await populateGenerations(this.value);
+                    const modelName = this.value;
+                    if (modelName && isAuthenticated) await populateGenerations(modelName);
                 });
                 el.generationSelect.addEventListener('change', async function() {
-                    if (this.value && isAuthenticated) await populateEngineCapacities(this.value);
+                    const genId = this.value;
+                    if (genId && isAuthenticated) await populateEngineCapacities(genId);
                 });
                 el.engineCapacitySelect.addEventListener('change', async function() {
+                    const selectedOpt = this.options[this.selectedIndex];
                     const hasSelection = this.value && isAuthenticated;
                     el.calculateBtn.disabled = !hasSelection;
                     if (!hasSelection) return;
 
-                    const variant = await loadVariantDetails(this.value);
+                    const crspId = this.value;
+                    const variantData = {
+                        make_name: selectedOpt.dataset.makeName || '',
+                        model_name: selectedOpt.dataset.modelName || '',
+                        engine_size_cc: parseInt(selectedOpt.dataset.engineCc) || null,
+                        crsp_kes: parseFloat(selectedOpt.dataset.crspKes) || null
+                    };
+
+                    const variant = await loadVariantDetails(crspId);
                     if (variant) {
                         currentVariantData = variant;
                         purchasePriceEditedByUser = false;
-                        // ALIGNED: lookup keyed on variant_id (engine_capacity_id FK), not make/model text
                         const basePrice = await fetchBasePrice(variant.variant_id);
                         applyBasePriceToForm(basePrice);
                         displayVehicleInfo(variant);
@@ -3031,7 +3190,8 @@
 
                     el.loadingOverlay.classList.remove('active');
 
-                    console.log('✅ Auto-D Kenya TCO Calculator v9.0');
+                    console.log('✅ Auto-D Kenya TCO Calculator v9.1');
+                    console.log('✅ Using view: ' + CONFIG.VIEW_NAME);
                     console.log('💰 CRSP table: ' + CONFIG.CRSP_TABLE + ' (joined via engine_capacity_id = variant_id)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/ownership/calculate`);
