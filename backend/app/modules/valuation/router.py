@@ -53,14 +53,14 @@ async def calculate_valuation(
     try:
         user_id = current_user.get("id") if current_user else None
         
-        # ✅ FIXED: Use correct field names from ValuationRequest
+        # ✅ FIXED: Use vehicle_crsp_id (not variant_id)
         result = await valuation_service.calculate_valuation(
-            variant_id=request.vehicle_crsp_id,  # vehicle_crsp_id → variant_id
-            year=request.manufacture_year,       # manufacture_year → year
-            mileage=request.mileage_km,          # mileage_km → mileage
-            condition=request.condition_name,    # condition_name → condition (mapped in service)
-            accident_history=request.accident_status,  # accident_status → accident_history
-            location=request.location_name,      # location_name → location
+            vehicle_crsp_id=request.vehicle_crsp_id,
+            year=request.manufacture_year,
+            mileage=request.mileage_km,
+            condition=request.condition_name,
+            accident_history=request.accident_status,
+            location=request.location_name,
             user_id=user_id,
             profit_margin_percent=request.profit_margin_percent
         )
@@ -95,7 +95,7 @@ async def calculate_valuation_public(
     """
     try:
         result = await valuation_service.calculate_valuation(
-            variant_id=request.vehicle_crsp_id,
+            vehicle_crsp_id=request.vehicle_crsp_id,
             year=request.manufacture_year,
             mileage=request.mileage_km,
             condition=request.condition_name,
@@ -137,7 +137,7 @@ async def calculate_valuation_legacy(
         converted_request = request.to_valuation_request()
         
         result = await valuation_service.calculate_valuation(
-            variant_id=converted_request.vehicle_crsp_id,
+            vehicle_crsp_id=converted_request.vehicle_crsp_id,
             year=converted_request.manufacture_year,
             mileage=converted_request.mileage_km,
             condition=converted_request.condition_name,
@@ -214,7 +214,7 @@ async def quick_valuation(
         user_id = current_user.get("id") if current_user else None
         
         result = await valuation_service.calculate_valuation(
-            variant_id=request.vehicle_crsp_id,
+            vehicle_crsp_id=request.vehicle_crsp_id,
             year=request.manufacture_year,
             mileage=request.mileage_km,
             condition=request.condition_name,
@@ -408,7 +408,7 @@ async def bulk_valuation(
         for request in requests:
             try:
                 result = await valuation_service.calculate_valuation(
-                    variant_id=request.vehicle_crsp_id,
+                    vehicle_crsp_id=request.vehicle_crsp_id,
                     year=request.manufacture_year,
                     mileage=request.mileage_km,
                     condition=request.condition_name,
@@ -457,7 +457,7 @@ async def compare_valuations(
         for request in requests:
             try:
                 result = await valuation_service.calculate_valuation(
-                    variant_id=request.vehicle_crsp_id,
+                    vehicle_crsp_id=request.vehicle_crsp_id,
                     year=request.manufacture_year,
                     mileage=request.mileage_km,
                     condition=request.condition_name,
