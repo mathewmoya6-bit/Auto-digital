@@ -18,62 +18,140 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class ValuationRequest(BaseModel):
     """Request payload for vehicle valuation."""
-
-    crsp_id: int = Field(
-        ...,
+    
+    # Support both field naming conventions
+    vehicle_crsp_id: Optional[int] = Field(
+        None,
+        gt=0,
+        description="CRSP vehicle ID from vehicle_base_prices"
+    )
+    
+    crsp_id: Optional[int] = Field(
+        None,
         gt=0,
         description="Authoritative vehicle CRSP ID"
     )
-
-    year: int = Field(
-        ...,
+    
+    manufacture_year: Optional[int] = Field(
+        None,
         ge=1900,
         le=2100,
         description="Vehicle manufacture year"
     )
-
-    mileage: int = Field(
-        0,
+    
+    year: Optional[int] = Field(
+        None,
+        ge=1900,
+        le=2100,
+        description="Valuation year"
+    )
+    
+    mileage_km: Optional[float] = Field(
+        None,
+        ge=0,
+        description="Vehicle mileage in kilometres"
+    )
+    
+    mileage: Optional[int] = Field(
+        None,
         ge=0,
         description="Vehicle mileage in KM"
     )
-
-    condition: str = Field(
-        "good",
+    
+    vehicle_type: Optional[str] = Field(
+        "SEDAN",
+        description="Vehicle type (SEDAN, SUV, PICKUP, etc.)"
+    )
+    
+    condition_name: Optional[str] = Field(
+        None,
+        description="Vehicle condition (EXCELLENT, GOOD, FAIR, POOR)"
+    )
+    
+    condition: Optional[str] = Field(
+        None,
         description="Vehicle condition (excellent, very_good, good, fair, poor)"
     )
-
-    accident_history: str = Field(
-        "none",
+    
+    accident_status: Optional[str] = Field(
+        None,
+        description="Accident status (NONE, MINOR_REPAIR, ACCIDENT_REPAIRED, STRUCTURAL_DAMAGE)"
+    )
+    
+    accident_history: Optional[str] = Field(
+        None,
         description="Accident history (none, minor, major, total_loss)"
     )
-
-    location: str = Field(
-        "nairobi",
+    
+    location_name: Optional[str] = Field(
+        None,
+        description="Vehicle location (NAIROBI, MOMBASA, etc.)"
+    )
+    
+    location: Optional[str] = Field(
+        None,
         description="Vehicle location"
     )
-
+    
     service_history: bool = Field(
         False,
         description="Whether service history is available"
     )
-
+    
     ownership_count: int = Field(
         1,
         ge=1,
         description="Number of previous owners"
     )
-
+    
     profit_margin_percent: float = Field(
         5.00,
         ge=0,
         le=100,
         description="Profit margin percentage"
     )
+    
+    @model_validator(mode="after")
+    def normalize_fields(self):
+        """Normalize fields from alternative names."""
+        # Normalize crsp_id
+        if self.crsp_id is None and self.vehicle_crsp_id is not None:
+            self.crsp_id = self.vehicle_crsp_id
+        
+        # Normalize year
+        if self.year is None and self.manufacture_year is not None:
+            self.year = self.manufacture_year
+        
+        # Normalize mileage
+        if self.mileage is None and self.mileage_km is not None:
+            self.mileage = int(self.mileage_km)
+        
+        # Normalize condition
+        if self.condition is None and self.condition_name is not None:
+            self.condition = self.condition_name.lower()
+        
+        # Normalize accident_history
+        if self.accident_history is None and self.accident_status is not None:
+            self.accident_history = self.accident_status.lower()
+        
+        # Normalize location
+        if self.location is None and self.location_name is not None:
+            self.location = self.location_name.lower()
+        
+        # Validate required fields
+        if self.crsp_id is None:
+            raise ValueError("crsp_id or vehicle_crsp_id is required")
+        
+        if self.year is None:
+            raise ValueError("year or manufacture_year is required")
+        
+        return self
 
     @field_validator("condition")
     @classmethod
     def validate_condition(cls, value: str):
+        if value is None:
+            return "good"
         value = value.lower().strip()
         allowed = ["excellent", "very_good", "good", "fair", "poor"]
         if value not in allowed:
@@ -83,6 +161,8 @@ class ValuationRequest(BaseModel):
     @field_validator("accident_history")
     @classmethod
     def validate_accident(cls, value: str):
+        if value is None:
+            return "none"
         value = value.lower().strip()
         allowed = ["none", "minor", "major", "total_loss"]
         if value not in allowed:
@@ -92,23 +172,19 @@ class ValuationRequest(BaseModel):
     @field_validator("location")
     @classmethod
     def validate_location(cls, value: str):
+        if value is None:
+            return "nairobi"
         return value.lower().strip()
 
     @field_validator("year")
     @classmethod
     def validate_year(cls, value: int):
+        if value is None:
+            return datetime.now(timezone.utc).year
         current_year = datetime.now(timezone.utc).year
         if value > current_year + 1:
             raise ValueError("Vehicle year cannot be in the future")
         return value
-
-    @model_validator(mode="after")
-    def validate_profit_margin(self):
-        if self.profit_margin_percent < 0:
-            raise ValueError("Profit margin cannot be negative")
-        if self.profit_margin_percent > 100:
-            raise ValueError("Profit margin cannot exceed 100%")
-        return self
 
 
 # ================================================================
