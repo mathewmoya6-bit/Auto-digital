@@ -26,7 +26,7 @@ class ValuationService:
         vehicle_crsp_id
         variant_id
 
-    The CRSP record is read from vehicle_base_prices.
+    The CRSP record is read from vehicle_crsp_prices.
     """
 
     def __init__(self):
@@ -372,11 +372,11 @@ class ValuationService:
     # ================================================================
 
     def _get_crsp_vehicle(self, crsp_id: int) -> Dict[str, Any]:
-        """Get a vehicle from vehicle_base_prices using crsp_id."""
+        """Get a vehicle from vehicle_crsp_prices using crsp_id."""
         try:
             response = (
                 self.supabase
-                .table("vehicle_base_prices")
+                .table("vehicle_crsp_prices")
                 .select("*")
                 .eq("crsp_id", crsp_id)
                 .limit(1)
@@ -908,7 +908,7 @@ class ValuationService:
     async def health_check(self) -> Dict[str, Any]:
         try:
             self.supabase.table(
-                "vehicle_base_prices"
+                "vehicle_crsp_prices"
             ).select("crsp_id").limit(1).execute()
 
             db_status = "healthy"
@@ -927,7 +927,7 @@ class ValuationService:
                 else "degraded"
             ),
             "service": "valuation",
-            "version": "2.1",
+            "version": "2.2",
             "timestamp": self._utc_now().isoformat(),
             "database": db_status,
         }
