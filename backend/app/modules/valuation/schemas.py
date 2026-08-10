@@ -671,6 +671,80 @@ def create_valuation_report_response(
 
 
 # ================================================================
+# DATABASE TO VALUATION CONVERTER
+# ================================================================
+
+def create_valuation_from_database(
+    db_result: Dict[str, Any],
+    vehicle_details: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Create valuation dictionary from database result.
+    
+    This function is used by the router to convert database results
+    into the expected valuation format.
+    
+    Args:
+        db_result: Database valuation result from stored procedure
+        vehicle_details: Vehicle details dictionary
+        
+    Returns:
+        Dict[str, Any]: Formatted valuation dictionary
+    """
+    final_value = float(db_result.get("final_value", 0))
+    fair_market_value = float(db_result.get("fair_market_value", final_value))
+    
+    # Extract adjustments
+    adjustments = {}
+    
+    # Mileage adjustment
+    mileage_adj = float(db_result.get("mileage_adjustment", 0))
+    if mileage_adj != 0:
+        adjustments["mileage"] = mileage_adj
+    
+    # Condition adjustment
+    condition_adj = float(db_result.get("condition_adjustment", 0))
+    if condition_adj != 0:
+        adjustments["condition"] = condition_adj
+    
+    # Accident adjustment
+    accident_adj = float(db_result.get("accident_adjustment", 0))
+    if accident_adj != 0:
+        adjustments["accident"] = accident_adj
+    
+    # Location adjustment
+    location_adj = float(db_result.get("location_adjustment", 0))
+    if location_adj != 0:
+        adjustments["location"] = location_adj
+    
+    # Market adjustment
+    market_adj = float(db_result.get("market_adjustment", 0))
+    if market_adj != 0:
+        adjustments["market"] = market_adj
+    
+    return {
+        "market_value": final_value,
+        "retail_value": final_value * 1.08,
+        "trade_value": final_value * 0.85,
+        "dealer_value": final_value * 0.95,
+        "confidence_score": float(db_result.get("confidence_score", 65)),
+        "estimated_value_range": {
+            "minimum": final_value * 0.90,
+            "maximum": final_value * 1.10
+        },
+        "sample_size": 0,
+        "crsp_value": float(db_result.get("crsp_value", 0)),
+        "vehicle_age": int(db_result.get("vehicle_age", 0)),
+        "depreciation_rate": float(db_result.get("depreciation_rate", 0)),
+        "depreciated_value": float(db_result.get("depreciated_value", 0)),
+        "fair_market_value": fair_market_value,
+        "profit_margin_rate": float(db_result.get("profit_margin_rate", 0)),
+        "profit_margin_amount": float(db_result.get("profit_margin_amount", 0)),
+        "adjustments": adjustments
+    }
+
+
+# ================================================================
 # EXPORTS
 # ================================================================
 
@@ -698,4 +772,5 @@ __all__ = [
     # Factory functions
     "create_valuation_response",
     "create_valuation_report_response",
+    "create_valuation_from_database",
 ]
