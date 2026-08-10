@@ -10,6 +10,7 @@ from datetime import datetime
 import secrets
 
 from app.modules.valuation.engine import ValuationEngine
+from app.modules.valuation.repository import ValuationRepository
 from app.core.database import get_supabase
 from app.core.exceptions import NotFoundException, ValidationException
 
@@ -31,6 +32,7 @@ class ValuationService:
     def __init__(self):
         """Initialize the valuation service."""
         self.engine = ValuationEngine()
+        self.repository = ValuationRepository()
         self.supabase = get_supabase()
         logger.info("ValuationService initialized")
     
@@ -50,7 +52,8 @@ class ValuationService:
         transmission: Optional[str] = None,
         ownership_count: int = 1,
         service_history: bool = True,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        profit_margin_percent: float = 5.00
     ) -> Dict[str, Any]:
         """
         Calculate vehicle valuation.
@@ -67,6 +70,7 @@ class ValuationService:
             ownership_count: Number of previous owners
             service_history: Whether service records exist
             user_id: Optional user ID for saving history
+            profit_margin_percent: Profit margin percentage for valuation
             
         Returns:
             Dict[str, Any]: Complete valuation report
@@ -89,10 +93,13 @@ class ValuationService:
         if mileage < 0:
             raise ValidationException(f"Invalid mileage: {mileage}")
         
+        if profit_margin_percent < 0:
+            raise ValidationException("Profit margin cannot be negative")
+        
         # Normalize inputs
         condition = condition.lower().strip()
         accident_history = accident_history.lower().strip()
-        location = location.lower().strip()
+        location = location.upper().strip()
         
         # ─── CONDITION MAPPING ──────────────────────────────────────────
         # Map Python conditions to database enum values
@@ -104,20 +111,24 @@ class ValuationService:
             "poor": "POOR"
         }
         
-        condition = condition_map.get(condition, "GOOD")
+        condition_db = condition_map.get(condition, "GOOD")
         
         # ─── ACCIDENT MAPPING ───────────────────────────────────────────
         # Map Python accident values to database enum values
         accident_map = {
-            "none": "NO_ACCIDENT",
+            "none": "NONE",
             "minor": "MINOR_REPAIR",
             "major": "ACCIDENT_REPAIRED",
             "total_loss": "STRUCTURAL_DAMAGE"
         }
         
-        accident_history = accident_map.get(accident_history, "NO_ACCIDENT")
+        accident_history_db = accident_map.get(accident_history, "NONE")
         
-        logger.info(f"Valuation request: variant_id={variant_id}, year={year}, mileage={mileage}, condition={condition}, accident={accident_history}")
+        logger.info(
+            f"Valuation request: variant_id={variant_id}, year={year}, "
+            f"mileage={mileage}, condition={condition_db}, "
+            f"accident={accident_history_db}"
+        )
         
         # ─── GET VEHICLE DATA FROM vehicle_master_specs ─────────────────
         
@@ -179,277 +190,207 @@ class ValuationService:
         
         logger.info(f"Vehicle: {vehicle['make']} {vehicle['model']} ({vehicle['variant_name']})")
         
-        # ─── GET BASE PRICE ──────────────────────────────────────────────
+        # ─── RESOLVE CRSP ID ────────────────────────────────────────────
         
-        # Try to get base price from vehicle_master_specs
-        base_price = 0
-        price_fields = [
-            "estimated_value",
-            "market_value",
-            "price",
-            "retail_price",
-            "base_price",
-            "dealer_price"
-        ]
+        # The repository expects vehicle_crsp_id directly
+        # Use variant_id as CRSP ID (consistent with previous implementation)
+        vehicle_crsp_id = variant_id
         
-        for field in price_fields:
-            if variant_data.get(field):
-                try:
-                    value = float(variant_data[field])
-                    if value > 0:
-                        base_price = value
-                        logger.info(f"Found base price from field '{field}': {base_price}")
-                        break
-                except (ValueError, TypeError):
-                    continue
+        # Determine vehicle type from body type or use default
+        vehicle_type = "SEDAN"  # Default
+        body_type = variant_data.get("body_type_name", "").upper()
         
-        if base_price <= 0:
-            logger.warning(f"No base price found for variant {variant_id}, using fallback")
-            base_price = self._estimate_base_price(vehicle, year)
+        # Map body type to vehicle type categories
+        if "SUV" in body_type or "CROSSOVER" in body_type:
+            vehicle_type = "SUV"
+        elif "PICKUP" in body_type or "TRUCK" in body_type:
+            vehicle_type = "PICKUP"
+        elif "VAN" in body_type or "MINIVAN" in body_type:
+            vehicle_type = "VAN"
+        elif "HATCHBACK" in body_type:
+            vehicle_type = "HATCHBACK"
+        elif "SEDAN" in body_type or "SALOON" in body_type:
+            vehicle_type = "SEDAN"
+        elif "COUPE" in body_type:
+            vehicle_type = "COUPE"
+        elif "CONVERTIBLE" in body_type:
+            vehicle_type = "CONVERTIBLE"
         
-        logger.info(f"Base price: KES {base_price:,.2f}")
+        # ─── CALL REPOSITORY FOR VALUATION ──────────────────────────────
         
-        # ─── RESOLVE CRSP ID + MODEL ID ────────────────────────────────
-
-        # The PostgreSQL function requires:
-        #
-        # p_crsp_id
-        # p_model_id
-        # p_manufacture_year
-        # p_mileage
-        # p_condition
-        # p_accident_status
-        # p_location
-        #
-        # variant_id is retained for backwards compatibility with the API,
-        # but it must not automatically be assumed to be model_id.
-
-        crsp_id = variant_id
-        model_id = None
-
-        # Try to obtain model_id from vehicle_master_specs first.
-        model_id_candidates = [
-            variant_data.get("model_id"),
-            variant_data.get("vehicle_model_id"),
-            variant_data.get("crsp_model_id"),
-        ]
-
-        for candidate in model_id_candidates:
-            if candidate is not None:
-                try:
-                    candidate_id = int(candidate)
-                    if candidate_id > 0:
-                        model_id = candidate_id
-                        break
-                except (ValueError, TypeError):
-                    continue
-
-        # If vehicle_master_specs did not provide model_id, try resolving it
-        # from the CRSP/master vehicle table.
-        if model_id is None:
-            try:
-                logger.info(
-                    f"Resolving model_id for CRSP/variant {crsp_id}"
-                )
-
-                crsp_response = (
-                    self.supabase
-                    .table("vehicle_crsp")
-                    .select("id, model_id")
-                    .eq("id", crsp_id)
-                    .limit(1)
-                    .execute()
-                )
-
-                if crsp_response.data:
-                    resolved_model_id = crsp_response.data[0].get("model_id")
-
-                    if resolved_model_id is not None:
-                        model_id = int(resolved_model_id)
-
-                        logger.info(
-                            f"Resolved CRSP {crsp_id} -> model_id {model_id}"
-                        )
-
-            except Exception as e:
-                logger.warning(
-                    f"Could not resolve model_id from vehicle_crsp: {e}"
-                )
-
-        # Final validation before calling PostgreSQL.
-        if model_id is None or model_id <= 0:
-            logger.error(
-                f"Unable to resolve model_id for CRSP/variant {crsp_id}"
+        try:
+            # Validate inputs for repository
+            if vehicle_crsp_id <= 0:
+                raise ValidationException("vehicle_crsp_id must be greater than zero")
+            
+            if year < 1900:
+                raise ValidationException("Invalid manufacture year")
+            
+            if mileage < 0:
+                raise ValidationException("Mileage cannot be negative")
+            
+            # Call the repository's calculation method
+            result_data = self.repository.calculate_valuation(
+                vehicle_crsp_id=vehicle_crsp_id,
+                manufacture_year=year,
+                mileage_km=mileage,
+                vehicle_type=vehicle_type,
+                condition_name=condition_db,
+                accident_status=accident_history_db,
+                location_name=location,
+                profit_margin_percent=profit_margin_percent,
             )
-
-            # Do not send an invalid RPC request.
-            # Fall back to the local valuation engine.
-            result = self._create_fallback_valuation(
+            
+            logger.info(
+                f"Valuation calculation completed successfully: "
+                f"final_value={result_data.get('final_value')}"
+            )
+            
+            # Extract values from result
+            final_value = float(result_data.get("final_value", 0))
+            fair_market_value = float(result_data.get("fair_market_value", final_value))
+            
+            # ─── GENERATE REPORT NUMBER ──────────────────────────────────
+            
+            timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+            random_suffix = secrets.token_hex(4).upper()
+            report_number = f"AUTO-VAL-{timestamp}-{random_suffix}"
+            
+            # ─── BUILD FINAL RESPONSE ────────────────────────────────────
+            
+            response = {
+                "report": {
+                    "title": "AUTO-D Vehicle Valuation Report",
+                    "report_number": report_number,
+                    "generated_at": datetime.utcnow(),
+                    "status": "completed",
+                    "version": "1.0",
+                    "description": f"{vehicle['make']} {vehicle['model']} valuation",
+                },
+                "vehicle": {
+                    "variant_id": variant_id,
+                    "make": vehicle.get("make"),
+                    "model": vehicle.get("model"),
+                    "variant_name": vehicle.get("variant_name"),
+                    "year": year,
+                    "fuel_type": vehicle.get("fuel_type"),
+                    "transmission": vehicle.get("transmission"),
+                    "engine_size_cc": vehicle.get("engine_size_cc"),
+                    "body_type": vehicle.get("body_type"),
+                },
+                "valuation": {
+                    "estimated_vehicle_value": round(final_value, 2),
+                    "retail_value": round(final_value * 1.08, 2),
+                    "trade_value": round(final_value * 0.85, 2),
+                    "dealer_value": round(final_value * 0.95, 2),
+                    "currency": "KES",
+                    "confidence_score": int(result_data.get("confidence_score", 65)),
+                    "estimated_value_range": {
+                        "minimum": round(final_value * 0.90, 2),
+                        "maximum": round(final_value * 1.10, 2),
+                    },
+                    "sample_size": 0,
+                },
+                "comparables": [],
+                "analysis": {
+                    "valuation_methodology": [
+                        "Vehicle age",
+                        "Mileage",
+                        "Vehicle condition",
+                        "Market comparison",
+                        "Depreciation model",
+                    ],
+                    "adjustments": {
+                        "mileage": 0,
+                        "condition": 0,
+                        "accident": 0,
+                        "location": 0,
+                        "market": 0,
+                    },
+                    "engine_version": "AUTO-D AI Valuation Engine v2.0",
+                },
+                "disclaimer": (
+                    "This valuation is generated using the AUTO-D vehicle valuation "
+                    "engine and should be treated as an indicative market estimate."
+                )
+            }
+            
+            # ─── SAVE TO HISTORY ─────────────────────────────────────────
+            
+            if user_id:
+                await self._save_valuation_history(
+                    user_id=user_id,
+                    variant_id=variant_id,
+                    report_number=report_number,
+                    make=vehicle.get("make"),
+                    model=vehicle.get("model"),
+                    market_value=response["valuation"]["estimated_vehicle_value"],
+                    retail_value=response["valuation"]["retail_value"],
+                    trade_value=response["valuation"]["trade_value"],
+                    confidence_score=response["valuation"]["confidence_score"],
+                    year=year,
+                    mileage=mileage,
+                    location=location,
+                    condition=condition_db,
+                    accident_history=accident_history_db
+                )
+            
+            logger.info(f"Valuation report {report_number} generated successfully")
+            return response
+            
+        except (NotFoundException, ValidationException):
+            raise
+        except ValueError as e:
+            logger.error(f"Validation error in valuation calculation: {str(e)}")
+            raise ValidationException(str(e))
+        except Exception as e:
+            logger.error(f"Valuation calculation failed: {str(e)}")
+            # Create fallback valuation
+            base_price = self._estimate_base_price(vehicle, year)
+            fallback_result = self._create_fallback_valuation(
                 vehicle,
                 year,
                 mileage,
                 base_price
             )
-
-        else:
-
-            # ─── CALL DATABASE VALUATION FUNCTION ──────────────────────
-
-            try:
-                logger.info(
-                    "Calling calculate_vehicle_value: "
-                    f"crsp_id={crsp_id}, "
-                    f"model_id={model_id}, "
-                    f"year={year}, "
-                    f"mileage={mileage}, "
-                    f"condition={condition}, "
-                    f"accident={accident_history}, "
-                    f"location={location.upper()}"
-                )
-
-                result_data = (
-                    self.supabase
-                    .rpc(
-                        "calculate_vehicle_value",
-                        {
-                            "p_crsp_id": int(crsp_id),
-                            "p_model_id": int(model_id),
-                            "p_manufacture_year": int(year),
-                            "p_mileage": int(mileage),
-                            "p_condition": condition,
-                            "p_accident_status": accident_history,
-                            "p_location": location.upper(),
-                        }
-                    )
-                    .execute()
-                )
-
-                if not result_data.data:
-                    raise Exception(
-                        "Database valuation returned no result"
-                    )
-
-                db_value = result_data.data[0]
-
-                logger.info(
-                    "Database valuation result: "
-                    f"crsp_value={db_value.get('crsp_value')}, "
-                    f"fair_market_value={db_value.get('fair_market_value')}, "
-                    f"final_value={db_value.get('final_value')}, "
-                    f"confidence={db_value.get('confidence_score')}"
-                )
-
-                # Use the database's calculated final value.
-                final_value = float(
-                    db_value.get("final_value") or
-                    db_value.get("fair_market_value") or
-                    db_value.get("depreciated_value") or
-                    0
-                )
-
-                if final_value <= 0:
-                    raise Exception(
-                        "Database valuation returned an invalid final value"
-                    )
-
-                result = {
-                    "market_value": final_value,
-
-                    # Preserve your existing API contract.
-                    "retail_value": final_value * 1.08,
-                    "trade_value": final_value * 0.85,
-                    "dealer_value": final_value * 0.95,
-
-                    "confidence_score": float(
-                        db_value.get("confidence_score") or 0
-                    ),
-
-                    "adjustments": {
-                        "mileage": float(
-                            db_value.get("mileage_adjustment") or 0
-                        ),
-                        "condition": float(
-                            db_value.get("condition_adjustment") or 0
-                        ),
-                        "accident": float(
-                            db_value.get("accident_adjustment") or 0
-                        ),
-                        "location": float(
-                            db_value.get("location_adjustment") or 0
-                        ),
-                        "market": float(
-                            db_value.get("market_adjustment") or 0
-                        ),
-                    },
-
-                    # Additional database calculation details.
-                    "crsp_value": float(
-                        db_value.get("crsp_value") or 0
-                    ),
-                    "vehicle_age": int(
-                        db_value.get("vehicle_age") or 0
-                    ),
-                    "depreciation_rate": float(
-                        db_value.get("depreciation_rate") or 0
-                    ),
-                    "depreciated_value": float(
-                        db_value.get("depreciated_value") or 0
-                    ),
-                    "fair_market_value": float(
-                        db_value.get("fair_market_value") or 0
-                    ),
-                    "profit_margin_rate": float(
-                        db_value.get("profit_margin_rate") or 0
-                    ),
-                    "profit_margin_amount": float(
-                        db_value.get("profit_margin_amount") or 0
-                    ),
-
-                    "sample_size": 0,
-                    "comparables": [],
-                }
-
-                logger.info(
-                    "Valuation calculation completed successfully "
-                    "using database function"
-                )
-
-            except Exception as e:
-                logger.error(
-                    f"Database valuation failed: {e}"
-                )
-
-                # Fallback to local calculation if database valuation fails.
-                result = self._create_fallback_valuation(
-                    vehicle,
-                    year,
-                    mileage,
-                    base_price
-                )
-        
-        # ─── FIX CONFIDENCE SCORE ───────────────────────────────────────
-        
-        confidence_score = result.get("confidence_score", 50)
-        # If confidence_score is <= 1, it's likely a decimal (0-1) that needs converting to percentage
-        if confidence_score <= 1:
-            confidence_score = confidence_score * 100
-        
-        # ─── GENERATE REPORT NUMBER ──────────────────────────────────────
+            
+            # Build response with fallback
+            fallback_response = self._build_response_from_result(
+                fallback_result,
+                vehicle,
+                variant_id,
+                year
+            )
+            
+            return fallback_response
+    
+    # ================================================================
+    # RESPONSE BUILDER
+    # ================================================================
+    
+    def _build_response_from_result(
+        self,
+        result: Dict[str, Any],
+        vehicle: Dict[str, Any],
+        variant_id: int,
+        year: int
+    ) -> Dict[str, Any]:
+        """Build a valuation response from a result dictionary."""
         
         timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
         random_suffix = secrets.token_hex(4).upper()
         report_number = f"AUTO-VAL-{timestamp}-{random_suffix}"
         
-        # ─── BUILD FINAL RESPONSE ────────────────────────────────────────
+        market_value = result.get("market_value", 0)
         
-        response = {
+        return {
             "report": {
                 "title": "AUTO-D Vehicle Valuation Report",
                 "report_number": report_number,
                 "generated_at": datetime.utcnow(),
                 "status": "completed",
                 "version": "1.0",
-                "description": f"{vehicle['make']} {vehicle['model']} valuation",
+                "description": f"{vehicle.get('make')} {vehicle.get('model')} valuation",
             },
             "vehicle": {
                 "variant_id": variant_id,
@@ -463,15 +404,15 @@ class ValuationService:
                 "body_type": vehicle.get("body_type"),
             },
             "valuation": {
-                "estimated_vehicle_value": round(result.get("market_value", 0), 2),
-                "retail_value": round(result.get("retail_value", result.get("market_value", 0) * 1.08), 2),
-                "trade_value": round(result.get("trade_value", result.get("market_value", 0) * 0.85), 2),
-                "dealer_value": round(result.get("dealer_value", result.get("market_value", 0) * 0.95), 2),
+                "estimated_vehicle_value": round(market_value, 2),
+                "retail_value": round(market_value * 1.08, 2),
+                "trade_value": round(market_value * 0.85, 2),
+                "dealer_value": round(market_value * 0.95, 2),
                 "currency": "KES",
-                "confidence_score": int(confidence_score),
+                "confidence_score": int(result.get("confidence_score", 40)),
                 "estimated_value_range": {
-                    "minimum": round(result.get("market_value", 0) * 0.90, 2),
-                    "maximum": round(result.get("market_value", 0) * 1.10, 2),
+                    "minimum": round(market_value * 0.90, 2),
+                    "maximum": round(market_value * 1.10, 2),
                 },
                 "sample_size": result.get("sample_size", 0),
             },
@@ -485,36 +426,13 @@ class ValuationService:
                     "Depreciation model",
                 ],
                 "adjustments": result.get("adjustments", {}),
-                "engine_version": "AUTO-D AI Valuation Engine v1.2",
+                "engine_version": "AUTO-D AI Valuation Engine v2.0 (Fallback)",
             },
             "disclaimer": (
                 "This valuation is generated using the AUTO-D vehicle valuation "
                 "engine and should be treated as an indicative market estimate."
             )
         }
-        
-        # ─── SAVE TO HISTORY ─────────────────────────────────────────────
-        
-        if user_id:
-            await self._save_valuation_history(
-                user_id=user_id,
-                variant_id=variant_id,
-                report_number=report_number,
-                make=vehicle.get("make"),
-                model=vehicle.get("model"),
-                market_value=response["valuation"]["estimated_vehicle_value"],
-                retail_value=response["valuation"]["retail_value"],
-                trade_value=response["valuation"]["trade_value"],
-                confidence_score=response["valuation"]["confidence_score"],
-                year=year,
-                mileage=mileage,
-                location=location,
-                condition=condition,
-                accident_history=accident_history
-            )
-        
-        logger.info(f"Valuation report {report_number} generated successfully")
-        return response
     
     # ================================================================
     # BASE PRICE ESTIMATION
@@ -848,7 +766,7 @@ class ValuationService:
         return {
             "status": "healthy" if db_status == "healthy" else "degraded",
             "service": "valuation",
-            "version": "1.0",
+            "version": "2.0",
             "timestamp": datetime.utcnow().isoformat(),
             "database": db_status
         }
