@@ -1006,16 +1006,8 @@
 
         /* ═══════════════════════════════════════════════════════════
            PRINT LAYOUT — FIXED
-           Original block only overrode colors; it did not constrain
-           grid columns or shrink the large display numbers, so on a
-           real printed page width the valuation amount, value-range
-           label, and multi-column grids overflowed/clipped (see the
-           "KES 5,700" / "ESTIMATED V" truncation reported).
-           This version keeps every original color override and adds
-           print-specific sizing/wrapping/column rules underneath.
            ═══════════════════════════════════════════════════════════ */
         @media print {
-            /* ── Original color/visibility overrides (unchanged) ── */
             .calculator-panel, .action-bar, .report-footer, .auth-section { display: none !important; }
             .main-grid { display: block !important; }
             .results-panel { width: 100% !important; max-width: 100% !important; }
@@ -1041,11 +1033,9 @@
             .crsp-info h4 { color: #0e7490 !important; }
             .crsp-info .row .value { color: #0e7490 !important; }
 
-            /* ── NEW: layout fixes so nothing clips or overflows ── */
             .result-box { padding: 16px 20px !important; }
             .result-card, .result-box { break-inside: avoid !important; page-break-inside: avoid !important; }
 
-            /* Shrink the big value display so it never wraps/clips */
             .valuation-value,
             .valuation-value .amount {
                 font-size: 30px !important;
@@ -1057,7 +1047,6 @@
             .valuation-value .decimal { font-size: 18px !important; }
             .valuation-value-wrapper { padding: 12px 0 !important; }
 
-            /* Value range label/value were getting clipped */
             .value-range .label {
                 white-space: normal !important;
                 overflow-wrap: break-word !important;
@@ -1069,7 +1058,6 @@
                 overflow-wrap: break-word !important;
             }
 
-            /* Force grids to 2 columns max so cards don't overflow page width */
             .vehicle-details-grid,
             .result-card .vehicle-specs,
             .report-photos-grid {
@@ -1496,7 +1484,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> AI Valuation · Real-time Market Data · KRA CRSP Cross-Check<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.1
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.2
             </div>
         </footer>
     </div>
@@ -1504,7 +1492,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK
-        // Version 5.1 - Allows valuation even with flagged photos (with warnings)
+        // Version 5.2 - Updated to use new API schema
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -2061,6 +2049,7 @@
                 }
             }
 
+            // ─── UPDATED API CALL ────────────────────────────────────────
             async function apiRequest(endpoint, options = {}) {
                 const url = `${CONFIG.API_BASE}${endpoint}`;
                 const token = getAccessToken();
@@ -2085,244 +2074,44 @@
                 return response;
             }
 
-            // ─── POPULATE DROPDOWNS ──────────────────────────────────
-            function populateYearSelect() {
-                const select = el.yearSelect;
-                select.innerHTML = '';
-                const currentYear = new Date().getFullYear();
-                for (let y = currentYear; y >= 1990; y--) {
-                    const opt = document.createElement('option');
-                    opt.value = y;
-                    opt.textContent = y;
-                    if (y === currentYear - 10) opt.selected = true;
-                    select.appendChild(opt);
-                }
-            }
-
-            async function populateCategories() {
-                const select = el.categorySelect;
-                select.innerHTML = '<option value="">Select Category...</option>';
-                select.disabled = true;
-                const categories = await loadCategories();
-                if (!categories || categories.length === 0) {
-                    select.innerHTML = '<option value="">No categories available</option>';
-                    setStatus('warning', 'No categories found');
-                    return;
-                }
-                categories.forEach(cat => {
-                    const opt = document.createElement('option');
-                    opt.value = cat.id;
-                    opt.textContent = cat.name;
-                    select.appendChild(opt);
-                });
-                select.disabled = !isAuthenticated;
-                setStatus('success', `✅ Loaded ${categories.length} categories`);
-                updateFlowStep(1);
-            }
-
-            async function populateMakes(categoryId) {
-                const select = el.makeSelect;
-                select.innerHTML = '<option value="">Select Make...</option>';
-                select.disabled = true;
-                el.modelSelect.innerHTML = '<option value="">Select a make first</option>';
-                el.modelSelect.disabled = true;
-                el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
-                el.generationSelect.disabled = true;
-                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                el.variantSelect.disabled = true;
-                el.valuateBtn.disabled = true;
-                currentVariantData = null;
-                crspReferenceData = null;
-                el.crspInfo.classList.remove('show');
-                el.crspPill.classList.remove('show');
-                if (!categoryId || !isAuthenticated) return;
-                const makes = await loadMakes(categoryId);
-                if (!makes || makes.length === 0) {
-                    select.innerHTML = '<option value="">No makes available</option>';
-                    return;
-                }
-                makes.forEach(make => {
-                    const opt = document.createElement('option');
-                    opt.value = make.id;
-                    let label = make.name;
-                    if (make.country) label += ` (${make.country})`;
-                    opt.textContent = label;
-                    select.appendChild(opt);
-                });
-                select.disabled = false;
-                setStatus('success', `✅ Loaded ${makes.length} makes`);
-                updateFlowStep(2);
-            }
-
-            async function populateModels(makeId) {
-                const select = el.modelSelect;
-                select.innerHTML = '<option value="">Select Model...</option>';
-                select.disabled = true;
-                el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
-                el.generationSelect.disabled = true;
-                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                el.variantSelect.disabled = true;
-                el.valuateBtn.disabled = true;
-                currentVariantData = null;
-                crspReferenceData = null;
-                el.crspInfo.classList.remove('show');
-                el.crspPill.classList.remove('show');
-                if (!makeId || !isAuthenticated) return;
-                const models = await loadModels(makeId);
-                if (!models || models.length === 0) {
-                    select.innerHTML = '<option value="">No models available</option>';
-                    return;
-                }
-                models.forEach(model => {
-                    const opt = document.createElement('option');
-                    opt.value = model.id;
-                    let label = model.name;
-                    if (model.body_type) label += ` (${model.body_type})`;
-                    opt.textContent = label;
-                    select.appendChild(opt);
-                });
-                select.disabled = false;
-                setStatus('success', `✅ Loaded ${models.length} models`);
-                updateFlowStep(3);
-            }
-
-            async function populateGenerations(modelId) {
-                const select = el.generationSelect;
-                select.innerHTML = '<option value="">Select Generation...</option>';
-                select.disabled = true;
-                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
-                el.variantSelect.disabled = true;
-                el.valuateBtn.disabled = true;
-                currentVariantData = null;
-                crspReferenceData = null;
-                el.crspInfo.classList.remove('show');
-                el.crspPill.classList.remove('show');
-                if (!modelId || !isAuthenticated) return;
-                const generations = await loadGenerations(modelId);
-                if (!generations || generations.length === 0) {
-                    select.innerHTML = '<option value="">No generations available</option>';
-                    return;
-                }
-                generations.forEach(gen => {
-                    const opt = document.createElement('option');
-                    opt.value = gen.id;
-                    const label = `${gen.code || 'Gen'} (${gen.start_year} - ${gen.end_year || 'Present'})`;
-                    opt.textContent = label;
-                    select.appendChild(opt);
-                });
-                select.disabled = false;
-                setStatus('success', `✅ Loaded ${generations.length} generations`);
-                updateFlowStep(4);
-            }
-
-            async function populateVariants(generationId) {
-                const select = el.variantSelect;
-                select.innerHTML = '<option value="">Select Engine Capacity...</option>';
-                select.disabled = true;
-                el.valuateBtn.disabled = true;
-                currentVariantData = null;
-                crspReferenceData = null;
-                el.crspInfo.classList.remove('show');
-                el.crspPill.classList.remove('show');
-                if (!generationId || !isAuthenticated) return;
-                let variants = await loadVariants(generationId);
-                if (!variants || variants.length === 0) {
-                    select.innerHTML = '<option value="">No engine capacity options available</option>';
-                    return;
-                }
-                const groups = new Map();
-                variants.forEach(v => {
-                    const ccKey = (v.engine_size_cc !== null && v.engine_size_cc !== undefined && v.engine_size_cc !== '')
-                        ? String(v.engine_size_cc) : 'unknown';
-                    if (!groups.has(ccKey)) groups.set(ccKey, []);
-                    groups.get(ccKey).push(v);
-                });
-                const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
-                    if (a === 'unknown') return 1;
-                    if (b === 'unknown') return -1;
-                    return parseFloat(a) - parseFloat(b);
-                });
-                sortedKeys.forEach(cc => {
-                    const group = groups.get(cc);
-                    const rep = group[0];
-                    const opt = document.createElement('option');
-                    opt.value = rep.variant_id;
-                    opt.dataset.engineCc = cc;
-                    let label = cc === 'unknown' ? 'Engine capacity N/A' : `${cc}cc`;
-                    const hpValues = group.map(v => v.power_hp).filter(v => v);
-                    if (hpValues.length) {
-                        const avgHp = Math.round(hpValues.reduce((s, v) => s + v, 0) / hpValues.length);
-                        label += ` · ~${avgHp}hp`;
-                    }
-                    if (rep.fuel_type_name) label += ` — ${rep.fuel_type_name}`;
-                    if (rep.transmission_type_name) label += ` ${rep.transmission_type_name}`;
-                    if (group.length > 1) label += ` (${group.length} trims)`;
-                    opt.textContent = label;
-                    select.appendChild(opt);
-                });
-                select.disabled = false;
-                setStatus('success', `✅ Loaded ${sortedKeys.length} engine capacity options`);
-                updateFlowStep(5);
-            }
-
-            // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
-            function displayVehicleInfo(variant) {
-                const label = getVehicleName(
-                    variant.make_name || '',
-                    variant.model_name || '',
-                    variant.variant_name || ''
-                );
-                const cleanBody = cleanBodyType(variant.body_type_name || variant.model_body_type || '');
-                el.vehicleLabel.textContent = label || 'Unnamed variant';
-                const engineCC = variant.engine_size_cc || null;
-                if (engineCC) {
-                    el.engineCCDisplay.textContent = `${engineCC}cc`;
-                    el.engineCCDisplay.style.display = 'inline-block';
-                } else {
-                    el.engineCCDisplay.textContent = '—';
-                    el.engineCCDisplay.style.display = 'inline-block';
-                }
-                const specItems = [
-                    { label: '🔧', value: variant.trim_level || 'Standard' },
-                    { label: '⚡', value: `${variant.power_hp || 0} HP` },
-                    { label: '🔄', value: `${variant.torque_nm || 0} Nm` },
-                    { label: '⛽', value: `${variant.fuel_consumption_combined || 0} km/L` },
-                    { label: '💺', value: `${variant.seats || 5} seats` },
-                    { label: '🚪', value: `${variant.doors || 4} doors` },
-                    { label: '🚗', value: cleanBody || '—' }
-                ];
-                el.vehicleSpecs.innerHTML = specItems.map(item =>
-                    `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
-                ).join('');
-                updateFlowStep(6);
-            }
-
-            // ─── VALUATION API CALL ────────────────────────────────────
+            // ─── UPDATED VALUATION API CALL ──────────────────────────────
             async function callValuationAPI(formData) {
+                // Map to new API schema
                 const payload = {
-                    variant_id: formData.variant_id,
-                    registration: formData.registration || '',
-                    year: formData.year || 2020,
-                    mileage: formData.mileage || 50000,
-                    condition: formData.condition || 'good',
-                    accident_history: formData.accident_history || 'none',
-                    previous_owners: parseInt(formData.previous_owners) || 1,
-                    service_history: true,
-                    location: formData.location || 'nairobi',
-                    fuel_type: formData.fuel_type || 'petrol',
-                    transmission: formData.transmission || 'automatic',
-                    photo_authenticity_check: {
-                        total_uploaded: photos.filter(p => p.status !== 'empty').length,
-                        verified: photos.filter(p => p.status === 'verified').length,
-                        flagged: photos.filter(p => p.status === 'flagged').length,
-                        has_flagged: photos.some(p => p.status === 'flagged')
-                    }
+                    vehicle_crsp_id: parseInt(formData.variant_id) || 0,
+                    manufacture_year: parseInt(formData.year) || 2020,
+                    mileage_km: parseInt(formData.mileage) || 50000,
+                    vehicle_type: 'SEDAN', // Auto-detected from body type
+                    condition_name: (formData.condition || 'good').toUpperCase(),
+                    accident_status: (formData.accident_history || 'none').toUpperCase(),
+                    location_name: (formData.location || 'nairobi').toUpperCase(),
+                    profit_margin_percent: 5.00
                 };
+
+                // If we have variant data, try to determine vehicle type
+                if (currentVariantData) {
+                    const bodyType = (currentVariantData.body_type_name || '').toUpperCase();
+                    if (bodyType.includes('SUV') || bodyType.includes('CROSSOVER')) {
+                        payload.vehicle_type = 'SUV';
+                    } else if (bodyType.includes('PICKUP') || bodyType.includes('TRUCK')) {
+                        payload.vehicle_type = 'PICKUP';
+                    } else if (bodyType.includes('VAN') || bodyType.includes('MINIVAN')) {
+                        payload.vehicle_type = 'VAN';
+                    } else if (bodyType.includes('HATCHBACK')) {
+                        payload.vehicle_type = 'HATCHBACK';
+                    } else if (bodyType.includes('COUPE')) {
+                        payload.vehicle_type = 'COUPE';
+                    } else if (bodyType.includes('CONVERTIBLE')) {
+                        payload.vehicle_type = 'CONVERTIBLE';
+                    }
+                }
+
                 const response = await apiRequest('/valuation/calculate', {
                     method: 'POST',
                     body: JSON.stringify(payload),
                     signal: AbortSignal.timeout(45000)
                 });
+
                 if (!response.ok) {
                     let errorData;
                     try { errorData = await response.json(); } catch (e) { errorData = { message: `HTTP ${response.status}` }; }
@@ -2390,7 +2179,7 @@
                     clearInterval(stepInterval);
                     updateLoadingStep(3);
                     el.loadingSteps.classList.remove('show');
-                    if (result && (result.data || result.market_value || result.retail_value || result.valuation)) {
+                    if (result && (result.valuation || result.final_value || result.final_market_value)) {
                         showResult(result, registration, formData);
                         showToast('✅ Valuation complete!', 'success');
                     } else {
@@ -2403,13 +2192,11 @@
                 updateValuateButtonState();
             }
 
-            // ─── SHOW RESULT ──────────────────────────────────────────
+            // ─── UPDATED SHOW RESULT ──────────────────────────────────
             function showResult(result, registration, formData) {
                 formData = formData || {};
                 let data = result.data || result;
                 let currentValue = 0;
-                let retailValue = 0;
-                let tradeValue = 0;
                 let confidence = 75;
                 let vehicleName = '';
                 let year = '';
@@ -2427,11 +2214,10 @@
                     return formVal;
                 };
 
-                if (data.valuation && data.valuation.estimated_vehicle_value) {
+                // New API response structure
+                if (data.valuation) {
                     const val = data.valuation;
                     currentValue = val.estimated_vehicle_value || 0;
-                    retailValue = val.retail_value || currentValue * 1.08;
-                    tradeValue = val.trade_value || currentValue * 0.85;
                     confidence = val.confidence_score || 75;
                     reportNumber = data.report?.report_number || reportNumber;
                     adjustments = data.analysis?.adjustments || {};
@@ -2455,10 +2241,28 @@
                     fuelType = vFallback(apiVehicle.fuel_type, FUEL_TYPE_LABELS[el.fuelTypeSelect.value] || currentVariantData?.fuel_type_name) || '—';
                     transmission = vFallback(apiVehicle.transmission, TRANSMISSION_LABELS[el.transmissionSelect.value] || currentVariantData?.transmission_type_name) || '—';
                     engine = vFallback(apiVehicle.engine_size_cc ? `${apiVehicle.engine_size_cc}cc` : null, currentVariantData?.engine_size_cc ? `${currentVariantData.engine_size_cc}cc` : null) || '—';
+                } else if (data.final_market_value || data.final_value) {
+                    // Handle database-style response
+                    currentValue = data.final_market_value || data.final_value || 0;
+                    confidence = data.confidence_score || 75;
+                    adjustments = {
+                        mileage: data.mileage_adjustment || 0,
+                        condition: data.condition_adjustment || 0,
+                        accident: data.accident_adjustment || 0,
+                        location: data.location_adjustment || 0,
+                        market: data.market_adjustment || 0
+                    };
+                    vehicleName = `${data.make || ''} ${data.model || ''}`.trim() || 'Unknown Vehicle';
+                    year = data.manufacture_year || el.yearSelect.value || '—';
+                    mileage = data.mileage_km ? `${Number(data.mileage_km).toLocaleString('en-KE')} km` : '—';
+                    location = data.location_name || el.locationSelect.options[el.locationSelect.selectedIndex]?.text || '—';
+                    condition = data.condition_name || el.conditionSelect.options[el.conditionSelect.selectedIndex]?.text || '—';
+                    fuelType = currentVariantData?.fuel_type_name || '—';
+                    transmission = currentVariantData?.transmission_type_name || '—';
+                    engine = currentVariantData?.engine_size_cc ? `${currentVariantData.engine_size_cc}cc` : '—';
                 } else {
-                    currentValue = data.retail_value || data.market_value || data.trade_value || data.dealer_value || 0;
-                    retailValue = data.retail_value || currentValue * 1.08;
-                    tradeValue = data.trade_value || currentValue * 0.85;
+                    // Fallback
+                    currentValue = data.market_value || data.retail_value || data.trade_value || 0;
                     confidence = data.confidence_score || 75;
                     adjustments = data.adjustments || {};
                     vehicleName = getVehicleName(
@@ -2510,19 +2314,20 @@
                     'age': '📅 Age', 'mileage': '📊 Mileage', 'location': '📍 Location',
                     'fuel_type': '⛽ Fuel Type', 'transmission': '⚙️ Transmission',
                     'body_type': '🚗 Body Type', 'condition': '⭐ Condition',
-                    'accident': '⚠️ Accident History', 'previous_owners': '👤 Previous Owners'
+                    'accident': '⚠️ Accident History', 'previous_owners': '👤 Previous Owners',
+                    'market': '📈 Market'
                 };
                 let hasAdjustments = false;
                 for (const [key, value] of Object.entries(adjustments)) {
-                    if (value !== 1.0 && value !== undefined && labels[key]) {
+                    if (value !== 1.0 && value !== undefined && value !== 0 && labels[key]) {
                         hasAdjustments = true;
-                        const pct = (value - 1.0) * 100;
+                        const pct = typeof value === 'number' ? value * 100 : value;
                         const sign = pct > 0 ? '+' : '';
                         const cls = pct >= 0 ? 'positive' : 'negative';
                         adjList.innerHTML += `
                             <div class="adjustment-row">
                                 <span>${labels[key]}</span>
-                                <span class="adj-value ${cls}">${sign}${pct.toFixed(1)}%</span>
+                                <span class="adj-value ${cls}">${sign}${Math.abs(pct).toFixed(1)}%</span>
                             </div>
                         `;
                     }
@@ -2757,6 +2562,218 @@
                 el.valuateBtn.innerHTML = '🚀 Get AI Valuation';
             }
 
+            // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
+            function displayVehicleInfo(variant) {
+                const label = getVehicleName(
+                    variant.make_name || '',
+                    variant.model_name || '',
+                    variant.variant_name || ''
+                );
+                const cleanBody = cleanBodyType(variant.body_type_name || variant.model_body_type || '');
+                el.vehicleLabel.textContent = label || 'Unnamed variant';
+                const engineCC = variant.engine_size_cc || null;
+                if (engineCC) {
+                    el.engineCCDisplay.textContent = `${engineCC}cc`;
+                    el.engineCCDisplay.style.display = 'inline-block';
+                } else {
+                    el.engineCCDisplay.textContent = '—';
+                    el.engineCCDisplay.style.display = 'inline-block';
+                }
+                const specItems = [
+                    { label: '🔧', value: variant.trim_level || 'Standard' },
+                    { label: '⚡', value: `${variant.power_hp || 0} HP` },
+                    { label: '🔄', value: `${variant.torque_nm || 0} Nm` },
+                    { label: '⛽', value: `${variant.fuel_consumption_combined || 0} km/L` },
+                    { label: '💺', value: `${variant.seats || 5} seats` },
+                    { label: '🚪', value: `${variant.doors || 4} doors` },
+                    { label: '🚗', value: cleanBody || '—' }
+                ];
+                el.vehicleSpecs.innerHTML = specItems.map(item =>
+                    `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
+                ).join('');
+                updateFlowStep(6);
+            }
+
+            // ─── POPULATE DROPDOWNS ──────────────────────────────────
+            function populateYearSelect() {
+                const select = el.yearSelect;
+                select.innerHTML = '';
+                const currentYear = new Date().getFullYear();
+                for (let y = currentYear; y >= 1990; y--) {
+                    const opt = document.createElement('option');
+                    opt.value = y;
+                    opt.textContent = y;
+                    if (y === currentYear - 10) opt.selected = true;
+                    select.appendChild(opt);
+                }
+            }
+
+            async function populateCategories() {
+                const select = el.categorySelect;
+                select.innerHTML = '<option value="">Select Category...</option>';
+                select.disabled = true;
+                const categories = await loadCategories();
+                if (!categories || categories.length === 0) {
+                    select.innerHTML = '<option value="">No categories available</option>';
+                    setStatus('warning', 'No categories found');
+                    return;
+                }
+                categories.forEach(cat => {
+                    const opt = document.createElement('option');
+                    opt.value = cat.id;
+                    opt.textContent = cat.name;
+                    select.appendChild(opt);
+                });
+                select.disabled = !isAuthenticated;
+                setStatus('success', `✅ Loaded ${categories.length} categories`);
+                updateFlowStep(1);
+            }
+
+            async function populateMakes(categoryId) {
+                const select = el.makeSelect;
+                select.innerHTML = '<option value="">Select Make...</option>';
+                select.disabled = true;
+                el.modelSelect.innerHTML = '<option value="">Select a make first</option>';
+                el.modelSelect.disabled = true;
+                el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
+                el.generationSelect.disabled = true;
+                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.variantSelect.disabled = true;
+                el.valuateBtn.disabled = true;
+                currentVariantData = null;
+                crspReferenceData = null;
+                el.crspInfo.classList.remove('show');
+                el.crspPill.classList.remove('show');
+                if (!categoryId || !isAuthenticated) return;
+                const makes = await loadMakes(categoryId);
+                if (!makes || makes.length === 0) {
+                    select.innerHTML = '<option value="">No makes available</option>';
+                    return;
+                }
+                makes.forEach(make => {
+                    const opt = document.createElement('option');
+                    opt.value = make.id;
+                    let label = make.name;
+                    if (make.country) label += ` (${make.country})`;
+                    opt.textContent = label;
+                    select.appendChild(opt);
+                });
+                select.disabled = false;
+                setStatus('success', `✅ Loaded ${makes.length} makes`);
+                updateFlowStep(2);
+            }
+
+            async function populateModels(makeId) {
+                const select = el.modelSelect;
+                select.innerHTML = '<option value="">Select Model...</option>';
+                select.disabled = true;
+                el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
+                el.generationSelect.disabled = true;
+                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.variantSelect.disabled = true;
+                el.valuateBtn.disabled = true;
+                currentVariantData = null;
+                crspReferenceData = null;
+                el.crspInfo.classList.remove('show');
+                el.crspPill.classList.remove('show');
+                if (!makeId || !isAuthenticated) return;
+                const models = await loadModels(makeId);
+                if (!models || models.length === 0) {
+                    select.innerHTML = '<option value="">No models available</option>';
+                    return;
+                }
+                models.forEach(model => {
+                    const opt = document.createElement('option');
+                    opt.value = model.id;
+                    let label = model.name;
+                    if (model.body_type) label += ` (${model.body_type})`;
+                    opt.textContent = label;
+                    select.appendChild(opt);
+                });
+                select.disabled = false;
+                setStatus('success', `✅ Loaded ${models.length} models`);
+                updateFlowStep(3);
+            }
+
+            async function populateGenerations(modelId) {
+                const select = el.generationSelect;
+                select.innerHTML = '<option value="">Select Generation...</option>';
+                select.disabled = true;
+                el.variantSelect.innerHTML = '<option value="">Select a generation first</option>';
+                el.variantSelect.disabled = true;
+                el.valuateBtn.disabled = true;
+                currentVariantData = null;
+                crspReferenceData = null;
+                el.crspInfo.classList.remove('show');
+                el.crspPill.classList.remove('show');
+                if (!modelId || !isAuthenticated) return;
+                const generations = await loadGenerations(modelId);
+                if (!generations || generations.length === 0) {
+                    select.innerHTML = '<option value="">No generations available</option>';
+                    return;
+                }
+                generations.forEach(gen => {
+                    const opt = document.createElement('option');
+                    opt.value = gen.id;
+                    const label = `${gen.code || 'Gen'} (${gen.start_year} - ${gen.end_year || 'Present'})`;
+                    opt.textContent = label;
+                    select.appendChild(opt);
+                });
+                select.disabled = false;
+                setStatus('success', `✅ Loaded ${generations.length} generations`);
+                updateFlowStep(4);
+            }
+
+            async function populateVariants(generationId) {
+                const select = el.variantSelect;
+                select.innerHTML = '<option value="">Select Engine Capacity...</option>';
+                select.disabled = true;
+                el.valuateBtn.disabled = true;
+                currentVariantData = null;
+                crspReferenceData = null;
+                el.crspInfo.classList.remove('show');
+                el.crspPill.classList.remove('show');
+                if (!generationId || !isAuthenticated) return;
+                let variants = await loadVariants(generationId);
+                if (!variants || variants.length === 0) {
+                    select.innerHTML = '<option value="">No engine capacity options available</option>';
+                    return;
+                }
+                const groups = new Map();
+                variants.forEach(v => {
+                    const ccKey = (v.engine_size_cc !== null && v.engine_size_cc !== undefined && v.engine_size_cc !== '')
+                        ? String(v.engine_size_cc) : 'unknown';
+                    if (!groups.has(ccKey)) groups.set(ccKey, []);
+                    groups.get(ccKey).push(v);
+                });
+                const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
+                    if (a === 'unknown') return 1;
+                    if (b === 'unknown') return -1;
+                    return parseFloat(a) - parseFloat(b);
+                });
+                sortedKeys.forEach(cc => {
+                    const group = groups.get(cc);
+                    const rep = group[0];
+                    const opt = document.createElement('option');
+                    opt.value = rep.variant_id;
+                    opt.dataset.engineCc = cc;
+                    let label = cc === 'unknown' ? 'Engine capacity N/A' : `${cc}cc`;
+                    const hpValues = group.map(v => v.power_hp).filter(v => v);
+                    if (hpValues.length) {
+                        const avgHp = Math.round(hpValues.reduce((s, v) => s + v, 0) / hpValues.length);
+                        label += ` · ~${avgHp}hp`;
+                    }
+                    if (rep.fuel_type_name) label += ` — ${rep.fuel_type_name}`;
+                    if (rep.transmission_type_name) label += ` ${rep.transmission_type_name}`;
+                    if (group.length > 1) label += ` (${group.length} trims)`;
+                    opt.textContent = label;
+                    select.appendChild(opt);
+                });
+                select.disabled = false;
+                setStatus('success', `✅ Loaded ${sortedKeys.length} engine capacity options`);
+                updateFlowStep(5);
+            }
+
             // ─── EVENT LISTENERS ─────────────────────────────────────────
             function initEventListeners() {
                 el.btnSignIn.addEventListener('click', () => {
@@ -2917,10 +2934,11 @@
                     el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
                         year: 'numeric', month: 'short', day: 'numeric'
                     });
-                    console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.1)');
+                    console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.2)');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🏛️ CRSP Table: ${CONFIG.CRSP_TABLE_NAME}`);
                     console.log(`📷 Photo screening: Flagged photos allow valuation with warning`);
+                    console.log(`🔗 API: ${CONFIG.API_BASE}/valuation/calculate`);
                 } catch (error) {
                     console.error('Init error:', error);
                     setStatus('error', "Something went wrong — please refresh");
