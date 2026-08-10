@@ -6,7 +6,7 @@
 
 import logging
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 import secrets
 
 from app.modules.valuation.engine import ValuationEngine
@@ -73,7 +73,7 @@ class ValuationService:
             profit_margin_percent: Profit margin percentage for valuation
             
         Returns:
-            Dict[str, Any]: Complete valuation report
+            Dict[str, Any]: Complete valuation report matching ValuationReportResponse
             
         Raises:
             NotFoundException: If vehicle data cannot be found
@@ -249,6 +249,7 @@ class ValuationService:
             # Extract values from result
             final_value = float(result_data.get("final_value", 0))
             fair_market_value = float(result_data.get("fair_market_value", final_value))
+            confidence_score = int(result_data.get("confidence_score", 65))
             
             # ─── GENERATE REPORT NUMBER ──────────────────────────────────
             
@@ -257,58 +258,78 @@ class ValuationService:
             report_number = f"AUTO-VAL-{timestamp}-{random_suffix}"
             
             # ─── BUILD FINAL RESPONSE ────────────────────────────────────
+            # Must match ValuationReportResponse schema
+            
+            now = datetime.utcnow()
+            
+            # Build the vehicle info with crsp_id (required by schema)
+            vehicle_info = {
+                "crsp_id": variant_id,
+                "variant_id": variant_id,
+                "make": vehicle.get("make"),
+                "model": vehicle.get("model"),
+                "variant_name": vehicle.get("variant_name"),
+                "year": year,
+                "fuel_type": vehicle.get("fuel_type"),
+                "transmission": vehicle.get("transmission"),
+                "engine_size_cc": vehicle.get("engine_size_cc"),
+                "body_type": vehicle.get("body_type"),
+            }
             
             response = {
-                "report": {
-                    "title": "AUTO-D Vehicle Valuation Report",
-                    "report_number": report_number,
-                    "generated_at": datetime.utcnow(),
-                    "status": "completed",
-                    "version": "1.0",
-                    "description": f"{vehicle['make']} {vehicle['model']} valuation",
-                },
-                "vehicle": {
-                    "variant_id": variant_id,
-                    "make": vehicle.get("make"),
-                    "model": vehicle.get("model"),
-                    "variant_name": vehicle.get("variant_name"),
-                    "year": year,
-                    "fuel_type": vehicle.get("fuel_type"),
-                    "transmission": vehicle.get("transmission"),
-                    "engine_size_cc": vehicle.get("engine_size_cc"),
-                    "body_type": vehicle.get("body_type"),
-                },
+                # Report metadata - flattened
+                "report_number": report_number,
+                "generated_at": now,
+                "status": "completed",
+                "version": "2.0",
+                
+                # Vehicle information
+                "vehicle": vehicle_info,
+                
+                # Valuation results
                 "valuation": {
-                    "estimated_vehicle_value": round(final_value, 2),
+                    "vehicle": vehicle_info,
+                    "market_value": round(final_value, 2),
                     "retail_value": round(final_value * 1.08, 2),
                     "trade_value": round(final_value * 0.85, 2),
                     "dealer_value": round(final_value * 0.95, 2),
+                    "recommended_selling_price": round(final_value * 1.10, 2),
                     "currency": "KES",
-                    "confidence_score": int(result_data.get("confidence_score", 65)),
+                    "confidence_score": confidence_score,
                     "estimated_value_range": {
                         "minimum": round(final_value * 0.90, 2),
                         "maximum": round(final_value * 1.10, 2),
                     },
                     "sample_size": 0,
+                    "adjustments": [],
+                    "comparables": [],
+                    "warnings": [],
+                    "calculated_at": now,
                 },
+                
+                # Flattened value fields (required by ValuationReportResponse)
+                "market_value": round(final_value, 2),
+                "retail_value": round(final_value * 1.08, 2),
+                "trade_value": round(final_value * 0.85, 2),
+                "dealer_value": round(final_value * 0.95, 2),
+                "confidence_score": confidence_score,
+                "calculated_at": now,
+                
+                # Adjustments and comparables
+                "adjustments": [],
                 "comparables": [],
-                "analysis": {
-                    "valuation_methodology": [
-                        "Vehicle age",
-                        "Mileage",
-                        "Vehicle condition",
-                        "Market comparison",
-                        "Depreciation model",
-                    ],
-                    "adjustments": {
-                        "mileage": 0,
-                        "condition": 0,
-                        "accident": 0,
-                        "location": 0,
-                        "market": 0,
-                    },
-                    "engine_version": "AUTO-D AI Valuation Engine v2.0",
-                },
+                
+                # Analysis
+                "recommendation": None,
+                "warnings": [],
+                
+                # Currency
+                "currency": "KES",
+                
+                # Depreciation (optional)
+                "depreciation": None,
+                
+                # Disclaimer
                 "disclaimer": (
                     "This valuation is generated using the AUTO-D vehicle valuation "
                     "engine and should be treated as an indicative market estimate."
@@ -324,10 +345,10 @@ class ValuationService:
                     report_number=report_number,
                     make=vehicle.get("make"),
                     model=vehicle.get("model"),
-                    market_value=response["valuation"]["estimated_vehicle_value"],
-                    retail_value=response["valuation"]["retail_value"],
-                    trade_value=response["valuation"]["trade_value"],
-                    confidence_score=response["valuation"]["confidence_score"],
+                    market_value=response["market_value"],
+                    retail_value=response["retail_value"],
+                    trade_value=response["trade_value"],
+                    confidence_score=response["confidence_score"],
                     year=year,
                     mileage=mileage,
                     location=location,
@@ -382,32 +403,40 @@ class ValuationService:
         report_number = f"AUTO-VAL-{timestamp}-{random_suffix}"
         
         market_value = result.get("market_value", 0)
+        now = datetime.utcnow()
+        
+        # Build vehicle info with crsp_id
+        vehicle_info = {
+            "crsp_id": variant_id,
+            "variant_id": variant_id,
+            "make": vehicle.get("make"),
+            "model": vehicle.get("model"),
+            "variant_name": vehicle.get("variant_name"),
+            "year": year,
+            "fuel_type": vehicle.get("fuel_type"),
+            "transmission": vehicle.get("transmission"),
+            "engine_size_cc": vehicle.get("engine_size_cc"),
+            "body_type": vehicle.get("body_type"),
+        }
         
         return {
-            "report": {
-                "title": "AUTO-D Vehicle Valuation Report",
-                "report_number": report_number,
-                "generated_at": datetime.utcnow(),
-                "status": "completed",
-                "version": "1.0",
-                "description": f"{vehicle.get('make')} {vehicle.get('model')} valuation",
-            },
-            "vehicle": {
-                "variant_id": variant_id,
-                "make": vehicle.get("make"),
-                "model": vehicle.get("model"),
-                "variant_name": vehicle.get("variant_name"),
-                "year": year,
-                "fuel_type": vehicle.get("fuel_type"),
-                "transmission": vehicle.get("transmission"),
-                "engine_size_cc": vehicle.get("engine_size_cc"),
-                "body_type": vehicle.get("body_type"),
-            },
+            # Report metadata - flattened
+            "report_number": report_number,
+            "generated_at": now,
+            "status": "completed",
+            "version": "2.0",
+            
+            # Vehicle information
+            "vehicle": vehicle_info,
+            
+            # Valuation results
             "valuation": {
-                "estimated_vehicle_value": round(market_value, 2),
+                "vehicle": vehicle_info,
+                "market_value": round(market_value, 2),
                 "retail_value": round(market_value * 1.08, 2),
                 "trade_value": round(market_value * 0.85, 2),
                 "dealer_value": round(market_value * 0.95, 2),
+                "recommended_selling_price": round(market_value * 1.10, 2),
                 "currency": "KES",
                 "confidence_score": int(result.get("confidence_score", 40)),
                 "estimated_value_range": {
@@ -415,19 +444,35 @@ class ValuationService:
                     "maximum": round(market_value * 1.10, 2),
                 },
                 "sample_size": result.get("sample_size", 0),
+                "adjustments": [],
+                "comparables": result.get("comparables", []),
+                "warnings": [],
+                "calculated_at": now,
             },
+            
+            # Flattened value fields
+            "market_value": round(market_value, 2),
+            "retail_value": round(market_value * 1.08, 2),
+            "trade_value": round(market_value * 0.85, 2),
+            "dealer_value": round(market_value * 0.95, 2),
+            "confidence_score": int(result.get("confidence_score", 40)),
+            "calculated_at": now,
+            
+            # Adjustments and comparables
+            "adjustments": [],
             "comparables": result.get("comparables", []),
-            "analysis": {
-                "valuation_methodology": [
-                    "Vehicle age",
-                    "Mileage",
-                    "Vehicle condition",
-                    "Market comparison",
-                    "Depreciation model",
-                ],
-                "adjustments": result.get("adjustments", {}),
-                "engine_version": "AUTO-D AI Valuation Engine v2.0 (Fallback)",
-            },
+            
+            # Analysis
+            "recommendation": None,
+            "warnings": [],
+            
+            # Currency
+            "currency": "KES",
+            
+            # Depreciation (optional)
+            "depreciation": None,
+            
+            # Disclaimer
             "disclaimer": (
                 "This valuation is generated using the AUTO-D vehicle valuation "
                 "engine and should be treated as an indicative market estimate."
