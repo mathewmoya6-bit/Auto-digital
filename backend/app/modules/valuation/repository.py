@@ -24,10 +24,13 @@ class ValuationRepository:
     - Valuation calculation via PostgreSQL RPC
     """
     
+    # ✅ FIXED: Use the correct table name
+    CRSP_TABLE = "vehicle_crsp_prices"  # Was "vehicle_base_prices"
+    
     def __init__(self):
         """Initialize the repository."""
         self.supabase = get_supabase()
-        logger.info("ValuationRepository initialized")
+        logger.info(f"ValuationRepository initialized (using table: {self.CRSP_TABLE})")
     
     # ================================================================
     # MAIN VALUATION CALCULATION
@@ -92,12 +95,24 @@ class ValuationRepository:
         try:
             response = (
                 self.supabase
-                .table("vehicle_base_prices")
+                .table(self.CRSP_TABLE)  # ✅ FIXED: Use CRSP_TABLE constant
                 .select("*")
-                .eq("crsp_id", vehicle_crsp_id)
+                .eq("id", vehicle_crsp_id)  # ✅ FIXED: Use 'id' column (not 'crsp_id')
                 .limit(1)
                 .execute()
             )
+            
+            if not response.data:
+                # Try with 'crsp_id' column as fallback
+                logger.info(f"No result with 'id' column, trying 'crsp_id'")
+                response = (
+                    self.supabase
+                    .table(self.CRSP_TABLE)
+                    .select("*")
+                    .eq("crsp_id", vehicle_crsp_id)
+                    .limit(1)
+                    .execute()
+                )
             
             if not response.data:
                 raise NotFoundException(
@@ -445,14 +460,27 @@ class ValuationRepository:
         """
         
         try:
+            # Try with 'id' column first
             response = (
                 self.supabase
-                .table("vehicle_base_prices")
+                .table(self.CRSP_TABLE)
                 .select("*")
-                .eq("crsp_id", vehicle_crsp_id)
+                .eq("id", vehicle_crsp_id)
                 .limit(1)
                 .execute()
             )
+            
+            # If no result, try with 'crsp_id' column
+            if not response.data:
+                logger.info(f"No result with 'id' column, trying 'crsp_id'")
+                response = (
+                    self.supabase
+                    .table(self.CRSP_TABLE)
+                    .select("*")
+                    .eq("crsp_id", vehicle_crsp_id)
+                    .limit(1)
+                    .execute()
+                )
             
             if not response.data:
                 raise NotFoundException(
