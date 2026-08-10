@@ -23,7 +23,7 @@ class ValuationService:
     
     Handles:
     - Vehicle valuation calculation
-    - Vehicle data retrieval from vehicle_master_specs
+    - Vehicle data retrieval from vehicle_base_prices (CRSP)
     - Report generation
     - History management
     - Statistics
@@ -42,7 +42,7 @@ class ValuationService:
     
     async def calculate_valuation(
         self,
-        variant_id: int,
+        vehicle_crsp_id: int,  # Changed from variant_id
         year: int,
         mileage: int,
         condition: str = "good",
@@ -59,7 +59,7 @@ class ValuationService:
         Calculate vehicle valuation.
         
         Args:
-            variant_id: Vehicle variant ID
+            vehicle_crsp_id: Vehicle CRSP ID from vehicle_base_prices
             year: Vehicle year of manufacture
             mileage: Odometer reading in km
             condition: Vehicle condition (excellent, very_good, good, fair, poor)
@@ -80,12 +80,12 @@ class ValuationService:
             ValidationException: If input validation fails
         """
         
-        logger.info(f"Starting valuation calculation for variant_id: {variant_id}")
+        logger.info(f"Starting valuation calculation for vehicle_crsp_id: {vehicle_crsp_id}")
         
         # ─── VALIDATION ──────────────────────────────────────────────────
         
-        if not variant_id or variant_id <= 0:
-            raise ValidationException("Valid variant ID required")
+        if not vehicle_crsp_id or vehicle_crsp_id <= 0:
+            raise ValidationException("Valid vehicle CRSP ID required")
         
         if year < 1980 or year > datetime.now().year + 1:
             raise ValidationException(f"Invalid year: {year}")
@@ -125,61 +125,59 @@ class ValuationService:
         accident_history_db = accident_map.get(accident_history, "NONE")
         
         logger.info(
-            f"Valuation request: variant_id={variant_id}, year={year}, "
+            f"Valuation request: vehicle_crsp_id={vehicle_crsp_id}, year={year}, "
             f"mileage={mileage}, condition={condition_db}, "
             f"accident={accident_history_db}"
         )
         
-        # ─── GET VEHICLE DATA FROM vehicle_master_specs ─────────────────
+        # ─── GET VEHICLE DATA FROM CRSP ────────────────────────────────
         
         try:
-            # Try with variant_id column
-            variant_response = (
-                self.supabase
-                .table("vehicle_master_specs")
-                .select("*")
-                .eq("variant_id", variant_id)
-                .limit(1)
-                .execute()
-            )
-            
-            # If no result, try with id column
-            if not variant_response.data:
-                logger.info(f"No result with variant_id, trying with id column")
-                variant_response = (
-                    self.supabase
-                    .table("vehicle_master_specs")
-                    .select("*")
-                    .eq("id", variant_id)
-                    .limit(1)
-                    .execute()
-                )
-            
-            if not variant_response.data:
-                logger.error(f"Vehicle variant {variant_id} not found in vehicle_master_specs")
-                raise NotFoundException(f"Vehicle variant {variant_id} not found")
-            
-            variant_data = variant_response.data[0]
-            logger.info(f"Found vehicle: {variant_data.get('make_name')} {variant_data.get('model_name')}")
+            crsp_vehicle = self._get_crsp_vehicle(vehicle_crsp_id)
+            crsp_price = self._get_crsp_price(crsp_vehicle)
             
         except NotFoundException:
             raise
         except Exception as e:
-            logger.error(f"Error fetching variant {variant_id}: {str(e)}")
-            raise NotFoundException(f"Failed to fetch variant: {str(e)}")
+            logger.error(f"Error fetching CRSP vehicle {vehicle_crsp_id}: {str(e)}")
+            raise NotFoundException(f"Failed to fetch CRSP vehicle: {str(e)}")
         
-        # ─── BUILD VEHICLE OBJECT ───────────────────────────────────────
+        # ─── BUILD VEHICLE OBJECT FROM CRSP ───────────────────────────
         
         vehicle = {
-            "variant_id": variant_id,
-            "make": variant_data.get("make_name"),
-            "model": variant_data.get("model_name"),
-            "variant_name": variant_data.get("variant_name"),
+            "crsp_id": vehicle_crsp_id,
+            "make": (
+                crsp_vehicle.get("make")
+                or crsp_vehicle.get("make_name")
+            ),
+            "model": (
+                crsp_vehicle.get("model")
+                or crsp_vehicle.get("model_name")
+            ),
+            "variant_name": (
+                crsp_vehicle.get("variant")
+                or crsp_vehicle.get("variant_name")
+            ),
+            "fuel_type": (
+                crsp_vehicle.get("crsp_fuel")
+                or crsp_vehicle.get("fuel_type")
+                or crsp_vehicle.get("fuel_type_name")
+            ),
+            "transmission": (
+                crsp_vehicle.get("transmission")
+                or crsp_vehicle.get("transmission_type_name")
+            ),
+            "engine_size_cc": (
+                crsp_vehicle.get("engine_capacity_cc")
+                or crsp_vehicle.get("engine_capacity")
+                or crsp_vehicle.get("engine_size_cc")
+            ),
+            "body_type": (
+                crsp_vehicle.get("body_type")
+                or crsp_vehicle.get("body_type_name")
+            ),
+            "crsp_price": crsp_price,
             "year": year,
-            "fuel_type": variant_data.get("fuel_type_name"),
-            "transmission": variant_data.get("transmission_type_name"),
-            "engine_size_cc": variant_data.get("engine_size_cc"),
-            "body_type": variant_data.get("body_type_name"),
         }
         
         # Override with provided values if available
@@ -190,17 +188,14 @@ class ValuationService:
         
         logger.info(f"Vehicle: {vehicle['make']} {vehicle['model']} ({vehicle['variant_name']})")
         
-        # ─── RESOLVE CRSP ID ────────────────────────────────────────────
+        # ─── DETERMINE VEHICLE TYPE ───────────────────────────────────
         
-        # The repository expects vehicle_crsp_id directly
-        # Use variant_id as CRSP ID (consistent with previous implementation)
-        vehicle_crsp_id = variant_id
-        
-        # Determine vehicle type from body type or use default
+        # Use the vehicle_type from request if provided, otherwise infer from body_type
         vehicle_type = "SEDAN"  # Default
-        body_type = variant_data.get("body_type_name", "").upper()
         
-        # Map body type to vehicle type categories
+        # If we have a body_type, try to map it
+        body_type = (vehicle.get("body_type") or "").upper()
+        
         if "SUV" in body_type or "CROSSOVER" in body_type:
             vehicle_type = "SUV"
         elif "PICKUP" in body_type or "TRUCK" in body_type:
@@ -215,6 +210,8 @@ class ValuationService:
             vehicle_type = "COUPE"
         elif "CONVERTIBLE" in body_type:
             vehicle_type = "CONVERTIBLE"
+        
+        logger.info(f"Vehicle type: {vehicle_type}")
         
         # ─── CALL REPOSITORY FOR VALUATION ──────────────────────────────
         
@@ -264,8 +261,8 @@ class ValuationService:
             
             # Build the vehicle info with crsp_id (required by schema)
             vehicle_info = {
-                "crsp_id": variant_id,
-                "variant_id": variant_id,
+                "crsp_id": vehicle_crsp_id,
+                "variant_id": vehicle_crsp_id,
                 "make": vehicle.get("make"),
                 "model": vehicle.get("model"),
                 "variant_name": vehicle.get("variant_name"),
@@ -341,7 +338,7 @@ class ValuationService:
             if user_id:
                 await self._save_valuation_history(
                     user_id=user_id,
-                    variant_id=variant_id,
+                    variant_id=vehicle_crsp_id,
                     report_number=report_number,
                     make=vehicle.get("make"),
                     model=vehicle.get("model"),
@@ -379,11 +376,107 @@ class ValuationService:
             fallback_response = self._build_response_from_result(
                 fallback_result,
                 vehicle,
-                variant_id,
+                vehicle_crsp_id,
                 year
             )
             
             return fallback_response
+    
+    # ================================================================
+    # CRSP VEHICLE LOOKUP
+    # ================================================================
+    
+    def _get_crsp_vehicle(
+        self,
+        vehicle_crsp_id: int
+    ) -> Dict[str, Any]:
+        """
+        Get vehicle directly from the new CRSP master database.
+        """
+        try:
+            response = (
+                self.supabase
+                .table("vehicle_base_prices")
+                .select("*")
+                .eq("crsp_id", vehicle_crsp_id)
+                .limit(1)
+                .execute()
+            )
+
+            if not response.data:
+                raise NotFoundException(
+                    f"CRSP vehicle {vehicle_crsp_id} not found"
+                )
+
+            vehicle = response.data[0]
+
+            logger.info(
+                "CRSP vehicle found: crsp_id=%s make=%s model=%s",
+                vehicle_crsp_id,
+                vehicle.get("make"),
+                vehicle.get("model"),
+            )
+
+            return vehicle
+
+        except NotFoundException:
+            raise
+
+        except Exception as exc:
+            logger.exception(
+                "Failed to fetch CRSP vehicle %s",
+                vehicle_crsp_id,
+            )
+
+            raise NotFoundException(
+                f"Failed to fetch CRSP vehicle {vehicle_crsp_id}: {exc}"
+            )
+    
+    # ================================================================
+    # CRSP PRICE EXTRACTION
+    # ================================================================
+    
+    def _get_crsp_price(
+        self,
+        crsp_vehicle: Dict[str, Any]
+    ) -> float:
+        """
+        Extract the CRSP base price from the new CRSP record.
+        """
+        price_fields = (
+            "crsp_price",
+            "crsp_kes",
+            "base_price",
+            "price",
+            "market_value",
+            "retail_price",
+        )
+
+        for field in price_fields:
+            value = crsp_vehicle.get(field)
+
+            if value is None:
+                continue
+
+            try:
+                price = float(value)
+
+                if price > 0:
+                    return price
+
+            except (TypeError, ValueError):
+                continue
+
+        logger.error(
+            "CRSP vehicle %s has no valid price: %s",
+            crsp_vehicle.get("crsp_id"),
+            crsp_vehicle,
+        )
+
+        raise ValidationException(
+            f"CRSP vehicle {crsp_vehicle.get('crsp_id')} "
+            "does not have a valid CRSP price"
+        )
     
     # ================================================================
     # RESPONSE BUILDER
@@ -393,7 +486,7 @@ class ValuationService:
         self,
         result: Dict[str, Any],
         vehicle: Dict[str, Any],
-        variant_id: int,
+        vehicle_crsp_id: int,
         year: int
     ) -> Dict[str, Any]:
         """Build a valuation response from a result dictionary."""
@@ -407,8 +500,8 @@ class ValuationService:
         
         # Build vehicle info with crsp_id
         vehicle_info = {
-            "crsp_id": variant_id,
-            "variant_id": variant_id,
+            "crsp_id": vehicle_crsp_id,
+            "variant_id": vehicle_crsp_id,
             "make": vehicle.get("make"),
             "model": vehicle.get("model"),
             "variant_name": vehicle.get("variant_name"),
@@ -480,7 +573,7 @@ class ValuationService:
         }
     
     # ================================================================
-    # BASE PRICE ESTIMATION
+    # BASE PRICE ESTIMATION (Fallback)
     # ================================================================
     
     def _estimate_base_price(self, vehicle: Dict[str, Any], year: int) -> float:
@@ -801,8 +894,8 @@ class ValuationService:
             Dict[str, Any]: Health status
         """
         try:
-            # Check database connection
-            self.supabase.table("vehicle_master_specs").select("variant_id").limit(1).execute()
+            # Check database connection using vehicle_base_prices
+            self.supabase.table("vehicle_base_prices").select("crsp_id").limit(1).execute()
             db_status = "healthy"
         except Exception as e:
             logger.error(f"Database health check failed: {str(e)}")
