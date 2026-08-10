@@ -1,694 +1,369 @@
+```python
 # app/modules/valuation/models.py
 
-"""
-Auto-D Kenya - Valuation Models
+# ================================================================
+# Auto-D Kenya - Valuation Models
+# ================================================================
 
-These models are aligned with the current PostgreSQL
-calculate_vehicle_valuation() function.
-
-Architecture:
-
-```
-PostgreSQL valuation function
-          ↓
-VehicleValuationResult
-          ↓
-   ValuationReport
-          ↓
-Analysis / Comparables / History
-```
-
-"""
-
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 
 from pydantic import BaseModel, Field, ConfigDict
 
-# ================================================================
-
-# 1. DATABASE VALUATION RESULT
 
 # ================================================================
-
-class VehicleValuationResult(BaseModel):
-"""
-Exact application representation of the result returned by:
-
-```
-    public.calculate_vehicle_valuation()
-
-PostgreSQL is the single source of truth for the valuation
-calculations.
-"""
-
-model_config = ConfigDict(
-    from_attributes=True
-)
-
-# ------------------------------------------------------------
-# Identification
-# ------------------------------------------------------------
-
-valuation_id: int = Field(
-    ...,
-    description="Primary valuation result ID"
-)
-
-vehicle_crsp_id: int = Field(
-    ...,
-    gt=0,
-    description="CRSP vehicle price ID"
-)
-
-# ------------------------------------------------------------
-# Vehicle
-# ------------------------------------------------------------
-
-make: str = Field(
-    ...,
-    description="Vehicle manufacturer"
-)
-
-model: str = Field(
-    ...,
-    description="Vehicle model / variant"
-)
-
-manufacture_year: int = Field(
-    ...,
-    ge=1900,
-    description="Vehicle manufacture year"
-)
-
-vehicle_age: int = Field(
-    ...,
-    ge=0,
-    description="Calculated vehicle age"
-)
-
-# ------------------------------------------------------------
-# CRSP
-# ------------------------------------------------------------
-
-crsp_value: Decimal = Field(
-    ...,
-    ge=0,
-    description="Current CRSP value in KES"
-)
-
-# ------------------------------------------------------------
-# Depreciation
-# ------------------------------------------------------------
-
-depreciation_rate: Decimal = Field(
-    ...,
-    ge=0,
-    le=100,
-    description="Depreciation percentage"
-)
-
-depreciation_value: Decimal = Field(
-    ...,
-    ge=0,
-    description="Depreciation amount in KES"
-)
-
-value_after_depreciation: Decimal = Field(
-    ...,
-    ge=0,
-    description="Value after depreciation in KES"
-)
-
-# ------------------------------------------------------------
-# Adjustments
-# ------------------------------------------------------------
-
-mileage_adjustment: Decimal = Field(
-    ...,
-    description="Mileage adjustment in KES"
-)
-
-condition_adjustment: Decimal = Field(
-    ...,
-    description="Condition adjustment in KES"
-)
-
-accident_adjustment: Decimal = Field(
-    ...,
-    description="Accident adjustment in KES"
-)
-
-location_adjustment: Decimal = Field(
-    ...,
-    description="Location adjustment in KES"
-)
-
-market_adjustment: Decimal = Field(
-    ...,
-    description="Model market adjustment in KES"
-)
-
-# ------------------------------------------------------------
-# Final valuation
-# ------------------------------------------------------------
-
-final_market_value: Decimal = Field(
-    ...,
-    ge=0,
-    description="Final market value before profit margin"
-)
-
-# ------------------------------------------------------------
-# Profit margin
-# ------------------------------------------------------------
-
-profit_margin_percent: Decimal = Field(
-    ...,
-    ge=0,
-    le=100,
-    description="Dealer profit margin percentage"
-)
-
-profit_margin_value: Decimal = Field(
-    ...,
-    ge=0,
-    description="Dealer profit margin amount in KES"
-)
-
-recommended_selling_price: Decimal = Field(
-    ...,
-    ge=0,
-    description="Recommended selling price including profit"
-)
-
-# ------------------------------------------------------------
-# Confidence
-# ------------------------------------------------------------
-
-confidence_score: Decimal = Field(
-    ...,
-    ge=0,
-    le=100,
-    description="Valuation confidence score from 0 to 100"
-)
-
-# ------------------------------------------------------------
-# Reference
-# ------------------------------------------------------------
-
-valuation_reference: str = Field(
-    ...,
-    description="Unique AUTO-D valuation reference"
-)
-```
-
-# ================================================================
-
-# 2. VALUATION REQUEST
-
+# VALUATION REQUEST
 # ================================================================
 
 class ValuationRequest(BaseModel):
-"""
-Input accepted by the valuation API.
-"""
+    """
+    Input required to calculate a vehicle valuation.
+    """
 
-```
-vehicle_crsp_id: int = Field(
-    ...,
-    gt=0,
-    description="CRSP vehicle price ID"
-)
+    vehicle_crsp_id: int = Field(
+        ...,
+        gt=0,
+        description="Vehicle CRSP/master vehicle ID"
+    )
 
-manufacture_year: int = Field(
-    ...,
-    ge=1900,
-    description="Vehicle manufacture year"
-)
+    manufacture_year: int = Field(
+        ...,
+        ge=1900,
+        le=2100,
+        description="Vehicle manufacture year"
+    )
 
-mileage_km: int = Field(
-    0,
-    ge=0,
-    description="Current vehicle mileage in kilometres"
-)
+    mileage: int = Field(
+        0,
+        ge=0,
+        description="Current mileage in kilometres"
+    )
 
-vehicle_type: str = Field(
-    "SEDAN",
-    description="Vehicle type"
-)
+    condition: str = Field(
+        "good",
+        description="Vehicle condition"
+    )
 
-condition_name: str = Field(
-    "GOOD",
-    description="Vehicle condition"
-)
+    accident_history: str = Field(
+        "none",
+        description="Accident history"
+    )
 
-accident_status: str = Field(
-    "NONE",
-    description="Accident status"
-)
+    location: str = Field(
+        "nairobi",
+        description="Vehicle location"
+    )
 
-location_name: str = Field(
-    "NAIROBI",
-    description="Vehicle location"
-)
+    fuel_type: Optional[str] = None
+    transmission: Optional[str] = None
+    body_type: Optional[str] = None
+    engine_capacity: Optional[float] = None
 
-profit_margin_percent: Decimal = Field(
-    Decimal("5.00"),
-    ge=0,
-    le=100,
-    description="Dealer profit margin percentage"
-)
-```
+    service_history: bool = False
+    ownership_count: int = Field(
+        1,
+        ge=1,
+        description="Number of previous owners"
+    )
+
+    profit_margin_percent: float = Field(
+        5.0,
+        ge=0,
+        le=50,
+        description="Recommended selling profit margin"
+    )
+
 
 # ================================================================
+# VALUATION ADJUSTMENT
+# ================================================================
 
-# 3. VALUATION REPORT
+class ValuationAdjustment(BaseModel):
+    """
+    Individual valuation adjustment.
+    """
 
+    factor: str
+    adjustment: Decimal
+    percentage: float
+    factor_value: float
+    reason: Optional[str] = None
+
+
+# ================================================================
+# DEPRECIATION
+# ================================================================
+
+class DepreciationResult(BaseModel):
+    """
+    Depreciation calculation result.
+    """
+
+    manufacture_year: int
+    vehicle_age: int
+
+    original_value: Decimal
+    depreciation_rate: float
+    depreciation_value: Decimal
+    value_after_depreciation: Decimal
+
+
+# ================================================================
+# VALUATION REPORT
 # ================================================================
 
 class ValuationReport(BaseModel):
-"""
-Higher-level application valuation report.
+    """
+    Complete Auto-D Kenya vehicle valuation.
+    """
 
-```
-VehicleValuationResult contains the actual calculated values.
-This model contains the report-level information around them.
-"""
+    model_config = ConfigDict(from_attributes=True)
 
-report_id: str = Field(
-    ...,
-    description="Application valuation report ID"
-)
+    valuation_id: Optional[int] = None
 
-user_id: Optional[str] = Field(
-    None,
-    description="User who requested the valuation"
-)
+    vehicle_crsp_id: int
 
-vehicle_id: Optional[str] = Field(
-    None,
-    description="User vehicle ID"
-)
+    make: str
+    model: str
+    variant: Optional[str] = None
 
-valuation: VehicleValuationResult = Field(
-    ...,
-    description="Canonical valuation result"
-)
+    manufacture_year: int
+    vehicle_age: int
 
-# ------------------------------------------------------------
-# Valuation metadata
-# ------------------------------------------------------------
+    # ------------------------------------------------------------
+    # BASE / CRSP VALUE
+    # ------------------------------------------------------------
 
-valuation_method: str = Field(
-    "AUTO-D",
-    description="Valuation method"
-)
+    crsp_value: Decimal
 
-data_points: int = Field(
-    0,
-    ge=0,
-    description="Number of supporting data points"
-)
+    # ------------------------------------------------------------
+    # DEPRECIATION
+    # ------------------------------------------------------------
 
-# ------------------------------------------------------------
-# Market comparison
-# ------------------------------------------------------------
+    depreciation_rate: float
+    depreciation_value: Decimal
+    value_after_depreciation: Decimal
 
-market_average: Optional[Decimal] = Field(
-    None,
-    description="Market average price"
-)
+    # ------------------------------------------------------------
+    # MARKET ADJUSTMENTS
+    # ------------------------------------------------------------
 
-market_low: Optional[Decimal] = Field(
-    None,
-    description="Lowest comparable market price"
-)
+    mileage_adjustment: Decimal = Decimal("0")
+    condition_adjustment: Decimal = Decimal("0")
+    accident_adjustment: Decimal = Decimal("0")
+    location_adjustment: Decimal = Decimal("0")
+    market_adjustment: Decimal = Decimal("0")
 
-market_high: Optional[Decimal] = Field(
-    None,
-    description="Highest comparable market price"
-)
+    # ------------------------------------------------------------
+    # FINAL MARKET VALUE
+    # ------------------------------------------------------------
 
-comparable_listings: int = Field(
-    0,
-    ge=0,
-    description="Number of comparable listings"
-)
+    final_market_value: Decimal
 
-# ------------------------------------------------------------
-# Status
-# ------------------------------------------------------------
+    # ------------------------------------------------------------
+    # SELLING PRICE
+    # ------------------------------------------------------------
 
-status: str = Field(
-    "completed",
-    description="Valuation report status"
-)
+    profit_margin_percent: float = 5.0
+    profit_margin_value: Decimal = Decimal("0")
+    recommended_selling_price: Decimal
 
-expires_at: Optional[datetime] = Field(
-    None,
-    description="Report expiration date"
-)
+    # ------------------------------------------------------------
+    # CONFIDENCE
+    # ------------------------------------------------------------
 
-# ------------------------------------------------------------
-# Additional information
-# ------------------------------------------------------------
+    confidence_score: float = Field(
+        ...,
+        ge=0,
+        le=100,
+        description="Confidence score from 0 to 100"
+    )
 
-notes: Optional[str] = Field(
-    None,
-    description="Additional valuation notes"
-)
+    # ------------------------------------------------------------
+    # VALUATION METADATA
+    # ------------------------------------------------------------
 
-metadata: Dict[str, Any] = Field(
-    default_factory=dict,
-    description="Additional report metadata"
-)
+    valuation_method: str = "crsp_market"
 
-# ------------------------------------------------------------
-# Timestamps
-# ------------------------------------------------------------
+    data_points: int = 0
+    comparable_listings: int = 0
 
-created_at: datetime = Field(
-    default_factory=datetime.utcnow
-)
+    valuation_reference: Optional[str] = None
 
-updated_at: datetime = Field(
-    default_factory=datetime.utcnow
-)
-```
+    status: str = "completed"
+
+    adjustments: List[ValuationAdjustment] = Field(
+        default_factory=list
+    )
+
+    notes: Optional[str] = None
+
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict
+    )
+
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
 
 # ================================================================
-
-# 4. VALUATION ANALYSIS
-
+# VALUATION ANALYSIS
 # ================================================================
 
 class ValuationAnalysis(BaseModel):
-"""
-Additional market analysis associated with a valuation report.
+    """
+    Market analysis associated with a valuation.
+    """
 
-```
-This does not alter the PostgreSQL valuation calculation.
-"""
+    valuation_id: Optional[int] = None
 
-analysis_id: str = Field(
-    ...,
-    description="Analysis ID"
-)
+    market_trend: str = "stable"
 
-report_id: str = Field(
-    ...,
-    description="Parent valuation report ID"
-)
+    demand_level: str = "medium"
 
-# ------------------------------------------------------------
-# Market conditions
-# ------------------------------------------------------------
+    supply_level: str = "medium"
 
-market_trend: str = Field(
-    "stable",
-    description="Current market trend"
-)
+    key_factors: List[str] = Field(
+        default_factory=list
+    )
 
-demand_level: str = Field(
-    "medium",
-    description="Market demand level"
-)
+    factor_weights: Dict[str, float] = Field(
+        default_factory=dict
+    )
 
-supply_level: str = Field(
-    "medium",
-    description="Market supply level"
-)
+    risk_factors: List[str] = Field(
+        default_factory=list
+    )
 
-# ------------------------------------------------------------
-# Key factors
-# ------------------------------------------------------------
+    risk_score: float = Field(
+        0.0,
+        ge=0,
+        le=100
+    )
 
-key_factors: List[str] = Field(
-    default_factory=list,
-    description="Important valuation factors"
-)
+    recommendations: List[str] = Field(
+        default_factory=list
+    )
 
-factor_weights: Dict[str, float] = Field(
-    default_factory=dict,
-    description="Relative factor weights"
-)
+    price_suggestion: Optional[Decimal] = None
 
-# ------------------------------------------------------------
-# Risk
-# ------------------------------------------------------------
+    negotiation_min: Optional[Decimal] = None
 
-risk_factors: List[str] = Field(
-    default_factory=list,
-    description="Identified valuation risks"
-)
+    negotiation_max: Optional[Decimal] = None
 
-risk_score: float = Field(
-    0.0,
-    ge=0,
-    le=100,
-    description="Risk score from 0 to 100"
-)
+    market_insights: Dict[str, Any] = Field(
+        default_factory=dict
+    )
 
-# ------------------------------------------------------------
-# Recommendations
-# ------------------------------------------------------------
+    seasonality_factor: Optional[float] = None
 
-recommendations: List[str] = Field(
-    default_factory=list,
-    description="Valuation recommendations"
-)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
-price_suggestion: Optional[Decimal] = Field(
-    None,
-    ge=0,
-    description="Suggested asking price"
-)
-
-negotiation_range: Dict[str, Decimal] = Field(
-    default_factory=dict,
-    description="Negotiation range"
-)
-
-# ------------------------------------------------------------
-# Market insights
-# ------------------------------------------------------------
-
-market_insights: Dict[str, Any] = Field(
-    default_factory=dict,
-    description="Market intelligence"
-)
-
-seasonality_factor: Optional[float] = Field(
-    None,
-    description="Seasonality factor"
-)
-
-created_at: datetime = Field(
-    default_factory=datetime.utcnow
-)
-```
 
 # ================================================================
-
-# 5. VALUATION HISTORY
-
+# VALUATION HISTORY
 # ================================================================
 
 class ValuationHistory(BaseModel):
-"""
-Historical valuation snapshot for a vehicle.
-"""
+    """
+    Historical valuation record.
+    """
 
-```
-history_id: str = Field(
-    ...,
-    description="History record ID"
-)
+    id: Optional[int] = None
 
-vehicle_id: str = Field(
-    ...,
-    description="User vehicle ID"
-)
+    vehicle_crsp_id: int
 
-valuation_id: Optional[int] = Field(
-    None,
-    description="Database valuation ID"
-)
+    valuation_date: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
-valuation_date: datetime = Field(
-    default_factory=datetime.utcnow
-)
+    estimated_value: Decimal
 
-estimated_value: Decimal = Field(
-    ...,
-    ge=0,
-    description="Historical estimated market value"
-)
+    confidence_score: float = Field(
+        ...,
+        ge=0,
+        le=100
+    )
 
-recommended_selling_price: Optional[Decimal] = Field(
-    None,
-    ge=0,
-    description="Historical recommended selling price"
-)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
-confidence_score: Decimal = Field(
-    ...,
-    ge=0,
-    le=100,
-    description="Historical confidence score"
-)
-
-created_at: datetime = Field(
-    default_factory=datetime.utcnow
-)
-```
 
 # ================================================================
-
-# 6. VALUATION COMPARABLE
-
+# VALUATION COMPARABLE
 # ================================================================
 
 class ValuationComparable(BaseModel):
-"""
-Comparable vehicle used for market analysis.
+    """
+    Real market comparable used in valuation.
+    """
 
-```
-Comparables support the report but do not replace CRSP
-as the primary valuation source.
-"""
+    id: Optional[int] = None
 
-comparable_id: str = Field(
-    ...,
-    description="Comparable record ID"
-)
+    valuation_id: Optional[int] = None
 
-report_id: str = Field(
-    ...,
-    description="Parent valuation report ID"
-)
+    vehicle_crsp_id: Optional[int] = None
 
-# ------------------------------------------------------------
-# Vehicle
-# ------------------------------------------------------------
+    make: str
+    model: str
 
-make: str = Field(
-    ...,
-    description="Vehicle make"
-)
+    variant: Optional[str] = None
 
-model: str = Field(
-    ...,
-    description="Vehicle model"
-)
+    year: int
 
-variant: Optional[str] = Field(
-    None,
-    description="Vehicle variant"
-)
+    mileage: int = Field(
+        0,
+        ge=0
+    )
 
-year: int = Field(
-    ...,
-    ge=1900,
-    description="Vehicle manufacture year"
-)
+    price: Decimal
 
-mileage: int = Field(
-    ...,
-    ge=0,
-    description="Vehicle mileage"
-)
+    source: str
 
-price: Decimal = Field(
-    ...,
-    ge=0,
-    description="Comparable listing price"
-)
+    source_id: Optional[str] = None
 
-# ------------------------------------------------------------
-# Source
-# ------------------------------------------------------------
+    listing_url: Optional[str] = None
 
-source: str = Field(
-    ...,
-    description="Listing source"
-)
+    listing_date: Optional[datetime] = None
 
-source_id: Optional[str] = Field(
-    None,
-    description="Source listing ID"
-)
+    location: Optional[str] = None
 
-listing_url: Optional[str] = Field(
-    None,
-    description="Source listing URL"
-)
+    similarity_score: float = Field(
+        0,
+        ge=0,
+        le=100
+    )
 
-listing_date: Optional[datetime] = Field(
-    None,
-    description="Listing date"
-)
+    distance_km: Optional[float] = None
 
-# ------------------------------------------------------------
-# Similarity
-# ------------------------------------------------------------
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
-similarity_score: float = Field(
-    0.0,
-    ge=0,
-    le=1,
-    description="Similarity score from 0 to 1"
-)
-
-distance: Optional[float] = Field(
-    None,
-    ge=0,
-    description="Distance from target vehicle in kilometres"
-)
-
-created_at: datetime = Field(
-    default_factory=datetime.utcnow
-)
-```
 
 # ================================================================
-
-# 7. COMPLETE REPORT RESPONSE
-
+# COMPLETE RESPONSE
 # ================================================================
 
-class ValuationReportResponse(BaseModel):
-"""
-Complete API response containing the valuation,
-analysis, comparables and vehicle details.
-"""
+class ValuationReportResponse(ValuationReport):
+    """
+    Complete valuation response including analysis and comparables.
+    """
 
+    analysis: Optional[ValuationAnalysis] = None
+
+    comparables: List[ValuationComparable] = Field(
+        default_factory=list
+    )
+
+    vehicle_details: Optional[Dict[str, Any]] = None
 ```
-report: ValuationReport
-
-analysis: Optional[ValuationAnalysis] = None
-
-comparables: List[ValuationComparable] = Field(
-    default_factory=list
-)
-
-vehicle_details: Optional[Dict[str, Any]] = None
-```
-
-# ================================================================
-
-# EXPORTS
-
-# ================================================================
-
-**all** = [
-"VehicleValuationResult",
-"ValuationRequest",
-"ValuationReport",
-"ValuationAnalysis",
-"ValuationHistory",
-"ValuationComparable",
-"ValuationReportResponse",
-]
