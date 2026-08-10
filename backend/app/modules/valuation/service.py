@@ -1,26 +1,7 @@
 # app/modules/valuation/service.py
 
-"""
-AUTO-D Kenya
-Vehicle Valuation Service
-
-Coordinates:
-- Vehicle master data
-- CRSP base prices
-- Depreciation
-- Mileage
-- Condition
-- Accident history
-- Previous owners
-- Location
-- Market adjustments
-
-The service is intentionally tolerant of optional vehicle data so that
-a missing CRSP match does not cause the entire valuation to fail.
-"""
-
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from app.core.database import get_supabase
 
@@ -28,723 +9,366 @@ logger = logging.getLogger(__name__)
 
 
 class ValuationService:
+    """AUTO-D Kenya vehicle valuation service.
+
+    CRSP source:
+        public.vehicle_crsp_lookup
+
+    There is intentionally no reference to public.vehicle_crsp.
+    """
+
+    CRSP_TABLE = "vehicle_crsp_lookup"
 
     def __init__(self):
         self.supabase = get_supabase()
 
-    # ================================================================
-    # MAIN VALUATION
-    # ================================================================
-
-    async def calculate_valuation(
+    def get_crsp_vehicle(
         self,
-        vehicle_id: Optional[int] = None,
         vehicle_crsp_id: Optional[int] = None,
         make: Optional[str] = None,
         model: Optional[str] = None,
-        year: Optional[int] = None,
-        mileage: float = 0,
-        condition: str = "good",
-        accident_history: str = "none",
-        previous_owners: int = 0,
-        county: Optional[str] = None,
-        location: Optional[str] = None,
-        fuel_type: Optional[str] = None,
-        transmission: Optional[str] = None,
-        engine_capacity: Optional[Any] = None,
-        engine_capacity_cc: Optional[int] = None,
-        body_type: Optional[str] = None,
+        manufacture_year: Optional[int] = None,
+        engine_capacity_id: Optional[int] = None,
+        crsp_id: Optional[int] = None,
         **kwargs,
-    ) -> Dict[str, Any]:
-        """
-        Calculate vehicle valuation.
-
-        vehicle_crsp_id is optional.
-
-        If supplied, it is used to retrieve the CRSP base price.
-        If not supplied, the service attempts to find a CRSP record
-        using make/model.
-        """
-
-        try:
-            # --------------------------------------------------------
-            # Normalise values
-            # --------------------------------------------------------
-
-            condition = self._normalise_condition(condition)
-            accident_history = self._normalise_accident(accident_history)
-
-            try:
-                mileage = float(mileage or 0)
-            except (TypeError, ValueError):
-                mileage = 0
-
-            try:
-                previous_owners = int(previous_owners or 0)
-            except (TypeError, ValueError):
-                previous_owners = 0
-
-            # --------------------------------------------------------
-            # Get CRSP
-            # --------------------------------------------------------
-
-            crsp = await self._get_crsp_vehicle(
-                vehicle_crsp_id=vehicle_crsp_id,
-                make=make,
-                model=model,
-                body_type=body_type,
-            )
-
-            crsp_id = None
-            crsp_value = 0.0
-
-            if crsp:
-                crsp_id = crsp.get("id")
-
-                raw_crsp = (
-                    crsp.get("crsp_kes")
-                    or crsp.get("crsp")
-                    or crsp.get("crsp_value")
-                    or crsp.get("base_price")
-                    or 0
-                )
-
-                try:
-                    crsp_value = float(raw_crsp)
-                except (TypeError, ValueError):
-                    crsp_value = 0.0
-
-            # --------------------------------------------------------
-            # Base value
-            # --------------------------------------------------------
-
-            if crsp_value > 0:
-                base_value = crsp_value
-            else:
-                base_value = await self._get_market_base_price(
-                    vehicle_id=vehicle_id,
-                    make=make,
-                    model=model,
-                    body_type=body_type,
-                )
-
-            # --------------------------------------------------------
-            # If no base price exists
-            # --------------------------------------------------------
-
-            if base_value <= 0:
-                logger.warning(
-                    "No CRSP/base price found for %s %s",
-                    make,
-                    model,
-                )
-
-                return {
-                    "success": False,
-                    "estimated_value": 0,
-                    "min_value": 0,
-                    "max_value": 0,
-                    "confidence_score": 0,
-                    "crsp_id": crsp_id,
-                    "crsp_value": 0,
-                    "message": "No matching CRSP or market base price found.",
-                    "adjustments": {},
-                }
-
-            # --------------------------------------------------------
-            # Depreciation
-            # --------------------------------------------------------
-
-            depreciation_rate = await self._get_depreciation_rate(
-                body_type=body_type,
-                vehicle_type=body_type,
-                age=self._vehicle_age(year),
-            )
-
-            age = self._vehicle_age(year)
-
-            depreciation_factor = max(
-                0.05,
-                1 - (depreciation_rate * age),
-            )
-
-            age_adjusted_value = base_value * depreciation_factor
-
-            # --------------------------------------------------------
-            # Mileage
-            # --------------------------------------------------------
-
-            mileage_factor = self._mileage_factor(mileage)
-
-            after_mileage = (
-                age_adjusted_value * mileage_factor
-            )
-
-            # --------------------------------------------------------
-            # Condition
-            # --------------------------------------------------------
-
-            condition_factor = {
-                "excellent": 1.10,
-                "very_good": 1.05,
-                "good": 1.00,
-                "fair": 0.90,
-                "poor": 0.75,
-            }.get(condition, 1.00)
-
-            after_condition = (
-                after_mileage * condition_factor
-            )
-
-            # --------------------------------------------------------
-            # Accident
-            # --------------------------------------------------------
-
-            accident_factor = {
-                "none": 1.00,
-                "minor": 0.90,
-                "major": 0.70,
-                "total_loss": 0.00,
-            }.get(accident_history, 1.00)
-
-            after_accident = (
-                after_condition * accident_factor
-            )
-
-            # --------------------------------------------------------
-            # Previous owners
-            # --------------------------------------------------------
-
-            owner_factor = max(
-                0.90,
-                1 - (max(previous_owners - 1, 0) * 0.02),
-            )
-
-            after_owners = (
-                after_accident * owner_factor
-            )
-
-            # --------------------------------------------------------
-            # Location adjustment
-            # --------------------------------------------------------
-
-            location_factor = self._location_factor(
-                county or location
-            )
-
-            estimated_value = (
-                after_owners * location_factor
-            )
-
-            # --------------------------------------------------------
-            # Safety limits
-            # --------------------------------------------------------
-
-            estimated_value = max(
-                0,
-                round(estimated_value, 2),
-            )
-
-            min_value = round(
-                estimated_value * 0.90,
-                2,
-            )
-
-            max_value = round(
-                estimated_value * 1.10,
-                2,
-            )
-
-            # --------------------------------------------------------
-            # Confidence
-            # --------------------------------------------------------
-
-            confidence = self._confidence_score(
-                crsp_value=crsp_value,
-                mileage=mileage,
-                year=year,
-                condition=condition,
-            )
-
-            adjustments = {
-                "age": round(
-                    (depreciation_factor - 1) * 100,
-                    2,
-                ),
-                "mileage": round(
-                    (mileage_factor - 1) * 100,
-                    2,
-                ),
-                "condition": round(
-                    (condition_factor - 1) * 100,
-                    2,
-                ),
-                "accident": round(
-                    (accident_factor - 1) * 100,
-                    2,
-                ),
-                "previous_owners": round(
-                    (owner_factor - 1) * 100,
-                    2,
-                ),
-                "location": round(
-                    (location_factor - 1) * 100,
-                    2,
-                ),
-            }
-
-            return {
-                "success": True,
-
-                "estimated_value": estimated_value,
-                "min_value": min_value,
-                "max_value": max_value,
-
-                "confidence_score": confidence,
-
-                "crsp_id": crsp_id,
-                "crsp_value": round(crsp_value, 2),
-
-                "base_value": round(base_value, 2),
-
-                "vehicle": {
-                    "vehicle_id": vehicle_id,
-                    "crsp_id": crsp_id,
-                    "make": make,
-                    "model": model,
-                    "year": year,
-                    "mileage": mileage,
-                    "condition": condition,
-                    "accident_history": accident_history,
-                    "previous_owners": previous_owners,
-                    "county": county or location,
-                    "fuel_type": fuel_type,
-                    "transmission": transmission,
-                    "engine_capacity": engine_capacity,
-                    "engine_capacity_cc": engine_capacity_cc,
-                    "body_type": body_type,
-                },
-
-                "adjustments": adjustments,
-
-                "message": (
-                    "Valuation completed successfully."
-                ),
-            }
-
-        except Exception as exc:
-            logger.exception(
-                "Vehicle valuation failed"
-            )
-
-            raise RuntimeError(
-                f"Valuation failed: {exc}"
-            ) from exc
-
-    # ================================================================
-    # CRSP LOOKUP
-    # ================================================================
-
-    async def _get_crsp_vehicle(
-        self,
-        vehicle_crsp_id: Optional[int] = None,
-        make: Optional[str] = None,
-        model: Optional[str] = None,
-        body_type: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-
-        # ------------------------------------------------------------
-        # 1. Exact CRSP ID
-        # ------------------------------------------------------------
-
-        if vehicle_crsp_id:
-
-            result = (
-                self.supabase
-                .table("vehicle_crsp")
-                .select("*")
-                .eq("id", vehicle_crsp_id)
-                .limit(1)
-                .execute()
-            )
-
-            if result.data:
-                return result.data[0]
-
-        # ------------------------------------------------------------
-        # 2. Try vehicle master CRSP table
-        # ------------------------------------------------------------
-
-        if not make or not model:
-            return None
+        """Find the best matching record in vehicle_crsp_lookup."""
 
         try:
+            resolved_id = vehicle_crsp_id or crsp_id
 
-            result = (
-                self.supabase
-                .table("vehicle_crsp")
-                .select("*")
-                .ilike("make", make)
-                .ilike("model", model)
-                .limit(5)
-                .execute()
-            )
-
-            if result.data:
-
-                # Prefer matching body type
-                if body_type:
-                    for row in result.data:
-                        row_body = (
-                            row.get("body_type")
-                            or ""
-                        )
-
-                        if (
-                            row_body.upper()
-                            == body_type.upper()
-                        ):
-                            return row
-
-                return result.data[0]
-
-        except Exception as exc:
-
-            logger.warning(
-                "vehicle_crsp lookup failed: %s",
-                exc,
-            )
-
-        # ------------------------------------------------------------
-        # 3. Try vehicle_models / CRSP master
-        # ------------------------------------------------------------
-
-        try:
-
-            result = (
-                self.supabase
-                .table("vehicle_models")
-                .select("*")
-                .ilike("make", make)
-                .ilike("model", model)
-                .limit(5)
-                .execute()
-            )
-
-            if result.data:
-                return result.data[0]
-
-        except Exception as exc:
-
-            logger.warning(
-                "vehicle_models CRSP lookup failed: %s",
-                exc,
-            )
-
-        return None
-
-    # ================================================================
-    # MARKET BASE PRICE
-    # ================================================================
-
-    async def _get_market_base_price(
-        self,
-        vehicle_id: Optional[int],
-        make: Optional[str],
-        model: Optional[str],
-        body_type: Optional[str],
-    ) -> float:
-
-        if vehicle_id:
-
-            try:
-
-                result = (
+            if resolved_id is not None:
+                response = (
                     self.supabase
-                    .table("vehicle_base_prices")
+                    .table(self.CRSP_TABLE)
                     .select("*")
-                    .eq("vehicle_id", vehicle_id)
+                    .eq("crsp_id", int(resolved_id))
                     .limit(1)
                     .execute()
                 )
+                if response.data:
+                    return response.data[0]
 
-                if result.data:
+            if not make or not model:
+                return None
 
-                    row = result.data[0]
+            base_query = (
+                self.supabase
+                .table(self.CRSP_TABLE)
+                .select("*")
+                .ilike("make", str(make).strip())
+                .ilike("model", str(model).strip())
+            )
 
-                    return float(
-                        row.get("base_price")
-                        or row.get("market_value")
-                        or 0
+            if manufacture_year is not None:
+                query = base_query.eq(
+                    "manufacture_year", int(manufacture_year)
+                )
+                if engine_capacity_id is not None:
+                    query = query.eq(
+                        "engine_capacity_id", int(engine_capacity_id)
+                    )
+                response = query.limit(25).execute()
+                if response.data:
+                    return self._select_best_crsp(
+                        response.data,
+                        manufacture_year,
+                        engine_capacity_id,
                     )
 
-            except Exception as exc:
-
-                logger.warning(
-                    "Vehicle base price lookup failed: %s",
-                    exc,
+            response = base_query.limit(50).execute()
+            if response.data:
+                return self._select_best_crsp(
+                    response.data,
+                    manufacture_year,
+                    engine_capacity_id,
                 )
 
-        return 0.0
-
-    # ================================================================
-    # DEPRECIATION
-    # ================================================================
-
-    async def _get_depreciation_rate(
-        self,
-        body_type: Optional[str] = None,
-        vehicle_type: Optional[str] = None,
-        age: int = 0,
-    ) -> float:
-
-        vehicle_type = (
-            vehicle_type
-            or body_type
-            or "SEDAN"
-        ).upper().strip()
-
-        # Map your frontend categories to depreciation categories
-        category_map = {
-            "SEDAN": "SEDAN",
-            "SUV": "SUV",
-            "MPV": "SEDAN",
-            "HATCHBACK": "SEDAN",
-            "WAGON": "SEDAN",
-            "COUPE": "SEDAN",
-            "CONVERTIBLE": "SEDAN",
-            "LUXURY": "LUXURY",
-            "COMMERCIAL": "COMMERCIAL",
-            "VAN": "COMMERCIAL",
-            "BUS": "COMMERCIAL",
-            "TRUCK": "COMMERCIAL",
-            "PICKUP": "PICKUP",
-            "ELECTRIC": "ELECTRIC",
-            "OTHER": "SEDAN",
-        }
-
-        category = category_map.get(
-            vehicle_type,
-            "SEDAN",
-        )
-
-        try:
-
-            result = (
-                self.supabase
-                .table("depreciation_rates")
-                .select("*")
-                .ilike(
-                    "vehicle_type",
-                    category,
-                )
-                .limit(1)
-                .execute()
-            )
-
-            if result.data:
-
-                row = result.data[0]
-
-                rate = (
-                    row.get("depreciation_rate")
-                    or row.get("annual_rate")
-                    or row.get("rate")
-                    or 0.08
-                )
-
-                rate = float(rate)
-
-                # Support databases storing 8 instead of 0.08
-                if rate > 1:
-                    rate = rate / 100
-
-                return rate
+            return None
 
         except Exception as exc:
+            logger.exception("CRSP lookup failed: %s", exc)
+            return None
 
-            logger.warning(
-                "Depreciation lookup failed: %s",
-                exc,
-            )
+    def _select_best_crsp(
+        self,
+        records: List[Dict[str, Any]],
+        manufacture_year: Optional[int] = None,
+        engine_capacity_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if not records:
+            return None
 
-        # Sensible defaults
-        defaults = {
-            "SEDAN": 0.08,
-            "SUV": 0.075,
-            "LUXURY": 0.10,
-            "COMMERCIAL": 0.09,
-            "PICKUP": 0.085,
-            "ELECTRIC": 0.07,
-        }
+        def score(row: Dict[str, Any]) -> int:
+            score_value = 0
 
-        return defaults.get(
-            category,
-            0.08,
+            if row.get("canonical_id") is not None:
+                score_value += 20
+            if row.get("is_duplicate") is False:
+                score_value += 20
+            if row.get("is_inferred") is False:
+                score_value += 10
+            if row.get("crsp_kes") is not None:
+                score_value += 30
+            if row.get("generation_id") is not None:
+                score_value += 5
+            if row.get("engine_capacity_id") is not None:
+                score_value += 5
+            if (
+                manufacture_year is not None
+                and row.get("manufacture_year") == manufacture_year
+            ):
+                score_value += 10
+            if (
+                engine_capacity_id is not None
+                and row.get("engine_capacity_id") == engine_capacity_id
+            ):
+                score_value += 10
+
+            return score_value
+
+        return max(records, key=score)
+
+    def calculate_valuation(
+        self,
+        make: Optional[str] = None,
+        model: Optional[str] = None,
+        manufacture_year: Optional[int] = None,
+        mileage: int = 0,
+        condition: str = "good",
+        accident_history: str = "none",
+        previous_owners: int = 0,
+        location: Optional[str] = None,
+        fuel_type: Optional[str] = None,
+        transmission: Optional[str] = None,
+        engine_capacity_id: Optional[int] = None,
+        vehicle_crsp_id: Optional[int] = None,
+        crsp_id: Optional[int] = None,
+        vehicle_type: Optional[str] = None,
+        body_type: Optional[str] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Calculate an indicative vehicle value."""
+
+        crsp = self.get_crsp_vehicle(
+            vehicle_crsp_id=vehicle_crsp_id,
+            crsp_id=crsp_id,
+            make=make,
+            model=model,
+            manufacture_year=manufacture_year,
+            engine_capacity_id=engine_capacity_id,
         )
 
-    # ================================================================
-    # HELPERS
-    # ================================================================
+        resolved_id = vehicle_crsp_id or crsp_id
+        crsp_value = 0.0
 
-    @staticmethod
-    def _vehicle_age(year: Optional[int]) -> int:
+        if crsp:
+            resolved_id = crsp.get("crsp_id")
+            if crsp.get("crsp_kes") is not None:
+                crsp_value = float(crsp["crsp_kes"])
 
-        if not year:
-            return 0
+        current_year = 2026
+        age = max(0, current_year - int(manufacture_year)) if manufacture_year else 0
 
-        try:
-            from datetime import datetime
+        if crsp_value <= 0:
+            return {
+                "success": False,
+                "status": "crsp_not_found",
+                "crsp_found": False,
+                "crsp_id": resolved_id,
+                "crsp_value": 0.0,
+                "estimated_value": None,
+                "estimated_value_min": None,
+                "estimated_value_max": None,
+                "confidence_score": 0,
+                "message": "No matching CRSP record was found.",
+                "vehicle": self._vehicle_summary(
+                    crsp, make, model, manufacture_year,
+                    fuel_type, transmission, body_type,
+                ),
+            }
 
-            current_year = datetime.now().year
+        depreciation_rate = self._get_depreciation_rate(
+            age,
+            (crsp or {}).get("body_type") or body_type or vehicle_type,
+        )
+        mileage_factor = self._mileage_factor(mileage, age)
+        condition_factor = self._condition_factor(condition)
+        accident_factor = self._accident_factor(accident_history)
+        owner_factor = self._owner_factor(previous_owners)
+        location_factor = self._location_factor(location)
 
-            return max(
-                0,
-                current_year - int(year),
-            )
-
-        except Exception:
-            return 0
-
-    @staticmethod
-    def _mileage_factor(
-        mileage: float,
-    ) -> float:
-
-        if mileage <= 0:
-            return 1.00
-
-        if mileage <= 20_000:
-            return 1.02
-
-        if mileage <= 50_000:
-            return 1.00
-
-        if mileage <= 100_000:
-            return 0.95
-
-        if mileage <= 150_000:
-            return 0.90
-
-        if mileage <= 200_000:
-            return 0.84
-
-        return 0.78
-
-    @staticmethod
-    def _location_factor(
-        location: Optional[str],
-    ) -> float:
-
-        if not location:
-            return 1.00
-
-        location = location.upper().strip()
-
-        factors = {
-            "NAIROBI": 1.03,
-            "MOMBASA": 1.01,
-            "KIAMBU": 1.02,
-            "NAKURU": 1.00,
-            "ELDORET": 0.99,
-            "KISUMU": 0.99,
-            "THIKA": 1.01,
-            "KAJIADO": 1.00,
-            "MACHAKOS": 0.99,
-            "MERU": 0.98,
-            "NYERI": 0.98,
-            "EMBU": 0.98,
-            "MALINDI": 0.99,
-            "NANYUKI": 0.98,
-        }
-
-        return factors.get(
-            location,
-            1.00,
+        value = (
+            crsp_value
+            * (1.0 - depreciation_rate)
+            * mileage_factor
+            * condition_factor
+            * accident_factor
+            * owner_factor
+            * location_factor
         )
 
-    @staticmethod
-    def _confidence_score(
-        crsp_value: float,
-        mileage: float,
-        year: Optional[int],
-        condition: str,
-    ) -> int:
+        estimated_value = round(max(value, 0.0), 2)
+
+        return {
+            "success": True,
+            "status": "completed",
+            "crsp_found": True,
+            "crsp_id": resolved_id,
+            "crsp_value": round(crsp_value, 2),
+            "estimated_value": estimated_value,
+            "estimated_value_min": round(estimated_value * 0.90, 2),
+            "estimated_value_max": round(estimated_value * 1.10, 2),
+            "confidence_score": self._confidence_score(crsp),
+            "adjustments": {
+                "age": age,
+                "depreciation_rate": depreciation_rate,
+                "mileage_factor": mileage_factor,
+                "condition_factor": condition_factor,
+                "accident_factor": accident_factor,
+                "owner_factor": owner_factor,
+                "location_factor": location_factor,
+            },
+            "vehicle": self._vehicle_summary(
+                crsp, make, model, manufacture_year,
+                fuel_type, transmission, body_type,
+            ),
+            "message": "Valuation completed successfully.",
+        }
+
+    def _vehicle_summary(
+        self,
+        crsp: Optional[Dict[str, Any]],
+        make: Optional[str],
+        model: Optional[str],
+        manufacture_year: Optional[int],
+        fuel_type: Optional[str],
+        transmission: Optional[str],
+        body_type: Optional[str],
+    ) -> Dict[str, Any]:
+        return {
+            "crsp_id": crsp.get("crsp_id") if crsp else None,
+            "make": crsp.get("make") if crsp and crsp.get("make") else make,
+            "model": crsp.get("model") if crsp and crsp.get("model") else model,
+            "master_model_id": crsp.get("master_model_id") if crsp else None,
+            "master_model_name": crsp.get("master_model_name") if crsp else None,
+            "generation_id": crsp.get("generation_id") if crsp else None,
+            "engine_capacity_id": crsp.get("engine_capacity_id") if crsp else None,
+            "engine_capacity": crsp.get("engine_capacity") if crsp else None,
+            "fuel": crsp.get("fuel") if crsp and crsp.get("fuel") else fuel_type,
+            "transmission": (
+                crsp.get("transmission")
+                if crsp and crsp.get("transmission")
+                else transmission
+            ),
+            "body_type": (
+                crsp.get("body_type")
+                if crsp and crsp.get("body_type")
+                else body_type
+            ),
+            "manufacture_year": (
+                crsp.get("manufacture_year")
+                if crsp and crsp.get("manufacture_year")
+                else manufacture_year
+            ),
+            "crsp_kes": (
+                float(crsp["crsp_kes"])
+                if crsp and crsp.get("crsp_kes") is not None
+                else None
+            ),
+        }
+
+    def _confidence_score(self, crsp: Optional[Dict[str, Any]]) -> int:
+        if not crsp:
+            return 0
 
         score = 70
-
-        if crsp_value > 0:
-            score += 15
-
-        if year:
+        score += 10
+        if crsp.get("canonical_id") is not None:
+            score += 5
+        if crsp.get("generation_id") is not None:
+            score += 3
+        if crsp.get("engine_capacity_id") is not None:
+            score += 3
+        if crsp.get("crsp_kes") is not None:
             score += 5
 
-        if mileage >= 0:
-            score += 3
+        return min(score, 96)
 
-        if condition in (
-            "excellent",
-            "very_good",
-            "good",
-        ):
-            score += 3
+    def _get_depreciation_rate(
+        self,
+        age: int,
+        vehicle_type: Optional[str] = None,
+    ) -> float:
+        if age <= 1:
+            return 0.10
+        if age <= 3:
+            return 0.20
+        if age <= 5:
+            return 0.30
+        if age <= 8:
+            return 0.45
+        if age <= 12:
+            return 0.60
+        return 0.70
 
-        return min(
-            99,
-            score,
-        )
+    def _mileage_factor(self, mileage: Optional[int], age: int) -> float:
+        try:
+            km = max(0, int(mileage or 0))
+        except (TypeError, ValueError):
+            km = 0
 
-    @staticmethod
-    def _normalise_condition(
-        condition: Optional[str],
-    ) -> str:
+        if km <= 0:
+            return 1.00
 
-        value = (
-            condition
-            or "good"
-        ).lower().strip()
+        expected = max(15000 * max(age, 1), 1000)
+        ratio = km / expected
 
-        aliases = {
-            "very good": "very_good",
-            "verygood": "very_good",
-            "excellent": "excellent",
-            "good": "good",
-            "fair": "fair",
-            "poor": "poor",
-        }
+        if ratio <= 0.75:
+            return 1.03
+        if ratio <= 1.25:
+            return 1.00
+        if ratio <= 1.75:
+            return 0.95
+        if ratio <= 2.50:
+            return 0.88
+        return 0.80
 
-        return aliases.get(
-            value,
-            "good",
-        )
+    def _condition_factor(self, condition: Optional[str]) -> float:
+        return {
+            "excellent": 1.10,
+            "very good": 1.05,
+            "very_good": 1.05,
+            "good": 1.00,
+            "fair": 0.90,
+            "poor": 0.75,
+        }.get(str(condition or "good").strip().lower(), 1.00)
 
-    @staticmethod
-    def _normalise_accident(
-        accident: Optional[str],
-    ) -> str:
+    def _accident_factor(self, accident_history: Optional[str]) -> float:
+        return {
+            "none": 1.00,
+            "no": 1.00,
+            "minor": 0.92,
+            "major": 0.75,
+            "total loss": 0.35,
+            "total_loss": 0.35,
+        }.get(str(accident_history or "none").strip().lower(), 1.00)
 
-        value = (
-            accident
-            or "none"
-        ).lower().strip()
+    def _owner_factor(self, previous_owners: Optional[int]) -> float:
+        try:
+            owners = max(0, int(previous_owners or 0))
+        except (TypeError, ValueError):
+            owners = 0
 
-        aliases = {
-            "no accident": "none",
-            "none": "none",
-            "minor": "minor",
-            "major": "major",
-            "total loss": "total_loss",
-            "total_loss": "total_loss",
-        }
+        if owners >= 5:
+            return 0.95
+        if owners >= 3:
+            return 0.97
+        return 1.00
 
-        return aliases.get(
-            value,
-            "none",
-        )
+    def _location_factor(self, location: Optional[str]) -> float:
+        return 1.00
 
 
-# ================================================================
-# SINGLETON
-# ================================================================
-
-valuation_service = ValuationService()
+def get_valuation_service() -> ValuationService:
+    return ValuationService()
