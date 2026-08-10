@@ -44,14 +44,20 @@ class ValuationService:
         try:
             resolved_id = vehicle_crsp_id or crsp_id
 
+            # Try direct ID lookup first
             if resolved_id is not None:
                 record = self.repository.get_crsp_by_id(int(resolved_id))
                 if record:
+                    logger.info(f"Found CRSP record by ID: {resolved_id}")
                     return record
 
+            # If no make/model provided, we can't search further
             if not make or not model:
+                logger.warning("No make/model provided for CRSP search")
                 return None
 
+            # Try exact match with all filters
+            logger.info(f"Searching CRSP for {make} {model} {manufacture_year}")
             records = self.repository.search_crsp(
                 make=make,
                 model=model,
@@ -63,7 +69,17 @@ class ValuationService:
                 limit=50,
             )
 
-            if not records and manufacture_year is not None:
+            if records:
+                selected = self._select_best_crsp(
+                    records, manufacture_year, engine_capacity_id
+                )
+                if selected:
+                    logger.info(f"Selected CRSP record: {selected.get('crsp_id')}")
+                    return selected
+
+            # Try without year if year-specific search failed
+            if manufacture_year is not None:
+                logger.info(f"No exact year match for {make} {model}, searching without year")
                 records = self.repository.search_crsp(
                     make=make,
                     model=model,
@@ -75,12 +91,38 @@ class ValuationService:
                     limit=50,
                 )
 
+                if records:
+                    selected = self._select_best_crsp(
+                        records, manufacture_year, engine_capacity_id
+                    )
+                    if selected:
+                        logger.info(f"Found CRSP without year: {selected.get('crsp_id')}")
+                        return selected
+
+            # Try broader search with just make and model
+            logger.info(f"Performing broad search for {make} {model}")
+            records = self.repository.search_crsp(
+                make=make,
+                model=model,
+                manufacture_year=None,
+                engine_capacity_id=None,
+                fuel=None,
+                transmission=None,
+                body_type=None,
+                limit=50,
+            )
+
             if records:
-                return self._select_best_crsp(
+                selected = self._select_best_crsp(
                     records, manufacture_year, engine_capacity_id
                 )
+                if selected:
+                    logger.info(f"Found CRSP from broad search: {selected.get('crsp_id')}")
+                    return selected
 
+            logger.warning(f"No CRSP record found for {make} {model}")
             return None
+
         except Exception as exc:
             logger.exception("CRSP lookup failed: %s", exc)
             return None
@@ -110,32 +152,62 @@ class ValuationService:
         def score(row: Dict[str, Any]) -> int:
             score_value = 0
 
+            # Prioritize records with prices
+            if row.get("crsp_kes") is not None and row.get("crsp_kes") > 0:
+                score_value += 30
+
+            # Canonical records are better
             if row.get("canonical_id") is not None:
                 score_value += 20
             if row.get("is_duplicate") is False:
                 score_value += 20
             if row.get("is_inferred") is False:
                 score_value += 10
-            if row.get("crsp_kes") is not None:
-                score_value += 30
+
+            # Generation and engine info are good
             if row.get("generation_id") is not None:
                 score_value += 5
             if row.get("engine_capacity_id") is not None:
                 score_value += 5
+
+            # Exact year match is preferred
             if (
                 manufacture_year is not None
                 and row.get("manufacture_year") == manufacture_year
             ):
-                score_value += 10
+                score_value += 15
+
+            # Year proximity bonus (within 2 years)
+            if (
+                manufacture_year is not None
+                and row.get("manufacture_year") is not None
+            ):
+                year_diff = abs(row.get("manufacture_year") - manufacture_year)
+                if year_diff <= 1:
+                    score_value += 10
+                elif year_diff <= 2:
+                    score_value += 5
+
+            # Engine capacity match
             if (
                 engine_capacity_id is not None
                 and row.get("engine_capacity_id") == engine_capacity_id
             ):
                 score_value += 10
 
+            # Prefer records with complete data
+            if row.get("make") and row.get("model"):
+                score_value += 5
+
             return score_value
 
-        return max(records, key=score)
+        # Sort by score and return the best
+        sorted_records = sorted(records, key=score, reverse=True)
+        best = sorted_records[0]
+        best_score = score(best)
+        
+        logger.debug(f"Best CRSP score: {best_score} for record {best.get('crsp_id')}")
+        return best
 
     def calculate_valuation(
         self,
@@ -158,6 +230,11 @@ class ValuationService:
     ) -> Dict[str, Any]:
         """Calculate an indicative vehicle value."""
 
+        # Normalize inputs
+        make = (make or "").strip()
+        model = (model or "").strip()
+        
+        # CRSP lookup with broader search
         crsp = self.get_crsp_vehicle(
             vehicle_crsp_id=vehicle_crsp_id,
             crsp_id=crsp_id,
@@ -165,6 +242,9 @@ class ValuationService:
             model=model,
             manufacture_year=manufacture_year,
             engine_capacity_id=engine_capacity_id,
+            fuel_type=fuel_type,
+            transmission=transmission,
+            body_type=body_type,
         )
 
         resolved_id = vehicle_crsp_id or crsp_id
@@ -173,12 +253,48 @@ class ValuationService:
         if crsp:
             resolved_id = crsp.get("crsp_id")
             if crsp.get("crsp_kes") is not None:
-                crsp_value = float(crsp["crsp_kes"])
+                try:
+                    crsp_value = float(crsp["crsp_kes"])
+                except (TypeError, ValueError):
+                    crsp_value = 0.0
 
         current_year = 2026
         age = max(0, current_year - int(manufacture_year)) if manufacture_year else 0
 
+        # If no CRSP found, try to create a reasonable estimate based on known data
         if crsp_value <= 0:
+            logger.warning(f"No CRSP value found for {make} {model} {manufacture_year}")
+            
+            # Try to estimate based on make/model if we have some data
+            estimated_value = self._estimate_value_from_make_model(
+                make, model, manufacture_year, mileage, condition
+            )
+            
+            if estimated_value > 0:
+                return {
+                    "success": True,
+                    "status": "estimated",
+                    "crsp_found": False,
+                    "crsp_id": resolved_id,
+                    "crsp_value": 0.0,
+                    "estimated_value": estimated_value,
+                    "estimated_value_min": round(estimated_value * 0.85, 2),
+                    "estimated_value_max": round(estimated_value * 1.15, 2),
+                    "confidence_score": 35,
+                    "adjustments": {
+                        "age": age,
+                        "mileage": mileage,
+                        "condition": condition,
+                        "note": "Estimated from make/model baseline (no CRSP record found)"
+                    },
+                    "vehicle": self._vehicle_summary(
+                        crsp, make, model, manufacture_year,
+                        fuel_type, transmission, body_type,
+                    ),
+                    "message": "Valuation estimated from make/model baseline (no CRSP record found).",
+                }
+            
+            # Return error with more helpful message
             return {
                 "success": False,
                 "status": "crsp_not_found",
@@ -189,13 +305,15 @@ class ValuationService:
                 "estimated_value_min": None,
                 "estimated_value_max": None,
                 "confidence_score": 0,
-                "message": "No matching CRSP record was found.",
+                "adjustments": {},
                 "vehicle": self._vehicle_summary(
                     crsp, make, model, manufacture_year,
                     fuel_type, transmission, body_type,
                 ),
+                "message": f"No CRSP record found for {make} {model} {manufacture_year}. Please check the vehicle details or contact support.",
             }
 
+        # Calculate depreciation and factors
         depreciation_rate = self._get_depreciation_rate(
             age,
             (crsp or {}).get("body_type") or body_type or vehicle_type,
@@ -244,6 +362,149 @@ class ValuationService:
             "message": "Valuation completed successfully.",
         }
 
+    def _estimate_value_from_make_model(
+        self,
+        make: str,
+        model: str,
+        manufacture_year: Optional[int],
+        mileage: int,
+        condition: str,
+    ) -> float:
+        """Estimate value based on make/model when no CRSP record exists."""
+        make_lower = make.lower()
+        model_lower = model.lower()
+        
+        # Base values by make (KES)
+        base_values = {
+            "toyota": 3500000,
+            "honda": 2800000,
+            "nissan": 2500000,
+            "mazda": 2400000,
+            "subaru": 3000000,
+            "mercedes": 5000000,
+            "bmw": 4500000,
+            "audi": 4200000,
+            "volkswagen": 3000000,
+            "vw": 3000000,
+            "ford": 3200000,
+            "chevrolet": 2800000,
+            "hyundai": 2500000,
+            "kia": 2400000,
+            "suzuki": 2000000,
+            "mitsubishi": 2600000,
+            "isuzu": 3500000,
+            "land rover": 6000000,
+            "jaguar": 5500000,
+            "porsche": 8000000,
+            "ferrari": 15000000,
+            "lamborghini": 18000000,
+        }
+        
+        # Model-specific adjustments
+        model_adjustments = {
+            "land cruiser": 1.8,
+            "prado": 1.5,
+            "hilux": 1.3,
+            "fortuner": 1.4,
+            "rav4": 1.2,
+            "chr": 1.1,
+            "corolla": 0.8,
+            "camry": 1.0,
+            "premio": 0.85,
+            "axio": 0.8,
+            "harrier": 1.3,
+            "venza": 1.2,
+            "civic": 0.9,
+            "accord": 1.0,
+            "cr-v": 1.2,
+            "hr-v": 1.0,
+            "x-trail": 1.1,
+            "qashqai": 1.0,
+            "patrol": 1.8,
+            "cx-5": 1.1,
+            "demio": 0.7,
+            "forester": 1.1,
+            "outback": 1.0,
+            "impreza": 0.9,
+            "legacy": 0.95,
+            "golf": 0.9,
+            "passat": 1.0,
+            "tiguan": 1.1,
+            "c-class": 1.1,
+            "e-class": 1.3,
+            "s-class": 1.8,
+            "3-series": 1.0,
+            "5-series": 1.3,
+            "x5": 1.5,
+            "a4": 1.0,
+            "a6": 1.2,
+            "q5": 1.2,
+            "f-150": 1.4,
+            "ranger": 1.2,
+            "mustang": 1.2,
+            "escape": 1.0,
+        }
+        
+        # Get base value
+        base_value = 0
+        for key, value in base_values.items():
+            if key in make_lower:
+                base_value = value
+                break
+        
+        if base_value == 0:
+            # Default for unknown makes
+            base_value = 2500000
+        
+        # Apply model adjustment
+        model_factor = 1.0
+        for key, factor in model_adjustments.items():
+            if key in model_lower:
+                model_factor = factor
+                break
+        
+        # Year adjustment (depreciation)
+        if manufacture_year:
+            current_year = 2026
+            age = max(0, current_year - manufacture_year)
+            if age <= 1:
+                year_factor = 0.95
+            elif age <= 3:
+                year_factor = 0.80
+            elif age <= 5:
+                year_factor = 0.65
+            elif age <= 8:
+                year_factor = 0.50
+            elif age <= 12:
+                year_factor = 0.35
+            else:
+                year_factor = 0.20
+        else:
+            year_factor = 0.70
+        
+        # Mileage adjustment
+        if mileage > 0:
+            if mileage < 50000:
+                mileage_factor = 1.0
+            elif mileage < 100000:
+                mileage_factor = 0.90
+            elif mileage < 150000:
+                mileage_factor = 0.80
+            elif mileage < 200000:
+                mileage_factor = 0.70
+            else:
+                mileage_factor = 0.60
+        else:
+            mileage_factor = 1.0
+        
+        # Condition adjustment
+        condition_factor = self._condition_factor(condition)
+        
+        # Calculate estimated value
+        estimated = base_value * model_factor * year_factor * mileage_factor * condition_factor
+        
+        return round(max(estimated, 50000), 2)  # Minimum 50,000 KES
+
     def _vehicle_summary(
         self,
         crsp: Optional[Dict[str, Any]],
@@ -291,15 +552,20 @@ class ValuationService:
             return 0
 
         score = 70
-        score += 10
+        score += 10  # Base for having a CRSP record
+        
         if crsp.get("canonical_id") is not None:
             score += 5
         if crsp.get("generation_id") is not None:
             score += 3
         if crsp.get("engine_capacity_id") is not None:
             score += 3
-        if crsp.get("crsp_kes") is not None:
+        if crsp.get("crsp_kes") is not None and crsp.get("crsp_kes") > 0:
             score += 5
+        if crsp.get("make") and crsp.get("model"):
+            score += 2
+        if crsp.get("manufacture_year") is not None:
+            score += 2
 
         return min(score, 96)
 
