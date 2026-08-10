@@ -3,7 +3,7 @@
 import logging
 from typing import Any, Dict, Optional, List
 
-from app.core.database import get_supabase
+from app.modules.valuation.repository import ValuationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,9 @@ class ValuationService:
     CRSP_TABLE = "vehicle_crsp_lookup"
 
     def __init__(self):
-        self.supabase = get_supabase()
+        self.repository = ValuationRepository()
+        # Kept for backward compatibility with code that inspects the service.
+        self.supabase = self.repository.supabase
 
     def get_crsp_vehicle(
         self,
@@ -30,65 +32,71 @@ class ValuationService:
         manufacture_year: Optional[int] = None,
         engine_capacity_id: Optional[int] = None,
         crsp_id: Optional[int] = None,
+        fuel_type: Optional[str] = None,
+        transmission: Optional[str] = None,
+        body_type: Optional[str] = None,
         **kwargs,
     ) -> Optional[Dict[str, Any]]:
-        """Find the best matching record in vehicle_crsp_lookup."""
+        """Find the best matching record from vehicle_crsp_lookup.
 
+        Repository methods are synchronous. There is intentionally no await.
+        """
         try:
             resolved_id = vehicle_crsp_id or crsp_id
 
             if resolved_id is not None:
-                response = (
-                    self.supabase
-                    .table(self.CRSP_TABLE)
-                    .select("*")
-                    .eq("crsp_id", int(resolved_id))
-                    .limit(1)
-                    .execute()
-                )
-                if response.data:
-                    return response.data[0]
+                record = self.repository.get_crsp_by_id(int(resolved_id))
+                if record:
+                    return record
 
             if not make or not model:
                 return None
 
-            base_query = (
-                self.supabase
-                .table(self.CRSP_TABLE)
-                .select("*")
-                .ilike("make", str(make).strip())
-                .ilike("model", str(model).strip())
+            records = self.repository.search_crsp(
+                make=make,
+                model=model,
+                manufacture_year=manufacture_year,
+                engine_capacity_id=engine_capacity_id,
+                fuel=fuel_type,
+                transmission=transmission,
+                body_type=body_type,
+                limit=50,
             )
 
-            if manufacture_year is not None:
-                query = base_query.eq(
-                    "manufacture_year", int(manufacture_year)
+            if not records and manufacture_year is not None:
+                records = self.repository.search_crsp(
+                    make=make,
+                    model=model,
+                    manufacture_year=None,
+                    engine_capacity_id=engine_capacity_id,
+                    fuel=fuel_type,
+                    transmission=transmission,
+                    body_type=body_type,
+                    limit=50,
                 )
-                if engine_capacity_id is not None:
-                    query = query.eq(
-                        "engine_capacity_id", int(engine_capacity_id)
-                    )
-                response = query.limit(25).execute()
-                if response.data:
-                    return self._select_best_crsp(
-                        response.data,
-                        manufacture_year,
-                        engine_capacity_id,
-                    )
 
-            response = base_query.limit(50).execute()
-            if response.data:
+            if records:
                 return self._select_best_crsp(
-                    response.data,
-                    manufacture_year,
-                    engine_capacity_id,
+                    records, manufacture_year, engine_capacity_id
                 )
 
             return None
-
         except Exception as exc:
             logger.exception("CRSP lookup failed: %s", exc)
             return None
+
+    def search_crsp(self, **kwargs) -> List[Dict[str, Any]]:
+        """Public synchronous lookup used by the router."""
+        return self.repository.search_crsp(
+            make=kwargs.get("make"),
+            model=kwargs.get("model"),
+            manufacture_year=kwargs.get("manufacture_year"),
+            engine_capacity_id=kwargs.get("engine_capacity_id"),
+            fuel=kwargs.get("fuel_type") or kwargs.get("fuel"),
+            transmission=kwargs.get("transmission"),
+            body_type=kwargs.get("body_type"),
+            limit=kwargs.get("limit", 25),
+        )
 
     def _select_best_crsp(
         self,
