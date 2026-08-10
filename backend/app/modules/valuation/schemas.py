@@ -5,8 +5,7 @@
 # ================================================================
 
 from datetime import datetime
-from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -18,9 +17,23 @@ from pydantic import BaseModel, Field
 class ValuationRequest(BaseModel):
     """Request payload for vehicle valuation."""
 
-    variant_id: int = Field(..., description="Vehicle variant ID")
-    year: int = Field(..., ge=1900, le=2100, description="Manufacture year")
-    mileage: int = Field(0, ge=0, description="Vehicle mileage in KM")
+    crsp_id: int = Field(
+        ...,
+        description="Authoritative vehicle CRSP ID"
+    )
+
+    year: int = Field(
+        ...,
+        ge=1900,
+        le=2100,
+        description="Vehicle manufacture year"
+    )
+
+    mileage: int = Field(
+        0,
+        ge=0,
+        description="Vehicle mileage in KM"
+    )
 
     condition: str = Field(
         "good",
@@ -35,16 +48,6 @@ class ValuationRequest(BaseModel):
     location: str = Field(
         "nairobi",
         description="Vehicle location"
-    )
-
-    fuel_type: Optional[str] = Field(
-        None,
-        description="Fuel type"
-    )
-
-    transmission: Optional[str] = Field(
-        None,
-        description="Transmission type"
     )
 
     service_history: bool = Field(
@@ -93,21 +96,42 @@ class DepreciationResult(BaseModel):
 # ================================================================
 
 class ValuationVehicle(BaseModel):
-    """Vehicle information used during valuation."""
+    """Authoritative vehicle information from vehicle_crsp_lookup."""
 
-    variant_id: int
-    make: str
-    model: str
-    variant: str
+    crsp_id: int
 
-    fuel_type: Optional[str] = None
+    make: Optional[str] = None
+    make_id: Optional[int] = None
+
+    model: Optional[str] = None
+    normalized_model: Optional[str] = None
+
+    model_id: Optional[int] = None
+
+    master_model_id: Optional[int] = None
+    master_model_name: Optional[str] = None
+
+    generation_id: Optional[int] = None
+
+    engine_capacity_id: Optional[int] = None
+    engine_capacity: Optional[str] = None
+
+    fuel: Optional[str] = None
     transmission: Optional[str] = None
-    engine_size: Optional[float] = None
+    drive_configuration: Optional[str] = None
     body_type: Optional[str] = None
 
-    seats: Optional[int] = None
-    doors: Optional[int] = None
-    drive_type: Optional[str] = None
+    manufacture_year: Optional[int] = None
+    crsp_year: Optional[int] = None
+
+    crsp_kes: Optional[float] = None
+
+    currency: str = "KES"
+
+    effective_date: Optional[str] = None
+
+    is_inferred: bool = False
+    is_duplicate: bool = False
 
 
 # ================================================================
@@ -119,12 +143,12 @@ class ValuationComparable(BaseModel):
 
     id: Optional[int] = None
 
-    make: str
-    model: str
-
+    make: Optional[str] = None
+    model: Optional[str] = None
     variant: Optional[str] = None
-    year: int
-    mileage: int
+
+    year: Optional[int] = None
+    mileage: Optional[int] = None
 
     price: float
 
@@ -134,7 +158,6 @@ class ValuationComparable(BaseModel):
     url: Optional[str] = None
 
     difference: Optional[float] = None
-
     similarity_score: Optional[float] = None
 
 
@@ -147,10 +170,25 @@ class ValuationResponse(BaseModel):
 
     vehicle: ValuationVehicle
 
+    # ------------------------------------------------------------
+    # Primary valuation
+    # ------------------------------------------------------------
+
     market_value: float
+
+    # ------------------------------------------------------------
+    # Market bands
+    # ------------------------------------------------------------
+
     retail_value: float
     trade_value: float
     dealer_value: float
+
+    recommended_selling_price: Optional[float] = None
+
+    # ------------------------------------------------------------
+    # Confidence
+    # ------------------------------------------------------------
 
     confidence_score: float = Field(
         ...,
@@ -158,11 +196,23 @@ class ValuationResponse(BaseModel):
         le=100
     )
 
-    depreciation: DepreciationResult
+    # ------------------------------------------------------------
+    # Depreciation
+    # ------------------------------------------------------------
+
+    depreciation: Optional[DepreciationResult] = None
+
+    # ------------------------------------------------------------
+    # Adjustments
+    # ------------------------------------------------------------
 
     adjustments: List[ValuationAdjustment] = Field(
         default_factory=list
     )
+
+    # ------------------------------------------------------------
+    # Market information
+    # ------------------------------------------------------------
 
     sample_size: int = 0
 
@@ -172,21 +222,35 @@ class ValuationResponse(BaseModel):
         default_factory=list
     )
 
-    recommendation: str
+    # ------------------------------------------------------------
+    # Explanation
+    # ------------------------------------------------------------
+
+    recommendation: Optional[str] = None
+
+    warnings: List[str] = Field(
+        default_factory=list
+    )
+
+    # ------------------------------------------------------------
+    # Metadata
+    # ------------------------------------------------------------
 
     currency: str = "KES"
 
-    calculated_at: datetime
+    calculated_at: datetime = Field(
+        default_factory=datetime.utcnow
+    )
 
 
 # ================================================================
-# OPTIONAL GENERIC RESPONSE
+# COMPACT SUMMARY
 # ================================================================
 
 class ValuationSummary(BaseModel):
     """Compact valuation summary."""
 
-    variant_id: int
+    crsp_id: int
 
     market_value: float
     retail_value: float
@@ -196,4 +260,21 @@ class ValuationSummary(BaseModel):
 
     currency: str = "KES"
 
-    calculated_at: datetime
+    calculated_at: datetime = Field(
+        default_factory=datetime.utcnow
+    )
+
+
+# ================================================================
+# REPORT RESPONSE
+# ================================================================
+
+class ValuationReportResponse(ValuationResponse):
+    """
+    Full valuation report response.
+
+    Kept as a separate response type so existing router/report
+    endpoints can continue importing ValuationReportResponse.
+    """
+
+    pass
