@@ -23,8 +23,9 @@ from app.core.dependencies import get_current_user, get_current_user_optional
 
 # ─── ROUTER WITH PREFIX ──────────────────────────────────────────────
 
+# ✅ FIXED: Removed /api/v1 prefix from router - it will be added by main.py
 router = APIRouter(
-    prefix="/api/v1/valuation",
+    prefix="/valuation",  # Changed from "/api/v1/valuation"
     tags=["Vehicle Valuation"],
 )
 
@@ -55,12 +56,12 @@ async def calculate_valuation(
         
         # Convert to service parameters
         result = await valuation_service.calculate_valuation(
-            variant_id=request.vehicle_crsp_id,  # Map to variant_id for service
-            year=request.manufacture_year,
-            mileage=request.mileage_km,
-            condition=request.condition_name.lower(),
-            accident_history=request.accident_status.lower(),
-            location=request.location_name.lower(),
+            variant_id=request.crsp_id,
+            year=request.year,
+            mileage=request.mileage,
+            condition=request.condition,
+            accident_history=request.accident_history,
+            location=request.location,
             user_id=user_id,
             profit_margin_percent=request.profit_margin_percent
         )
@@ -95,12 +96,12 @@ async def calculate_valuation_public(
     """
     try:
         result = await valuation_service.calculate_valuation(
-            variant_id=request.vehicle_crsp_id,
-            year=request.manufacture_year,
-            mileage=request.mileage_km,
-            condition=request.condition_name.lower(),
-            accident_history=request.accident_status.lower(),
-            location=request.location_name.lower(),
+            variant_id=request.crsp_id,
+            year=request.year,
+            mileage=request.mileage,
+            condition=request.condition,
+            accident_history=request.accident_history,
+            location=request.location,
             user_id=None,
             profit_margin_percent=request.profit_margin_percent
         )
@@ -137,12 +138,12 @@ async def calculate_valuation_legacy(
         converted_request = request.to_valuation_request()
         
         result = await valuation_service.calculate_valuation(
-            variant_id=converted_request.vehicle_crsp_id,
-            year=converted_request.manufacture_year,
-            mileage=converted_request.mileage_km,
-            condition=converted_request.condition_name.lower(),
-            accident_history=converted_request.accident_status.lower(),
-            location=converted_request.location_name.lower(),
+            variant_id=converted_request.crsp_id,
+            year=converted_request.year,
+            mileage=converted_request.mileage,
+            condition=converted_request.condition,
+            accident_history=converted_request.accident_history,
+            location=converted_request.location,
             fuel_type=request.fuel_type,
             transmission=request.transmission,
             ownership_count=request.ownership_count,
@@ -200,10 +201,6 @@ async def calculate_valuation_legacy(
         )
 
 
-# ================================================================
-# SIMPLE VALUATION ENDPOINT
-# ================================================================
-
 @router.post("/quick", response_model=ValuationResponse)
 async def quick_valuation(
     request: ValuationRequest,
@@ -218,12 +215,12 @@ async def quick_valuation(
         user_id = current_user.get("id") if current_user else None
         
         result = await valuation_service.calculate_valuation(
-            variant_id=request.vehicle_crsp_id,
-            year=request.manufacture_year,
-            mileage=request.mileage_km,
-            condition=request.condition_name.lower(),
-            accident_history=request.accident_status.lower(),
-            location=request.location_name.lower(),
+            variant_id=request.crsp_id,
+            year=request.year,
+            mileage=request.mileage,
+            condition=request.condition,
+            accident_history=request.accident_history,
+            location=request.location,
             user_id=user_id,
             profit_margin_percent=request.profit_margin_percent
         )
@@ -412,12 +409,12 @@ async def bulk_valuation(
         for request in requests:
             try:
                 result = await valuation_service.calculate_valuation(
-                    variant_id=request.vehicle_crsp_id,
-                    year=request.manufacture_year,
-                    mileage=request.mileage_km,
-                    condition=request.condition_name.lower(),
-                    accident_history=request.accident_status.lower(),
-                    location=request.location_name.lower(),
+                    variant_id=request.crsp_id,
+                    year=request.year,
+                    mileage=request.mileage,
+                    condition=request.condition,
+                    accident_history=request.accident_history,
+                    location=request.location,
                     user_id=user_id,
                     profit_margin_percent=request.profit_margin_percent
                 )
@@ -429,7 +426,7 @@ async def bulk_valuation(
                 results.append({
                     "success": False,
                     "error": str(e),
-                    "variant_id": request.vehicle_crsp_id
+                    "crsp_id": request.crsp_id
                 })
         
         return {
@@ -461,29 +458,29 @@ async def compare_valuations(
         for request in requests:
             try:
                 result = await valuation_service.calculate_valuation(
-                    variant_id=request.vehicle_crsp_id,
-                    year=request.manufacture_year,
-                    mileage=request.mileage_km,
-                    condition=request.condition_name.lower(),
-                    accident_history=request.accident_status.lower(),
-                    location=request.location_name.lower(),
+                    variant_id=request.crsp_id,
+                    year=request.year,
+                    mileage=request.mileage,
+                    condition=request.condition,
+                    accident_history=request.accident_history,
+                    location=request.location,
                     user_id=user_id,
                     profit_margin_percent=request.profit_margin_percent
                 )
                 
                 # Extract key comparison data
                 results.append({
-                    "variant_id": request.vehicle_crsp_id,
+                    "crsp_id": request.crsp_id,
                     "make": result["vehicle"].get("make"),
                     "model": result["vehicle"].get("model"),
-                    "year": request.manufacture_year,
+                    "year": request.year,
                     "estimated_value": result["valuation"]["estimated_vehicle_value"],
                     "confidence_score": result["valuation"]["confidence_score"],
                     "success": True
                 })
             except Exception as e:
                 results.append({
-                    "variant_id": request.vehicle_crsp_id,
+                    "crsp_id": request.crsp_id,
                     "error": str(e),
                     "success": False
                 })
