@@ -13,7 +13,10 @@ from app.modules.valuation.schemas import (
     ValuationReportResponse,
     ValuationStats,
     ValuationHealthResponse,
-    ValuationHistoryResponse
+    ValuationHistoryResponse,
+    LegacyValuationRequest,
+    create_valuation_report_response,
+    create_valuation_from_database,
 )
 from app.modules.valuation.service import ValuationService
 from app.core.dependencies import get_current_user, get_current_user_optional
@@ -21,7 +24,7 @@ from app.core.dependencies import get_current_user, get_current_user_optional
 # ─── ROUTER WITH PREFIX ──────────────────────────────────────────────
 
 router = APIRouter(
-    prefix="/valuation",
+    prefix="/api/v1/valuation",
     tags=["Vehicle Valuation"],
 )
 
@@ -50,25 +53,28 @@ async def calculate_valuation(
     try:
         user_id = current_user.get("id") if current_user else None
         
+        # Convert to service parameters
         result = await valuation_service.calculate_valuation(
-            variant_id=request.variant_id,
-            year=request.year,
-            mileage=request.mileage,
-            condition=request.condition,
-            accident_history=request.accident_history,
-            location=request.location,
-            fuel_type=request.fuel_type,
-            transmission=request.transmission,
-            ownership_count=request.ownership_count,
-            service_history=request.service_history,
-            user_id=user_id
+            variant_id=request.vehicle_crsp_id,  # Map to variant_id for service
+            year=request.manufacture_year,
+            mileage=request.mileage_km,
+            condition=request.condition_name.lower(),
+            accident_history=request.accident_status.lower(),
+            location=request.location_name.lower(),
+            user_id=user_id,
+            profit_margin_percent=request.profit_margin_percent
         )
         
         return result
         
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Valuation failed: {str(e)}"
         )
 
@@ -89,53 +95,60 @@ async def calculate_valuation_public(
     """
     try:
         result = await valuation_service.calculate_valuation(
-            variant_id=request.variant_id,
-            year=request.year,
-            mileage=request.mileage,
-            condition=request.condition,
-            accident_history=request.accident_history,
-            location=request.location,
-            fuel_type=request.fuel_type,
-            transmission=request.transmission,
-            ownership_count=request.ownership_count,
-            service_history=request.service_history,
-            user_id=None
+            variant_id=request.vehicle_crsp_id,
+            year=request.manufacture_year,
+            mileage=request.mileage_km,
+            condition=request.condition_name.lower(),
+            accident_history=request.accident_status.lower(),
+            location=request.location_name.lower(),
+            user_id=None,
+            profit_margin_percent=request.profit_margin_percent
         )
         
         return result
         
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Valuation failed: {str(e)}"
         )
 
 
 @router.post("/calculate-legacy", response_model=ValuationResponse)
 async def calculate_valuation_legacy(
-    request: ValuationRequest,
+    request: LegacyValuationRequest,
     current_user: dict = Depends(get_current_user_optional)
 ):
     """
     Calculate vehicle valuation (legacy response format).
     
     Returns a simplified valuation response without the full report structure.
+    This endpoint is maintained for backward compatibility.
     """
     try:
         user_id = current_user.get("id") if current_user else None
         
+        # Convert legacy request to new format
+        converted_request = request.to_valuation_request()
+        
         result = await valuation_service.calculate_valuation(
-            variant_id=request.variant_id,
-            year=request.year,
-            mileage=request.mileage,
-            condition=request.condition,
-            accident_history=request.accident_history,
-            location=request.location,
+            variant_id=converted_request.vehicle_crsp_id,
+            year=converted_request.manufacture_year,
+            mileage=converted_request.mileage_km,
+            condition=converted_request.condition_name.lower(),
+            accident_history=converted_request.accident_status.lower(),
+            location=converted_request.location_name.lower(),
             fuel_type=request.fuel_type,
             transmission=request.transmission,
             ownership_count=request.ownership_count,
             service_history=request.service_history,
-            user_id=user_id
+            user_id=user_id,
+            profit_margin_percent=converted_request.profit_margin_percent
         )
         
         # ─── CONVERT TO LEGACY FORMAT ──────────────────────────────────
@@ -147,29 +160,103 @@ async def calculate_valuation_legacy(
             "price_range_high": result["valuation"]["estimated_value_range"]["maximum"],
             "confidence_score": result["valuation"]["confidence_score"],
             "depreciation": {
-                "original_value": result["valuation"]["retail_value"],
+                "original_value": result["valuation"].get("crsp_value", result["valuation"]["retail_value"]),
                 "current_value": result["valuation"]["estimated_vehicle_value"],
                 "depreciation_amount": (
-                    result["valuation"]["retail_value"] 
+                    result["valuation"].get("crsp_value", result["valuation"]["retail_value"]) 
                     - result["valuation"]["estimated_vehicle_value"]
                 ),
                 "depreciation_percentage": (
-                    (result["valuation"]["retail_value"] - result["valuation"]["estimated_vehicle_value"]) 
-                    / result["valuation"]["retail_value"] 
+                    (result["valuation"].get("crsp_value", result["valuation"]["retail_value"]) - result["valuation"]["estimated_vehicle_value"]) 
+                    / result["valuation"].get("crsp_value", result["valuation"]["retail_value"]) 
                     * 100
-                ) if result["valuation"]["retail_value"] > 0 else 0,
-                "annual_rate": 0.15,
+                ) if result["valuation"].get("crsp_value", result["valuation"]["retail_value"]) > 0 else 0,
+                "annual_rate": result["valuation"].get("depreciation_rate", 0.15),
             },
-            "adjustments": result.get("analysis", {}).get("adjustments", []),
+            "adjustments": [
+                {
+                    "factor": k,
+                    "adjustment": v,
+                    "percentage": v / result["valuation"]["estimated_vehicle_value"] * 100 if result["valuation"]["estimated_vehicle_value"] > 0 else 0,
+                    "reason": f"{k} adjustment"
+                }
+                for k, v in result.get("analysis", {}).get("adjustments", {}).items()
+            ],
             "market_comparison": None,
             "recommendation": None,
             "currency": "KES",
-            "calculated_at": result["report"]["generated_at"],
+            "calculated_at": result["report"]["generated_at"].isoformat() if isinstance(result["report"]["generated_at"], datetime) else result["report"]["generated_at"],
         }
         
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Valuation failed: {str(e)}"
+        )
+
+
+# ================================================================
+# SIMPLE VALUATION ENDPOINT
+# ================================================================
+
+@router.post("/quick", response_model=ValuationResponse)
+async def quick_valuation(
+    request: ValuationRequest,
+    current_user: dict = Depends(get_current_user_optional)
+):
+    """
+    Quick valuation endpoint.
+    
+    Returns a simplified valuation response with just the key metrics.
+    """
+    try:
+        user_id = current_user.get("id") if current_user else None
+        
+        result = await valuation_service.calculate_valuation(
+            variant_id=request.vehicle_crsp_id,
+            year=request.manufacture_year,
+            mileage=request.mileage_km,
+            condition=request.condition_name.lower(),
+            accident_history=request.accident_status.lower(),
+            location=request.location_name.lower(),
+            user_id=user_id,
+            profit_margin_percent=request.profit_margin_percent
+        )
+        
+        # Return simplified response
+        return {
+            "vehicle": result["vehicle"],
+            "market_value": result["valuation"]["estimated_vehicle_value"],
+            "price_range_low": result["valuation"]["estimated_value_range"]["minimum"],
+            "price_range_high": result["valuation"]["estimated_value_range"]["maximum"],
+            "confidence_score": result["valuation"]["confidence_score"],
+            "depreciation": {
+                "original_value": result["valuation"].get("crsp_value", result["valuation"]["retail_value"]),
+                "current_value": result["valuation"]["estimated_vehicle_value"],
+                "depreciation_amount": 0,
+                "depreciation_percentage": 0,
+                "annual_rate": result["valuation"].get("depreciation_rate", 0.15),
+            },
+            "adjustments": [],
+            "market_comparison": None,
+            "recommendation": None,
+            "currency": "KES",
+            "calculated_at": result["report"]["generated_at"].isoformat() if isinstance(result["report"]["generated_at"], datetime) else result["report"]["generated_at"],
+        }
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Valuation failed: {str(e)}"
         )
 
@@ -196,7 +283,7 @@ async def get_valuation_history(
         
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get valuation history: {str(e)}"
         )
 
@@ -225,7 +312,7 @@ async def get_valuation_report(
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get valuation report: {str(e)}"
         )
 
@@ -254,7 +341,7 @@ async def get_valuation_by_report_number(
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get valuation report: {str(e)}"
         )
 
@@ -278,7 +365,7 @@ async def get_valuation_stats(
         
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get valuation stats: {str(e)}"
         )
 
@@ -299,8 +386,9 @@ async def valuation_health():
         return {
             "status": "degraded",
             "service": "valuation",
-            "version": "1.0",
+            "version": "2.0",
             "timestamp": datetime.utcnow().isoformat(),
+            "database": "unhealthy",
             "error": str(e)
         }
 
@@ -324,17 +412,14 @@ async def bulk_valuation(
         for request in requests:
             try:
                 result = await valuation_service.calculate_valuation(
-                    variant_id=request.variant_id,
-                    year=request.year,
-                    mileage=request.mileage,
-                    condition=request.condition,
-                    accident_history=request.accident_history,
-                    location=request.location,
-                    fuel_type=request.fuel_type,
-                    transmission=request.transmission,
-                    ownership_count=request.ownership_count,
-                    service_history=request.service_history,
-                    user_id=user_id
+                    variant_id=request.vehicle_crsp_id,
+                    year=request.manufacture_year,
+                    mileage=request.mileage_km,
+                    condition=request.condition_name.lower(),
+                    accident_history=request.accident_status.lower(),
+                    location=request.location_name.lower(),
+                    user_id=user_id,
+                    profit_margin_percent=request.profit_margin_percent
                 )
                 results.append({
                     "success": True,
@@ -344,7 +429,7 @@ async def bulk_valuation(
                 results.append({
                     "success": False,
                     "error": str(e),
-                    "variant_id": request.variant_id
+                    "variant_id": request.vehicle_crsp_id
                 })
         
         return {
@@ -356,7 +441,7 @@ async def bulk_valuation(
         
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Bulk valuation failed: {str(e)}"
         )
 
@@ -376,32 +461,29 @@ async def compare_valuations(
         for request in requests:
             try:
                 result = await valuation_service.calculate_valuation(
-                    variant_id=request.variant_id,
-                    year=request.year,
-                    mileage=request.mileage,
-                    condition=request.condition,
-                    accident_history=request.accident_history,
-                    location=request.location,
-                    fuel_type=request.fuel_type,
-                    transmission=request.transmission,
-                    ownership_count=request.ownership_count,
-                    service_history=request.service_history,
-                    user_id=user_id
+                    variant_id=request.vehicle_crsp_id,
+                    year=request.manufacture_year,
+                    mileage=request.mileage_km,
+                    condition=request.condition_name.lower(),
+                    accident_history=request.accident_status.lower(),
+                    location=request.location_name.lower(),
+                    user_id=user_id,
+                    profit_margin_percent=request.profit_margin_percent
                 )
                 
                 # Extract key comparison data
                 results.append({
-                    "variant_id": request.variant_id,
+                    "variant_id": request.vehicle_crsp_id,
                     "make": result["vehicle"].get("make"),
                     "model": result["vehicle"].get("model"),
-                    "year": request.year,
+                    "year": request.manufacture_year,
                     "estimated_value": result["valuation"]["estimated_vehicle_value"],
                     "confidence_score": result["valuation"]["confidence_score"],
                     "success": True
                 })
             except Exception as e:
                 results.append({
-                    "variant_id": request.variant_id,
+                    "variant_id": request.vehicle_crsp_id,
                     "error": str(e),
                     "success": False
                 })
@@ -415,7 +497,7 @@ async def compare_valuations(
         
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Valuation comparison failed: {str(e)}"
         )
 
