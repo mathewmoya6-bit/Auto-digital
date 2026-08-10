@@ -23,18 +23,21 @@ class ValuationService:
     
     Handles:
     - Vehicle valuation calculation
-    - Vehicle data retrieval from vehicle_base_prices (CRSP)
+    - Vehicle data retrieval from vehicle_crsp_prices (CRSP)
     - Report generation
     - History management
     - Statistics
     """
+    
+    # ✅ FIXED: Use the correct table name
+    CRSP_TABLE = "vehicle_crsp_prices"
     
     def __init__(self):
         """Initialize the valuation service."""
         self.engine = ValuationEngine()
         self.repository = ValuationRepository()
         self.supabase = get_supabase()
-        logger.info("ValuationService initialized")
+        logger.info(f"ValuationService initialized (using CRSP table: {self.CRSP_TABLE})")
     
     # ================================================================
     # MAIN VALUATION METHOD
@@ -42,7 +45,7 @@ class ValuationService:
     
     async def calculate_valuation(
         self,
-        vehicle_crsp_id: int,  # Changed from variant_id
+        vehicle_crsp_id: int,
         year: int,
         mileage: int,
         condition: str = "good",
@@ -59,7 +62,7 @@ class ValuationService:
         Calculate vehicle valuation.
         
         Args:
-            vehicle_crsp_id: Vehicle CRSP ID from vehicle_base_prices
+            vehicle_crsp_id: Vehicle CRSP ID from vehicle_crsp_prices
             year: Vehicle year of manufacture
             mileage: Odometer reading in km
             condition: Vehicle condition (excellent, very_good, good, fair, poor)
@@ -243,10 +246,31 @@ class ValuationService:
                 f"final_value={result_data.get('final_value')}"
             )
             
-            # Extract values from result
-            final_value = float(result_data.get("final_value", 0))
-            fair_market_value = float(result_data.get("fair_market_value", final_value))
-            confidence_score = int(result_data.get("confidence_score", 65))
+            # ─── EXTRACT VALUATION VALUE ─────────────────────────────────
+            # Use the repository's extraction method
+            final_value = self._extract_valuation_value(result_data, crsp_price)
+            fair_market_value = float(
+                result_data.get(
+                    "fair_market_value",
+                    result_data.get(
+                        "market_value",
+                        final_value
+                    )
+                ) or final_value
+            )
+            
+            if final_value <= 0:
+                raise ValidationException(
+                    "Valuation calculation returned zero or negative value"
+                )
+            
+            # ─── ENSURE CONFIDENCE SCORE IS VALID ───────────────────────
+            
+            confidence_score = int(result_data.get("confidence_score") or 65)
+            
+            # If final value is zero or negative, set confidence to 0
+            if final_value <= 0:
+                confidence_score = 0
             
             # ─── GENERATE REPORT NUMBER ──────────────────────────────────
             
@@ -271,6 +295,7 @@ class ValuationService:
                 "transmission": vehicle.get("transmission"),
                 "engine_size_cc": vehicle.get("engine_size_cc"),
                 "body_type": vehicle.get("body_type"),
+                "crsp_price": round(crsp_price, 2),
             }
             
             response = {
@@ -286,6 +311,9 @@ class ValuationService:
                 # Valuation results
                 "valuation": {
                     "vehicle": vehicle_info,
+                    "crsp_base_value": round(crsp_price, 2),
+                    "estimated_vehicle_value": round(final_value, 2),
+                    "fair_market_value": round(fair_market_value, 2),
                     "market_value": round(final_value, 2),
                     "retail_value": round(final_value * 1.08, 2),
                     "trade_value": round(final_value * 0.85, 2),
@@ -297,7 +325,7 @@ class ValuationService:
                         "minimum": round(final_value * 0.90, 2),
                         "maximum": round(final_value * 1.10, 2),
                     },
-                    "sample_size": 0,
+                    "sample_size": result_data.get("sample_size", 0),
                     "adjustments": [],
                     "comparables": [],
                     "warnings": [],
@@ -338,7 +366,7 @@ class ValuationService:
             if user_id:
                 await self._save_valuation_history(
                     user_id=user_id,
-                    variant_id=vehicle_crsp_id,
+                    vehicle_crsp_id=vehicle_crsp_id,
                     report_number=report_number,
                     make=vehicle.get("make"),
                     model=vehicle.get("model"),
@@ -391,21 +419,35 @@ class ValuationService:
         vehicle_crsp_id: int
     ) -> Dict[str, Any]:
         """
-        Get vehicle directly from the new CRSP master database.
+        Get vehicle directly from the CRSP master database.
         """
         try:
+            # ✅ FIXED: Use correct table name and try both column names
+            # Try with 'id' column first
             response = (
                 self.supabase
-                .table("vehicle_base_prices")
+                .table(self.CRSP_TABLE)
                 .select("*")
-                .eq("crsp_id", vehicle_crsp_id)
+                .eq("id", vehicle_crsp_id)
                 .limit(1)
                 .execute()
             )
 
+            # If no result, try with 'crsp_id' column
+            if not response.data:
+                logger.info(f"No result with 'id' column, trying 'crsp_id'")
+                response = (
+                    self.supabase
+                    .table(self.CRSP_TABLE)
+                    .select("*")
+                    .eq("crsp_id", vehicle_crsp_id)
+                    .limit(1)
+                    .execute()
+                )
+
             if not response.data:
                 raise NotFoundException(
-                    f"CRSP vehicle {vehicle_crsp_id} not found"
+                    f"CRSP vehicle {vehicle_crsp_id} not found in {self.CRSP_TABLE}"
                 )
 
             vehicle = response.data[0]
@@ -441,7 +483,7 @@ class ValuationService:
         crsp_vehicle: Dict[str, Any]
     ) -> float:
         """
-        Extract the CRSP base price from the new CRSP record.
+        Extract the CRSP base price from the CRSP record.
         """
         price_fields = (
             "crsp_price",
@@ -450,6 +492,7 @@ class ValuationService:
             "price",
             "market_value",
             "retail_price",
+            "estimated_value",
         )
 
         for field in price_fields:
@@ -462,6 +505,7 @@ class ValuationService:
                 price = float(value)
 
                 if price > 0:
+                    logger.info(f"CRSP price found in field '{field}': {price}")
                     return price
 
             except (TypeError, ValueError):
@@ -469,13 +513,71 @@ class ValuationService:
 
         logger.error(
             "CRSP vehicle %s has no valid price: %s",
-            crsp_vehicle.get("crsp_id"),
+            crsp_vehicle.get("crsp_id") or crsp_vehicle.get("id"),
             crsp_vehicle,
         )
 
         raise ValidationException(
-            f"CRSP vehicle {crsp_vehicle.get('crsp_id')} "
+            f"CRSP vehicle {crsp_vehicle.get('crsp_id') or crsp_vehicle.get('id')} "
             "does not have a valid CRSP price"
+        )
+    
+    # ================================================================
+    # VALUATION VALUE EXTRACTION
+    # ================================================================
+    
+    @staticmethod
+    def _extract_valuation_value(
+        result_data: Dict[str, Any],
+        crsp_price: Optional[float] = None,
+    ) -> float:
+        """
+        Extract a valid valuation from repository result.
+        """
+        fields = (
+            "final_value",
+            "estimated_vehicle_value",
+            "estimated_value",
+            "market_value",
+            "fair_market_value",
+            "current_value",
+            "calculated_value",
+        )
+
+        for field in fields:
+            value = result_data.get(field)
+
+            if value is None:
+                continue
+
+            try:
+                value = float(value)
+
+                if value > 0:
+                    logger.info(f"Valuation value extracted from field '{field}': {value}")
+                    return value
+
+            except (TypeError, ValueError):
+                continue
+
+        # CRSP price is the final safety fallback
+        if crsp_price is not None:
+            try:
+                price = float(crsp_price)
+
+                if price > 0:
+                    logger.warning(
+                        "Repository returned no usable valuation. "
+                        "Using CRSP price as fallback: %.2f",
+                        price,
+                    )
+                    return price
+
+            except (TypeError, ValueError):
+                pass
+
+        raise ValidationException(
+            "No valid valuation value returned from CRSP valuation engine"
         )
     
     # ================================================================
@@ -510,6 +612,7 @@ class ValuationService:
             "transmission": vehicle.get("transmission"),
             "engine_size_cc": vehicle.get("engine_size_cc"),
             "body_type": vehicle.get("body_type"),
+            "crsp_price": vehicle.get("crsp_price", 0),
         }
         
         return {
@@ -661,7 +764,7 @@ class ValuationService:
     async def _save_valuation_history(
         self,
         user_id: str,
-        variant_id: int,
+        vehicle_crsp_id: int,
         report_number: str,
         make: str,
         model: str,
@@ -679,7 +782,7 @@ class ValuationService:
         try:
             history_data = {
                 "user_id": user_id,
-                "variant_id": variant_id,
+                "vehicle_crsp_id": vehicle_crsp_id,
                 "report_number": report_number,
                 "make": make,
                 "model": model,
@@ -894,8 +997,8 @@ class ValuationService:
             Dict[str, Any]: Health status
         """
         try:
-            # Check database connection using vehicle_base_prices
-            self.supabase.table("vehicle_base_prices").select("crsp_id").limit(1).execute()
+            # ✅ FIXED: Use correct table name
+            self.supabase.table(self.CRSP_TABLE).select("id").limit(1).execute()
             db_status = "healthy"
         except Exception as e:
             logger.error(f"Database health check failed: {str(e)}")
