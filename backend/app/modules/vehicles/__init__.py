@@ -1,22 +1,14 @@
 """
 Auto-D Kenya
-Vehicle Master Module
+Vehicles Module
 """
 
-from app.modules.vehicle_master.router import router
-from app.modules.vehicle_master.schemas import (
-    VehicleMasterUpdate,
-    BasePriceUpdate,
-    SpecificationUpdate,
-    VehicleUpdate,
-)
-from app.modules.vehicle_master.service import VehicleMasterService
+from app.modules.vehicles.router import router
+from app.modules.vehicles.service import VehicleService
+from app.modules.vehicles.repository import VehicleRepository
 
 __all__ = [
     "router",
-    "VehicleMasterUpdate",
-    "BasePriceUpdate",
-    "SpecificationUpdate",
-    "VehicleUpdate",
-    "VehicleMasterService",
+    "VehicleService",
+    "VehicleRepository",
 ]
