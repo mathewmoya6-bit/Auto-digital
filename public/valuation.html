@@ -10,7 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
     <style>
-        /* ─── CSS Variables ────────────────────────────────────────── */
+        /* ... (same styles as before - keeping all CSS unchanged) ... */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -1484,7 +1484,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> AI Valuation · Real-time Market Data · KRA CRSP Cross-Check<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.3
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.4
             </div>
         </footer>
     </div>
@@ -1492,7 +1492,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK
-        // Version 5.3 - ALIGNED with vehicle_category column
+        // Version 5.4 - ALIGNED with CRSP categories: SEDAN, COMMERCIAL, ELECTRIC, LUXURY, PICKUP
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1505,6 +1505,23 @@
                 VIEW_NAME: 'vehicle_crsp_lookup',
                 CRSP_TABLE_NAME: 'vehicle_crsp_prices',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1'
+            };
+
+            // ─── CRSP Category Mapping ──────────────────────────────
+            const CRSP_CATEGORIES = {
+                SEDAN: 'SEDAN',
+                COMMERCIAL: 'COMMERCIAL',
+                ELECTRIC: 'ELECTRIC',
+                LUXURY: 'LUXURY',
+                PICKUP: 'PICKUP'
+            };
+
+            const CATEGORY_DISPLAY_NAMES = {
+                SEDAN: 'Sedan',
+                COMMERCIAL: 'Commercial',
+                ELECTRIC: 'Electric',
+                LUXURY: 'Luxury',
+                PICKUP: 'Pickup'
             };
 
             // ─── STATE ──────────────────────────────────────────────
@@ -1769,8 +1786,10 @@
                 const basePrice = crspReferenceData.crsp_kes;
                 const refValue = basePrice * (1 - rate);
 
+                const categoryDisplay = CATEGORY_DISPLAY_NAMES[crspReferenceData.vehicle_category] || crspReferenceData.vehicle_category || '';
                 const matchedLine = `${crspReferenceData.make || ''} ${crspReferenceData.model || ''}`.trim() +
-                    (crspReferenceData.engine_capacity ? ` · ${crspReferenceData.engine_capacity}` : '');
+                    (crspReferenceData.engine_capacity ? ` · ${crspReferenceData.engine_capacity}` : '') +
+                    (categoryDisplay ? ` (${categoryDisplay})` : '');
 
                 el.crspMatchedLine.textContent = matchedLine || '—';
                 el.crspBasePrice.textContent = `KES ${formatCurrency(basePrice).formatted}`;
@@ -1795,8 +1814,10 @@
                 const refValue = basePrice * (1 - rate);
                 const variancePct = refValue > 0 ? ((aiValue - refValue) / refValue) * 100 : 0;
 
+                const categoryDisplay = CATEGORY_DISPLAY_NAMES[crspReferenceData.vehicle_category] || crspReferenceData.vehicle_category || '';
                 const matchedLine = `${crspReferenceData.make || ''} ${crspReferenceData.model || ''}`.trim() +
-                    (crspReferenceData.engine_capacity ? ` · ${crspReferenceData.engine_capacity}` : '');
+                    (crspReferenceData.engine_capacity ? ` · ${crspReferenceData.engine_capacity}` : '') +
+                    (categoryDisplay ? ` (${categoryDisplay})` : '');
 
                 el.rCrspMatched.textContent = matchedLine || '—';
                 el.rCrspBase.textContent = `KES ${formatCurrency(basePrice).formatted}`;
@@ -1947,78 +1968,26 @@
                             if (cat && !unique[cat]) {
                                 unique[cat] = { 
                                     id: cat, 
-                                    name: cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase()
+                                    name: CATEGORY_DISPLAY_NAMES[cat] || cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase()
                                 };
                             }
                         });
                         const result = Object.values(unique);
                         if (result.length > 0) {
-                            console.log('✅ Categories loaded from vehicle_category column:', result);
+                            console.log('✅ Categories loaded from vehicle_category:', result);
                             setStatus('success', `✅ Loaded ${result.length} categories`);
                             return result;
                         }
                     }
 
-                    // Second try: Get categories from vehicle_makes table
-                    const { data: makesData, error: makesError } = await supabaseClient
-                        .from('vehicle_makes')
-                        .select('category_id, category_name')
-                        .not('category_id', 'is', null)
-                        .order('category_name');
-
-                    if (!makesError && makesData && makesData.length > 0) {
-                        const unique = {};
-                        makesData.forEach(item => {
-                            if (item.category_id && !unique[item.category_id]) {
-                                unique[item.category_id] = {
-                                    id: item.category_id,
-                                    name: item.category_name || 'Uncategorized'
-                                };
-                            }
-                        });
-                        const result = Object.values(unique);
-                        if (result.length > 0) {
-                            console.log('✅ Categories loaded from vehicle_makes:', result);
-                            setStatus('success', `✅ Loaded ${result.length} categories`);
-                            return result;
-                        }
-                    }
-
-                    // Third try: Get distinct body types as categories
-                    const { data: bodyData, error: bodyError } = await supabaseClient
-                        .from(CONFIG.VIEW_NAME)
-                        .select('body_type')
-                        .not('body_type', 'is', null)
-                        .order('body_type');
-
-                    if (!bodyError && bodyData && bodyData.length > 0) {
-                        const unique = {};
-                        bodyData.forEach(item => {
-                            const name = item.body_type;
-                            if (name && !unique[name]) {
-                                unique[name] = { id: name, name: name };
-                            }
-                        });
-                        const result = Object.values(unique);
-                        if (result.length > 0) {
-                            console.log('✅ Categories loaded from body_type:', result);
-                            setStatus('success', `✅ Loaded ${result.length} body types as categories`);
-                            return result;
-                        }
-                    }
-
-                    // Final fallback
-                    console.warn('⚠️ No categories found, using fallback');
-                    const fallback = [
-                        { id: 'SEDAN', name: 'Sedan' },
-                        { id: 'SUV', name: 'SUV' },
-                        { id: 'LUXURY', name: 'Luxury' },
-                        { id: 'HATCHBACK', name: 'Hatchback' },
-                        { id: 'PICKUP', name: 'Pickup' },
-                        { id: 'VAN', name: 'Van' },
-                        { id: 'COUPE', name: 'Coupe' }
-                    ];
-                    setStatus('warning', 'Using fallback categories');
+                    // Final fallback: Hard-coded CRSP categories
+                    const fallback = Object.keys(CRSP_CATEGORIES).map(key => ({
+                        id: key,
+                        name: CATEGORY_DISPLAY_NAMES[key] || key
+                    }));
+                    
+                    console.log('✅ Using fallback CRSP categories:', fallback);
+                    setStatus('success', `✅ Loaded ${fallback.length} categories`);
                     return fallback;
                 } catch (error) {
                     console.error('Error loading categories:', error);
@@ -2032,15 +2001,22 @@
                 try {
                     setStatus('info', 'Loading makes...');
                     
-                    // If categoryId is a string (from vehicle_category), filter by that
+                    // Filter by category if provided
                     const data = await queryCRSPView(
-                        'make, make_id',
+                        'make, make_id, vehicle_category',
                         null,
                         { column: 'make', ascending: true }
                     );
 
+                    let filteredData = data;
+                    if (categoryId && categoryId !== 'all') {
+                        filteredData = data.filter(item => 
+                            (item.vehicle_category || '').toUpperCase() === categoryId.toUpperCase()
+                        );
+                    }
+
                     const unique = {};
-                    data.forEach(item => {
+                    filteredData.forEach(item => {
                         if (item.make && !unique[item.make]) {
                             unique[item.make] = {
                                 id: item.make_id || item.make,
@@ -2260,25 +2236,36 @@
                     profit_margin_percent: 5.00
                 };
 
-                // Determine vehicle type from body type or category
+                // Determine vehicle type from category
                 if (currentVariantData) {
                     const category = (currentVariantData.category_name || '').toUpperCase();
-                    const bodyType = (currentVariantData.body_type_name || '').toUpperCase();
                     
-                    if (category === 'SUV' || bodyType.includes('SUV') || bodyType.includes('CROSSOVER')) {
-                        payload.vehicle_type = 'SUV';
-                    } else if (category === 'LUXURY' || bodyType.includes('LUXURY')) {
+                    if (category === 'COMMERCIAL') {
+                        payload.vehicle_type = 'COMMERCIAL';
+                    } else if (category === 'ELECTRIC') {
+                        payload.vehicle_type = 'ELECTRIC';
+                    } else if (category === 'LUXURY') {
                         payload.vehicle_type = 'LUXURY';
-                    } else if (bodyType.includes('PICKUP') || bodyType.includes('TRUCK')) {
+                    } else if (category === 'PICKUP') {
                         payload.vehicle_type = 'PICKUP';
-                    } else if (bodyType.includes('VAN') || bodyType.includes('MINIVAN')) {
-                        payload.vehicle_type = 'VAN';
-                    } else if (bodyType.includes('HATCHBACK')) {
-                        payload.vehicle_type = 'HATCHBACK';
-                    } else if (bodyType.includes('COUPE')) {
-                        payload.vehicle_type = 'COUPE';
-                    } else if (bodyType.includes('CONVERTIBLE')) {
-                        payload.vehicle_type = 'CONVERTIBLE';
+                    } else if (category === 'SEDAN') {
+                        payload.vehicle_type = 'SEDAN';
+                    } else {
+                        // Fallback to body type detection
+                        const bodyType = (currentVariantData.body_type_name || '').toUpperCase();
+                        if (bodyType.includes('SUV') || bodyType.includes('CROSSOVER')) {
+                            payload.vehicle_type = 'SUV';
+                        } else if (bodyType.includes('PICKUP') || bodyType.includes('TRUCK')) {
+                            payload.vehicle_type = 'PICKUP';
+                        } else if (bodyType.includes('VAN') || bodyType.includes('MINIVAN')) {
+                            payload.vehicle_type = 'COMMERCIAL';
+                        } else if (bodyType.includes('HATCHBACK')) {
+                            payload.vehicle_type = 'SEDAN';
+                        } else if (bodyType.includes('COUPE')) {
+                            payload.vehicle_type = 'SEDAN';
+                        } else if (bodyType.includes('CONVERTIBLE')) {
+                            payload.vehicle_type = 'SEDAN';
+                        }
                     }
                 }
 
@@ -2744,7 +2731,7 @@
                     variant.variant_name || ''
                 );
                 const cleanBody = cleanBodyType(variant.body_type_name || '');
-                const category = variant.category_name || '';
+                const categoryDisplay = CATEGORY_DISPLAY_NAMES[variant.category_name] || variant.category_name || '—';
                 el.vehicleLabel.textContent = label || 'Unnamed variant';
                 const engineCC = variant.engine_size_cc || null;
                 if (engineCC) {
@@ -2755,9 +2742,9 @@
                     el.engineCCDisplay.style.display = 'inline-block';
                 }
                 
-                // Add category to specs
+                // Add category to specs with proper display name
                 const specItems = [
-                    { label: '📂', value: category || '—' },
+                    { label: '📂', value: categoryDisplay },
                     { label: '🔧', value: variant.trim_level || 'Standard' },
                     { label: '⚡', value: `${variant.power_hp || 0} HP` },
                     { label: '🔄', value: `${variant.torque_nm || 0} Nm` },
@@ -3103,8 +3090,9 @@
                     el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
                         year: 'numeric', month: 'short', day: 'numeric'
                     });
-                    console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.3)');
+                    console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.4)');
                     console.log(`✅ Using view: ${CONFIG.VIEW_NAME}`);
+                    console.log(`📂 CRSP Categories: SEDAN, COMMERCIAL, ELECTRIC, LUXURY, PICKUP`);
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🏛️ CRSP Table: ${CONFIG.CRSP_TABLE_NAME}`);
                     console.log(`📷 Photo screening: Flagged photos allow valuation with warning`);
