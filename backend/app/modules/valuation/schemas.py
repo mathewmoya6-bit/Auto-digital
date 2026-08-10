@@ -1,57 +1,123 @@
-# app/modules/valuation/schema.py
-"""Pydantic request/response schemas for AUTO-D valuation."""
+# app/modules/valuation/schemas.py
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from typing import Any, Dict, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ValuationRequest(BaseModel):
-    make: Optional[str] = None
-    model: Optional[str] = None
-    manufacture_year: Optional[int] = Field(default=None, ge=1900, le=2100)
-    mileage: int = Field(default=0, ge=0)
-    condition: str = "good"
-    accident_history: str = "none"
-    previous_owners: int = Field(default=0, ge=0)
-    location: Optional[str] = None
-    fuel_type: Optional[str] = None
-    transmission: Optional[str] = None
-    engine_capacity_id: Optional[int] = None
+    """Request model for vehicle valuation."""
 
-    # Compatible with the current frontend/router.
-    vehicle_crsp_id: Optional[int] = None
-    crsp_id: Optional[int] = None
+    crsp_id: Optional[int] = Field(None, description="CRSP vehicle ID")
+    make: Optional[str] = Field(None, description="Vehicle make")
+    model: Optional[str] = Field(None, description="Vehicle model")
+    manufacture_year: Optional[int] = Field(None, description="Manufacture year")
+    mileage: int = Field(0, ge=0, description="Mileage in KM")
+    condition: str = Field("good", description="Condition: excellent, very_good, good, fair, poor")
+    accident_history: str = Field("none", description="Accident history: none, minor, major, total_loss")
+    previous_owners: int = Field(0, ge=0, description="Number of previous owners")
+    location: Optional[str] = Field(None, description="Location")
+    fuel_type: Optional[str] = Field(None, description="Fuel type")
+    transmission: Optional[str] = Field(None, description="Transmission type")
+    engine_capacity_id: Optional[int] = Field(None, description="Engine capacity ID")
+    vehicle_type: Optional[str] = Field(None, description="Vehicle type")
+    body_type: Optional[str] = Field(None, description="Body type")
 
-    vehicle_type: Optional[str] = None
-    body_type: Optional[str] = None
+    @field_validator("condition")
+    def validate_condition(cls, v: str) -> str:
+        valid = ["excellent", "very_good", "very good", "good", "fair", "poor"]
+        if v and v.lower() not in valid:
+            raise ValueError(f"Condition must be one of: {', '.join(valid)}")
+        return v
 
-    # Extra frontend fields can be accepted without breaking the API.
-    registration: Optional[str] = None
+    @field_validator("accident_history")
+    def validate_accident_history(cls, v: str) -> str:
+        valid = ["none", "minor", "major", "total_loss", "total loss"]
+        if v and v.lower() not in valid:
+            raise ValueError(f"Accident history must be one of: {', '.join(valid)}")
+        return v
+
+
+class CRSPSearchRequest(BaseModel):
+    """Request model for CRSP search."""
+
+    make: Optional[str] = Field(None, description="Vehicle make")
+    model: Optional[str] = Field(None, description="Vehicle model")
+    manufacture_year: Optional[int] = Field(None, description="Manufacture year")
+    engine_capacity_id: Optional[int] = Field(None, description="Engine capacity ID")
+    fuel_type: Optional[str] = Field(None, description="Fuel type")
+    transmission: Optional[str] = Field(None, description="Transmission type")
+    body_type: Optional[str] = Field(None, description="Body type")
+    limit: int = Field(25, ge=1, le=100, description="Results limit")
 
 
 class ValuationResponse(BaseModel):
+    """Response model for vehicle valuation."""
+
     success: bool
     status: str
-    crsp_found: bool = False
-    crsp_id: Optional[int] = None
-    crsp_value: float = 0.0
-    estimated_value: float = 0.0
-    estimated_value_min: float = 0.0
-    estimated_value_max: float = 0.0
-    confidence_score: int = 0
-    value_adjustments: Dict[str, Any] = Field(default_factory=dict)
-
-    vehicle: Dict[str, Any] = Field(default_factory=dict)
-    crsp: Optional[Dict[str, Any]] = None
-    message: Optional[str] = None
-
-    class Config:
-        extra = "allow"
+    crsp_found: bool
+    crsp_id: Optional[int]
+    crsp_value: Optional[float]
+    estimated_value: Optional[float]
+    estimated_value_min: Optional[float]
+    estimated_value_max: Optional[float]
+    confidence_score: int
+    adjustments: Optional[Dict[str, Any]]
+    vehicle: Dict[str, Any]
+    message: str
 
 
-class CRSPVehicleResponse(BaseModel):
-    success: bool
-    found: bool
-    data: Optional[Dict[str, Any]] = None
-    results: list[Dict[str, Any]] = Field(default_factory=list)
-    message: Optional[str] = None
+class ValuationHistoryItem(BaseModel):
+    """Model for a single valuation history item."""
+
+    id: int
+    user_id: str
+    crsp_id: Optional[int]
+    make: Optional[str]
+    model: Optional[str]
+    manufacture_year: Optional[int]
+    mileage: int
+    estimated_value: float
+    confidence_score: int
+    condition: str
+    accident_history: str
+    location: Optional[str]
+    fuel_type: Optional[str]
+    transmission: Optional[str]
+    body_type: Optional[str]
+    adjustments: Optional[Dict[str, Any]]
+    created_at: datetime
+
+
+class ValuationHistoryResponse(BaseModel):
+    """Response model for valuation history."""
+
+    items: List[ValuationHistoryItem]
+    total: int
+    page: int
+    limit: int
+
+
+class ValuationStatsResponse(BaseModel):
+    """Response model for valuation statistics."""
+
+    total_valuations: int
+    average_value: float
+    highest_value: float
+    lowest_value: float
+    total_value: float
+    average_confidence: float
+    last_valuation_date: Optional[datetime]
+    valuations_by_make: Dict[str, int]
+    valuations_by_month: Dict[str, int]
+
+
+class HealthCheckResponse(BaseModel):
+    """Response model for health check."""
+
+    status: str
+    service: str
+    version: str
+    timestamp: datetime
+    database: str
