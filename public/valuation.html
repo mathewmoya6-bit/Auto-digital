@@ -1492,7 +1492,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK
-        // Version 5.4 - ALIGNED with CRSP categories: SEDAN, COMMERCIAL, ELECTRIC, LUXURY, PICKUP
+        // Version 5.4 - FIXED: Uses public.vehicle_category_lookup for categories
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1504,6 +1504,7 @@
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
                 VIEW_NAME: 'vehicle_crsp_lookup',
                 CRSP_TABLE_NAME: 'vehicle_crsp_prices',
+                CATEGORY_LOOKUP_TABLE: 'vehicle_category_lookup',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1'
             };
 
@@ -1950,18 +1951,29 @@
             }
 
             // ─── LOAD CATEGORIES ──────────────────────────────────────
+            /**
+             * Load categories from public.vehicle_category_lookup
+             * Uses the recommended query:
+             * SELECT DISTINCT vehicle_category
+             * FROM public.vehicle_category_lookup
+             * WHERE vehicle_category IS NOT NULL
+             *   AND vehicle_category IN ('COMMERCIAL','ELECTRIC','LUXURY','PICKUP','SEDAN')
+             * ORDER BY vehicle_category;
+             */
             async function loadCategories() {
                 try {
                     setStatus('info', 'Loading categories...');
                     
-                    // First try: Get categories from vehicle_crsp_lookup's vehicle_category column
+                    // Use the vehicle_category_lookup table (not vehicle_crsp_lookup)
                     const { data, error } = await supabaseClient
-                        .from(CONFIG.VIEW_NAME)
+                        .from(CONFIG.CATEGORY_LOOKUP_TABLE)
                         .select('vehicle_category')
                         .not('vehicle_category', 'is', null)
+                        .in('vehicle_category', ['COMMERCIAL', 'ELECTRIC', 'LUXURY', 'PICKUP', 'SEDAN'])
                         .order('vehicle_category');
 
                     if (!error && data && data.length > 0) {
+                        // Deduplicate categories
                         const unique = {};
                         data.forEach(item => {
                             const cat = item.vehicle_category;
@@ -1973,20 +1985,18 @@
                             }
                         });
                         const result = Object.values(unique);
-                        if (result.length > 0) {
-                            console.log('✅ Categories loaded from vehicle_category:', result);
-                            setStatus('success', `✅ Loaded ${result.length} categories`);
-                            return result;
-                        }
+                        console.log('✅ Categories loaded from vehicle_category_lookup:', result);
+                        setStatus('success', `✅ Loaded ${result.length} categories`);
+                        return result;
                     }
 
-                    // Final fallback: Hard-coded CRSP categories
+                    // Fallback: Hard-coded CRSP categories
+                    console.warn('No categories found in vehicle_category_lookup, using fallback');
                     const fallback = Object.keys(CRSP_CATEGORIES).map(key => ({
                         id: key,
                         name: CATEGORY_DISPLAY_NAMES[key] || key
                     }));
                     
-                    console.log('✅ Using fallback CRSP categories:', fallback);
                     setStatus('success', `✅ Loaded ${fallback.length} categories`);
                     return fallback;
                 } catch (error) {
@@ -3092,7 +3102,8 @@
                     });
                     console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.4)');
                     console.log(`✅ Using view: ${CONFIG.VIEW_NAME}`);
-                    console.log(`📂 CRSP Categories: SEDAN, COMMERCIAL, ELECTRIC, LUXURY, PICKUP`);
+                    console.log(`✅ Using category lookup table: ${CONFIG.CATEGORY_LOOKUP_TABLE}`);
+                    console.log(`📂 CRSP Categories: COMMERCIAL, ELECTRIC, LUXURY, PICKUP, SEDAN`);
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🏛️ CRSP Table: ${CONFIG.CRSP_TABLE_NAME}`);
                     console.log(`📷 Photo screening: Flagged photos allow valuation with warning`);
