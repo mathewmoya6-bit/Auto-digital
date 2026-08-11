@@ -1205,7 +1205,7 @@
                 <div class="form-group">
                     <label for="makeSelect">Vehicle Make</label>
                     <select id="makeSelect" disabled>
-                        <option value="">Select a make</option>
+                        <option value="">Loading makes...</option>
                     </select>
                 </div>
 
@@ -1218,11 +1218,11 @@
                     </select>
                 </div>
 
-                <!-- ─── YEAR/GENERATION ─────────────────────────────────── -->
+                <!-- ─── YEAR ────────────────────────────────────────────── -->
                 <div class="panel-label"><span class="num">03</span> Select Year</div>
                 <div class="form-group">
-                    <label for="generationSelect">Manufacture Year</label>
-                    <select id="generationSelect" disabled>
+                    <label for="yearSelect">Manufacture Year</label>
+                    <select id="yearSelect" disabled>
                         <option value="">Select a model first</option>
                     </select>
                 </div>
@@ -1268,11 +1268,6 @@
                         <option value="cvt">🔄 CVT</option>
                         <option value="amt">🅰️ AMT</option>
                     </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="yearSelect">Year of Manufacture</label>
-                    <select id="yearSelect"></select>
                 </div>
 
                 <div class="form-group">
@@ -1540,11 +1535,10 @@
                 registrationInput: document.getElementById('registrationInput'),
                 makeSelect: document.getElementById('makeSelect'),
                 modelSelect: document.getElementById('modelSelect'),
-                generationSelect: document.getElementById('generationSelect'),
+                yearSelect: document.getElementById('yearSelect'),
                 trimSelect: document.getElementById('trimSelect'),
                 fuelTypeSelect: document.getElementById('fuelTypeSelect'),
                 transmissionSelect: document.getElementById('transmissionSelect'),
-                yearSelect: document.getElementById('yearSelect'),
                 mileageInput: document.getElementById('mileageInput'),
                 conditionSelect: document.getElementById('conditionSelect'),
                 accidentSelect: document.getElementById('accidentSelect'),
@@ -1811,7 +1805,7 @@
                     showToast('🔓 Signed out', 'info');
                     el.makeSelect.disabled = true;
                     el.modelSelect.disabled = true;
-                    el.generationSelect.disabled = true;
+                    el.yearSelect.disabled = true;
                     el.trimSelect.disabled = true;
                     el.valuateBtn.disabled = true;
                     return true;
@@ -1864,7 +1858,7 @@
                     el.btnSignOut.style.display = 'none';
                     el.makeSelect.disabled = true;
                     el.modelSelect.disabled = true;
-                    el.generationSelect.disabled = true;
+                    el.yearSelect.disabled = true;
                     el.trimSelect.disabled = true;
                     el.valuateBtn.disabled = true;
                 }
@@ -1968,7 +1962,7 @@
                 }
             }
 
-            // ─── LOAD YEARS/GENERATIONS ─────────────────────────────────
+            // ─── LOAD YEARS ─────────────────────────────────────────────
             async function loadYears(modelName) {
                 try {
                     setStatus('info', 'Loading years...');
@@ -1987,7 +1981,7 @@
                     });
 
                     const years = Object.values(unique).sort((a, b) => b - a);
-                    const select = el.generationSelect;
+                    const select = el.yearSelect;
                     select.innerHTML = '<option value="">Select Year...</option>';
                     years.forEach(year => {
                         const opt = document.createElement('option');
@@ -2333,7 +2327,7 @@
                 displayVehicleInfo(selectedTrim);
 
                 const registration = el.registrationInput.value.trim().toUpperCase() || 'Not Provided';
-                const year = parseInt(el.generationSelect.value) || parseInt(el.yearSelect.value) || 2020;
+                const year = parseInt(el.yearSelect.value) || 2020;
 
                 const formData = {
                     make: el.makeSelect.value,
@@ -2361,7 +2355,6 @@
                     let step = 1;
                     const stepInterval = setInterval(() => { step++; if (step <= 3) updateLoadingStep(step); }, 1000);
                     
-                    // Use the API with the form data
                     const result = await callValuationAPI(formData);
                     clearInterval(stepInterval);
                     updateLoadingStep(3);
@@ -2497,7 +2490,7 @@
                             el.trimSelect.value || ''
                         )
                     ) || 'Unknown Vehicle';
-                    year = vFallback(apiVehicle.year, formData.year || el.generationSelect.value || el.yearSelect.value) || '—';
+                    year = vFallback(apiVehicle.year, formData.year || el.yearSelect.value) || '—';
                     const mileageVal = vFallback(apiVehicle.mileage, formData.mileage || parseFloat(el.mileageInput.value));
                     mileage = mileageVal ? `${Number(mileageVal).toLocaleString('en-KE')} km` : '—';
                     location = vFallback(apiVehicle.location, el.locationSelect.options[el.locationSelect.selectedIndex]?.text) || '—';
@@ -2517,7 +2510,7 @@
                         market: data.market_adjustment || 0
                     };
                     vehicleName = `${data.make || ''} ${data.model || ''} ${data.trim || ''}`.trim() || 'Unknown Vehicle';
-                    year = data.year || el.generationSelect.value || el.yearSelect.value || '—';
+                    year = data.year || el.yearSelect.value || '—';
                     mileage = data.mileage_km ? `${Number(data.mileage_km).toLocaleString('en-KE')} km` : '—';
                     location = data.location_name || el.locationSelect.options[el.locationSelect.selectedIndex]?.text || '—';
                     condition = data.condition_name || el.conditionSelect.options[el.conditionSelect.selectedIndex]?.text || '—';
@@ -2534,7 +2527,7 @@
                         el.modelSelect.value || '',
                         el.trimSelect.value || ''
                     ) || 'Unknown Vehicle';
-                    year = el.generationSelect.value || el.yearSelect.value || '—';
+                    year = el.yearSelect.value || '—';
                     mileage = el.mileageInput.value ? `${Number(el.mileageInput.value).toLocaleString('en-KE')} km` : '—';
                     location = el.locationSelect.options[el.locationSelect.selectedIndex]?.text || '—';
                     condition = el.conditionSelect.options[el.conditionSelect.selectedIndex]?.text || '—';
@@ -2647,19 +2640,6 @@
                 setTimeout(() => container.remove(), 5000);
             }
 
-            function populateYearSelect() {
-                const select = el.yearSelect;
-                select.innerHTML = '';
-                const currentYear = new Date().getFullYear();
-                for (let y = currentYear; y >= 1990; y--) {
-                    const opt = document.createElement('option');
-                    opt.value = y;
-                    opt.textContent = y;
-                    if (y === currentYear - 10) opt.selected = true;
-                    select.appendChild(opt);
-                }
-            }
-
             // ─── EVENT LISTENERS ─────────────────────────────────────────
             function initEventListeners() {
                 el.btnSignIn.addEventListener('click', () => {
@@ -2698,8 +2678,8 @@
                     const makeName = this.value;
                     if (makeName) {
                         await loadModels(makeName);
-                        el.generationSelect.innerHTML = '<option value="">Select a model first</option>';
-                        el.generationSelect.disabled = true;
+                        el.yearSelect.innerHTML = '<option value="">Select a model first</option>';
+                        el.yearSelect.disabled = true;
                         el.trimSelect.innerHTML = '<option value="">Select a year first</option>';
                         el.trimSelect.disabled = true;
                         el.valuateBtn.disabled = true;
@@ -2719,7 +2699,7 @@
                     }
                 });
 
-                el.generationSelect.addEventListener('change', async function() {
+                el.yearSelect.addEventListener('change', async function() {
                     if (!isAuthenticated) return;
                     const year = this.value;
                     const modelName = el.modelSelect.value;
@@ -2745,19 +2725,6 @@
                             updateValuateButtonState();
                         }
                         el.resultBox.classList.remove('show');
-                    }
-                });
-
-                el.yearSelect.addEventListener('change', function() {
-                    // Update the generation select to match
-                    const year = this.value;
-                    const genSelect = el.generationSelect;
-                    for (let i = 0; i < genSelect.options.length; i++) {
-                        if (genSelect.options[i].value === year) {
-                            genSelect.selectedIndex = i;
-                            genSelect.dispatchEvent(new Event('change'));
-                            break;
-                        }
                     }
                 });
 
@@ -2789,7 +2756,6 @@
             async function init() {
                 showLoadingBar();
                 try {
-                    populateYearSelect();
                     renderPhotoGrid();
                     updateValuateButtonState();
                     
@@ -2810,7 +2776,7 @@
                     });
                     el.footerUrl.textContent = window.location.hostname || 'auto-digital.onrender.com';
                     
-                    console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.4 - Trim based)');
+                    console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.4)');
                     console.log(`✅ Using view: ${CONFIG.VIEW_NAME}`);
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API: ${CONFIG.API_BASE}/valuation/calculate`);
