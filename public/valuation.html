@@ -10,7 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
     <style>
-        /* ... (same styles as before - keeping all CSS unchanged) ... */
+        /* ─── ROOT ─────────────────────────────────────────────────── */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -20,40 +20,59 @@
             --red: #ef4444;
             --bg: #0a0c15;
             --bg-panel: #111827;
+            --bg-card: #1a2332;
             --text-primary: #f8fafc;
             --text-secondary: #cbd5e1;
             --text-muted: #64748b;
             --border: rgba(255, 255, 255, 0.06);
+            --border-light: rgba(255, 255, 255, 0.1);
             --font-heading: 'Space Grotesk', sans-serif;
             --font-body: 'Inter', sans-serif;
             --font-mono: 'JetBrains Mono', monospace;
+            --radius: 12px;
+            --shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        
         body {
-            font-family: 'Inter', sans-serif;
-            background: #0a0c15;
-            color: #f8fafc;
+            font-family: var(--font-body);
+            background: var(--bg);
+            color: var(--text-primary);
             min-height: 100vh;
+            line-height: 1.6;
         }
-        .wrap { max-width: 1440px; margin: 0 auto; padding: 28px 32px 60px; }
+
+        /* ─── SCROLLBAR ────────────────────────────────────────────── */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--amber); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--amber-dark); }
+
+        /* ─── LAYOUT ────────────────────────────────────────────────── */
+        .wrap { max-width: 1440px; margin: 0 auto; padding: 24px 32px 60px; }
+        
         .skip-link {
             position: absolute;
             top: -40px;
             left: 0;
-            background: #eab308;
+            background: var(--amber);
             color: #0a0c10;
             padding: 8px 16px;
             z-index: 100;
             transition: top 0.3s;
             font-weight: 600;
             font-size: 14px;
+            border-radius: 0 0 4px 0;
         }
         .skip-link:focus { top: 0; }
 
+        /* ─── HEADER ───────────────────────────────────────────────── */
         .report-header {
-            background: linear-gradient(135deg, #111827, #0a0c15);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
+            background: linear-gradient(135deg, var(--bg-panel), var(--bg));
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
             padding: 28px 32px;
             margin-bottom: 28px;
             display: flex;
@@ -75,11 +94,11 @@
             pointer-events: none;
         }
         .header-left .badge {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             font-size: 10px;
             letter-spacing: 0.12em;
             text-transform: uppercase;
-            color: #eab308;
+            color: var(--amber);
             background: rgba(234, 179, 8, 0.12);
             padding: 4px 14px;
             border-radius: 20px;
@@ -88,68 +107,91 @@
             border: 1px solid rgba(234, 179, 8, 0.15);
         }
         .header-left h1 {
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: var(--font-heading);
             font-size: 30px;
             font-weight: 700;
-            color: #f8fafc;
+            color: var(--text-primary);
             letter-spacing: -0.02em;
             line-height: 1.2;
         }
-        .header-left h1 span { color: #eab308; }
+        .header-left h1 span { color: var(--amber); }
         .header-left .subtitle {
             font-size: 14px;
-            color: #cbd5e1;
+            color: var(--text-secondary);
             margin-top: 4px;
         }
-        .header-left .subtitle strong { color: #eab308; }
+        .header-left .subtitle strong { color: var(--amber); }
+        
         .header-right {
             text-align: right;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             font-size: 12px;
-            color: #64748b;
+            color: var(--text-muted);
             line-height: 1.9;
             flex-shrink: 0;
         }
-        .header-right .version { color: #cbd5e1; font-weight: 600; font-size: 13px; }
-        .header-right .version span { color: #eab308; }
+        .header-right .version { color: var(--text-secondary); font-weight: 600; font-size: 13px; }
+        .header-right .version span { color: var(--amber); }
         .header-right .auth-status {
             font-size: 10px;
-            padding: 2px 10px;
+            padding: 2px 12px;
             border-radius: 12px;
             display: inline-block;
         }
         .header-right .auth-status.authenticated {
             background: rgba(34, 197, 94, 0.15);
-            color: #22c55e;
+            color: var(--green);
         }
         .header-right .auth-status.unauthenticated {
             background: rgba(148, 163, 184, 0.15);
             color: #94a3b8;
         }
 
+        .dashboard-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 18px;
+            background: rgba(234, 179, 8, 0.12);
+            border: 1px solid rgba(234, 179, 8, 0.2);
+            border-radius: 8px;
+            color: var(--amber);
+            font-family: var(--font-body);
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: var(--transition);
+            margin-top: 8px;
+        }
+        .dashboard-link:hover {
+            background: rgba(234, 179, 8, 0.2);
+            transform: translateX(-4px);
+        }
+
+        /* ─── MAIN GRID ────────────────────────────────────────────── */
         .main-grid {
             display: grid;
             grid-template-columns: 420px 1fr;
             gap: 28px;
+            align-items: start;
         }
         @media (max-width: 1024px) { .main-grid { grid-template-columns: 1fr; } }
 
+        /* ─── CALCULATOR PANEL ────────────────────────────────────── */
         .calculator-panel {
-            background: #111827;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
             padding: 24px;
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-            height: fit-content;
+            box-shadow: var(--shadow);
             position: sticky;
             top: 20px;
             max-height: calc(100vh - 40px);
             overflow-y: auto;
         }
         .calculator-panel::-webkit-scrollbar { width: 4px; }
-        .calculator-panel::-webkit-scrollbar-track { background: transparent; }
-        .calculator-panel::-webkit-scrollbar-thumb { background: #eab308; border-radius: 10px; }
 
+        /* ─── AUTH SECTION ──────────────────────────────────────────── */
         .auth-section {
             background: rgba(255,255,255,0.03);
             border: 1px solid var(--border);
@@ -161,6 +203,7 @@
             display: flex;
             gap: 8px;
             margin-top: 8px;
+            flex-wrap: wrap;
         }
         .auth-section .auth-buttons button {
             flex: 1;
@@ -172,64 +215,71 @@
             font-size: 11px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: var(--transition);
+            min-width: 60px;
         }
         .auth-section .auth-buttons button:hover { border-color: var(--amber); color: var(--amber); }
-        .auth-section .auth-buttons button.primary { background: var(--amber); color: #0a0c10; border-color: var(--amber); }
-        .auth-section .auth-buttons button.primary:hover { background: var(--amber-dark); }
-        .auth-section .user-email { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); padding: 4px 0; }
-
-        /* Flow Steps Indicator */
-        .flow-steps {
+        .auth-section .auth-buttons button.primary { 
+            background: var(--amber); 
+            color: #0a0c10; 
+            border-color: var(--amber);
+        }
+        .auth-section .auth-buttons button.primary:hover { 
+            background: var(--amber-dark);
+            border-color: var(--amber-dark);
+        }
+        .auth-section .user-email { 
+            font-family: var(--font-mono); 
+            font-size: 11px; 
+            color: var(--text-secondary); 
+            padding: 4px 0;
+            word-break: break-all;
+        }
+        #authForms input {
+            margin-bottom: 6px;
+            width: 100%;
+        }
+        #authForms .auth-form-buttons {
             display: flex;
-            justify-content: space-between;
-            margin: 12px 0 16px 0;
-            padding: 8px 4px;
-            background: rgba(255,255,255,0.02);
-            border-radius: 8px;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        #authForms .auth-form-buttons button {
+            flex: 1;
+            padding: 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 11px;
+            min-width: 50px;
+        }
+        #authForms .auth-form-buttons .primary-btn {
+            background: var(--amber);
+            color: #0a0c10;
+            border: none;
+        }
+        #authForms .auth-form-buttons .primary-btn:hover { background: var(--amber-dark); }
+        #authForms .auth-form-buttons .secondary-btn {
+            background: transparent;
+            color: var(--text-secondary);
             border: 1px solid var(--border);
         }
-        .flow-step {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            font-size: 8px;
-            color: #64748b;
-            gap: 2px;
-            flex: 1;
-            text-align: center;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            font-weight: 600;
-            transition: all 0.3s;
+        #authForms .auth-form-buttons .secondary-btn:hover { border-color: var(--amber); color: var(--amber); }
+        #authForms .auth-form-buttons .cancel-btn {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--border);
         }
-        .flow-step .num {
-            width: 22px;
-            height: 22px;
-            border-radius: 50%;
-            background: #1e293b;
-            color: #64748b;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 10px;
-            font-weight: 700;
-            font-family: var(--font-mono);
-            transition: all 0.3s;
-        }
-        .flow-step.active .num { background: var(--amber); color: #0a0c10; }
-        .flow-step.done .num { background: var(--green); color: #0a0c10; }
-        .flow-step.active { color: var(--amber); }
-        .flow-step.done { color: var(--green); }
-        .flow-step .label { font-size: 7px; }
+        #authForms .auth-form-buttons .cancel-btn:hover { border-color: var(--red); color: var(--red); }
 
+        /* ─── PANEL LABELS ─────────────────────────────────────────── */
         .panel-label {
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: var(--font-heading);
             font-weight: 600;
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 0.08em;
-            color: #eab308;
+            color: var(--amber);
             display: flex;
             align-items: center;
             gap: 10px;
@@ -238,8 +288,8 @@
         }
         .panel-label:first-of-type { margin-top: 0; }
         .panel-label .num {
-            font-family: 'JetBrains Mono', monospace;
-            color: #64748b;
+            font-family: var(--font-mono);
+            color: var(--text-muted);
             background: #1e293b;
             padding: 2px 8px;
             border-radius: 4px;
@@ -247,48 +297,100 @@
             font-weight: 700;
         }
 
+        /* ─── FLOW STEPS ───────────────────────────────────────────── */
+        .flow-steps {
+            display: flex;
+            justify-content: space-between;
+            margin: 12px 0 16px 0;
+            padding: 8px 4px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .flow-step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-size: 7px;
+            color: var(--text-muted);
+            gap: 2px;
+            flex: 1;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-weight: 600;
+            transition: var(--transition);
+            min-width: 30px;
+            padding: 2px;
+        }
+        .flow-step .num {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #1e293b;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            transition: var(--transition);
+        }
+        .flow-step.active .num { background: var(--amber); color: #0a0c10; }
+        .flow-step.done .num { background: var(--green); color: #0a0c10; }
+        .flow-step.active { color: var(--amber); }
+        .flow-step.done { color: var(--green); }
+        .flow-step .label { font-size: 6px; line-height: 1.2; }
+
+        /* ─── FORM ELEMENTS ────────────────────────────────────────── */
         .form-group { margin-bottom: 12px; }
         label {
             display: block;
             font-size: 9px;
-            color: #cbd5e1;
+            color: var(--text-secondary);
             margin-bottom: 3px;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             letter-spacing: 0.04em;
             text-transform: uppercase;
         }
-        select, input[type="number"], input[type="text"], input[type="password"] {
+        select, input[type="number"], input[type="text"], input[type="password"], input[type="email"] {
             width: 100%;
             background: #f0ece4;
             color: #0a0c10;
             border: none;
             border-radius: 6px;
             padding: 8px 12px;
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-body);
             font-size: 12px;
             font-weight: 500;
             appearance: none;
             transition: outline 0.15s;
         }
         select:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
-        select:focus, input:focus { outline: 2px solid #eab308; outline-offset: 1px; }
+        select:focus, input:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
+        select option { color: #0a0c10; }
+        select optgroup { color: #0a0c10; }
 
+        /* ─── BUTTONS ───────────────────────────────────────────────── */
         .calc-btn {
             width: 100%;
             padding: 12px;
-            background: #eab308;
+            background: var(--amber);
             color: #0a0c10;
             border: none;
             border-radius: 6px;
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: var(--font-heading);
             font-size: 13px;
             font-weight: 700;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: var(--transition);
             margin-top: 8px;
         }
         .calc-btn:hover:not(:disabled) {
-            background: #ca8a04;
+            background: var(--amber-dark);
             transform: translateY(-2px);
             box-shadow: 0 4px 20px rgba(234, 179, 8, 0.3);
         }
@@ -311,6 +413,24 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* ─── STATUS MESSAGE ────────────────────────────────────────── */
+        .status-message {
+            padding: 10px 14px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 44px;
+        }
+        .status-message.error { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.2); color: var(--red); }
+        .status-message.warning { background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.2); color: var(--amber); }
+        .status-message.success { background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.2); color: var(--green); }
+        .status-message.info { background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.2); color: var(--blue); }
+        .status-message .status-icon { font-size: 16px; flex-shrink: 0; }
+
+        /* ─── LOADING STEPS ────────────────────────────────────────── */
         .loading-steps { 
             display: none; 
             margin: 16px 0; 
@@ -325,24 +445,24 @@
             align-items: center; 
             gap: 10px; 
             padding: 5px 0; 
-            color: #64748b; 
+            color: var(--text-muted); 
             font-size: 13px; 
-            transition: all 0.3s; 
+            transition: var(--transition); 
         }
-        .loading-step.active { color: #eab308; }
-        .loading-step.done { color: #22c55e; }
+        .loading-step.active { color: var(--amber); }
+        .loading-step.done { color: var(--green); }
         .loading-step .icon { font-size: 16px; width: 24px; text-align: center; }
         .loading-step .spinner-small { 
             width: 16px; 
             height: 16px; 
             border: 2px solid #1e293b; 
-            border-top-color: #eab308; 
+            border-top-color: var(--amber); 
             border-radius: 50%; 
             animation: spin 0.6s linear infinite; 
             display: inline-block; 
         }
 
-        /* CRSP Info Display */
+        /* ─── CRSP INFO ────────────────────────────────────────────── */
         .crsp-info {
             background: #0f172a;
             border: 1px solid rgba(6, 182, 212, 0.2);
@@ -354,7 +474,7 @@
         .crsp-info.show { display: block; }
         .crsp-info h4 {
             font-size: 10px;
-            color: #06b6d4;
+            color: var(--cyan);
             text-transform: uppercase;
             letter-spacing: 0.04em;
             font-family: var(--font-mono);
@@ -367,21 +487,196 @@
             font-size: 11px;
             color: #94a3b8;
             border-bottom: 1px solid rgba(45, 58, 78, 0.3);
+            gap: 8px;
         }
         .crsp-info .row:last-child { border-bottom: none; }
         .crsp-info .row .value {
             font-weight: 600;
-            color: #06b6d4;
+            color: var(--cyan);
             font-family: var(--font-mono);
             font-size: 10px;
+            text-align: right;
+            word-break: break-word;
         }
-        .crsp-info .row .value.positive { color: #22c55e; }
-        .crsp-info .row .value.negative { color: #ef4444; }
+        .crsp-info .row .value.positive { color: var(--green); }
+        .crsp-info .row .value.negative { color: var(--red); }
 
-        /* ─── RESULT BOX ──────────────────────────────────────────────── */
+        /* ─── PHOTO GRID ───────────────────────────────────────────── */
+        .photo-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .photo-slot {
+            position: relative;
+            aspect-ratio: 4 / 3;
+            border: 1.5px dashed #334155;
+            border-radius: 8px;
+            background: #0f172a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            cursor: pointer;
+            overflow: hidden;
+            transition: var(--transition);
+            text-align: center;
+            padding: 6px;
+            min-height: 80px;
+        }
+        .photo-slot:hover { border-color: var(--amber); background: rgba(234,179,8,0.05); }
+        .photo-slot input[type="file"] { display: none; }
+        .photo-slot .placeholder-icon { font-size: 20px; color: #475569; }
+        .photo-slot .placeholder-label { font-size: 9px; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em; }
+        .photo-slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .photo-slot .photo-remove {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(10,12,21,0.85);
+            color: var(--text-primary);
+            border: none;
+            font-size: 11px;
+            line-height: 1;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+        }
+        .photo-slot.filled .photo-remove { display: flex; }
+        .photo-slot .authenticity-badge {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            font-size: 7px;
+            font-weight: 700;
+            text-align: center;
+            padding: 3px 4px;
+            font-family: var(--font-mono);
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            z-index: 2;
+        }
+        .authenticity-badge.checking { background: rgba(59,130,246,0.85); color: #fff; }
+        .authenticity-badge.verified { background: rgba(34,197,94,0.9); color: #04150a; }
+        .authenticity-badge.flagged { background: rgba(239,68,68,0.9); color: #fff; }
+        .photo-scan-line {
+            position: absolute;
+            left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--blue), transparent);
+            animation: scanMove 1.1s linear infinite;
+            z-index: 1;
+        }
+        @keyframes scanMove { 0% { top: 0%; } 100% { top: 100%; } }
+        
+        .photo-authenticity-summary {
+            font-size: 10px;
+            color: #94a3b8;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 10px;
+            line-height: 1.6;
+            margin-top: 4px;
+        }
+        .photo-authenticity-summary strong { color: var(--text-secondary); }
+        .photo-authenticity-summary .ok { color: var(--green); }
+        .photo-authenticity-summary .warn { color: var(--amber); }
+        .photo-authenticity-summary .proceed-note { color: var(--text-muted); font-style: italic; }
+
+        /* ─── RESULT CARD ───────────────────────────────────────────── */
+        .result-card {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px 24px;
+            margin-bottom: 20px;
+        }
+        .result-card .card-title {
+            font-family: var(--font-heading);
+            font-weight: 700;
+            font-size: 16px;
+            color: var(--amber);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .result-card .card-title .badge {
+            font-size: 9px;
+            font-weight: 500;
+            color: var(--text-muted);
+            background: #1e293b;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-family: var(--font-mono);
+        }
+        .result-card .vehicle-tag {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            padding: 8px 12px;
+            background: #0f172a;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            border: 1px solid #1e293b;
+        }
+        .result-card .vehicle-tag .fuel-pill,
+        .result-card .vehicle-tag .transmission-pill,
+        .result-card .vehicle-tag .engine-cc-display {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 10px;
+            border-radius: 20px;
+            background: #1e293b;
+            color: #94a3b8;
+        }
+        .result-card .vehicle-tag .fuel-pill { border-left: 3px solid var(--green); }
+        .result-card .vehicle-tag .transmission-pill { border-left: 3px solid var(--blue); }
+        .result-card .vehicle-tag .engine-cc-display { border-left: 3px solid var(--amber); }
+        .result-card .vehicle-tag .crsp-pill {
+            font-size: 9px;
+            font-weight: 600;
+            padding: 2px 10px;
+            border-radius: 20px;
+            background: #0f172a;
+            color: var(--cyan);
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            display: none;
+        }
+        .result-card .vehicle-tag .crsp-pill.show { display: inline-block; }
+        .result-card .vehicle-label { font-size: 16px; font-weight: 600; color: var(--text-primary); display: block; }
+        .result-card .vehicle-specs {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .result-card .vehicle-specs .spec-item {
+            font-size: 10px;
+            color: #94a3b8;
+            padding: 4px 8px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .result-card .vehicle-specs .spec-item .spec-value { color: var(--amber); font-weight: 500; }
+
+        /* ─── RESULT BOX ───────────────────────────────────────────── */
         .result-box {
             background: linear-gradient(135deg, #1e293b, #0f172a);
-            border: 2px solid #eab308;
+            border: 2px solid var(--amber);
             border-radius: 16px;
             padding: 28px 32px;
             margin-top: 20px;
@@ -405,10 +700,10 @@
         }
 
         .report-title {
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: var(--font-heading);
             font-size: 20px;
             font-weight: 700;
-            color: #eab308;
+            color: var(--amber);
             letter-spacing: 0.02em;
             margin-bottom: 12px;
             display: flex;
@@ -419,12 +714,12 @@
         .report-title .status-badge {
             font-size: 11px;
             font-weight: 600;
-            color: #22c55e;
+            color: var(--green);
             background: rgba(34, 197, 94, 0.12);
             padding: 4px 14px;
             border-radius: 20px;
             border: 1px solid rgba(34, 197, 94, 0.2);
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
         }
 
         .report-meta {
@@ -440,10 +735,10 @@
         .report-meta-item {
             font-size: 12px;
             color: #94a3b8;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
         }
-        .report-meta-item strong { color: #cbd5e1; font-weight: 600; }
-        .report-meta-item .value { color: #eab308; }
+        .report-meta-item strong { color: var(--text-secondary); font-weight: 600; }
+        .report-meta-item .value { color: var(--amber); }
 
         .valuation-value-wrapper { 
             text-align: center; 
@@ -452,10 +747,10 @@
             margin-bottom: 16px;
         }
         .valuation-value {
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: var(--font-heading);
             font-size: 52px;
             font-weight: 800;
-            color: #22c55e;
+            color: var(--green);
             letter-spacing: -0.5px;
             word-break: break-word;
             line-height: 1.1;
@@ -466,7 +761,7 @@
             font-weight: 600;
             margin-right: 4px;
         }
-        .valuation-value .amount { font-size: 52px; color: #22c55e; }
+        .valuation-value .amount { font-size: 52px; color: var(--green); }
         .valuation-value .decimal {
             font-size: 32px;
             color: #94a3b8;
@@ -488,14 +783,14 @@
         .value-range .label {
             font-size: 11px;
             color: #94a3b8;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             text-transform: uppercase;
             letter-spacing: 0.04em;
         }
         .value-range .range-value {
             font-size: 18px;
             font-weight: 600;
-            color: #eab308;
+            color: var(--amber);
             margin-top: 2px;
         }
 
@@ -512,7 +807,7 @@
         .confidence-section .label {
             font-size: 12px;
             color: #94a3b8;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             text-transform: uppercase;
             letter-spacing: 0.04em;
         }
@@ -527,13 +822,13 @@
         .confidence-section .fill {
             height: 100%;
             border-radius: 20px;
-            background: linear-gradient(90deg, #eab308, #22c55e);
+            background: linear-gradient(90deg, var(--amber), var(--green));
             transition: width 1.5s ease;
         }
         .confidence-section .score {
             font-size: 14px;
             font-weight: 700;
-            color: #eab308;
+            color: var(--amber);
             min-width: 50px;
             text-align: right;
         }
@@ -550,7 +845,7 @@
             color: #94a3b8;
             text-transform: uppercase;
             letter-spacing: 0.04em;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             margin-bottom: 8px;
         }
         .adjustment-row {
@@ -564,11 +859,11 @@
             gap: 4px;
         }
         .adjustment-row:last-child { border-bottom: none; }
-        .adjustment-row .positive { color: #22c55e; }
-        .adjustment-row .negative { color: #ef4444; }
+        .adjustment-row .positive { color: var(--green); }
+        .adjustment-row .negative { color: var(--red); }
         .adjustment-row .adj-value {
             font-weight: 600;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             font-size: 11px;
         }
 
@@ -589,7 +884,7 @@
         }
         .vehicle-detail-item .label { color: #94a3b8; }
         .vehicle-detail-item .value { 
-            color: #eab308; 
+            color: var(--amber); 
             font-weight: 500;
             word-break: break-word;
             text-align: right;
@@ -607,10 +902,10 @@
         }
         .report-disclaimer h4 {
             font-size: 11px;
-            color: #ef4444;
+            color: var(--red);
             text-transform: uppercase;
             letter-spacing: 0.04em;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             margin-bottom: 6px;
         }
         .report-disclaimer p {
@@ -619,173 +914,21 @@
             line-height: 1.6;
         }
 
-        .result-footer {
-            margin-top: 16px;
-            padding-top: 16px;
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
-            text-align: center;
-            font-size: 11px;
-            color: #64748b;
-        }
-        .result-footer strong { color: #eab308; }
-        .result-footer .footer-divider { color: #334155; margin: 0 8px; }
-
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            border-radius: 8px;
-            z-index: 9999;
-            font-weight: 500;
-            animation: slideIn .3s ease;
-            max-width: 380px;
-            font-size: 12px;
-        }
-        .toast-success { background: #22c55e; color: #000; }
-        .toast-error { background: #ef4444; color: #fff; }
-        .toast-info { background: #3b82f6; color: #fff; }
-        .toast-warning { background: #eab308; color: #000; }
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateX(80px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes fadeInUp { 
-            from { opacity: 0; transform: translateY(30px); } 
-            to { opacity: 1; transform: translateY(0); } 
-        }
-
-        .disclaimer {
-            font-size: 10px;
-            color: #64748b;
-            margin-top: 12px;
-            padding: 8px 12px;
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
-            line-height: 1.5;
-        }
-        .disclaimer strong { color: #eab308; }
-
-        .top-loader {
-            position: fixed;
-            top: 0;
-            left: 0;
-            height: 3px;
-            width: 0%;
-            background: linear-gradient(90deg, #eab308, #22c55e);
-            z-index: 99999;
-            opacity: 0;
-            transition: opacity 0.2s ease, width 0.3s ease;
-            pointer-events: none;
-        }
-        .top-loader.active { opacity: 1; width: 70%; transition: opacity 0.2s ease, width 8s cubic-bezier(0.1, 0.6, 0.3, 1); }
-        .top-loader.done { opacity: 1; width: 100%; transition: width 0.2s ease; }
-
-        .status-message {
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .status-message.error { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; }
-        .status-message.warning { background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.2); color: #eab308; }
-        .status-message.success { background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.2); color: #22c55e; }
-        .status-message.info { background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.2); color: #3b82f6; }
-
-        .auto-d-badge {
-            display: inline-block;
-            background: rgba(234, 179, 8, 0.15);
-            color: #eab308;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            padding: 2px 8px;
-            border-radius: 10px;
-            border: 1px solid rgba(234, 179, 8, 0.2);
-            margin-left: 8px;
-        }
-
-        .result-card {
-            background: #111827;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 20px 24px;
-            margin-bottom: 20px;
-        }
-        .result-card .card-title {
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 700;
-            font-size: 16px;
-            color: #eab308;
-            margin-bottom: 12px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .result-card .card-title .badge {
-            font-size: 9px;
-            font-weight: 500;
-            color: #64748b;
-            background: #1e293b;
-            padding: 2px 10px;
-            border-radius: 20px;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        .result-card .vehicle-tag {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-            padding: 8px 12px;
-            background: #0f172a;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            border: 1px solid #1e293b;
-        }
-        .result-card .vehicle-tag .fuel-pill,
-        .result-card .vehicle-tag .transmission-pill,
-        .result-card .vehicle-tag .engine-cc-display {
-            font-size: 10px;
-            font-weight: 600;
-            padding: 2px 10px;
-            border-radius: 20px;
-            background: #1e293b;
-            color: #94a3b8;
-        }
-        .result-card .vehicle-tag .fuel-pill { border-left: 3px solid #22c55e; }
-        .result-card .vehicle-tag .transmission-pill { border-left: 3px solid #3b82f6; }
-        .result-card .vehicle-tag .engine-cc-display { border-left: 3px solid #eab308; }
-        .result-card .vehicle-tag .crsp-pill {
-            font-size: 9px;
-            font-weight: 600;
-            padding: 2px 10px;
-            border-radius: 20px;
-            background: #0f172a;
-            color: #06b6d4;
-            border: 1px solid rgba(6, 182, 212, 0.2);
-            display: none;
-        }
-        .result-card .vehicle-tag .crsp-pill.show { display: inline-block; }
-        .result-card .vehicle-specs {
+        .report-photos-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            gap: 6px;
-            margin-top: 8px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin: 16px 0;
         }
-        .result-card .vehicle-specs .spec-item {
-            font-size: 10px;
-            color: #94a3b8;
-            padding: 4px 8px;
-            background: rgba(255,255,255,0.02);
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
+        .report-photos-grid .rp-item { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); aspect-ratio: 4/3; }
+        .report-photos-grid .rp-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .report-photos-grid .rp-item .rp-tag {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            font-size: 7px; text-align: center; padding: 2px; font-weight: 700;
+            font-family: var(--font-mono); text-transform: uppercase;
         }
-        .result-card .vehicle-specs .spec-item .spec-value { color: #eab308; font-weight: 500; }
-        .result-card .vehicle-label { font-size: 16px; font-weight: 600; color: #f8fafc; display: block; }
+        .report-photos-grid .rp-item .rp-tag.ok { background: rgba(34,197,94,0.85); color: #04150a; }
+        .report-photos-grid .rp-item .rp-tag.warn { background: rgba(239,68,68,0.85); color: #fff; }
 
         .action-bar { 
             display: flex; 
@@ -801,22 +944,33 @@
             background: transparent; 
             color: #94a3b8; 
             cursor: pointer; 
-            font-family: 'Inter', sans-serif; 
+            font-family: var(--font-body); 
             font-size: 13px; 
             font-weight: 500; 
-            transition: all 0.2s; 
+            transition: var(--transition); 
             display: inline-flex; 
             align-items: center; 
             gap: 8px; 
         }
-        .action-btn:hover { border-color: #eab308; color: #eab308; background: rgba(234,179,8,0.05); }
-        .action-btn.print { border-color: #3b82f6; color: #3b82f6; }
+        .action-btn:hover { border-color: var(--amber); color: var(--amber); background: rgba(234,179,8,0.05); }
+        .action-btn.print { border-color: var(--blue); color: var(--blue); }
         .action-btn.print:hover { background: rgba(59,130,246,0.08); }
-        .action-btn.share { border-color: #22c55e; color: #22c55e; }
+        .action-btn.share { border-color: var(--green); color: var(--green); }
         .action-btn.share:hover { background: rgba(34,197,94,0.08); }
 
-        .report-footer {
+        .result-footer {
+            margin-top: 16px;
+            padding-top: 16px;
             border-top: 1px solid rgba(255, 255, 255, 0.06);
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .result-footer strong { color: var(--amber); }
+        .result-footer .footer-divider { color: #334155; margin: 0 8px; }
+
+        .report-footer {
+            border-top: 1px solid var(--border);
             padding-top: 20px;
             margin-top: 24px;
             display: flex;
@@ -826,55 +980,74 @@
             gap: 16px;
         }
         .report-footer .brand {
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: var(--font-heading);
             font-size: 13px;
             font-weight: 600;
-            color: #cbd5e1;
+            color: var(--text-secondary);
         }
-        .report-footer .brand span { color: #eab308; }
+        .report-footer .brand span { color: var(--amber); }
         .report-footer .meta {
             font-size: 10px;
-            color: #64748b;
+            color: var(--text-muted);
             text-align: right;
             line-height: 1.8;
         }
-        .report-footer .meta strong { color: #cbd5e1; }
+        .report-footer .meta strong { color: var(--text-secondary); }
 
-        @media (max-width: 768px) {
-            .wrap { padding: 16px 12px 40px; }
-            .report-header { padding: 20px 18px; flex-direction: column; }
-            .header-left h1 { font-size: 22px; }
-            .header-right { text-align: left; width: 100%; }
-            .main-grid { gap: 16px; }
-            .calculator-panel { position: static; max-height: none; }
-            .result-box { padding: 16px 18px; }
-            .valuation-value { font-size: 36px; }
-            .valuation-value .amount { font-size: 36px; }
-            .valuation-value .currency { font-size: 20px; }
-            .valuation-value .decimal { font-size: 22px; }
-            .vehicle-details-grid { grid-template-columns: 1fr; }
-            .vehicle-detail-item .value { max-width: 100%; text-align: left; }
-            .vehicle-detail-item { flex-direction: column; gap: 4px; }
-            .report-footer { flex-direction: column; text-align: center; }
-            .report-footer .meta { text-align: center; }
-            .result-card .vehicle-specs { grid-template-columns: 1fr 1fr; }
-            .report-title { font-size: 16px; }
-            .report-meta { flex-direction: column; align-items: flex-start; }
-            .flow-steps { flex-wrap: wrap; gap: 4px; }
-            .flow-step { flex: 1 1 40%; }
+        .disclaimer {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 12px;
+            padding: 8px 12px;
+            border-top: 1px solid var(--border);
+            line-height: 1.5;
         }
-        @media (max-width: 480px) {
-            .wrap { padding: 12px; }
-            .valuation-value { font-size: 28px; }
-            .valuation-value .amount { font-size: 28px; }
-            .valuation-value .currency { font-size: 16px; }
-            .valuation-value .decimal { font-size: 18px; }
-            .result-card .vehicle-specs { grid-template-columns: 1fr; }
-            .vehicle-details-grid { grid-template-columns: 1fr; }
-            .value-range .range-value { font-size: 15px; }
-            .flow-step { flex: 1 1 30%; }
+        .disclaimer strong { color: var(--amber); }
+
+        /* ─── TOAST ──────────────────────────────────────────────────── */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            z-index: 9999;
+            font-weight: 500;
+            animation: slideIn .3s ease;
+            max-width: 400px;
+            font-size: 13px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
         }
-        /* ─── CONFETTI ────────────────────────────────────────────────── */
+        .toast-success { background: var(--green); color: #000; }
+        .toast-error { background: var(--red); color: #fff; }
+        .toast-info { background: var(--blue); color: #fff; }
+        .toast-warning { background: var(--amber); color: #000; }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(80px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes fadeInUp { 
+            from { opacity: 0; transform: translateY(30px); } 
+            to { opacity: 1; transform: translateY(0); } 
+        }
+
+        /* ─── TOP LOADER ───────────────────────────────────────────── */
+        .top-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 3px;
+            width: 0%;
+            background: linear-gradient(90deg, var(--amber), var(--green));
+            z-index: 99999;
+            opacity: 0;
+            transition: opacity 0.2s ease, width 0.3s ease;
+            pointer-events: none;
+        }
+        .top-loader.active { opacity: 1; width: 70%; transition: opacity 0.2s ease, width 8s cubic-bezier(0.1, 0.6, 0.3, 1); }
+        .top-loader.done { opacity: 1; width: 100%; transition: width 0.2s ease; }
+
+        /* ─── CONFETTI ──────────────────────────────────────────────── */
         .confetti-container {
             position: fixed;
             inset: 0;
@@ -898,115 +1071,58 @@
             100% { transform: translateY(110vh) rotate(540deg); opacity: 0; }
         }
 
-        /* ─── VEHICLE PHOTOS ──────────────────────────────────────────── */
-        .photo-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        .photo-slot {
-            position: relative;
-            aspect-ratio: 4 / 3;
-            border: 1.5px dashed #334155;
-            border-radius: 8px;
-            background: #0f172a;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            cursor: pointer;
-            overflow: hidden;
-            transition: border-color 0.2s, background 0.2s;
-            text-align: center;
-            padding: 6px;
-        }
-        .photo-slot:hover { border-color: var(--amber); background: rgba(234,179,8,0.05); }
-        .photo-slot input[type="file"] { display: none; }
-        .photo-slot .placeholder-icon { font-size: 20px; color: #475569; }
-        .photo-slot .placeholder-label { font-size: 9px; color: #64748b; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em; }
-        .photo-slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .photo-slot .photo-remove {
-            position: absolute;
-            top: 4px;
-            right: 4px;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: rgba(10,12,21,0.85);
-            color: #f8fafc;
-            border: none;
-            font-size: 11px;
-            line-height: 1;
-            cursor: pointer;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 2;
-        }
-        .photo-slot.filled .photo-remove { display: flex; }
-        .photo-slot .authenticity-badge {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            font-size: 8px;
-            font-weight: 700;
-            text-align: center;
-            padding: 3px 4px;
+        .auto-d-badge {
+            display: inline-block;
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--amber);
             font-family: var(--font-mono);
-            letter-spacing: 0.02em;
-            text-transform: uppercase;
-            z-index: 2;
+            font-size: 8px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            border: 1px solid rgba(234, 179, 8, 0.2);
+            margin-left: 8px;
         }
-        .authenticity-badge.checking { background: rgba(59,130,246,0.85); color: #fff; }
-        .authenticity-badge.verified { background: rgba(34,197,94,0.9); color: #04150a; }
-        .authenticity-badge.flagged { background: rgba(239,68,68,0.9); color: #fff; }
-        .photo-scan-line {
-            position: absolute;
-            left: 0; right: 0; height: 2px;
-            background: linear-gradient(90deg, transparent, #3b82f6, transparent);
-            animation: scanMove 1.1s linear infinite;
-            z-index: 1;
-        }
-        @keyframes scanMove { 0% { top: 0%; } 100% { top: 100%; } }
-        .photo-authenticity-summary {
-            font-size: 10px;
-            color: #94a3b8;
-            background: rgba(255,255,255,0.02);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 8px 10px;
-            line-height: 1.6;
-            margin-top: 4px;
-        }
-        .photo-authenticity-summary strong { color: #cbd5e1; }
-        .photo-authenticity-summary .ok { color: #22c55e; }
-        .photo-authenticity-summary .warn { color: #eab308; }
-        .photo-authenticity-summary .proceed-note { color: #94a3b8; font-style: italic; }
 
-        .report-photos-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-            margin: 16px 0;
+        /* ─── RESPONSIVE ───────────────────────────────────────────── */
+        @media (max-width: 768px) {
+            .wrap { padding: 16px 12px 40px; }
+            .report-header { padding: 20px 18px; flex-direction: column; }
+            .header-left h1 { font-size: 22px; }
+            .header-right { text-align: left; width: 100%; }
+            .main-grid { gap: 16px; }
+            .calculator-panel { position: static; max-height: none; }
+            .result-box { padding: 16px 18px; }
+            .valuation-value { font-size: 36px; }
+            .valuation-value .amount { font-size: 36px; }
+            .valuation-value .currency { font-size: 20px; }
+            .valuation-value .decimal { font-size: 22px; }
+            .vehicle-details-grid { grid-template-columns: 1fr; }
+            .vehicle-detail-item .value { max-width: 100%; text-align: left; }
+            .vehicle-detail-item { flex-direction: column; gap: 4px; }
+            .report-footer { flex-direction: column; text-align: center; }
+            .report-footer .meta { text-align: center; }
+            .result-card .vehicle-specs { grid-template-columns: 1fr 1fr; }
+            .report-title { font-size: 16px; }
+            .report-meta { flex-direction: column; align-items: flex-start; }
+            .flow-steps { flex-wrap: wrap; gap: 4px; }
+            .flow-step { flex: 1 1 40%; }
+            .photo-grid { grid-template-columns: 1fr 1fr; }
+            .report-photos-grid { grid-template-columns: repeat(2, 1fr); }
         }
-        .report-photos-grid .rp-item { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); aspect-ratio: 4/3; }
-        .report-photos-grid .rp-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .report-photos-grid .rp-item .rp-tag {
-            position: absolute; bottom: 0; left: 0; right: 0;
-            font-size: 8px; text-align: center; padding: 2px; font-weight: 700;
-            font-family: var(--font-mono); text-transform: uppercase;
+        @media (max-width: 480px) {
+            .wrap { padding: 12px; }
+            .valuation-value { font-size: 28px; }
+            .valuation-value .amount { font-size: 28px; }
+            .valuation-value .currency { font-size: 16px; }
+            .valuation-value .decimal { font-size: 18px; }
+            .result-card .vehicle-specs { grid-template-columns: 1fr; }
+            .vehicle-details-grid { grid-template-columns: 1fr; }
+            .value-range .range-value { font-size: 15px; }
+            .flow-step { flex: 1 1 30%; }
+            .photo-grid { grid-template-columns: 1fr 1fr; }
         }
-        .report-photos-grid .rp-item .rp-tag.ok { background: rgba(34,197,94,0.85); color: #04150a; }
-        .report-photos-grid .rp-item .rp-tag.warn { background: rgba(239,68,68,0.85); color: #fff; }
-        @media (max-width: 480px) { .report-photos-grid { grid-template-columns: repeat(2, 1fr); } }
-        @media print { .photo-slot .photo-remove { display: none !important; } }
 
-        /* ═══════════════════════════════════════════════════════════
-           PRINT LAYOUT — FIXED
-           ═══════════════════════════════════════════════════════════ */
+        /* ─── PRINT ────────────────────────────────────────────────── */
         @media print {
             .calculator-panel, .action-bar, .report-footer, .auth-section { display: none !important; }
             .main-grid { display: block !important; }
@@ -1032,12 +1148,9 @@
             .crsp-info { border-color: #ddd !important; }
             .crsp-info h4 { color: #0e7490 !important; }
             .crsp-info .row .value { color: #0e7490 !important; }
-
             .result-box { padding: 16px 20px !important; }
             .result-card, .result-box { break-inside: avoid !important; page-break-inside: avoid !important; }
-
-            .valuation-value,
-            .valuation-value .amount {
+            .valuation-value, .valuation-value .amount {
                 font-size: 30px !important;
                 white-space: normal !important;
                 overflow-wrap: break-word !important;
@@ -1046,7 +1159,6 @@
             .valuation-value .currency { font-size: 16px !important; }
             .valuation-value .decimal { font-size: 18px !important; }
             .valuation-value-wrapper { padding: 12px 0 !important; }
-
             .value-range .label {
                 white-space: normal !important;
                 overflow-wrap: break-word !important;
@@ -1057,20 +1169,15 @@
                 white-space: normal !important;
                 overflow-wrap: break-word !important;
             }
-
-            .vehicle-details-grid,
-            .result-card .vehicle-specs,
-            .report-photos-grid {
+            .vehicle-details-grid, .result-card .vehicle-specs, .report-photos-grid {
                 grid-template-columns: repeat(2, 1fr) !important;
                 gap: 6px !important;
             }
             .vehicle-detail-item .value { max-width: 100% !important; text-align: left !important; }
             .vehicle-detail-item { flex-direction: column !important; gap: 2px !important; }
-
             .confidence-section { flex-wrap: wrap !important; }
             .adjustment-row { font-size: 11px !important; }
             .vehicle-tag { flex-wrap: wrap !important; }
-
             .photo-slot .photo-remove { display: none !important; }
         }
     </style>
@@ -1091,7 +1198,7 @@
                     AI-powered vehicle valuation for the Kenyan market<br />
                     <span style="font-size:12px;color:var(--text-muted);">⚡ Real-time estimates · Market-driven · Cross-checked against KRA CRSP base prices</span>
                 </p>
-                <a href="/dashboard.html" class="dashboard-link" style="display:inline-flex;align-items:center;gap:8px;padding:8px 18px;background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.2);border-radius:8px;color:#eab308;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;text-decoration:none;transition:all 0.3s ease;margin-top:8px;">
+                <a href="/dashboard.html" class="dashboard-link">
                     <span class="arrow">←</span> Back to Dashboard
                 </a>
             </div>
@@ -1120,10 +1227,10 @@
                     <div id="authForms" style="display:none;margin-top:8px;">
                         <input type="email" id="authEmail" placeholder="Email" style="margin-bottom:6px;" />
                         <input type="password" id="authPassword" placeholder="Password" style="margin-bottom:6px;" />
-                        <div style="display:flex;gap:6px;">
-                            <button class="primary" id="btnLogin" style="flex:1;padding:6px;border:none;border-radius:4px;background:var(--amber);color:#0a0c10;font-weight:600;cursor:pointer;">Login</button>
-                            <button id="btnSignup" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;">Sign Up</button>
-                            <button id="btnCancelAuth" style="padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;">Cancel</button>
+                        <div class="auth-form-buttons">
+                            <button class="primary-btn" id="btnLogin">Login</button>
+                            <button class="secondary-btn" id="btnSignup">Sign Up</button>
+                            <button class="cancel-btn" id="btnCancelAuth">Cancel</button>
                         </div>
                     </div>
                 </div>
@@ -1158,7 +1265,7 @@
                 </div>
 
                 <div id="statusMessage" class="status-message info">
-                    <span>⏳</span>
+                    <span class="status-icon">⏳</span>
                     <span id="statusMessageText">Getting things ready...</span>
                 </div>
 
@@ -1254,7 +1361,7 @@
 
                 <div class="form-group">
                     <label for="mileageInput">Odometer (km)</label>
-                    <input type="number" id="mileageInput" placeholder="e.g., 50000" value="50000" />
+                    <input type="number" id="mileageInput" placeholder="e.g., 50000" value="50000" min="0" step="100" />
                 </div>
 
                 <div class="form-group">
@@ -1492,7 +1599,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - INSTANT VALUE CHECK
-        // Version 5.4 - FIXED: Uses public.vehicle_category_lookup for categories
+        // Version 5.4 - IMPROVED: Better error handling, performance & UX
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1505,7 +1612,10 @@
                 VIEW_NAME: 'vehicle_crsp_lookup',
                 CRSP_TABLE_NAME: 'vehicle_crsp_prices',
                 CATEGORY_LOOKUP_TABLE: 'vehicle_category_lookup',
-                API_BASE: 'https://auto-digital.onrender.com/api/v1'
+                API_BASE: 'https://auto-digital.onrender.com/api/v1',
+                MAX_PHOTOS: 4,
+                MAX_PHOTO_SIZE: 12 * 1024 * 1024,
+                REQUEST_TIMEOUT: 45000
             };
 
             // ─── CRSP Category Mapping ──────────────────────────────
@@ -1533,6 +1643,7 @@
             let crspReferenceData = null;
             let currentStep = 0;
             let hasFlaggedPhotos = false;
+            let isValuating = false;
 
             // ─── DOM REFS ────────────────────────────────────────────
             const el = {
@@ -1607,18 +1718,27 @@
                 photoAuthSummary: document.getElementById('photoAuthSummary'),
                 reportPhotosSection: document.getElementById('reportPhotosSection'),
                 reportPhotosGrid: document.getElementById('reportPhotosGrid'),
-                photoWarningSection: document.getElementById('photoWarningSection')
+                photoWarningSection: document.getElementById('photoWarningSection'),
+                printBtn: document.getElementById('printBtn'),
+                shareBtn: document.getElementById('shareBtn'),
+                footerUrl: document.getElementById('footerUrl')
             };
 
-            // ─── PHOTO / AUTHENTICITY STATE ────────────────────────────
-            const MAX_PHOTOS = 4;
-            let photos = Array.from({ length: MAX_PHOTOS }, () => ({ dataUrl: null, fileName: null, status: 'empty', reason: '' }));
+            // ─── PHOTO STATE ────────────────────────────────────────────
+            let photos = Array.from({ length: CONFIG.MAX_PHOTOS }, () => ({ 
+                dataUrl: null, 
+                fileName: null, 
+                status: 'empty', 
+                reason: '' 
+            }));
 
             // ─── HELPERS ──────────────────────────────────────────────
             function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
 
             function formatCurrency(val) {
-                if (val === undefined || val === null || isNaN(val)) return { formatted: '0', parts: { whole: '0', decimal: '00' } };
+                if (val === undefined || val === null || isNaN(val) || val < 0) {
+                    return { formatted: '0', parts: { whole: '0', decimal: '00' } };
+                }
                 const num = Number(val);
                 const formatted = num.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
                 return { formatted, parts: { whole: formatted, decimal: '00' } };
@@ -1639,14 +1759,14 @@
                 toast.textContent = message;
                 toast.setAttribute('role', 'alert');
                 document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 4000);
+                setTimeout(() => toast.remove(), 5000);
             }
 
             function setStatus(type, message) {
                 el.statusMessage.className = `status-message ${type}`;
                 el.statusMessageText.textContent = message;
                 const icons = { error: '❌', warning: '⚠️', success: '✅', info: '⏳' };
-                const iconSpan = el.statusMessage.querySelector('span:first-child');
+                const iconSpan = el.statusMessage.querySelector('.status-icon');
                 if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
             }
 
@@ -1688,7 +1808,7 @@
                 const cleanMake = (make || '').trim();
                 const cleanModel = (model || '').trim();
                 const cleanVariant = (variant || '').trim();
-                if (!cleanVariant) return `${cleanMake} ${cleanModel}`.trim();
+                if (!cleanVariant) return `${cleanMake} ${cleanModel}`.trim() || 'Unknown Vehicle';
                 const variantWords = cleanVariant.split(/\s+/);
                 const firstWord = variantWords[0] || '';
                 if (firstWord.toLowerCase() === cleanModel.toLowerCase()) {
@@ -1734,7 +1854,6 @@
                 return bodyType;
             }
 
-            // ─── KRA CRSP DEPRECIATION ──────────────────────────────
             function getKraDepreciationRate(ageYears) {
                 if (ageYears < 1) return 0.05;
                 if (ageYears < 2) return 0.10;
@@ -1746,99 +1865,20 @@
                 return 0.40;
             }
 
-            // ─── CRSP BASE PRICE LOOKUP ──────────────────────────────
-            async function lookupCRSPBasePrice(variantId) {
-                if (!supabaseClient || !isAuthenticated || !variantId) return null;
-                try {
-                    const { data, error } = await supabaseClient
-                        .from(CONFIG.CRSP_TABLE_NAME)
-                        .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes, vehicle_category')
-                        .eq('engine_capacity_id', variantId)
-                        .limit(1);
-                    if (error || !data || data.length === 0) return null;
-                    return { ...data[0], matchQuality: 'exact engine capacity match (FK)' };
-                } catch (e) {
-                    console.warn('CRSP base price lookup failed:', e);
-                    return null;
-                }
-            }
-
-            function updateFlowStep(step) {
-                currentStep = step;
-                const steps = el.flowSteps.querySelectorAll('.flow-step');
-                steps.forEach((s, index) => {
-                    const num = index + 1;
-                    s.classList.remove('active', 'done');
-                    if (num < step) s.classList.add('done');
-                    else if (num === step) s.classList.add('active');
-                });
-            }
-
-            function updateCRSPInfo(variantId, year) {
-                if (!crspReferenceData || !crspReferenceData.crsp_kes) {
-                    el.crspInfo.classList.remove('show');
-                    el.crspPill.textContent = '🏛️ CRSP: no match';
-                    el.crspPill.classList.add('show');
-                    return;
-                }
-                const nowYear = new Date().getFullYear();
-                const age = Math.max(0, nowYear - (parseInt(year, 10) || nowYear));
-                const rate = getKraDepreciationRate(age);
-                const basePrice = crspReferenceData.crsp_kes;
-                const refValue = basePrice * (1 - rate);
-
-                const categoryDisplay = CATEGORY_DISPLAY_NAMES[crspReferenceData.vehicle_category] || crspReferenceData.vehicle_category || '';
-                const matchedLine = `${crspReferenceData.make || ''} ${crspReferenceData.model || ''}`.trim() +
-                    (crspReferenceData.engine_capacity ? ` · ${crspReferenceData.engine_capacity}` : '') +
-                    (categoryDisplay ? ` (${categoryDisplay})` : '');
-
-                el.crspMatchedLine.textContent = matchedLine || '—';
-                el.crspBasePrice.textContent = `KES ${formatCurrency(basePrice).formatted}`;
-                el.crspAge.textContent = `${age} year${age === 1 ? '' : 's'}`;
-                el.crspDepreciationRate.textContent = `${(rate * 100).toFixed(0)}%${age >= 7 ? ' (unverified)' : ''}`;
-                el.crspReferenceValue.textContent = `KES ${formatCurrency(refValue).formatted}`;
-                el.crspPill.textContent = `🏛️ CRSP KES ${formatCurrency(basePrice).formatted}`;
-                el.crspPill.classList.add('show');
-                el.crspInfo.classList.add('show');
-                updateFlowStep(5);
-            }
-
-            function renderCRSPResult(aiValue, year) {
-                if (!crspReferenceData || !crspReferenceData.crsp_kes) {
-                    el.crspResultSection.style.display = 'none';
-                    return;
-                }
-                const nowYear = new Date().getFullYear();
-                const age = Math.max(0, nowYear - (parseInt(year, 10) || nowYear));
-                const rate = getKraDepreciationRate(age);
-                const basePrice = crspReferenceData.crsp_kes;
-                const refValue = basePrice * (1 - rate);
-                const variancePct = refValue > 0 ? ((aiValue - refValue) / refValue) * 100 : 0;
-
-                const categoryDisplay = CATEGORY_DISPLAY_NAMES[crspReferenceData.vehicle_category] || crspReferenceData.vehicle_category || '';
-                const matchedLine = `${crspReferenceData.make || ''} ${crspReferenceData.model || ''}`.trim() +
-                    (crspReferenceData.engine_capacity ? ` · ${crspReferenceData.engine_capacity}` : '') +
-                    (categoryDisplay ? ` (${categoryDisplay})` : '');
-
-                el.rCrspMatched.textContent = matchedLine || '—';
-                el.rCrspBase.textContent = `KES ${formatCurrency(basePrice).formatted}`;
-                el.rCrspAge.textContent = `${age} year${age === 1 ? '' : 's'}`;
-                el.rCrspRef.textContent = `KES ${formatCurrency(refValue).formatted}`;
-                
-                const sign = variancePct >= 0 ? '+' : '';
-                const cls = Math.abs(variancePct) > 20 ? 'negative' : (variancePct >= 0 ? 'positive' : 'negative');
-                el.rCrspVariance.textContent = `${sign}${variancePct.toFixed(1)}%`;
-                el.rCrspVariance.className = `value ${cls}`;
-                el.crspResultSection.style.display = 'block';
-            }
-
             // ─── AUTH ──────────────────────────────────────────────────
             function initSupabase() {
                 try {
-                    if (typeof supabase === 'undefined') throw new Error('Supabase SDK not loaded');
+                    if (typeof supabase === 'undefined') {
+                        throw new Error('Supabase SDK not loaded');
+                    }
                     const { createClient } = supabase;
                     supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
-                        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storage: localStorage }
+                        auth: { 
+                            persistSession: true, 
+                            autoRefreshToken: true, 
+                            detectSessionInUrl: true, 
+                            storage: localStorage 
+                        }
                     });
                     return true;
                 } catch (error) {
@@ -1856,6 +1896,7 @@
                     setTokens(data.session);
                     updateAuthUI();
                     showToast('✅ Signed in successfully!', 'success');
+                    await populateCategories();
                     return true;
                 } catch (error) {
                     showToast('❌ Sign in failed: ' + error.message, 'error');
@@ -1886,6 +1927,12 @@
                     isAuthenticated = false;
                     updateAuthUI();
                     showToast('🔓 Signed out', 'info');
+                    el.categorySelect.disabled = true;
+                    el.makeSelect.disabled = true;
+                    el.modelSelect.disabled = true;
+                    el.generationSelect.disabled = true;
+                    el.variantSelect.disabled = true;
+                    el.valuateBtn.disabled = true;
                     return true;
                 } catch (error) {
                     showToast('❌ Sign out failed: ' + error.message, 'error');
@@ -1927,20 +1974,26 @@
                     el.btnSignIn.style.display = 'none';
                     el.btnSignOut.style.display = 'inline-block';
                     el.authForms.style.display = 'none';
+                    el.categorySelect.disabled = false;
                 } else {
                     el.authStatus.textContent = '🔓 Not Authenticated';
                     el.authStatus.className = 'auth-status unauthenticated';
                     el.authMessage.textContent = 'Sign in to get your instant vehicle valuation';
                     el.btnSignIn.style.display = 'inline-block';
                     el.btnSignOut.style.display = 'none';
+                    el.categorySelect.disabled = true;
+                    el.makeSelect.disabled = true;
+                    el.modelSelect.disabled = true;
+                    el.generationSelect.disabled = true;
+                    el.variantSelect.disabled = true;
+                    el.valuateBtn.disabled = true;
                 }
             }
 
             // ─── DATA QUERY FUNCTIONS ──────────────────────────────────
             async function queryCRSPView(select, filter, order) {
                 if (!isAuthenticated) {
-                    showToast('⚠️ Please sign in to browse vehicles', 'warning');
-                    return [];
+                    throw new Error('Please sign in to browse vehicles');
                 }
                 let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
                 if (filter) query = query.eq(filter.column, filter.value);
@@ -1951,19 +2004,10 @@
             }
 
             // ─── LOAD CATEGORIES ──────────────────────────────────────
-            /**
-             * Load categories from public.vehicle_category_lookup
-             * Uses the recommended query:
-             * SELECT DISTINCT vehicle_category
-             * FROM public.vehicle_category_lookup
-             * WHERE vehicle_category IN ('COMMERCIAL','ELECTRIC','LUXURY','PICKUP','SEDAN')
-             * ORDER BY vehicle_category;
-             */
             async function loadCategories() {
                 try {
                     setStatus('info', 'Loading categories...');
                     
-                    // Use the vehicle_category_lookup table (not vehicle_crsp_lookup)
                     const { data, error } = await supabaseClient
                         .from(CONFIG.CATEGORY_LOOKUP_TABLE)
                         .select('vehicle_category')
@@ -1972,7 +2016,6 @@
                         .order('vehicle_category');
 
                     if (!error && data && data.length > 0) {
-                        // Deduplicate categories
                         const unique = {};
                         data.forEach(item => {
                             const cat = item.vehicle_category;
@@ -1989,13 +2032,12 @@
                         return result;
                     }
 
-                    // Fallback: Hard-coded CRSP categories
+                    // Fallback
                     console.warn('No categories found in vehicle_category_lookup, using fallback');
                     const fallback = Object.keys(CRSP_CATEGORIES).map(key => ({
                         id: key,
                         name: CATEGORY_DISPLAY_NAMES[key] || key
                     }));
-                    
                     setStatus('success', `✅ Loaded ${fallback.length} categories`);
                     return fallback;
                 } catch (error) {
@@ -2010,7 +2052,6 @@
                 try {
                     setStatus('info', 'Loading makes...');
                     
-                    // Filter by category if provided
                     const data = await queryCRSPView(
                         'make, make_id, vehicle_category',
                         null,
@@ -2035,7 +2076,7 @@
                         }
                     });
 
-                    // Try to enrich with country data
+                    // Enrich with country data
                     if (Object.keys(unique).length > 0) {
                         const makeNames = Object.keys(unique);
                         try {
@@ -2143,7 +2184,6 @@
                         { column: 'engine_capacity', ascending: true }
                     );
 
-                    // Group by engine capacity
                     const grouped = {};
                     data.forEach(v => {
                         const key = v.engine_capacity || 'Unknown';
@@ -2206,29 +2246,69 @@
                 }
             }
 
+            // ─── CRSP BASE PRICE LOOKUP ──────────────────────────────
+            async function lookupCRSPBasePrice(variantId) {
+                if (!supabaseClient || !isAuthenticated || !variantId) return null;
+                try {
+                    const { data, error } = await supabaseClient
+                        .from(CONFIG.CRSP_TABLE_NAME)
+                        .select('id, make, model, model_number, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes, vehicle_category')
+                        .eq('engine_capacity_id', variantId)
+                        .limit(1);
+                    if (error || !data || data.length === 0) return null;
+                    return { ...data[0], matchQuality: 'exact engine capacity match (FK)' };
+                } catch (e) {
+                    console.warn('CRSP base price lookup failed:', e);
+                    return null;
+                }
+            }
+
             // ─── API CALL ────────────────────────────────────────────────
             async function apiRequest(endpoint, options = {}) {
                 const url = `${CONFIG.API_BASE}${endpoint}`;
                 const token = getAccessToken();
-                const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json', ...options.headers };
+                const headers = { 
+                    'Content-Type': 'application/json', 
+                    'Accept': 'application/json', 
+                    ...options.headers 
+                };
                 if (token) headers['Authorization'] = `Bearer ${token}`;
-                const response = await fetch(url, { ...options, headers, credentials: 'include' });
-                if (response.status === 401) {
-                    try {
-                        const { data, error } = await supabaseClient.auth.refreshSession();
-                        if (!error && data.session) {
-                            setTokens(data.session);
-                            headers['Authorization'] = `Bearer ${data.session.access_token}`;
-                            const retry = await fetch(url, { ...options, headers, credentials: 'include' });
-                            if (retry.status !== 401) return retry;
-                        }
-                    } catch (e) { console.warn('Session refresh failed:', e); }
-                    clearTokens();
-                    isAuthenticated = false;
-                    updateAuthUI();
-                    throw new Error('Authentication required');
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT);
+                
+                try {
+                    const response = await fetch(url, { 
+                        ...options, 
+                        headers, 
+                        credentials: 'include',
+                        signal: controller.signal 
+                    });
+                    clearTimeout(timeoutId);
+                    
+                    if (response.status === 401) {
+                        try {
+                            const { data, error } = await supabaseClient.auth.refreshSession();
+                            if (!error && data.session) {
+                                setTokens(data.session);
+                                headers['Authorization'] = `Bearer ${data.session.access_token}`;
+                                const retry = await fetch(url, { ...options, headers, credentials: 'include' });
+                                if (retry.status !== 401) return retry;
+                            }
+                        } catch (e) { console.warn('Session refresh failed:', e); }
+                        clearTokens();
+                        isAuthenticated = false;
+                        updateAuthUI();
+                        throw new Error('Authentication required');
+                    }
+                    return response;
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    if (error.name === 'AbortError') {
+                        throw new Error('Request timed out after ' + (CONFIG.REQUEST_TIMEOUT / 1000) + ' seconds');
+                    }
+                    throw error;
                 }
-                return response;
             }
 
             // ─── VALUATION API CALL ──────────────────────────────────────
@@ -2248,40 +2328,23 @@
                 // Determine vehicle type from category
                 if (currentVariantData) {
                     const category = (currentVariantData.category_name || '').toUpperCase();
-                    
-                    if (category === 'COMMERCIAL') {
-                        payload.vehicle_type = 'COMMERCIAL';
-                    } else if (category === 'ELECTRIC') {
-                        payload.vehicle_type = 'ELECTRIC';
-                    } else if (category === 'LUXURY') {
-                        payload.vehicle_type = 'LUXURY';
-                    } else if (category === 'PICKUP') {
-                        payload.vehicle_type = 'PICKUP';
-                    } else if (category === 'SEDAN') {
-                        payload.vehicle_type = 'SEDAN';
-                    } else {
-                        // Fallback to body type detection
+                    if (category === 'COMMERCIAL') payload.vehicle_type = 'COMMERCIAL';
+                    else if (category === 'ELECTRIC') payload.vehicle_type = 'ELECTRIC';
+                    else if (category === 'LUXURY') payload.vehicle_type = 'LUXURY';
+                    else if (category === 'PICKUP') payload.vehicle_type = 'PICKUP';
+                    else if (category === 'SEDAN') payload.vehicle_type = 'SEDAN';
+                    else {
                         const bodyType = (currentVariantData.body_type_name || '').toUpperCase();
-                        if (bodyType.includes('SUV') || bodyType.includes('CROSSOVER')) {
-                            payload.vehicle_type = 'SUV';
-                        } else if (bodyType.includes('PICKUP') || bodyType.includes('TRUCK')) {
-                            payload.vehicle_type = 'PICKUP';
-                        } else if (bodyType.includes('VAN') || bodyType.includes('MINIVAN')) {
-                            payload.vehicle_type = 'COMMERCIAL';
-                        } else if (bodyType.includes('HATCHBACK')) {
-                            payload.vehicle_type = 'SEDAN';
-                        } else if (bodyType.includes('COUPE')) {
-                            payload.vehicle_type = 'SEDAN';
-                        } else if (bodyType.includes('CONVERTIBLE')) {
-                            payload.vehicle_type = 'SEDAN';
-                        }
+                        if (bodyType.includes('SUV') || bodyType.includes('CROSSOVER')) payload.vehicle_type = 'SUV';
+                        else if (bodyType.includes('PICKUP') || bodyType.includes('TRUCK')) payload.vehicle_type = 'PICKUP';
+                        else if (bodyType.includes('VAN') || bodyType.includes('MINIVAN')) payload.vehicle_type = 'COMMERCIAL';
+                        else payload.vehicle_type = 'SEDAN';
                     }
                 }
 
                 const response = await apiRequest('/valuation/calculate', {
                     method: 'POST',
-                    body: JSON.stringify(payload),
-                    signal: AbortSignal.timeout(45000)
+                    body: JSON.stringify(payload)
                 });
 
                 if (!response.ok) {
@@ -2292,12 +2355,322 @@
                 return await response.json();
             }
 
+            // ─── UI UPDATE FUNCTIONS ──────────────────────────────────
+            function updateFlowStep(step) {
+                currentStep = step;
+                const steps = el.flowSteps.querySelectorAll('.flow-step');
+                steps.forEach((s, index) => {
+                    const num = index + 1;
+                    s.classList.remove('active', 'done');
+                    if (num < step) s.classList.add('done');
+                    else if (num === step) s.classList.add('active');
+                });
+            }
+
+            function updateLoadingStep(step) {
+                document.querySelectorAll('.loading-step').forEach((el, index) => {
+                    const num = index + 1;
+                    el.classList.remove('active', 'done');
+                    if (num < step) { 
+                        el.classList.add('done');
+                        el.querySelector('.icon').textContent = '✅'; 
+                    } else if (num === step) { 
+                        el.classList.add('active');
+                        el.querySelector('.icon').innerHTML = '<div class="spinner-small"></div>'; 
+                    } else { 
+                        el.querySelector('.icon').textContent = '⏳'; 
+                    }
+                });
+            }
+
+            function updateCRSPInfo(variantId, year) {
+                if (!crspReferenceData || !crspReferenceData.crsp_kes) {
+                    el.crspInfo.classList.remove('show');
+                    el.crspPill.textContent = '🏛️ CRSP: no match';
+                    el.crspPill.classList.add('show');
+                    return;
+                }
+                const nowYear = new Date().getFullYear();
+                const age = Math.max(0, nowYear - (parseInt(year, 10) || nowYear));
+                const rate = getKraDepreciationRate(age);
+                const basePrice = crspReferenceData.crsp_kes;
+                const refValue = basePrice * (1 - rate);
+
+                const categoryDisplay = CATEGORY_DISPLAY_NAMES[crspReferenceData.vehicle_category] || crspReferenceData.vehicle_category || '';
+                const matchedLine = `${crspReferenceData.make || ''} ${crspReferenceData.model || ''}`.trim() +
+                    (crspReferenceData.engine_capacity ? ` · ${crspReferenceData.engine_capacity}` : '') +
+                    (categoryDisplay ? ` (${categoryDisplay})` : '');
+
+                el.crspMatchedLine.textContent = matchedLine || '—';
+                el.crspBasePrice.textContent = `KES ${formatCurrency(basePrice).formatted}`;
+                el.crspAge.textContent = `${age} year${age === 1 ? '' : 's'}`;
+                el.crspDepreciationRate.textContent = `${(rate * 100).toFixed(0)}%${age >= 7 ? ' (unverified)' : ''}`;
+                el.crspReferenceValue.textContent = `KES ${formatCurrency(refValue).formatted}`;
+                el.crspPill.textContent = `🏛️ CRSP KES ${formatCurrency(basePrice).formatted}`;
+                el.crspPill.classList.add('show');
+                el.crspInfo.classList.add('show');
+                updateFlowStep(5);
+            }
+
+            function refreshCRSPReference(variantId, year) {
+                if (!variantId) {
+                    crspReferenceData = null;
+                    el.crspInfo.classList.remove('show');
+                    el.crspPill.classList.remove('show');
+                    return;
+                }
+                lookupCRSPBasePrice(variantId).then(data => {
+                    crspReferenceData = data;
+                    if (crspReferenceData && crspReferenceData.crsp_kes) {
+                        updateCRSPInfo(variantId, year || el.yearSelect.value);
+                    } else {
+                        el.crspInfo.classList.remove('show');
+                        el.crspPill.textContent = '🏛️ CRSP: no match';
+                        el.crspPill.classList.add('show');
+                    }
+                });
+            }
+
+            function renderCRSPResult(aiValue, year) {
+                if (!crspReferenceData || !crspReferenceData.crsp_kes) {
+                    el.crspResultSection.style.display = 'none';
+                    return;
+                }
+                const nowYear = new Date().getFullYear();
+                const age = Math.max(0, nowYear - (parseInt(year, 10) || nowYear));
+                const rate = getKraDepreciationRate(age);
+                const basePrice = crspReferenceData.crsp_kes;
+                const refValue = basePrice * (1 - rate);
+                const variancePct = refValue > 0 ? ((aiValue - refValue) / refValue) * 100 : 0;
+
+                const categoryDisplay = CATEGORY_DISPLAY_NAMES[crspReferenceData.vehicle_category] || crspReferenceData.vehicle_category || '';
+                const matchedLine = `${crspReferenceData.make || ''} ${crspReferenceData.model || ''}`.trim() +
+                    (crspReferenceData.engine_capacity ? ` · ${crspReferenceData.engine_capacity}` : '') +
+                    (categoryDisplay ? ` (${categoryDisplay})` : '');
+
+                el.rCrspMatched.textContent = matchedLine || '—';
+                el.rCrspBase.textContent = `KES ${formatCurrency(basePrice).formatted}`;
+                el.rCrspAge.textContent = `${age} year${age === 1 ? '' : 's'}`;
+                el.rCrspRef.textContent = `KES ${formatCurrency(refValue).formatted}`;
+                
+                const sign = variancePct >= 0 ? '+' : '';
+                const cls = Math.abs(variancePct) > 20 ? 'negative' : (variancePct >= 0 ? 'positive' : 'negative');
+                el.rCrspVariance.textContent = `${sign}${variancePct.toFixed(1)}%`;
+                el.rCrspVariance.className = `value ${cls}`;
+                el.crspResultSection.style.display = 'block';
+            }
+
+            function displayVehicleInfo(variant) {
+                const label = getVehicleName(
+                    variant.make_name || '',
+                    variant.model_name || '',
+                    variant.variant_name || ''
+                );
+                const cleanBody = cleanBodyType(variant.body_type_name || '');
+                const categoryDisplay = CATEGORY_DISPLAY_NAMES[variant.category_name] || variant.category_name || '—';
+                el.vehicleLabel.textContent = label || 'Unnamed variant';
+                const engineCC = variant.engine_size_cc || null;
+                if (engineCC) {
+                    el.engineCCDisplay.textContent = `${engineCC}cc`;
+                    el.engineCCDisplay.style.display = 'inline-block';
+                } else {
+                    el.engineCCDisplay.textContent = '—';
+                    el.engineCCDisplay.style.display = 'inline-block';
+                }
+                
+                const specItems = [
+                    { label: '📂', value: categoryDisplay },
+                    { label: '🔧', value: variant.trim_level || 'Standard' },
+                    { label: '⚡', value: `${variant.power_hp || 0} HP` },
+                    { label: '🔄', value: `${variant.torque_nm || 0} Nm` },
+                    { label: '⛽', value: `${variant.fuel_consumption_combined || 0} km/L` },
+                    { label: '💺', value: `${variant.seats || 5} seats` },
+                    { label: '🚪', value: `${variant.doors || 4} doors` },
+                    { label: '🚗', value: cleanBody || '—' }
+                ];
+                el.vehicleSpecs.innerHTML = specItems.map(item =>
+                    `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
+                ).join('');
+                updateFlowStep(6);
+            }
+
+            function updateVehiclePills() {
+                const fuelVal = el.fuelTypeSelect.value;
+                const transVal = el.transmissionSelect.value;
+                el.fuelPill.textContent = FUEL_TYPE_LABELS[fuelVal] || '—';
+                el.transmissionPill.textContent = TRANSMISSION_LABELS[transVal] || '—';
+            }
+
+            function updateValuateButtonState() {
+                const hasVariant = !!el.variantSelect.value;
+                const checkingCount = photos.filter(p => p.status === 'checking').length;
+
+                if (!isAuthenticated || !hasVariant || isValuating) {
+                    el.valuateBtn.disabled = true;
+                    if (!isValuating) el.valuateBtn.innerHTML = '🚀 Get AI Valuation';
+                    return;
+                }
+                if (checkingCount > 0) {
+                    el.valuateBtn.disabled = true;
+                    el.valuateBtn.innerHTML = '<span class="spinner"></span> Scanning photos...';
+                    return;
+                }
+                el.valuateBtn.disabled = false;
+                el.valuateBtn.innerHTML = '🚀 Get AI Valuation';
+            }
+
+            // ─── PHOTO FUNCTIONS ──────────────────────────────────────
+            function renderPhotoGrid() {
+                el.photoGrid.innerHTML = '';
+                photos.forEach((p, i) => {
+                    const slot = document.createElement('div');
+                    slot.className = 'photo-slot' + (p.status !== 'empty' ? ' filled' : '');
+                    slot.dataset.index = i;
+
+                    if (p.dataUrl) {
+                        slot.innerHTML = `
+                            <img src="${p.dataUrl}" alt="Vehicle photo ${i + 1}" />
+                            <button type="button" class="photo-remove" data-index="${i}" aria-label="Remove photo ${i + 1}" title="Remove">✕</button>
+                            ${p.status === 'checking' ? '<div class="photo-scan-line"></div><div class="authenticity-badge checking">Scanning…</div>' : ''}
+                            ${p.status === 'verified' ? '<div class="authenticity-badge verified">✅ Camera metadata found</div>' : ''}
+                            ${p.status === 'flagged' ? '<div class="authenticity-badge flagged">⚠️ Flagged for review</div>' : ''}
+                        `;
+                    } else {
+                        slot.innerHTML = `
+                            <span class="placeholder-icon">📷</span>
+                            <span class="placeholder-label">Photo ${i + 1}</span>
+                            <input type="file" accept="image/*" data-index="${i}" />
+                        `;
+                    }
+                    el.photoGrid.appendChild(slot);
+                });
+
+                el.photoGrid.querySelectorAll('input[type="file"]').forEach(input => {
+                    input.addEventListener('change', function() {
+                        const idx = parseInt(this.dataset.index, 10);
+                        if (this.files && this.files[0]) onPhotoFileChosen(idx, this.files[0]);
+                    });
+                });
+                el.photoGrid.querySelectorAll('.photo-slot').forEach(slotEl => {
+                    slotEl.addEventListener('click', function(e) {
+                        if (e.target.classList.contains('photo-remove')) return;
+                        const idx = parseInt(this.dataset.index, 10);
+                        if (photos[idx].status === 'empty') {
+                            const input = this.querySelector('input[type="file"]');
+                            if (input) input.click();
+                        }
+                    });
+                });
+                el.photoGrid.querySelectorAll('.photo-remove').forEach(btn => {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        const idx = parseInt(this.dataset.index, 10);
+                        photos[idx] = { dataUrl: null, fileName: null, status: 'empty', reason: '' };
+                        renderPhotoGrid();
+                        updatePhotoAuthSummary();
+                        updateValuateButtonState();
+                    });
+                });
+            }
+
+            function onPhotoFileChosen(index, file) {
+                if (!file.type || !file.type.startsWith('image/')) {
+                    showToast('Please choose an image file', 'warning');
+                    return;
+                }
+                if (file.size > CONFIG.MAX_PHOTO_SIZE) {
+                    showToast('Image is too large (max 12MB)', 'warning');
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = async function(e) {
+                    photos[index] = { dataUrl: e.target.result, fileName: file.name, status: 'checking', reason: 'Analyzing…' };
+                    renderPhotoGrid();
+                    updatePhotoAuthSummary();
+                    updateValuateButtonState();
+                    const result = await checkImageAuthenticity(file);
+                    photos[index].status = result.flagged ? 'flagged' : 'verified';
+                    photos[index].reason = result.reason;
+                    renderPhotoGrid();
+                    updatePhotoAuthSummary();
+                    updateValuateButtonState();
+                    if (result.flagged) {
+                        showToast('⚠️ Photo flagged — valuation will proceed with a warning on the report', 'warning');
+                    }
+                };
+                reader.onerror = function() {
+                    showToast('Could not read that image file', 'error');
+                };
+                reader.readAsDataURL(file);
+            }
+
+            async function checkImageAuthenticity(file) {
+                try {
+                    if (typeof exifr === 'undefined') {
+                        return { flagged: true, reason: 'Metadata scanner unavailable — flagged for manual review' };
+                    }
+                    const meta = await exifr.parse(file, ['Make', 'Model', 'Software', 'DateTimeOriginal']).catch(() => null);
+
+                    const software = (meta && meta.Software) ? String(meta.Software).toLowerCase() : '';
+                    const aiToolPattern = /midjourney|dall-?e|stable diffusion|stablediffusion|firefly|dreamstudio|leonardo\.ai|runwayml|imagen|nightcafe|craiyon/;
+                    if (software && aiToolPattern.test(software)) {
+                        return { flagged: true, reason: `AI image-generation tool detected in file metadata (${meta.Software})` };
+                    }
+
+                    const hasCameraInfo = !!(meta && (meta.Make || meta.Model));
+                    if (!hasCameraInfo) {
+                        return {
+                            flagged: true,
+                            reason: 'No camera metadata found — could be screenshot/download/edited image. Valuation proceeds with warning.'
+                        };
+                    }
+                    const camera = [meta.Make, meta.Model].filter(Boolean).join(' ');
+                    return { flagged: false, reason: `Camera metadata found (${camera})` };
+                } catch (e) {
+                    return { flagged: true, reason: 'Could not read image metadata — flagged for manual review' };
+                }
+            }
+
+            function updatePhotoAuthSummary() {
+                const uploaded = photos.filter(p => p.status !== 'empty');
+                if (uploaded.length === 0) {
+                    el.photoAuthSummary.innerHTML = '📤 Upload clear photos of the front, rear, sides and interior. Each photo is automatically screened for signs it may be an AI-generated or non-original image.';
+                    return;
+                }
+                const checking = uploaded.filter(p => p.status === 'checking').length;
+                const flagged = uploaded.filter(p => p.status === 'flagged').length;
+                const verified = uploaded.filter(p => p.status === 'verified').length;
+                let msg = `<strong>${uploaded.length}/${CONFIG.MAX_PHOTOS} photo${uploaded.length === 1 ? '' : 's'} uploaded.</strong> `;
+                if (checking) msg += `${checking} scanning… `;
+                if (verified) msg += `<span class="ok">${verified} passed metadata check.</span> `;
+                if (flagged) msg += `<span class="warn">⚠️ ${flagged} flagged for manual review — valuation will proceed with a warning on the report.</span>`;
+                msg += ` <span class="proceed-note">(Photo screening is a heuristic — flagged images may still be genuine.)</span>`;
+                el.photoAuthSummary.innerHTML = msg;
+            }
+
+            function renderReportPhotos() {
+                const uploaded = photos.filter(p => p.dataUrl);
+                if (uploaded.length === 0) {
+                    el.reportPhotosSection.style.display = 'none';
+                    return;
+                }
+                el.reportPhotosGrid.innerHTML = uploaded.map(p => `
+                    <div class="rp-item">
+                        <img src="${p.dataUrl}" alt="${escapeHTML(p.fileName || 'Vehicle photo')}" />
+                        <div class="rp-tag ${p.status === 'flagged' ? 'warn' : 'ok'}">${p.status === 'flagged' ? '⚠️ Review' : '✅ Verified'}</div>
+                    </div>
+                `).join('');
+                el.reportPhotosSection.style.display = 'block';
+            }
+
             // ─── VALUATE ──────────────────────────────────────────────
             async function valuate() {
                 if (!isAuthenticated) {
                     showToast('⚠️ Please sign in first', 'warning');
                     return;
                 }
+                if (isValuating) return;
+                
                 const crspId = el.variantSelect.value;
                 if (!crspId) {
                     showToast('Please select an engine capacity', 'error');
@@ -2310,7 +2683,6 @@
                 }
 
                 hasFlaggedPhotos = photos.some(p => p.status === 'flagged');
-                
                 if (hasFlaggedPhotos) {
                     showToast('⚠️ Some photos were flagged — valuation will proceed with a warning on the report', 'warning');
                 }
@@ -2339,6 +2711,7 @@
                     transmission: el.transmissionSelect.value
                 };
 
+                isValuating = true;
                 el.valuateBtn.disabled = true;
                 el.valuateBtn.innerHTML = '<span class="spinner"></span> Valuating...';
                 el.loadingSteps.classList.add('show');
@@ -2360,8 +2733,10 @@
                 } catch (err) {
                     el.loadingSteps.classList.remove('show');
                     showToast('❌ Valuation failed: ' + err.message, 'error');
+                } finally {
+                    isValuating = false;
+                    updateValuateButtonState();
                 }
-                updateValuateButtonState();
             }
 
             // ─── SHOW RESULT ──────────────────────────────────────────
@@ -2386,7 +2761,6 @@
                     return formVal;
                 };
 
-                // New API response structure
                 if (data.valuation) {
                     const val = data.valuation;
                     currentValue = val.estimated_vehicle_value || 0;
@@ -2520,36 +2894,6 @@
                 if (currentValue > 0) fireConfetti();
             }
 
-            // ─── REFRESH CRSP ──────────────────────────────────────────
-            async function refreshCRSPReference(variantId, year) {
-                if (!variantId) {
-                    crspReferenceData = null;
-                    el.crspInfo.classList.remove('show');
-                    el.crspPill.classList.remove('show');
-                    return;
-                }
-                crspReferenceData = await lookupCRSPBasePrice(variantId);
-                if (crspReferenceData && crspReferenceData.crsp_kes) {
-                    updateCRSPInfo(variantId, year || el.yearSelect.value);
-                } else {
-                    el.crspInfo.classList.remove('show');
-                    el.crspPill.textContent = '🏛️ CRSP: no match';
-                    el.crspPill.classList.add('show');
-                }
-            }
-
-            // ─── LOADING STEPS ─────────────────────────────────────────
-            function updateLoadingStep(step) {
-                document.querySelectorAll('.loading-step').forEach((el, index) => {
-                    const num = index + 1;
-                    el.classList.remove('active', 'done');
-                    if (num < step) { el.classList.add('done');
-                        el.querySelector('.icon').textContent = '✅'; } else if (num === step) { el.classList.add('active');
-                        el.querySelector('.icon').innerHTML = '<div class="spinner-small"></div>'; } else { el.querySelector(
-                            '.icon').textContent = '⏳'; }
-                });
-            }
-
             // ─── CONFETTI ──────────────────────────────────────────────
             function fireConfetti() {
                 const container = document.createElement('div');
@@ -2568,204 +2912,6 @@
                     container.appendChild(piece);
                 }
                 setTimeout(() => container.remove(), 5000);
-            }
-
-            // ─── PHOTO UPLOAD + AUTHENTICITY CHECK ──────────────────────
-            function renderPhotoGrid() {
-                el.photoGrid.innerHTML = '';
-                photos.forEach((p, i) => {
-                    const slot = document.createElement('div');
-                    slot.className = 'photo-slot' + (p.status !== 'empty' ? ' filled' : '');
-                    slot.dataset.index = i;
-
-                    if (p.dataUrl) {
-                        slot.innerHTML = `
-                            <img src="${p.dataUrl}" alt="Vehicle photo ${i + 1}" />
-                            <button type="button" class="photo-remove" data-index="${i}" aria-label="Remove photo ${i + 1}" title="Remove">✕</button>
-                            ${p.status === 'checking' ? '<div class="photo-scan-line"></div><div class="authenticity-badge checking">Scanning…</div>' : ''}
-                            ${p.status === 'verified' ? '<div class="authenticity-badge verified">✅ Camera metadata found</div>' : ''}
-                            ${p.status === 'flagged' ? '<div class="authenticity-badge flagged">⚠️ Flagged for review</div>' : ''}
-                        `;
-                    } else {
-                        slot.innerHTML = `
-                            <span class="placeholder-icon">📷</span>
-                            <span class="placeholder-label">Photo ${i + 1}</span>
-                            <input type="file" accept="image/*" data-index="${i}" />
-                        `;
-                    }
-                    el.photoGrid.appendChild(slot);
-                });
-
-                el.photoGrid.querySelectorAll('input[type="file"]').forEach(input => {
-                    input.addEventListener('change', function() {
-                        const idx = parseInt(this.dataset.index, 10);
-                        if (this.files && this.files[0]) onPhotoFileChosen(idx, this.files[0]);
-                    });
-                });
-                el.photoGrid.querySelectorAll('.photo-slot').forEach(slotEl => {
-                    slotEl.addEventListener('click', function(e) {
-                        if (e.target.classList.contains('photo-remove')) return;
-                        const idx = parseInt(this.dataset.index, 10);
-                        if (photos[idx].status === 'empty') {
-                            const input = this.querySelector('input[type="file"]');
-                            if (input) input.click();
-                        }
-                    });
-                });
-                el.photoGrid.querySelectorAll('.photo-remove').forEach(btn => {
-                    btn.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        const idx = parseInt(this.dataset.index, 10);
-                        photos[idx] = { dataUrl: null, fileName: null, status: 'empty', reason: '' };
-                        renderPhotoGrid();
-                        updatePhotoAuthSummary();
-                        updateValuateButtonState();
-                    });
-                });
-            }
-
-            function onPhotoFileChosen(index, file) {
-                if (!file.type || !file.type.startsWith('image/')) {
-                    showToast('Please choose an image file', 'warning');
-                    return;
-                }
-                if (file.size > 12 * 1024 * 1024) {
-                    showToast('Image is too large (max 12MB)', 'warning');
-                    return;
-                }
-                const reader = new FileReader();
-                reader.onload = async function(e) {
-                    photos[index] = { dataUrl: e.target.result, fileName: file.name, status: 'checking', reason: 'Analyzing…' };
-                    renderPhotoGrid();
-                    updatePhotoAuthSummary();
-                    updateValuateButtonState();
-                    const result = await checkImageAuthenticity(file);
-                    photos[index].status = result.flagged ? 'flagged' : 'verified';
-                    photos[index].reason = result.reason;
-                    renderPhotoGrid();
-                    updatePhotoAuthSummary();
-                    updateValuateButtonState();
-                    if (result.flagged) {
-                        showToast('⚠️ Photo flagged — valuation will proceed with a warning on the report', 'warning');
-                    }
-                };
-                reader.onerror = function() {
-                    showToast('Could not read that image file', 'error');
-                };
-                reader.readAsDataURL(file);
-            }
-
-            async function checkImageAuthenticity(file) {
-                try {
-                    if (typeof exifr === 'undefined') {
-                        return { flagged: true, reason: 'Metadata scanner unavailable — flagged for manual review' };
-                    }
-                    const meta = await exifr.parse(file, ['Make', 'Model', 'Software', 'DateTimeOriginal']).catch(() => null);
-
-                    const software = (meta && meta.Software) ? String(meta.Software).toLowerCase() : '';
-                    const aiToolPattern = /midjourney|dall-?e|stable diffusion|stablediffusion|firefly|dreamstudio|leonardo\.ai|runwayml|imagen|nightcafe|craiyon/;
-                    if (software && aiToolPattern.test(software)) {
-                        return { flagged: true, reason: `AI image-generation tool detected in file metadata (${meta.Software})` };
-                    }
-
-                    const hasCameraInfo = !!(meta && (meta.Make || meta.Model));
-                    if (!hasCameraInfo) {
-                        return {
-                            flagged: true,
-                            reason: 'No camera metadata found — could be screenshot/download/edited image. Valuation proceeds with warning.'
-                        };
-                    }
-                    const camera = [meta.Make, meta.Model].filter(Boolean).join(' ');
-                    return { flagged: false, reason: `Camera metadata found (${camera})` };
-                } catch (e) {
-                    return { flagged: true, reason: 'Could not read image metadata — flagged for manual review' };
-                }
-            }
-
-            function updatePhotoAuthSummary() {
-                const uploaded = photos.filter(p => p.status !== 'empty');
-                if (uploaded.length === 0) {
-                    el.photoAuthSummary.innerHTML = '📤 Upload clear photos of the front, rear, sides and interior. Each photo is automatically screened for signs it may be an AI-generated or non-original image.';
-                    return;
-                }
-                const checking = uploaded.filter(p => p.status === 'checking').length;
-                const flagged = uploaded.filter(p => p.status === 'flagged').length;
-                const verified = uploaded.filter(p => p.status === 'verified').length;
-                let msg = `<strong>${uploaded.length}/${MAX_PHOTOS} photo${uploaded.length === 1 ? '' : 's'} uploaded.</strong> `;
-                if (checking) msg += `${checking} scanning… `;
-                if (verified) msg += `<span class="ok">${verified} passed metadata check.</span> `;
-                if (flagged) msg += `<span class="warn">⚠️ ${flagged} flagged for manual review — valuation will proceed with a warning on the report.</span>`;
-                msg += ` <span class="proceed-note">(Photo screening is a heuristic — flagged images may still be genuine.)</span>`;
-                el.photoAuthSummary.innerHTML = msg;
-            }
-
-            function renderReportPhotos() {
-                const uploaded = photos.filter(p => p.dataUrl);
-                if (uploaded.length === 0) {
-                    el.reportPhotosSection.style.display = 'none';
-                    return;
-                }
-                el.reportPhotosGrid.innerHTML = uploaded.map(p => `
-                    <div class="rp-item">
-                        <img src="${p.dataUrl}" alt="${escapeHTML(p.fileName || 'Vehicle photo')}" />
-                        <div class="rp-tag ${p.status === 'flagged' ? 'warn' : 'ok'}">${p.status === 'flagged' ? '⚠️ Review' : '✅ Verified'}</div>
-                    </div>
-                `).join('');
-                el.reportPhotosSection.style.display = 'block';
-            }
-
-            function updateValuateButtonState() {
-                const hasVariant = !!el.variantSelect.value;
-                const checkingCount = photos.filter(p => p.status === 'checking').length;
-
-                if (!isAuthenticated || !hasVariant) {
-                    el.valuateBtn.disabled = true;
-                    el.valuateBtn.innerHTML = '🚀 Get AI Valuation';
-                    return;
-                }
-                if (checkingCount > 0) {
-                    el.valuateBtn.disabled = true;
-                    el.valuateBtn.innerHTML = '<span class="spinner"></span> Scanning photos...';
-                    return;
-                }
-                el.valuateBtn.disabled = false;
-                el.valuateBtn.innerHTML = '🚀 Get AI Valuation';
-            }
-
-            // ─── DISPLAY VEHICLE INFO ─────────────────────────────────
-            function displayVehicleInfo(variant) {
-                const label = getVehicleName(
-                    variant.make_name || '',
-                    variant.model_name || '',
-                    variant.variant_name || ''
-                );
-                const cleanBody = cleanBodyType(variant.body_type_name || '');
-                const categoryDisplay = CATEGORY_DISPLAY_NAMES[variant.category_name] || variant.category_name || '—';
-                el.vehicleLabel.textContent = label || 'Unnamed variant';
-                const engineCC = variant.engine_size_cc || null;
-                if (engineCC) {
-                    el.engineCCDisplay.textContent = `${engineCC}cc`;
-                    el.engineCCDisplay.style.display = 'inline-block';
-                } else {
-                    el.engineCCDisplay.textContent = '—';
-                    el.engineCCDisplay.style.display = 'inline-block';
-                }
-                
-                // Add category to specs with proper display name
-                const specItems = [
-                    { label: '📂', value: categoryDisplay },
-                    { label: '🔧', value: variant.trim_level || 'Standard' },
-                    { label: '⚡', value: `${variant.power_hp || 0} HP` },
-                    { label: '🔄', value: `${variant.torque_nm || 0} Nm` },
-                    { label: '⛽', value: `${variant.fuel_consumption_combined || 0} km/L` },
-                    { label: '💺', value: `${variant.seats || 5} seats` },
-                    { label: '🚪', value: `${variant.doors || 4} doors` },
-                    { label: '🚗', value: cleanBody || '—' }
-                ];
-                el.vehicleSpecs.innerHTML = specItems.map(item =>
-                    `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
-                ).join('');
-                updateFlowStep(6);
             }
 
             // ─── POPULATE DROPDOWNS ──────────────────────────────────
@@ -2943,6 +3089,9 @@
             function initEventListeners() {
                 el.btnSignIn.addEventListener('click', () => {
                     el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
+                    if (el.authForms.style.display === 'block') {
+                        el.authEmail.focus();
+                    }
                 });
                 el.btnCancelAuth.addEventListener('click', () => { el.authForms.style.display = 'none'; });
                 el.btnLogin.addEventListener('click', async () => {
@@ -2953,7 +3102,6 @@
                     el.authForms.style.display = 'none';
                     el.authEmail.value = '';
                     el.authPassword.value = '';
-                    populateCategories();
                 });
                 el.btnSignup.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
@@ -2966,6 +3114,10 @@
                     el.authPassword.value = '';
                 });
                 el.btnSignOut.addEventListener('click', signOut);
+
+                // Enter key support for auth
+                el.authEmail.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.authPassword.focus(); });
+                el.authPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.btnLogin.click(); });
 
                 el.categorySelect.addEventListener('change', async function() {
                     const catId = this.value;
@@ -3033,7 +3185,7 @@
                             if (fuelGuess) el.fuelTypeSelect.value = fuelGuess;
                             const transGuess = normalizeTransmission(variant.transmission_type_name);
                             if (transGuess) el.transmissionSelect.value = transGuess;
-                            await refreshCRSPReference(crspId, el.yearSelect.value);
+                            refreshCRSPReference(crspId, el.yearSelect.value);
                         }
                         el.resultBox.classList.remove('show');
                     }
@@ -3050,14 +3202,13 @@
 
                 el.valuateBtn.addEventListener('click', valuate);
 
-                document.getElementById('printBtn').addEventListener('click', function() {
+                el.printBtn.addEventListener('click', function() {
                     setTimeout(() => window.print(), 500);
                 });
 
-                document.getElementById('shareBtn').addEventListener('click', function() {
+                el.shareBtn.addEventListener('click', function() {
                     const url = window.location.href;
-                    const text =
-                        `Auto-D Kenya Vehicle Valuation\nVehicle: ${el.vehicleLabel.textContent}\nValue: ${el.resultMarketValue.textContent}`;
+                    const text = `Auto-D Kenya Vehicle Valuation\nVehicle: ${el.vehicleLabel.textContent}\nValue: ${el.resultMarketValue.textContent}`;
                     if (navigator.share) {
                         navigator.share({ title: 'Auto-D Kenya Vehicle Valuation', text, url }).catch(() => {});
                     } else {
@@ -3070,13 +3221,6 @@
                 setInterval(async () => { await checkAuth(); }, 30000);
             }
 
-            function updateVehiclePills() {
-                const fuelVal = el.fuelTypeSelect.value;
-                const transVal = el.transmissionSelect.value;
-                el.fuelPill.textContent = FUEL_TYPE_LABELS[fuelVal] || '—';
-                el.transmissionPill.textContent = TRANSMISSION_LABELS[transVal] || '—';
-            }
-
             // ─── INIT ──────────────────────────────────────────────────
             async function init() {
                 showLoadingBar();
@@ -3084,21 +3228,27 @@
                     populateYearSelect();
                     renderPhotoGrid();
                     updateValuateButtonState();
+                    
                     const supabaseOk = initSupabase();
                     if (!supabaseOk) {
                         setStatus('error', "Connection failed — please refresh");
                         hideLoadingBar();
                         return;
                     }
+                    
                     await checkAuth();
                     await populateCategories();
-                    if (el.categorySelect.options.length > 1) {
+                    
+                    if (el.categorySelect.options.length > 1 && isAuthenticated) {
                         el.categorySelect.selectedIndex = 1;
                         el.categorySelect.dispatchEvent(new Event('change'));
                     }
+                    
                     el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
                         year: 'numeric', month: 'short', day: 'numeric'
                     });
+                    el.footerUrl.textContent = window.location.hostname || 'auto-digital.onrender.com';
+                    
                     console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.4)');
                     console.log(`✅ Using view: ${CONFIG.VIEW_NAME}`);
                     console.log(`✅ Using category lookup table: ${CONFIG.CATEGORY_LOOKUP_TABLE}`);
