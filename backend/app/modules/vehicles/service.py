@@ -1,18 +1,5 @@
 # app/modules/vehicles/service.py
 
-# ================================================================
-# Auto-D Kenya - Vehicles Service
-# ================================================================
-#
-# TYPE: MODULE - Business Logic
-#
-# Responsibilities:
-#   - Validate vehicle operations
-#   - Delegate database operations to VehicleRepository
-#   - Keep database-specific logic out of the service
-#
-# ================================================================
-
 import logging
 from typing import Optional, List, Dict, Any
 from uuid import UUID
@@ -20,17 +7,11 @@ from uuid import UUID
 from app.modules.vehicles.repository import VehicleRepository
 from app.core.exceptions import NotFoundException, ValidationException
 
-
 logger = logging.getLogger(__name__)
 
 
 class VehicleService:
-    """
-    Vehicle business service.
-
-    The service does not directly query Supabase.
-    All database operations are delegated to VehicleRepository.
-    """
+    """Auto-D Kenya vehicle business service."""
 
     def __init__(self):
         self.repository = VehicleRepository()
@@ -43,23 +24,15 @@ class VehicleService:
         self,
         user_id: UUID,
         data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Register a vehicle to a user.
-        """
-
+    ):
         plate = data.get("plate")
 
         if not plate:
-            raise ValidationException(
-                "Plate number is required."
-            )
-
-        plate = str(plate).strip().upper()
+            raise ValidationException("Plate number is required.")
 
         existing = await self.repository.get_vehicle_by_plate(
-            user_id=user_id,
-            plate=plate,
+            user_id,
+            plate,
         )
 
         if existing:
@@ -67,46 +40,26 @@ class VehicleService:
                 "Vehicle already exists."
             )
 
-        data = {
-            **data,
-            "plate": plate,
-        }
-
         return await self.repository.create_vehicle(
-            user_id=user_id,
-            data=data,
+            user_id,
+            data,
         )
 
-    async def get_user_vehicles(
-        self,
-        user_id: UUID,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get all vehicles belonging to a user.
-        """
-
-        return await self.repository.get_user_vehicles(
-            user_id
-        )
+    async def get_user_vehicles(self, user_id: UUID):
+        return await self.repository.get_user_vehicles(user_id)
 
     async def get_vehicle(
         self,
         vehicle_id: UUID,
         user_id: UUID,
-    ) -> Dict[str, Any]:
-        """
-        Get a specific user vehicle.
-        """
-
+    ):
         vehicle = await self.repository.get_vehicle(
             vehicle_id,
             user_id,
         )
 
         if not vehicle:
-            raise NotFoundException(
-                "Vehicle not found."
-            )
+            raise NotFoundException("Vehicle not found.")
 
         return vehicle
 
@@ -115,26 +68,8 @@ class VehicleService:
         vehicle_id: UUID,
         user_id: UUID,
         data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Update a user's vehicle.
-        """
-
-        vehicle = await self.repository.get_vehicle(
-            vehicle_id,
-            user_id,
-        )
-
-        if not vehicle:
-            raise NotFoundException(
-                "Vehicle not found."
-            )
-
-        if data.get("plate"):
-            data = {
-                **data,
-                "plate": str(data["plate"]).strip().upper(),
-            }
+    ):
+        await self.get_vehicle(vehicle_id, user_id)
 
         return await self.repository.update_vehicle(
             vehicle_id,
@@ -146,20 +81,8 @@ class VehicleService:
         self,
         vehicle_id: UUID,
         user_id: UUID,
-    ) -> bool:
-        """
-        Delete a user's vehicle.
-        """
-
-        vehicle = await self.repository.get_vehicle(
-            vehicle_id,
-            user_id,
-        )
-
-        if not vehicle:
-            raise NotFoundException(
-                "Vehicle not found."
-            )
+    ):
+        await self.get_vehicle(vehicle_id, user_id)
 
         return await self.repository.delete_vehicle(
             vehicle_id,
@@ -167,110 +90,99 @@ class VehicleService:
         )
 
     # ============================================================
-    # MASTER VEHICLE DATABASE
+    # MASTER CATALOGUE
     # ============================================================
 
-    async def get_categories(
-        self,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get the five approved vehicle categories.
-
-        Source:
-            vehicle_category_lookup.vehicle_category
-
-        Categories:
-            COMMERCIAL
-            ELECTRIC
-            LUXURY
-            PICKUP
-            SEDAN
-        """
-
+    async def get_categories(self):
         return await self.repository.get_categories()
 
     async def get_makes(
         self,
         category_id: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get vehicle makes.
+    ):
+        return await self.repository.get_makes(category_id)
 
-        Makes come from:
-            vehicle_crsp_lookup.make
+    async def get_models(self, make_id: int):
+        return await self.repository.get_models(make_id)
 
-        category_id is retained for API compatibility, but the
-        repository currently returns the complete Make catalogue.
-        """
+    async def get_generations(self, model_id: int):
+        return await self.repository.get_generations(model_id)
 
-        return await self.repository.get_makes(
-            category_id
-        )
+    async def get_variants(self, generation_id: int):
+        return await self.repository.get_variants(generation_id)
 
-    async def get_models(
-        self,
-        make_id: int,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get models for a selected make.
-        """
+    async def get_variant(self, variant_id: int):
+        vehicle = await self.repository.get_variant(variant_id)
 
-        return await self.repository.get_models(
-            make_id
-        )
+        if not vehicle:
+            raise NotFoundException(
+                "Vehicle variant not found."
+            )
 
-    # ============================================================
-    # SEARCH
-    # ============================================================
+        return vehicle
 
-    async def search_master(
-        self,
-        keyword: str,
-    ) -> List[Dict[str, Any]]:
-        """
-        Search the CRSP vehicle catalogue.
-        """
-
-        if not keyword or not keyword.strip():
-            return []
-
-        keyword = keyword.strip()
-
-        return await self.repository.search_master(
-            keyword
-        )
-
-    # ============================================================
-    # BASE PRICES
-    # ============================================================
-
-    async def get_base_price(
-        self,
-        variant_id: int,
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Get the base price for a vehicle variant.
-        """
-
-        return await self.repository.get_base_price(
+    async def get_vehicle_master(self, variant_id: int):
+        vehicle = await self.repository.get_vehicle_master(
             variant_id
         )
 
-    async def update_base_price(
-        self,
-        variant_id: int,
-        values: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Update a vehicle base price.
-        """
-
-        if not values:
-            raise ValidationException(
-                "Price data is required."
+        if not vehicle:
+            raise NotFoundException(
+                "Vehicle not found."
             )
 
-        return await self.repository.update_base_price(
-            variant_id,
-            values,
+        return vehicle
+
+    async def search_vehicle_master(
+        self,
+        query: str,
+        limit: int = 20,
+    ):
+        return await self.repository.search_master(
+            query,
+            limit,
         )
+
+    # ============================================================
+    # BASE PRICE
+    # ============================================================
+
+    async def get_base_price(self, variant_id: int):
+
+        price = await self.repository.get_base_price(
+            variant_id
+        )
+
+        if not price:
+            raise NotFoundException(
+                "CRSP price not found."
+            )
+
+        return price
+
+    # ============================================================
+    # STATISTICS
+    # ============================================================
+
+    async def get_statistics(self):
+        return await self.repository.get_statistics()
+
+    # ============================================================
+    # HEALTH
+    # ============================================================
+
+    async def health_check(self):
+
+        result = await self.repository.health_check()
+
+        return {
+            "status": result.get("status", "degraded"),
+            "service": "vehicles",
+            "version": "2.0",
+            "timestamp": __import__(
+                "datetime"
+            ).datetime.utcnow().isoformat(),
+            "database": result.get("database"),
+            "crsp_records": result.get("crsp_records"),
+            "error": result.get("error"),
+        }
