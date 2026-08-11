@@ -1,23 +1,44 @@
+```python
 # app/modules/vehicles/repository.py
 
 # ================================================================
 # Auto-D Kenya - Vehicle Repository
 # ================================================================
 #
+# TYPE: MODULE - Database Access Layer
+#
 # SINGLE SOURCE OF TRUTH
 #
-# CRSP Catalogue:
-#     public.vehicle_crsp_lookup
+# CRSP catalogue:
+#     vehicle_crsp_lookup
 #
 # Categories:
-#     public.vehicle_category_lookup
+#     vehicle_category_lookup
+#
+# User vehicles:
+#     user_vehicles
 #
 # Prices:
-#     public.vehicle_base_prices
+#     vehicle_base_prices
 #
 # IMPORTANT:
 # vehicle_crsp_lookup DOES NOT contain vehicle_category.
-# Categories must come from vehicle_category_lookup.
+#
+# Category relationship:
+#
+# vehicle_crsp_lookup.body_type
+#          ↓
+# vehicle_category_lookup.body_type
+#          ↓
+# vehicle_category_lookup.vehicle_category
+#
+# Approved application categories:
+#     COMMERCIAL
+#     ELECTRIC
+#     LUXURY
+#     PICKUP
+#     SEDAN
+#
 # ================================================================
 
 import logging
@@ -27,7 +48,7 @@ from uuid import UUID
 from fastapi.concurrency import run_in_threadpool
 
 from app.core.database import get_supabase
-from app.core.exceptions import NotFoundException
+
 
 logger = logging.getLogger(__name__)
 
@@ -36,37 +57,35 @@ class VehicleRepository:
     """
     Repository for vehicle database operations.
 
-    Database sources:
-
-    - vehicle_crsp_lookup
-        CRSP vehicle catalogue, makes, models and body types.
-
-    - vehicle_category_lookup
-        Five approved vehicle categories:
-            COMMERCIAL
-            ELECTRIC
-            LUXURY
-            PICKUP
-            SEDAN
-
-    - vehicle_base_prices
-        Vehicle base prices.
-
-    IMPORTANT:
-    Never query vehicle_crsp_lookup.vehicle_category because
-    that column does not exist.
+    All Supabase access for the vehicles module belongs here.
     """
+
+    # ============================================================
+    # CONSTANTS
+    # ============================================================
+
+    VALID_CATEGORIES = (
+        "COMMERCIAL",
+        "ELECTRIC",
+        "LUXURY",
+        "PICKUP",
+        "SEDAN",
+    )
+
+    # ============================================================
+    # INITIALIZATION
+    # ============================================================
 
     def __init__(self):
         self.supabase = get_supabase()
 
     # ============================================================
-    # INTERNAL HELPER
+    # THREAD HELPER
     # ============================================================
 
     async def _run(self, fn):
         """
-        Execute synchronous Supabase queries in a worker thread.
+        Execute synchronous Supabase operations in a worker thread.
         """
         return await run_in_threadpool(fn)
 
@@ -78,54 +97,49 @@ class VehicleRepository:
         """
         Return the five approved vehicle categories.
 
-        Source:
-            vehicle_category_lookup.vehicle_category
+        Categories are obtained from vehicle_category_lookup.
+
+        No reference is made to:
+            vehicle_crsp_lookup.vehicle_category
         """
 
         def query():
-            return (
+            response = (
                 self.supabase
                 .table("vehicle_category_lookup")
-                .select("vehicle_category")
+                .select(
+                    "vehicle_category"
+                )
                 .in_(
                     "vehicle_category",
-                    [
-                        "COMMERCIAL",
-                        "ELECTRIC",
-                        "LUXURY",
-                        "PICKUP",
-                        "SEDAN",
-                    ],
+                    list(self.VALID_CATEGORIES)
                 )
                 .execute()
             )
 
-        try:
-            result = await self._run(query)
+            return response.data or []
 
-            rows = result.data or []
+        rows = await self._run(query)
 
-            # Remove duplicates
-            categories = sorted(
-                {
-                    row["vehicle_category"]
-                    for row in rows
-                    if row.get("vehicle_category")
-                }
-            )
+        # Return unique categories.
+        categories = sorted(
+            {
+                str(row.get("vehicle_category", "")).strip().upper()
+                for row in rows
+                if row.get("vehicle_category")
+            }
+        )
 
-            return [
-                {
-                    "id": index + 1,
-                    "name": category,
-                    "vehicle_category": category,
-                }
-                for index, category in enumerate(categories)
-            ]
-
-        except Exception as e:
-            logger.exception("Failed to load vehicle categories")
-            raise
+        return [
+            {
+                "id": index + 1,
+                "name": category,
+                "description": None,
+                "icon": None,
+                "vehicle_count": 0,
+            }
+            for index, category in enumerate(categories)
+        ]
 
     # ============================================================
     # MAKES
@@ -136,55 +150,119 @@ class VehicleRepository:
         category_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Return vehicle makes.
+        Return unique vehicle makes from CRSP.
+
+        If category_id is supplied, the category is resolved through
+        vehicle_category_lookup.body_type.
 
         IMPORTANT:
-        Makes come directly from vehicle_crsp_lookup.
-
-        We do NOT query:
-
-            vehicle_crsp_lookup.vehicle_category
-
-        because that column does not exist.
-
-        If category_id is supplied, it is translated through the
-        category lookup before filtering CRSP records.
+        The CRSP table is NOT queried for vehicle_category.
         """
 
-        def query_all():
-            return (
+        category_name = None
+
+        if category_id is not None:
+            categories = await self.get_categories()
+
+            for category in categories:
+                if category["id"] == category_id:
+                    category_name = category["name"]
+                    break
+
+            if category_name is None:
+                return []
+
+        def query():
+            response = (
                 self.supabase
                 .table("vehicle_crsp_lookup")
-                .select("make")
-                .not_.is_("make", "null")
+                .select(
+                    "crsp_id,make,body_type"
+                )
+                .order(
+                    "make",
+                    desc=False
+                )
                 .execute()
             )
 
-        try:
-            result = await self._run(query_all)
+            return response.data or []
 
-            rows = result.data or []
+        rows = await self._run(query)
 
-            makes = sorted(
-                {
-                    str(row["make"]).strip()
-                    for row in rows
-                    if row.get("make")
-                    and str(row["make"]).strip()
-                }
-            )
+        # --------------------------------------------------------
+        # Build category body-type map
+        # --------------------------------------------------------
 
-            return [
-                {
-                    "id": index + 1,
+        category_body_types = {}
+
+        if category_name:
+            def category_query():
+                response = (
+                    self.supabase
+                    .table("vehicle_category_lookup")
+                    .select(
+                        "body_type,vehicle_category"
+                    )
+                    .eq(
+                        "vehicle_category",
+                        category_name
+                    )
+                    .execute()
+                )
+
+                return response.data or []
+
+            mapping_rows = await self._run(category_query)
+
+            category_body_types = {
+                str(row.get("body_type", "")).strip().upper()
+                for row in mapping_rows
+                if row.get("body_type")
+            }
+
+        # --------------------------------------------------------
+        # Aggregate makes
+        # --------------------------------------------------------
+
+        makes = {}
+
+        for row in rows:
+            make = row.get("make")
+
+            if not make:
+                continue
+
+            make = str(make).strip().upper()
+
+            if not make:
+                continue
+
+            # Apply category filter through body_type.
+            if category_name:
+                body_type = str(
+                    row.get("body_type") or ""
+                ).strip().upper()
+
+                if body_type not in category_body_types:
+                    continue
+
+            if make not in makes:
+                makes[make] = {
+                    "id": None,
                     "name": make,
+                    "country": None,
+                    "logo_url": None,
+                    "vehicle_count": 0,
+                    "category_id": category_id,
                 }
-                for index, make in enumerate(makes)
-            ]
 
-        except Exception as e:
-            logger.exception("Failed to load vehicle makes")
-            raise
+            makes[make]["vehicle_count"] += 1
+
+        return sorted(
+            makes.values(),
+            key=lambda item: item["name"]
+        )
 
     # ============================================================
     # MODELS
@@ -197,79 +275,218 @@ class VehicleRepository:
         """
         Return models for a make.
 
-        The make_id generated by get_makes() corresponds to the
-        position of the make in the sorted make list.
+        make_id is treated as the position/ID returned by the API.
+        The actual CRSP source is vehicle_crsp_lookup.make.
         """
 
-        def get_makes():
-            return (
+        makes = await self.get_makes()
+
+        selected_make = next(
+            (
+                make
+                for make in makes
+                if make["id"] == make_id
+            ),
+            None,
+        )
+
+        if not selected_make:
+            return []
+
+        make_name = selected_make["name"]
+
+        def query():
+            response = (
                 self.supabase
                 .table("vehicle_crsp_lookup")
-                .select("make")
-                .not_.is_("make", "null")
+                .select(
+                    "crsp_id,make,model,body_type"
+                )
+                .eq(
+                    "make",
+                    make_name
+                )
+                .order(
+                    "model",
+                    desc=False
+                )
                 .execute()
             )
 
-        try:
-            make_result = await self._run(get_makes)
+            return response.data or []
 
-            make_rows = make_result.data or []
+        rows = await self._run(query)
 
-            makes = sorted(
-                {
-                    str(row["make"]).strip()
-                    for row in make_rows
-                    if row.get("make")
-                    and str(row["make"]).strip()
-                }
-            )
+        models = {}
 
-            if make_id < 1 or make_id > len(makes):
-                raise NotFoundException("Vehicle make not found.")
+        for row in rows:
+            model = row.get("model")
 
-            selected_make = makes[make_id - 1]
+            if not model:
+                continue
 
-            def query_models():
-                return (
-                    self.supabase
-                    .table("vehicle_crsp_lookup")
-                    .select("model")
-                    .eq("make", selected_make)
-                    .not_.is_("model", "null")
-                    .execute()
-                )
+            model = str(model).strip()
 
-            model_result = await self._run(query_models)
+            if not model:
+                continue
 
-            model_rows = model_result.data or []
+            key = model.upper()
 
-            models = sorted(
-                {
-                    str(row["model"]).strip()
-                    for row in model_rows
-                    if row.get("model")
-                    and str(row["model"]).strip()
-                }
-            )
-
-            return [
-                {
-                    "id": index + 1,
+            if key not in models:
+                models[key] = {
+                    "id": row.get("crsp_id"),
                     "name": model,
-                    "make": selected_make,
+                    "make_id": make_id,
+                    "make_name": make_name,
+                    "vehicle_count": 0,
+                    "body_type": row.get("body_type"),
+                    "start_year": None,
+                    "end_year": None,
                 }
-                for index, model in enumerate(models)
-            ]
 
-        except NotFoundException:
-            raise
+            models[key]["vehicle_count"] += 1
 
-        except Exception as e:
-            logger.exception(
-                "Failed to load models for make_id=%s",
-                make_id,
+        return sorted(
+            models.values(),
+            key=lambda item: item["name"].upper()
+        )
+
+    # ============================================================
+    # MASTER SEARCH
+    # ============================================================
+
+    async def search_master(
+        self,
+        keyword: str,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search CRSP by make or model.
+        """
+
+        keyword = keyword.strip()
+
+        if not keyword:
+            return []
+
+        def query():
+            response = (
+                self.supabase
+                .table("vehicle_crsp_lookup")
+                .select(
+                    "crsp_id,"
+                    "make,"
+                    "model,"
+                    "crsp_fuel,"
+                    "engine_capacity,"
+                    "engine_capacity_cc,"
+                    "engine_code,"
+                    "transmission,"
+                    "body_type,"
+                    "crsp_price"
+                )
+                .or_(
+                    f"make.ilike.%{keyword}%,"
+                    f"model.ilike.%{keyword}%"
+                )
+                .limit(limit)
+                .execute()
             )
-            raise
+
+            return response.data or []
+
+        return await self._run(query)
+
+    # ============================================================
+    # VARIANT
+    # ============================================================
+
+    async def get_variant(
+        self,
+        variant_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get a CRSP vehicle record by CRSP ID.
+        """
+
+        def query():
+            response = (
+                self.supabase
+                .table("vehicle_crsp_lookup")
+                .select("*")
+                .eq(
+                    "crsp_id",
+                    variant_id
+                )
+                .limit(1)
+                .execute()
+            )
+
+            return response.data or []
+
+        rows = await self._run(query)
+
+        return rows[0] if rows else None
+
+    # ============================================================
+    # BASE PRICE
+    # ============================================================
+
+    async def get_base_price(
+        self,
+        variant_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get CRSP/base price for a vehicle.
+
+        First attempts vehicle_base_prices.
+        """
+
+        def query():
+            response = (
+                self.supabase
+                .table("vehicle_base_prices")
+                .select("*")
+                .eq(
+                    "crsp_id",
+                    variant_id
+                )
+                .limit(1)
+                .execute()
+            )
+
+            return response.data or []
+
+        rows = await self._run(query)
+
+        return rows[0] if rows else None
+
+    async def update_base_price(
+        self,
+        variant_id: int,
+        values: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Update vehicle base price.
+        """
+
+        def query():
+            response = (
+                self.supabase
+                .table("vehicle_base_prices")
+                .update(values)
+                .eq(
+                    "crsp_id",
+                    variant_id
+                )
+                .execute()
+            )
+
+            return response.data or []
+
+        rows = await self._run(query)
+
+        return rows[0] if rows else {}
 
     # ============================================================
     # USER VEHICLES
@@ -285,19 +502,85 @@ class VehicleRepository:
         """
 
         def query():
-            return (
+            response = (
                 self.supabase
                 .table("user_vehicles")
                 .select("*")
-                .eq("user_id", str(user_id))
-                .eq("plate", plate)
+                .eq(
+                    "user_id",
+                    str(user_id)
+                )
+                .eq(
+                    "plate",
+                    plate
+                )
                 .limit(1)
                 .execute()
             )
 
-        result = await self._run(query)
+            return response.data or []
 
-        rows = result.data or []
+        rows = await self._run(query)
+
+        return rows[0] if rows else None
+
+    async def get_user_vehicles(
+        self,
+        user_id: UUID,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all vehicles belonging to a user.
+        """
+
+        def query():
+            response = (
+                self.supabase
+                .table("user_vehicles")
+                .select("*")
+                .eq(
+                    "user_id",
+                    str(user_id)
+                )
+                .order(
+                    "created_at",
+                    desc=True
+                )
+                .execute()
+            )
+
+            return response.data or []
+
+        return await self._run(query)
+
+    async def get_vehicle(
+        self,
+        vehicle_id: UUID,
+        user_id: UUID,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific user vehicle.
+        """
+
+        def query():
+            response = (
+                self.supabase
+                .table("user_vehicles")
+                .select("*")
+                .eq(
+                    "id",
+                    str(vehicle_id)
+                )
+                .eq(
+                    "user_id",
+                    str(user_id)
+                )
+                .limit(1)
+                .execute()
+            )
+
+            return response.data or []
+
+        rows = await self._run(query)
 
         return rows[0] if rows else None
 
@@ -316,61 +599,18 @@ class VehicleRepository:
         }
 
         def query():
-            return (
+            response = (
                 self.supabase
                 .table("user_vehicles")
                 .insert(payload)
                 .execute()
             )
 
-        result = await self._run(query)
+            return response.data or []
 
-        if not result.data:
-            raise RuntimeError("Failed to create vehicle.")
+        rows = await self._run(query)
 
-        return result.data[0]
-
-    async def get_user_vehicles(
-        self,
-        user_id: UUID,
-    ) -> List[Dict[str, Any]]:
-
-        def query():
-            return (
-                self.supabase
-                .table("user_vehicles")
-                .select("*")
-                .eq("user_id", str(user_id))
-                .order("created_at", desc=True)
-                .execute()
-            )
-
-        result = await self._run(query)
-
-        return result.data or []
-
-    async def get_vehicle(
-        self,
-        vehicle_id: UUID,
-        user_id: UUID,
-    ) -> Optional[Dict[str, Any]]:
-
-        def query():
-            return (
-                self.supabase
-                .table("user_vehicles")
-                .select("*")
-                .eq("id", str(vehicle_id))
-                .eq("user_id", str(user_id))
-                .limit(1)
-                .execute()
-            )
-
-        result = await self._run(query)
-
-        rows = result.data or []
-
-        return rows[0] if rows else None
+        return rows[0] if rows else {}
 
     async def update_vehicle(
         self,
@@ -378,122 +618,104 @@ class VehicleRepository:
         user_id: UUID,
         data: Dict[str, Any],
     ) -> Dict[str, Any]:
+        """
+        Update a user vehicle.
+        """
 
         def query():
-            return (
+            response = (
                 self.supabase
                 .table("user_vehicles")
                 .update(data)
-                .eq("id", str(vehicle_id))
-                .eq("user_id", str(user_id))
+                .eq(
+                    "id",
+                    str(vehicle_id)
+                )
+                .eq(
+                    "user_id",
+                    str(user_id)
+                )
                 .execute()
             )
 
-        result = await self._run(query)
+            return response.data or []
 
-        if not result.data:
-            raise NotFoundException("Vehicle not found.")
+        rows = await self._run(query)
 
-        return result.data[0]
+        return rows[0] if rows else {}
 
     async def delete_vehicle(
         self,
         vehicle_id: UUID,
         user_id: UUID,
     ) -> bool:
+        """
+        Delete a user vehicle.
+        """
 
         def query():
-            return (
+            response = (
                 self.supabase
                 .table("user_vehicles")
                 .delete()
-                .eq("id", str(vehicle_id))
-                .eq("user_id", str(user_id))
+                .eq(
+                    "id",
+                    str(vehicle_id)
+                )
+                .eq(
+                    "user_id",
+                    str(user_id)
+                )
                 .execute()
             )
 
-        result = await self._run(query)
+            return response.data or []
 
-        return bool(result.data)
+        rows = await self._run(query)
+
+        return bool(rows)
 
     # ============================================================
-    # SEARCH
+    # HEALTH
     # ============================================================
 
-    async def search_master(
-        self,
-        keyword: str,
-    ) -> List[Dict[str, Any]]:
-
-        keyword = keyword.strip()
-
-        if not keyword:
-            return []
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Check CRSP database connectivity.
+        """
 
         def query():
-            return (
+            response = (
                 self.supabase
                 .table("vehicle_crsp_lookup")
                 .select(
-                    "crsp_id, make, model, body_type"
+                    "crsp_id",
+                    count="exact"
                 )
-                .or_(
-                    f"make.ilike.%{keyword}%,"
-                    f"model.ilike.%{keyword}%"
-                )
-                .limit(50)
-                .execute()
-            )
-
-        result = await self._run(query)
-
-        return result.data or []
-
-    # ============================================================
-    # BASE PRICE
-    # ============================================================
-
-    async def get_base_price(
-        self,
-        variant_id: int,
-    ) -> Optional[Dict[str, Any]]:
-
-        def query():
-            return (
-                self.supabase
-                .table("vehicle_base_prices")
-                .select("*")
-                .eq("variant_id", variant_id)
                 .limit(1)
                 .execute()
             )
 
-        result = await self._run(query)
+            return response.count or 0
 
-        rows = result.data or []
+        try:
+            count = await self._run(query)
 
-        return rows[0] if rows else None
+            return {
+                "status": "healthy",
+                "database": "connected",
+                "crsp_records": count,
+            }
 
-    async def update_base_price(
-        self,
-        variant_id: int,
-        values: Dict[str, Any],
-    ) -> Dict[str, Any]:
-
-        def query():
-            return (
-                self.supabase
-                .table("vehicle_base_prices")
-                .update(values)
-                .eq("variant_id", variant_id)
-                .execute()
+        except Exception as exc:
+            logger.exception(
+                "Vehicle repository health check failed"
             )
 
-        result = await self._run(query)
-
-        if not result.data:
-            raise NotFoundException(
-                "Base price not found."
-            )
-
-        return result.data[0]
+            return {
+                "status": "degraded",
+                "database": "error",
+                "crsp_records": None,
+                "error": str(exc),
+            }
+```
