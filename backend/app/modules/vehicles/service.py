@@ -274,4 +274,3 @@ class VehicleService:
             variant_id,
             values,
         )
-```
