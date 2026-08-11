@@ -10,7 +10,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script>
     <style>
-        /* ... (same styles as before - keeping all CSS unchanged) ... */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -1172,7 +1171,7 @@
                 </a>
             </div>
             <div class="header-right">
-                <div class="version">Version <span>v9.2</span> <span class="auto-d-badge" style="display:inline-block;background:rgba(234,179,8,0.15);color:#eab308;font-family:var(--font-mono);font-size:8px;padding:2px 8px;border-radius:10px;border:1px solid rgba(234,179,8,0.2);margin-left:6px;">Auto-D</span></div>
+                <div class="version">Version <span>v9.3</span> <span class="auto-d-badge" style="display:inline-block;background:rgba(234,179,8,0.15);color:#eab308;font-family:var(--font-mono);font-size:8px;padding:2px 8px;border-radius:10px;border:1px solid rgba(234,179,8,0.2);margin-left:6px;">Auto-D</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus" aria-live="polite">🔓 Not Authenticated</span>
@@ -2020,6 +2019,10 @@
             }
 
             // ─── Data Query Functions ──────────────────────────────
+            // All vehicle lookups (categories, makes, models, generations, engine
+            // capacities, variant details) go through CONFIG.VIEW_NAME
+            // ('vehicle_crsp_lookup'). This is the single source of truth for
+            // vehicle data across all three Auto-D calculators.
             async function queryCRSPView(select, filter, order, signal) {
                 if (!isAuthenticated) {
                     setStatus('warning', 'Please sign in to load vehicle data');
@@ -2032,6 +2035,7 @@
                 const { data, error } = await query;
                 if (error) {
                     if (error.name === 'AbortError' || signal?.aborted) throw Object.assign(new Error('aborted'), { aborted: true });
+                    console.error(`Query error on ${CONFIG.VIEW_NAME}:`, error);
                     throw error;
                 }
                 return data;
@@ -2041,8 +2045,7 @@
             async function loadCategories() {
                 try {
                     setStatus('info', 'Loading categories...');
-                    
-                    // First try: Get categories from vehicle_crsp_lookup's vehicle_category column
+
                     const { data, error } = await supabaseClient
                         .from(CONFIG.VIEW_NAME)
                         .select('vehicle_category')
@@ -2062,34 +2065,35 @@
                         });
                         const result = Object.values(unique);
                         if (result.length > 0) {
-                            console.log('✅ Categories loaded from vehicle_category column:', result);
+                            console.log('✅ Categories loaded from vehicle_crsp_lookup:', result);
                             setStatus('success', `✅ Loaded ${result.length} categories`);
                             return result;
                         }
                     }
 
-                    // Fallback: Hard-coded categories
+                    // Fallback
+                    console.warn('No categories found in vehicle_crsp_lookup, using fallback');
                     const fallback = Object.keys(CRSP_CATEGORIES).map(key => ({
                         id: key,
                         name: CATEGORY_DISPLAY_NAMES[key] || key
                     }));
-                    
-                    console.log('✅ Using fallback categories:', fallback);
                     setStatus('success', `✅ Loaded ${fallback.length} categories`);
                     return fallback;
                 } catch (error) {
                     console.error('Error loading categories:', error);
-                    setStatus('error', 'Failed to load categories');
+                    setStatus('error', `Failed to load categories${error.message ? ': ' + error.message : ''}`);
                     return [];
                 }
             }
 
-            // ─── Load Makes ────────────────────────────────────────
+            // ─── Load Makes ─────────────────────────────────────────────
             async function loadMakes(categoryId, signal) {
                 try {
                     setStatus('info', 'Loading makes...');
+                    // NOTE: only select columns known to exist on vehicle_crsp_lookup.
+                    // *_id columns are not guaranteed to be exposed by the view.
                     const data = await queryCRSPView(
-                        'make, make_id, vehicle_category',
+                        'make, vehicle_category',
                         null,
                         { column: 'make', ascending: true },
                         signal
@@ -2107,14 +2111,14 @@
                     filteredData.forEach(item => {
                         if (item.make && !unique[item.make]) {
                             unique[item.make] = {
-                                id: item.make_id || item.make,
+                                id: item.make,
                                 name: item.make,
                                 country: null
                             };
                         }
                     });
 
-                    // Try to enrich with country data
+                    // Try to enrich with country data (optional, non-fatal)
                     if (Object.keys(unique).length > 0) {
                         const makeNames = Object.keys(unique);
                         try {
@@ -2130,14 +2134,14 @@
                                     }
                                 });
                             }
-                        } catch (e) { /* ignore */ }
+                        } catch (e) { /* enrichment is optional */ }
                     }
 
                     return Object.values(unique);
                 } catch (error) {
                     if (error.aborted) return null;
                     console.error('Error loading makes:', error);
-                    setStatus('error', 'Failed to load makes');
+                    setStatus('error', `Failed to load makes${error.message ? ': ' + error.message : ''}`);
                     return [];
                 }
             }
@@ -2147,7 +2151,7 @@
                 try {
                     setStatus('info', 'Loading models...');
                     const data = await queryCRSPView(
-                        'model, model_id, master_model_id, master_model_name',
+                        'model, master_model_name',
                         { column: 'make', value: makeName },
                         { column: 'model', ascending: true },
                         signal
@@ -2158,7 +2162,7 @@
                         const modelName = item.model || item.master_model_name;
                         if (modelName && !unique[modelName]) {
                             unique[modelName] = {
-                                id: item.model_id || item.master_model_id || modelName,
+                                id: modelName,
                                 name: modelName,
                                 body_type: null
                             };
@@ -2169,7 +2173,7 @@
                 } catch (error) {
                     if (error.aborted) return null;
                     console.error('Error loading models:', error);
-                    setStatus('error', 'Failed to load models');
+                    setStatus('error', `Failed to load models${error.message ? ': ' + error.message : ''}`);
                     return [];
                 }
             }
@@ -2180,7 +2184,7 @@
                     setStatus('info', 'Loading generations...');
                     const filter = { column: 'model', value: modelName };
                     const data = await queryCRSPView(
-                        'manufacture_year, crsp_year, generation_id, model, make',
+                        'manufacture_year, crsp_year, model, make',
                         filter,
                         { column: 'manufacture_year', ascending: false },
                         signal
@@ -2198,7 +2202,7 @@
                         const year = item.manufacture_year || item.crsp_year;
                         if (year && !unique[year]) {
                             unique[year] = {
-                                id: item.generation_id || year,
+                                id: year,
                                 code: `Gen ${year}`,
                                 start_year: year,
                                 end_year: year + 5
@@ -2210,7 +2214,7 @@
                 } catch (error) {
                     if (error.aborted) return null;
                     console.error('Error loading generations:', error);
-                    setStatus('error', 'Failed to load generations');
+                    setStatus('error', `Failed to load generations${error.message ? ': ' + error.message : ''}`);
                     return [];
                 }
             }
@@ -2222,7 +2226,7 @@
                     const filter = { column: 'manufacture_year', value: parseInt(generationId) };
 
                     const data = await queryCRSPView(
-                        `crsp_id, engine_capacity, engine_capacity_id, fuel, transmission, body_type, make, model, manufacture_year, crsp_kes, vehicle_category`,
+                        `crsp_id, engine_capacity, fuel, transmission, body_type, make, model, manufacture_year, crsp_kes, vehicle_category`,
                         filter,
                         { column: 'engine_capacity', ascending: true },
                         signal
@@ -2249,7 +2253,7 @@
                 } catch (error) {
                     if (error.aborted) return null;
                     console.error('Error loading engine capacities:', error);
-                    setStatus('error', 'Failed to load engine capacities');
+                    setStatus('error', `Failed to load engine capacities${error.message ? ': ' + error.message : ''}`);
                     return [];
                 }
             }
@@ -2286,7 +2290,7 @@
                     return null;
                 } catch (error) {
                     console.error('Error loading vehicle details:', error);
-                    setStatus('error', 'Failed to load vehicle details');
+                    setStatus('error', `Failed to load vehicle details${error.message ? ': ' + error.message : ''}`);
                     return null;
                 }
             }
@@ -3115,9 +3119,7 @@
                         el.generationSelect.value = '';
                         el.engineCapacitySelect.value = '';
                         el.calculateBtn.disabled = true;
-                        el.resultBox.classList.remove('show');
                         el.crspInfo.classList.remove('show');
-                        el.crspPill.classList.remove('show');
                     }
                 });
 
@@ -3129,9 +3131,7 @@
                         el.generationSelect.value = '';
                         el.engineCapacitySelect.value = '';
                         el.calculateBtn.disabled = true;
-                        el.resultBox.classList.remove('show');
                         el.crspInfo.classList.remove('show');
-                        el.crspPill.classList.remove('show');
                     }
                 });
 
@@ -3142,9 +3142,7 @@
                         await populateGenerations(modelName);
                         el.engineCapacitySelect.value = '';
                         el.calculateBtn.disabled = true;
-                        el.resultBox.classList.remove('show');
                         el.crspInfo.classList.remove('show');
-                        el.crspPill.classList.remove('show');
                     }
                 });
 
@@ -3154,9 +3152,7 @@
                     if (genId) {
                         await populateEngineCapacities(genId);
                         el.calculateBtn.disabled = true;
-                        el.resultBox.classList.remove('show');
                         el.crspInfo.classList.remove('show');
-                        el.crspPill.classList.remove('show');
                     }
                 });
 
@@ -3257,7 +3253,7 @@
 
                     el.loadingOverlay.classList.remove('active');
 
-                    console.log('✅ Auto-D Kenya TCO Calculator v9.2');
+                    console.log('✅ Auto-D Kenya TCO Calculator v9.3');
                     console.log('✅ Using view: ' + CONFIG.VIEW_NAME);
                     console.log('📂 CRSP Categories: SEDAN, COMMERCIAL, ELECTRIC, LUXURY, PICKUP');
                     console.log('💰 CRSP table: ' + CONFIG.CRSP_TABLE + ' (joined via engine_capacity_id = variant_id)');
