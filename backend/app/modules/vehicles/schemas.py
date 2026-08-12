@@ -1,1030 +1,612 @@
-# app/modules/vehicles/schemas.py
-
 # ================================================================
-# Auto-D Kenya - Vehicle Schemas
+# Auto-D Kenya - Vehicle Repository
 # ================================================================
-# TYPE: MODULE - CRSP-driven vehicle management Pydantic schemas
-# Compatible with Pydantic v2
+# CRSP-driven vehicle catalogue repository.
 #
-# Architecture:
+# SOURCE OF TRUTH:
+#     public.vehicle_crsp_lookup
 #
-# vehicle_base_prices
-#        ↓
-#      CRSP
-#        ↓
-# make / model / engine / fuel / transmission
-#        ↓
-# valuation / running cost / ownership / reports
-#
-# vehicle_base_prices is the CRSP source of truth.
+# IMPORTANT:
+# This repository only references columns that actually exist
+# in vehicle_crsp_lookup.
 # ================================================================
 
-from datetime import datetime
+import logging
 from typing import Optional, List, Dict, Any
 
-from pydantic import BaseModel, Field, ConfigDict
+from fastapi.concurrency import run_in_threadpool
+
+from app.core.database import get_supabase
+
+logger = logging.getLogger(__name__)
 
 
-# ================================================================
-# CRSP VEHICLE SCHEMA
-# ================================================================
-
-class CRSPVehicleResponse(BaseModel):
+class VehicleRepository:
     """
-    Complete CRSP vehicle record.
+    Repository for CRSP vehicle catalogue operations.
 
-    This represents one row from vehicle_base_prices and is the
-    primary vehicle response used throughout Auto-D Kenya.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-
-    crsp_id: int = Field(
-        ...,
-        description="CRSP vehicle record ID"
-    )
-
-    make: str = Field(
-        ...,
-        description="Vehicle make"
-    )
-
-    model: str = Field(
-        ...,
-        description="Vehicle model"
-    )
-
-    crsp_fuel: Optional[str] = Field(
-        None,
-        description="Fuel type recorded by CRSP"
-    )
-
-    engine_capacity_id: Optional[int] = Field(
-        None,
-        description="Engine capacity reference ID"
-    )
-
-    engine_capacity: Optional[str] = Field(
-        None,
-        description="Engine capacity description"
-    )
-
-    engine_code: Optional[str] = Field(
-        None,
-        description="Engine code"
-    )
-
-    engine_capacity_cc: Optional[int] = Field(
-        None,
-        description="Engine capacity in CC"
-    )
-
-    capacity_fuel: Optional[str] = Field(
-        None,
-        description="Fuel type associated with engine capacity"
-    )
-
-    transmission: Optional[str] = Field(
-        None,
-        description="Transmission type"
-    )
-
-    crsp_price: Optional[float] = Field(
-        None,
-        description="CRSP value in KES"
-    )
-
-    year: Optional[int] = Field(
-        None,
-        description="Vehicle year"
-    )
-
-    created_at: Optional[datetime] = Field(
-        None,
-        description="Record creation timestamp"
-    )
-
-    updated_at: Optional[datetime] = Field(
-        None,
-        description="Record update timestamp"
-    )
-
-
-# ================================================================
-# VEHICLE LIST RESPONSE
-# ================================================================
-
-class VehicleListResponse(BaseModel):
-    """
-    Lightweight vehicle response for vehicle lists.
+    Database source:
+        public.vehicle_crsp_lookup
     """
 
-    model_config = ConfigDict(from_attributes=True)
-
-    crsp_id: int = Field(
-        ...,
-        description="CRSP vehicle ID"
-    )
-
-    make: str = Field(
-        ...,
-        description="Vehicle make"
-    )
-
-    model: str = Field(
-        ...,
-        description="Vehicle model"
-    )
-
-    crsp_fuel: Optional[str] = Field(
-        None,
-        description="CRSP fuel type"
-    )
-
-    engine_capacity_cc: Optional[int] = Field(
-        None,
-        description="Engine capacity in CC"
-    )
-
-    engine_code: Optional[str] = Field(
-        None,
-        description="Engine code"
-    )
-
-    transmission: Optional[str] = Field(
-        None,
-        description="Transmission"
-    )
-
-    crsp_price: Optional[float] = Field(
-        None,
-        description="CRSP price in KES"
-    )
-
-
-# ================================================================
-# VEHICLE SEARCH RESPONSE
-# ================================================================
-
-class VehicleSearchResponse(BaseModel):
-    """
-    Vehicle search result based directly on CRSP records.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-
-    crsp_id: int = Field(
-        ...,
-        description="CRSP vehicle ID"
-    )
-
-    make: str = Field(
-        ...,
-        description="Vehicle make"
-    )
-
-    model: str = Field(
-        ...,
-        description="Vehicle model"
-    )
-
-    crsp_fuel: Optional[str] = Field(
-        None,
-        description="CRSP fuel type"
-    )
-
-    engine_capacity: Optional[str] = Field(
-        None,
-        description="Engine capacity"
-    )
-
-    engine_capacity_cc: Optional[int] = Field(
-        None,
-        description="Engine capacity in CC"
-    )
-
-    engine_code: Optional[str] = Field(
-        None,
-        description="Engine code"
-    )
-
-    transmission: Optional[str] = Field(
-        None,
-        description="Transmission"
-    )
-
-    crsp_price: Optional[float] = Field(
-        None,
-        description="CRSP price in KES"
-    )
-
-    similarity_score: Optional[float] = Field(
-        None,
-        description="Search similarity score"
-    )
-
-
-# ================================================================
-# VEHICLE MASTER RESPONSE
-# ================================================================
-
-class VehicleMasterResponse(BaseModel):
-    """
-    Complete vehicle master response.
-
-    CRSP is the master vehicle identity.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-
-    crsp_id: int = Field(
-        ...,
-        description="CRSP vehicle ID"
-    )
-
-    make: Optional[str] = Field(
-        None,
-        description="Vehicle make"
-    )
-
-    model: Optional[str] = Field(
-        None,
-        description="Vehicle model"
-    )
-
-    crsp_fuel: Optional[str] = Field(
-        None,
-        description="CRSP fuel type"
-    )
-
-    engine_capacity_id: Optional[int] = Field(
-        None,
-        description="Engine capacity ID"
-    )
-
-    engine_capacity: Optional[str] = Field(
-        None,
-        description="Engine capacity description"
-    )
-
-    engine_code: Optional[str] = Field(
-        None,
-        description="Engine code"
-    )
-
-    engine_capacity_cc: Optional[int] = Field(
-        None,
-        description="Engine capacity in CC"
-    )
-
-    capacity_fuel: Optional[str] = Field(
-        None,
-        description="Engine capacity fuel"
-    )
-
-    transmission: Optional[str] = Field(
-        None,
-        description="Transmission type"
-    )
-
-    crsp_price: Optional[float] = Field(
-        None,
-        description="CRSP price in KES"
-    )
-
-    # ------------------------------------------------------------
-    # Calculated / intelligence fields
-    # ------------------------------------------------------------
-
-    estimated_value: Optional[float] = Field(
-        None,
-        description="Calculated estimated vehicle value"
-    )
-
-    market_value: Optional[float] = Field(
-        None,
-        description="Current market value"
-    )
-
-    depreciation_value: Optional[float] = Field(
-        None,
-        description="Calculated depreciation value"
-    )
-
-    created_at: Optional[datetime] = Field(
-        None,
-        description="Created at"
-    )
-
-    updated_at: Optional[datetime] = Field(
-        None,
-        description="Updated at"
-    )
-
-
-# ================================================================
-# CATEGORY RESPONSE
-# ================================================================
-
-class CategoryResponse(BaseModel):
-    """
-    Vehicle category response.
-
-    Category is an application-level classification and is not
-    treated as the CRSP vehicle identity.
-    """
-
-    id: int = Field(
-        ...,
-        description="Category ID"
-    )
-
-    name: str = Field(
-        ...,
-        description="Category name"
-    )
-
-    description: Optional[str] = Field(
-        None,
-        description="Category description"
-    )
-
-    icon: Optional[str] = Field(
-        None,
-        description="Category icon"
-    )
-
-    vehicle_count: int = Field(
-        0,
-        description="Number of vehicles"
-    )
-
-
-# ================================================================
-# MAKE RESPONSE
-# ================================================================
-
-class MakeResponse(BaseModel):
-    """
-    Make aggregation generated from CRSP data.
-    """
-
-    id: Optional[int] = Field(
-        None,
-        description="Make ID where available"
-    )
-
-    name: str = Field(
-        ...,
-        description="Vehicle make"
-    )
-
-    country: Optional[str] = Field(
-        None,
-        description="Country of origin"
-    )
-
-    logo_url: Optional[str] = Field(
-        None,
-        description="Make logo URL"
-    )
-
-    vehicle_count: int = Field(
-        0,
-        description="Number of CRSP vehicles"
-    )
-
-    category_id: Optional[int] = Field(
-        None,
-        description="Application category ID"
-    )
-
-
-# ================================================================
-# MODEL RESPONSE
-# ================================================================
-
-class ModelResponse(BaseModel):
-    """
-    Model aggregation generated from CRSP data.
-    """
-
-    id: Optional[int] = Field(
-        None,
-        description="Model ID where available"
-    )
-
-    name: str = Field(
-        ...,
-        description="Vehicle model"
-    )
-
-    make_id: Optional[int] = Field(
-        None,
-        description="Make ID where available"
-    )
-
-    make_name: str = Field(
-        ...,
-        description="Vehicle make"
-    )
-
-    vehicle_count: int = Field(
-        0,
-        description="Number of CRSP records"
-    )
-
-    # Kept optional for compatibility with older API consumers.
-    body_type: Optional[str] = Field(
-        None,
-        description="Body type where available"
-    )
-
-    start_year: Optional[int] = Field(
-        None,
-        description="Production start year where available"
-    )
-
-    end_year: Optional[int] = Field(
-        None,
-        description="Production end year where available"
-    )
-
-
-# ================================================================
-# ENGINE CAPACITY RESPONSE
-# ================================================================
-
-class EngineCapacityResponse(BaseModel):
-    """
-    Engine capacity information linked to CRSP.
-    """
-
-    id: Optional[int] = Field(
-        None,
-        description="Engine capacity ID"
-    )
-
-    engine_capacity: Optional[str] = Field(
-        None,
-        description="Engine capacity description"
-    )
-
-    engine_capacity_cc: Optional[int] = Field(
-        None,
-        description="Engine capacity in CC"
-    )
-
-    engine_code: Optional[str] = Field(
-        None,
-        description="Engine code"
-    )
-
-    fuel_type: Optional[str] = Field(
-        None,
-        description="Fuel type"
-    )
-
-    vehicle_count: int = Field(
-        0,
-        description="Number of CRSP vehicles"
-    )
-
-
-# ================================================================
-# GENERATION RESPONSE
-# ================================================================
-# Kept only for backward API compatibility.
-# Generation is no longer the CRSP master identity.
-
-class GenerationResponse(BaseModel):
-    """
-    Legacy-compatible generation response.
-
-    Generation information is optional because the new CRSP
-    database does not depend on generation as the master key.
-    """
-
-    id: Optional[int] = Field(
-        None,
-        description="Generation ID"
-    )
-
-    code: Optional[str] = Field(
-        None,
-        description="Generation code"
-    )
-
-    start_year: Optional[int] = Field(
-        None,
-        description="Start year"
-    )
-
-    end_year: Optional[int] = Field(
-        None,
-        description="End year"
-    )
-
-    model_id: Optional[int] = Field(
-        None,
-        description="Model ID"
-    )
-
-    model_name: Optional[str] = Field(
-        None,
-        description="Model name"
-    )
-
-    variant_count: int = Field(
-        0,
-        description="Number of variants"
-    )
-
-
-# ================================================================
-# VARIANT RESPONSE
-# ================================================================
-# Compatibility layer only.
-#
-# New CRSP architecture should use crsp_id instead of variant_id.
-
-class VariantResponse(BaseModel):
-    """
-    CRSP-compatible vehicle variant response.
-
-    variant_id is retained as an alias-compatible field for older
-    endpoints, but crsp_id is the authoritative identifier.
-    """
-
-    crsp_id: int = Field(
-        ...,
-        description="Authoritative CRSP vehicle ID"
-    )
-
-    variant_id: Optional[int] = Field(
-        None,
-        description="Legacy variant ID"
-    )
-
-    variant_name: Optional[str] = Field(
-        None,
-        description="Vehicle variant description"
-    )
-
-    trim_level: Optional[str] = Field(
-        None,
-        description="Trim level"
-    )
-
-    engine_size_cc: Optional[int] = Field(
-        None,
-        description="Engine size in CC"
-    )
-
-    engine_code: Optional[str] = Field(
-        None,
-        description="Engine code"
-    )
-
-    fuel_type_name: Optional[str] = Field(
-        None,
-        description="Fuel type"
-    )
-
-    transmission_type_name: Optional[str] = Field(
-        None,
-        description="Transmission type"
-    )
-
-    body_type_name: Optional[str] = Field(
-        None,
-        description="Body type"
-    )
-
-    make_name: Optional[str] = Field(
-        None,
-        description="Make"
-    )
-
-    model_name: Optional[str] = Field(
-        None,
-        description="Model"
-    )
-
-    generation_id: Optional[int] = Field(
-        None,
-        description="Legacy generation ID"
-    )
-
-    # CRSP
-    crsp_kes: Optional[float] = Field(
-        None,
-        description="CRSP value in KES"
-    )
-
-    # Calculated prices
-    estimated_value: Optional[float] = Field(
-        None,
-        description="Estimated value"
-    )
-
-    market_value: Optional[float] = Field(
-        None,
-        description="Market value"
-    )
-
-    base_price: Optional[float] = Field(
-        None,
-        description="Base price"
-    )
-
-    dealer_price: Optional[float] = Field(
-        None,
-        description="Dealer price"
-    )
-
-
-# ================================================================
-# BASE PRICE RESPONSE
-# ================================================================
-
-class BasePriceResponse(BaseModel):
-    """
-    CRSP base price response.
-
-    CRSP price is the authoritative reference price.
-    """
-
-    crsp_id: int = Field(
-        ...,
-        description="CRSP vehicle ID"
-    )
-
-    make: str = Field(
-        ...,
-        description="Vehicle make"
-    )
-
-    model: str = Field(
-        ...,
-        description="Vehicle model"
-    )
-
-    engine_capacity: Optional[str] = Field(
-        None,
-        description="Engine capacity"
-    )
-
-    engine_capacity_cc: Optional[int] = Field(
-        None,
-        description="Engine capacity in CC"
-    )
-
-    engine_code: Optional[str] = Field(
-        None,
-        description="Engine code"
-    )
-
-    crsp_fuel: Optional[str] = Field(
-        None,
-        description="CRSP fuel type"
-    )
-
-    transmission: Optional[str] = Field(
-        None,
-        description="Transmission"
-    )
-
-    base_price: float = Field(
-        ...,
-        description="CRSP base price in KES"
-    )
-
-    crsp_price: Optional[float] = Field(
-        None,
-        description="CRSP price in KES"
-    )
-
-    currency: str = Field(
-        "KES",
-        description="Currency code"
-    )
-
-    source: str = Field(
-        "CRSP",
-        description="Price source"
-    )
-
-    last_updated: Optional[datetime] = Field(
-        None,
-        description="Last updated"
-    )
-
-    year: Optional[int] = Field(
-        None,
-        description="Vehicle year"
-    )
-
-
-# ================================================================
-# VEHICLE STATISTICS
-# ================================================================
-
-class VehicleStatisticsResponse(BaseModel):
-    """
-    Vehicle statistics derived from CRSP records.
-    """
-
-    total_vehicles: int = Field(
-        0,
-        description="Total CRSP vehicle records"
-    )
-
-    total_makes: int = Field(
-        0,
-        description="Total unique makes"
-    )
-
-    total_models: int = Field(
-        0,
-        description="Total unique models"
-    )
-
-    total_engine_capacities: int = Field(
-        0,
-        description="Total engine capacity records"
-    )
-
-    total_fuel_types: int = Field(
-        0,
-        description="Total fuel types"
-    )
-
-    total_transmissions: int = Field(
-        0,
-        description="Total transmission types"
-    )
-
-    makes_by_category: Dict[str, int] = Field(
-        default_factory=dict,
-        description="Makes by category"
-    )
-
-    vehicles_by_year: Dict[str, int] = Field(
-        default_factory=dict,
-        description="Vehicles by year"
-    )
-
-    vehicles_by_fuel_type: Dict[str, int] = Field(
-        default_factory=dict,
-        description="Vehicles by fuel type"
-    )
-
-    vehicles_by_transmission: Dict[str, int] = Field(
-        default_factory=dict,
-        description="Vehicles by transmission"
-    )
-
-    vehicles_by_engine_capacity: Dict[str, int] = Field(
-        default_factory=dict,
-        description="Vehicles by engine capacity"
-    )
-
-    average_crsp_price: float = Field(
-        0,
-        description="Average CRSP price"
-    )
-
-    min_crsp_price: float = Field(
-        0,
-        description="Minimum CRSP price"
-    )
-
-    max_crsp_price: float = Field(
-        0,
-        description="Maximum CRSP price"
-    )
-
-    average_price: float = Field(
-        0,
-        description="Average vehicle price"
-    )
-
-    min_price: float = Field(
-        0,
-        description="Minimum vehicle price"
-    )
-
-    max_price: float = Field(
-        0,
-        description="Maximum vehicle price"
-    )
-
-    last_updated: Optional[datetime] = Field(
-        None,
-        description="Last update timestamp"
-    )
-
-
-# ================================================================
-# VEHICLE HEALTH
-# ================================================================
-
-class VehicleHealthResponse(BaseModel):
-    """
-    Vehicle service health response.
-    """
-
-    status: str = Field(
-        ...,
-        description="Service health status"
-    )
-
-    service: str = Field(
-        "vehicles",
-        description="Service name"
-    )
-
-    version: str = Field(
-        "2.0",
-        description="Service version"
-    )
-
-    timestamp: str = Field(
-        ...,
-        description="Health check timestamp"
-    )
-
-    database: Optional[str] = Field(
-        None,
-        description="Database health status"
-    )
-
-    crsp_records: Optional[int] = Field(
-        None,
-        description="Number of CRSP records"
-    )
-
-    error: Optional[str] = Field(
-        None,
-        description="Error message if any"
-    )
-
-
-# ================================================================
-# VEHICLE FILTER / SEARCH PARAMETERS
-# ================================================================
-
-class VehicleSearchParams(BaseModel):
-    """
-    Search parameters for CRSP vehicles.
-
-    This class is intentionally included because the vehicle
-    repository/service previously expected VehicleSearchParams.
-    """
-
-    make: Optional[str] = Field(
-        None,
-        description="Filter by make"
-    )
-
-    model: Optional[str] = Field(
-        None,
-        description="Filter by model"
-    )
-
-    fuel: Optional[str] = Field(
-        None,
-        description="Filter by fuel type"
-    )
-
-    transmission: Optional[str] = Field(
-        None,
-        description="Filter by transmission"
-    )
-
-    engine_capacity_cc: Optional[int] = Field(
-        None,
-        description="Filter by engine capacity"
-    )
-
-    engine_code: Optional[str] = Field(
-        None,
-        description="Filter by engine code"
-    )
-
-    min_price: Optional[float] = Field(
-        None,
-        description="Minimum CRSP price"
-    )
-
-    max_price: Optional[float] = Field(
-        None,
-        description="Maximum CRSP price"
-    )
-
-    year: Optional[int] = Field(
-        None,
-        description="Vehicle year"
-    )
-
-    search: Optional[str] = Field(
-        None,
-        description="General vehicle search"
-    )
-
-    limit: int = Field(
-        50,
-        ge=1,
-        le=500,
-        description="Maximum records"
-    )
-
-    offset: int = Field(
-        0,
-        ge=0,
-        description="Pagination offset"
-    )
-
-
-# ================================================================
-# CRSP SUMMARY
-# ================================================================
-
-class CRSPSummaryResponse(BaseModel):
-    """
-    CRSP database summary.
-    """
-
-    total_records: int = Field(
-        0,
-        description="Total CRSP records"
-    )
-
-    total_makes: int = Field(
-        0,
-        description="Unique makes"
-    )
-
-    total_models: int = Field(
-        0,
-        description="Unique models"
-    )
-
-    total_engine_capacities: int = Field(
-        0,
-        description="Engine capacity records"
-    )
-
-    missing_make: int = Field(
-        0,
-        description="Records missing make"
-    )
-
-    missing_model: int = Field(
-        0,
-        description="Records missing model"
-    )
-
-    missing_crsp: int = Field(
-        0,
-        description="Records missing CRSP value"
-    )
-
-    missing_fuel: int = Field(
-        0,
-        description="Records missing fuel"
-    )
-
-    missing_transmission: int = Field(
-        0,
-        description="Records missing transmission"
-    )
-
-    missing_engine: int = Field(
-        0,
-        description="Records missing engine information"
-    )
-
-
-# ================================================================
-# EXPORTS
-# ================================================================
-
-__all__ = [
-    "CRSPVehicleResponse",
-    "VehicleListResponse",
-    "VehicleSearchResponse",
-    "VehicleMasterResponse",
-    "CategoryResponse",
-    "MakeResponse",
-    "ModelResponse",
-    "EngineCapacityResponse",
-    "GenerationResponse",
-    "VariantResponse",
-    "BasePriceResponse",
-    "VehicleStatisticsResponse",
-    "VehicleHealthResponse",
-    "VehicleSearchParams",
-    "CRSPSummaryResponse",
-]
+    def __init__(self):
+        self.supabase = get_supabase()
+
+    # ============================================================
+    # THREAD EXECUTOR
+    # ============================================================
+
+    async def _run(self, fn):
+        """Run synchronous Supabase operation in worker thread."""
+        return await run_in_threadpool(fn)
+
+    # ============================================================
+    # CATEGORIES
+    # ============================================================
+
+    async def get_categories(self) -> List[Dict[str, Any]]:
+        """
+        Return approved application vehicle categories.
+
+        Category data is maintained separately from CRSP identity.
+        """
+
+        categories = [
+            {
+                "id": 1,
+                "name": "COMMERCIAL",
+                "description": "Commercial vehicles",
+                "icon": None,
+                "vehicle_count": 0,
+            },
+            {
+                "id": 2,
+                "name": "ELECTRIC",
+                "description": "Electric vehicles",
+                "icon": None,
+                "vehicle_count": 0,
+            },
+            {
+                "id": 3,
+                "name": "LUXURY",
+                "description": "Luxury vehicles",
+                "icon": None,
+                "vehicle_count": 0,
+            },
+            {
+                "id": 4,
+                "name": "PICKUP",
+                "description": "Pickup vehicles",
+                "icon": None,
+                "vehicle_count": 0,
+            },
+            {
+                "id": 5,
+                "name": "SEDAN",
+                "description": "Passenger sedan vehicles",
+                "icon": None,
+                "vehicle_count": 0,
+            },
+        ]
+
+        return categories
+
+    # ============================================================
+    # MAKES
+    # ============================================================
+
+    async def get_makes(
+        self,
+        category_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return unique makes directly from CRSP.
+
+        category_id is currently not applied because vehicle
+        category is not a column in vehicle_crsp_lookup.
+        """
+
+        def query():
+            return (
+                self.supabase
+                .table("vehicle_crsp_lookup")
+                .select("make_id, make")
+                .not_.is_("make", "null")
+                .execute()
+            )
+
+        response = await self._run(query)
+
+        rows = response.data or []
+
+        makes: Dict[str, Dict[str, Any]] = {}
+
+        for row in rows:
+            make = row.get("make")
+
+            if not make:
+                continue
+
+            make = str(make).strip().upper()
+
+            if not make:
+                continue
+
+            if make not in makes:
+                makes[make] = {
+                    "id": row.get("make_id"),
+                    "name": make,
+                    "country": None,
+                    "logo_url": None,
+                    "vehicle_count": 0,
+                    "category_id": category_id,
+                }
+
+            makes[make]["vehicle_count"] += 1
+
+        return sorted(
+            makes.values(),
+            key=lambda x: x["name"],
+        )
+
+    # ============================================================
+    # MODELS
+    # ============================================================
+
+    async def get_models(
+        self,
+        make_id: int,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return unique models for a CRSP make.
+        """
+
+        def query():
+            return (
+                self.supabase
+                .table("vehicle_crsp_lookup")
+                .select(
+                    "model_id, model, make_id, make, body_type"
+                )
+                .eq("make_id", make_id)
+                .not_.is_("model", "null")
+                .execute()
+            )
+
+        response = await self._run(query)
+
+        rows = response.data or []
+
+        models: Dict[Any, Dict[str, Any]] = {}
+
+        for row in rows:
+            model_id = row.get("model_id")
+            model_name = row.get("model")
+
+            if not model_name:
+                continue
+
+            model_name = str(model_name).strip()
+
+            key = model_id if model_id is not None else model_name.upper()
+
+            if key not in models:
+                models[key] = {
+                    "id": model_id,
+                    "name": model_name,
+                    "make_id": row.get("make_id"),
+                    "make_name": row.get("make"),
+                    "vehicle_count": 0,
+                    "body_type": row.get("body_type"),
+                    "start_year": None,
+                    "end_year": None,
+                }
+
+            models[key]["vehicle_count"] += 1
+
+        return sorted(
+            models.values(),
+            key=lambda x: x["name"].upper(),
+        )
+
+    # ============================================================
+    # VEHICLE SEARCH
+    # ============================================================
+
+    async def search_vehicles(
+        self,
+        search: Optional[str] = None,
+        make_id: Optional[int] = None,
+        model_id: Optional[int] = None,
+        fuel: Optional[str] = None,
+        transmission: Optional[str] = None,
+        engine_capacity_cc: Optional[int] = None,
+        year: Optional[int] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search the CRSP catalogue.
+
+        Only real vehicle_crsp_lookup columns are used.
+        """
+
+        def query():
+            q = (
+                self.supabase
+                .table("vehicle_crsp_lookup")
+                .select(
+                    "crsp_id,"
+                    "make_id,"
+                    "make,"
+                    "model_id,"
+                    "model,"
+                    "trim_level,"
+                    "manufacture_year,"
+                    "crsp_year,"
+                    "body_type,"
+                    "seating_capacity,"
+                    "engine_capacity,"
+                    "engine_capacity_cc,"
+                    "fuel,"
+                    "transmission,"
+                    "drive_config,"
+                    "crsp_kes,"
+                    "currency,"
+                    "horsepower,"
+                    "vehicle_power_type,"
+                    "battery_capacity_kwh,"
+                    "powertrain_classification,"
+                    "crsp_status"
+                )
+            )
+
+            if make_id is not None:
+                q = q.eq("make_id", make_id)
+
+            if model_id is not None:
+                q = q.eq("model_id", model_id)
+
+            if fuel:
+                q = q.ilike(
+                    "fuel",
+                    f"%{fuel.strip()}%"
+                )
+
+            if transmission:
+                q = q.ilike(
+                    "transmission",
+                    f"%{transmission.strip()}%"
+                )
+
+            if engine_capacity_cc is not None:
+                q = q.eq(
+                    "engine_capacity_cc",
+                    engine_capacity_cc
+                )
+
+            if year is not None:
+                q = q.or_(
+                    f"crsp_year.eq.{year},"
+                    f"manufacture_year.eq.{year}"
+                )
+
+            if search:
+                pattern = f"%{search.strip()}%"
+
+                q = q.or_(
+                    f"make.ilike.{pattern},"
+                    f"model.ilike.{pattern},"
+                    f"trim_level.ilike.{pattern},"
+                    f"body_type.ilike.{pattern},"
+                    f"fuel.ilike.{pattern}"
+                )
+
+            return (
+                q
+                .order("make")
+                .order("model")
+                .range(
+                    offset,
+                    offset + limit - 1,
+                )
+                .execute()
+            )
+
+        response = await self._run(query)
+
+        return response.data or []
+
+    # ============================================================
+    # SINGLE VEHICLE
+    # ============================================================
+
+    async def get_vehicle(
+        self,
+        crsp_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Return one CRSP vehicle.
+        """
+
+        def query():
+            return (
+                self.supabase
+                .table("vehicle_crsp_lookup")
+                .select(
+                    "crsp_id,"
+                    "make_id,"
+                    "make,"
+                    "model_id,"
+                    "model,"
+                    "trim_level,"
+                    "manufacture_year,"
+                    "crsp_year,"
+                    "body_type,"
+                    "seating_capacity,"
+                    "engine_capacity,"
+                    "engine_capacity_cc,"
+                    "fuel,"
+                    "transmission,"
+                    "drive_config,"
+                    "crsp_kes,"
+                    "currency,"
+                    "horsepower,"
+                    "vehicle_power_type,"
+                    "battery_capacity_kwh,"
+                    "powertrain_classification,"
+                    "crsp_status"
+                )
+                .eq("crsp_id", crsp_id)
+                .limit(1)
+                .execute()
+            )
+
+        response = await self._run(query)
+
+        rows = response.data or []
+
+        return rows[0] if rows else None
+
+    # ============================================================
+    # BASE PRICE
+    # ============================================================
+
+    async def get_base_price(
+        self,
+        crsp_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Return CRSP price directly from crsp_kes.
+        """
+
+        vehicle = await self.get_vehicle(crsp_id)
+
+        if not vehicle:
+            return None
+
+        price = vehicle.get("crsp_kes")
+
+        return {
+            "crsp_id": vehicle.get("crsp_id"),
+            "make": vehicle.get("make"),
+            "model": vehicle.get("model"),
+            "engine_capacity": vehicle.get("engine_capacity"),
+            "engine_capacity_cc": vehicle.get("engine_capacity_cc"),
+            "engine_code": None,
+            "crsp_fuel": vehicle.get("fuel"),
+            "transmission": vehicle.get("transmission"),
+            "base_price": float(price or 0),
+            "crsp_price": float(price or 0),
+            "currency": vehicle.get("currency") or "KES",
+            "source": "CRSP",
+            "last_updated": None,
+            "year": (
+                vehicle.get("crsp_year")
+                or vehicle.get("manufacture_year")
+            ),
+        }
+
+    # ============================================================
+    # STATISTICS
+    # ============================================================
+
+    async def get_statistics(self) -> Dict[str, Any]:
+        """
+        Return statistics from the actual CRSP table.
+        """
+
+        def query():
+            return (
+                self.supabase
+                .table("vehicle_crsp_lookup")
+                .select(
+                    "crsp_id,"
+                    "make_id,"
+                    "make,"
+                    "model_id,"
+                    "model,"
+                    "engine_capacity,"
+                    "engine_capacity_cc,"
+                    "fuel,"
+                    "transmission,"
+                    "crsp_kes,"
+                    "manufacture_year,"
+                    "crsp_year,"
+                    "body_type"
+                )
+                .execute()
+            )
+
+        response = await self._run(query)
+
+        rows = response.data or []
+
+        makes = set()
+        models = set()
+        fuels = set()
+        transmissions = set()
+        engine_capacities = set()
+
+        vehicles_by_year: Dict[str, int] = {}
+        vehicles_by_fuel: Dict[str, int] = {}
+        vehicles_by_transmission: Dict[str, int] = {}
+        vehicles_by_engine: Dict[str, int] = {}
+
+        prices = []
+
+        for row in rows:
+
+            if row.get("make"):
+                makes.add(str(row["make"]).strip().upper())
+
+            if row.get("model"):
+                models.add(
+                    (
+                        row.get("model_id"),
+                        str(row["model"]).strip().upper(),
+                    )
+                )
+
+            if row.get("fuel"):
+                fuel = str(row["fuel"]).strip().upper()
+                fuels.add(fuel)
+                vehicles_by_fuel[fuel] = (
+                    vehicles_by_fuel.get(fuel, 0) + 1
+                )
+
+            if row.get("transmission"):
+                transmission = str(
+                    row["transmission"]
+                ).strip().upper()
+
+                transmissions.add(transmission)
+
+                vehicles_by_transmission[
+                    transmission
+                ] = (
+                    vehicles_by_transmission.get(
+                        transmission,
+                        0,
+                    )
+                    + 1
+                )
+
+            engine = row.get("engine_capacity_cc")
+
+            if engine is not None:
+                engine_key = str(engine)
+                engine_capacities.add(engine_key)
+
+                vehicles_by_engine[engine_key] = (
+                    vehicles_by_engine.get(
+                        engine_key,
+                        0,
+                    )
+                    + 1
+                )
+
+            year = (
+                row.get("crsp_year")
+                or row.get("manufacture_year")
+            )
+
+            if year is not None:
+                year_key = str(year)
+
+                vehicles_by_year[year_key] = (
+                    vehicles_by_year.get(
+                        year_key,
+                        0,
+                    )
+                    + 1
+                )
+
+            price = row.get("crsp_kes")
+
+            if price is not None:
+                try:
+                    prices.append(float(price))
+                except (TypeError, ValueError):
+                    pass
+
+        average_price = (
+            sum(prices) / len(prices)
+            if prices
+            else 0
+        )
+
+        return {
+            "total_vehicles": len(rows),
+            "total_makes": len(makes),
+            "total_models": len(models),
+            "total_engine_capacities": len(
+                engine_capacities
+            ),
+            "total_fuel_types": len(fuels),
+            "total_transmissions": len(
+                transmissions
+            ),
+            "makes_by_category": {},
+            "vehicles_by_year": vehicles_by_year,
+            "vehicles_by_fuel_type": vehicles_by_fuel,
+            "vehicles_by_transmission": (
+                vehicles_by_transmission
+            ),
+            "vehicles_by_engine_capacity": (
+                vehicles_by_engine
+            ),
+            "average_crsp_price": average_price,
+            "min_crsp_price": min(prices) if prices else 0,
+            "max_crsp_price": max(prices) if prices else 0,
+            "average_price": average_price,
+            "min_price": min(prices) if prices else 0,
+            "max_price": max(prices) if prices else 0,
+            "last_updated": None,
+        }
+
+    # ============================================================
+    # HEALTH
+    # ============================================================
+
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Verify CRSP table connectivity.
+        """
+
+        def query():
+            return (
+                self.supabase
+                .table("vehicle_crsp_lookup")
+                .select(
+                    "crsp_id",
+                    count="exact",
+                )
+                .limit(1)
+                .execute()
+            )
+
+        try:
+            response = await self._run(query)
+
+            return {
+                "status": "healthy",
+                "service": "vehicles",
+                "version": "2.0",
+                "database": "connected",
+                "crsp_records": response.count or 0,
+            }
+
+        except Exception as exc:
+            logger.exception(
+                "Vehicle repository health check failed"
+            )
+
+            return {
+                "status": "degraded",
+                "service": "vehicles",
+                "version": "2.0",
+                "database": "error",
+                "crsp_records": 0,
+                "error": str(exc),
+            }
