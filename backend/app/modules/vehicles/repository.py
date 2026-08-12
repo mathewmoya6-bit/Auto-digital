@@ -1,5 +1,3 @@
-# app/modules/vehicles/repository.py
-
 # ================================================================
 # Auto-D Kenya - Vehicle Repository
 # ================================================================
@@ -8,16 +6,14 @@
 # SINGLE SOURCE OF TRUTH
 # ----------------------
 # Vehicle identity:
-#     public.vehicle_crsp_lookup
+#   public.vehicle_crsp_lookup
 #
 # Category:
-#     public.vehicle_category_lookup
-#     public.vehicle_body_type_mapping
+#   public.vehicle_category_lookup
+#   public.vehicle_body_type_mapping
 #
-# The repository MUST NOT reference:
-#     vehicle_crsp_lookup.vehicle_category
-#
-# because that column does not exist.
+# IMPORTANT:
+#   vehicle_crsp_lookup.vehicle_category does NOT exist.
 # ================================================================
 
 import logging
@@ -34,11 +30,8 @@ class VehicleRepository:
     """
     Repository for CRSP vehicle catalogue operations.
 
-    Database source:
-        public.vehicle_crsp_lookup
-
-    Category source:
-        public.vehicle_category_lookup
+    CRSP is the authoritative source for vehicle identity,
+    make, model and CRSP pricing.
     """
 
     def __init__(self):
@@ -49,9 +42,7 @@ class VehicleRepository:
     # ============================================================
 
     async def _run(self, fn):
-        """
-        Execute synchronous Supabase operations in a worker thread.
-        """
+        """Execute synchronous Supabase operations in a worker thread."""
         return await run_in_threadpool(fn)
 
     # ============================================================
@@ -60,17 +51,7 @@ class VehicleRepository:
 
     async def get_categories(self) -> List[Dict[str, Any]]:
         """
-        Return the five application vehicle categories.
-
-        Categories:
-            COMMERCIAL
-            ELECTRIC
-            LUXURY
-            PICKUP
-            SEDAN
-
-        Category information is NOT read from
-        vehicle_crsp_lookup.vehicle_category.
+        Return the approved application vehicle categories.
         """
 
         def query():
@@ -96,10 +77,8 @@ class VehicleRepository:
             )
 
         response = await self._run(query)
-
         rows = response.data or []
 
-        # Aggregate category records into one response per category.
         categories = {}
 
         for row in rows:
@@ -108,7 +87,7 @@ class VehicleRepository:
             if not category:
                 continue
 
-            category = category.upper()
+            category = category.strip().upper()
 
             if category not in categories:
                 categories[category] = {
@@ -132,11 +111,15 @@ class VehicleRepository:
         category_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Return unique vehicle makes from CRSP.
+        Return ALL unique vehicle makes from CRSP.
 
-        Category filtering is intentionally not performed using
-        vehicle_crsp_lookup.vehicle_category because that column
-        does not exist.
+        CRSP is the authoritative source for make identity.
+
+        IMPORTANT:
+        - No pagination.
+        - No hardcoded make list.
+        - No vehicle_crsp_lookup.vehicle_category reference.
+        - Deduplication is based on make_id.
         """
 
         def query():
@@ -145,27 +128,32 @@ class VehicleRepository:
                 .table("vehicle_crsp_lookup")
                 .select("make, make_id")
                 .not_.is_("make", "null")
+                .not_.is_("make_id", "null")
+                .eq("is_duplicate", False)
                 .order("make")
                 .execute()
             )
 
         response = await self._run(query)
-
         rows = response.data or []
 
-        makes = {}
+        makes: Dict[int, Dict[str, Any]] = {}
 
         for row in rows:
-            name = row.get("make")
+            make_id = row.get("make_id")
+            make_name = row.get("make")
+
+            if make_id is None or not make_name:
+                continue
+
+            name = str(make_name).strip().upper()
 
             if not name:
                 continue
 
-            name = name.strip().upper()
-
-            if name not in makes:
-                makes[name] = {
-                    "id": row.get("make_id"),
+            if make_id not in makes:
+                makes[make_id] = {
+                    "id": make_id,
                     "name": name,
                     "country": None,
                     "logo_url": None,
@@ -173,9 +161,19 @@ class VehicleRepository:
                     "category_id": category_id,
                 }
 
-            makes[name]["vehicle_count"] += 1
+            makes[make_id]["vehicle_count"] += 1
 
-        return list(makes.values())
+        result = sorted(
+            makes.values(),
+            key=lambda item: item["name"],
+        )
+
+        logger.info(
+            "Vehicle makes loaded: %s unique makes",
+            len(result),
+        )
+
+        return result
 
     # ============================================================
     # MODELS
@@ -185,9 +183,7 @@ class VehicleRepository:
         self,
         make_id: int,
     ) -> List[Dict[str, Any]]:
-        """
-        Return models belonging to a CRSP make.
-        """
+        """Return unique models belonging to a CRSP make."""
 
         def query():
             return (
@@ -197,16 +193,16 @@ class VehicleRepository:
                     "model_id, model, make_id, make, body_type"
                 )
                 .eq("make_id", make_id)
+                .eq("is_duplicate", False)
                 .not_.is_("model", "null")
                 .order("model")
                 .execute()
             )
 
         response = await self._run(query)
-
         rows = response.data or []
 
-        models = {}
+        models: Dict[Any, Dict[str, Any]] = {}
 
         for row in rows:
             model_id = row.get("model_id")
@@ -215,12 +211,17 @@ class VehicleRepository:
             if not model_name:
                 continue
 
-            key = model_id or model_name.strip().upper()
+            model_name = str(model_name).strip()
+
+            if not model_name:
+                continue
+
+            key = model_id if model_id is not None else model_name.upper()
 
             if key not in models:
                 models[key] = {
                     "id": model_id,
-                    "name": model_name.strip(),
+                    "name": model_name,
                     "make_id": row.get("make_id"),
                     "make_name": row.get("make"),
                     "vehicle_count": 0,
@@ -231,7 +232,10 @@ class VehicleRepository:
 
             models[key]["vehicle_count"] += 1
 
-        return list(models.values())
+        return sorted(
+            models.values(),
+            key=lambda item: item["name"].upper(),
+        )
 
     # ============================================================
     # VEHICLE SEARCH
@@ -249,12 +253,7 @@ class VehicleRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        """
-        Search CRSP vehicles.
-
-        All filters are based on columns that actually exist
-        in vehicle_crsp_lookup.
-        """
+        """Search the CRSP vehicle catalogue."""
 
         def query():
             q = (
@@ -297,17 +296,14 @@ class VehicleRepository:
             if transmission:
                 q = q.ilike(
                     "transmission",
-                    f"%{transmission}%"
+                    f"%{transmission}%",
                 )
 
             if engine_capacity_cc is not None:
-                # engine_capacity_cc is not a column in the
-                # current CRSP lookup, so this filter is not
-                # applied here.
                 logger.warning(
-                    "engine_capacity_cc filter requested but "
-                    "vehicle_crsp_lookup does not contain "
-                    "engine_capacity_cc."
+                    "engine_capacity_cc filter requested, "
+                    "but vehicle_crsp_lookup does not contain "
+                    "engine_capacity_cc. Filter ignored."
                 )
 
             if year is not None:
@@ -346,9 +342,7 @@ class VehicleRepository:
         self,
         crsp_id: int,
     ) -> Optional[Dict[str, Any]]:
-        """
-        Return one CRSP vehicle by authoritative CRSP ID.
-        """
+        """Return one CRSP vehicle by authoritative CRSP ID."""
 
         def query():
             return (
@@ -384,7 +378,6 @@ class VehicleRepository:
             )
 
         response = await self._run(query)
-
         rows = response.data or []
 
         return rows[0] if rows else None
@@ -397,11 +390,7 @@ class VehicleRepository:
         self,
         crsp_id: int,
     ) -> Optional[Dict[str, Any]]:
-        """
-        Return CRSP price information.
-
-        CRSP price comes directly from vehicle_crsp_lookup.crsp_kes.
-        """
+        """Return CRSP price information."""
 
         vehicle = await self.get_vehicle(crsp_id)
 
@@ -414,24 +403,20 @@ class VehicleRepository:
             "crsp_id": vehicle.get("crsp_id"),
             "make": vehicle.get("make"),
             "model": vehicle.get("model"),
-            "engine_capacity": vehicle.get(
-                "engine_capacity"
-            ),
+            "engine_capacity": vehicle.get("engine_capacity"),
             "engine_capacity_cc": None,
             "engine_code": None,
             "crsp_fuel": vehicle.get("fuel"),
-            "transmission": vehicle.get(
-                "transmission"
-            ),
+            "transmission": vehicle.get("transmission"),
             "base_price": float(price or 0),
             "crsp_price": float(price or 0),
             "currency": vehicle.get("currency") or "KES",
             "source": vehicle.get("source") or "CRSP",
-            "last_updated": vehicle.get(
-                "effective_date"
+            "last_updated": vehicle.get("effective_date"),
+            "year": (
+                vehicle.get("crsp_year")
+                or vehicle.get("manufacture_year")
             ),
-            "year": vehicle.get("crsp_year")
-            or vehicle.get("manufacture_year"),
         }
 
     # ============================================================
@@ -439,9 +424,7 @@ class VehicleRepository:
     # ============================================================
 
     async def get_statistics(self) -> Dict[str, Any]:
-        """
-        Return basic CRSP catalogue statistics.
-        """
+        """Return basic CRSP catalogue statistics."""
 
         def query():
             return (
@@ -456,7 +439,6 @@ class VehicleRepository:
             )
 
         response = await self._run(query)
-
         rows = response.data or []
 
         makes = set()
@@ -466,19 +448,18 @@ class VehicleRepository:
         prices = []
 
         for row in rows:
-
             if row.get("make"):
-                makes.add(row["make"])
+                makes.add(str(row["make"]).strip().upper())
 
             if row.get("model"):
-                models.add(row["model"])
+                models.add(str(row["model"]).strip().upper())
 
             if row.get("fuel"):
-                fuels.add(row["fuel"])
+                fuels.add(str(row["fuel"]).strip().upper())
 
             if row.get("transmission"):
                 transmissions.add(
-                    row["transmission"]
+                    str(row["transmission"]).strip().upper()
                 )
 
             price = row.get("crsp_kes")
@@ -489,50 +470,30 @@ class VehicleRepository:
                 except (TypeError, ValueError):
                     pass
 
+        average_price = (
+            sum(prices) / len(prices)
+            if prices
+            else 0
+        )
+
         return {
             "total_vehicles": len(rows),
             "total_makes": len(makes),
             "total_models": len(models),
             "total_engine_capacities": 0,
             "total_fuel_types": len(fuels),
-            "total_transmissions": len(
-                transmissions
-            ),
+            "total_transmissions": len(transmissions),
             "makes_by_category": {},
             "vehicles_by_year": {},
             "vehicles_by_fuel_type": {},
             "vehicles_by_transmission": {},
             "vehicles_by_engine_capacity": {},
-            "average_crsp_price": (
-                sum(prices) / len(prices)
-                if prices
-                else 0
-            ),
-            "min_crsp_price": (
-                min(prices)
-                if prices
-                else 0
-            ),
-            "max_crsp_price": (
-                max(prices)
-                if prices
-                else 0
-            ),
-            "average_price": (
-                sum(prices) / len(prices)
-                if prices
-                else 0
-            ),
-            "min_price": (
-                min(prices)
-                if prices
-                else 0
-            ),
-            "max_price": (
-                max(prices)
-                if prices
-                else 0
-            ),
+            "average_crsp_price": average_price,
+            "min_crsp_price": min(prices) if prices else 0,
+            "max_crsp_price": max(prices) if prices else 0,
+            "average_price": average_price,
+            "min_price": min(prices) if prices else 0,
+            "max_price": max(prices) if prices else 0,
             "last_updated": None,
         }
 
@@ -541,9 +502,7 @@ class VehicleRepository:
     # ============================================================
 
     async def health_check(self) -> Dict[str, Any]:
-        """
-        Verify that the CRSP catalogue is accessible.
-        """
+        """Verify that the CRSP catalogue is accessible."""
 
         def query():
             return (
@@ -562,9 +521,7 @@ class VehicleRepository:
                 "service": "vehicles",
                 "version": "2.0",
                 "database": "connected",
-                "crsp_records": (
-                    response.count or 0
-                ),
+                "crsp_records": response.count or 0,
             }
 
         except Exception as exc:
