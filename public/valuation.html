@@ -724,6 +724,23 @@
             margin-top: 4px;
             font-weight: 500;
         }
+        .selling-price-wrapper {
+            text-align: center;
+            padding: 12px 0 16px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            margin-bottom: 16px;
+        }
+        .selling-price-value {
+            font-family: var(--font-heading);
+            font-size: 30px;
+            font-weight: 800;
+            color: var(--amber);
+            letter-spacing: -0.3px;
+            word-break: break-word;
+            line-height: 1.1;
+        }
+        .selling-price-value .currency { font-size: 16px; color: #94a3b8; font-weight: 600; margin-right: 4px; }
+        .selling-price-label { font-size: 11px; color: #94a3b8; margin-top: 2px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; font-family: var(--font-mono); }
         .value-range {
             text-align: center;
             padding: 8px 0 12px 0;
@@ -814,6 +831,33 @@
             font-family: var(--font-mono);
             font-size: 11px;
         }
+        .depreciation-section {
+            margin: 12px 0;
+            padding: 12px 16px;
+            background: #0f172a;
+            border-radius: 8px;
+            border: 1px solid rgba(234, 179, 8, 0.12);
+        }
+        .depreciation-section h4 {
+            font-size: 11px;
+            color: var(--amber);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-family: var(--font-mono);
+            margin-bottom: 8px;
+        }
+        .depreciation-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            font-size: 12px;
+            color: #94a3b8;
+            border-bottom: 1px solid rgba(45, 58, 78, 0.3);
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .depreciation-row:last-child { border-bottom: none; }
+        .depreciation-row .dep-value { font-weight: 600; font-family: var(--font-mono); font-size: 11px; color: var(--amber); }
         .vehicle-details-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -1250,6 +1294,23 @@
 
                 <!-- ─── VEHICLE DETAILS ────────────────────────────────── -->
                 <div class="panel-label"><span class="num">05</span> Vehicle Details</div>
+
+                <div class="form-group">
+                    <label for="vehicleTypeSelect">Vehicle Type</label>
+                    <select id="vehicleTypeSelect">
+                        <option value="sedan">🚘 Sedan</option>
+                        <option value="suv">🚙 SUV</option>
+                        <option value="hatchback">🚗 Hatchback</option>
+                        <option value="wagon">🚐 Station Wagon</option>
+                        <option value="pickup">🛻 Pickup</option>
+                        <option value="van">🚐 Van / Minivan</option>
+                        <option value="truck">🚚 Truck</option>
+                        <option value="coupe">🏎️ Coupe</option>
+                        <option value="motorcycle">🏍️ Motorcycle</option>
+                        <option value="other">❓ Other</option>
+                    </select>
+                </div>
+
                 <div class="form-group">
                     <label for="fuelTypeSelect">Fuel Type</label>
                     <select id="fuelTypeSelect">
@@ -1329,6 +1390,11 @@
                     </select>
                 </div>
 
+                <div class="form-group">
+                    <label for="profitMarginInput">Profit Margin (%)</label>
+                    <input type="number" id="profitMarginInput" placeholder="e.g., 10" value="10" min="0" max="100" step="0.5" />
+                </div>
+
                 <!-- ─── VEHICLE PHOTOS ──────────────────────────────────── -->
                 <div class="panel-label"><span class="num">📷</span> Vehicle Photos <span style="color:#64748b;font-weight:500;text-transform:none;letter-spacing:0;">(up to 4)</span></div>
                 <div class="photo-grid" id="photoGrid" role="group" aria-label="Upload up to 4 vehicle photos"></div>
@@ -1399,6 +1465,13 @@
                         <div class="valuation-label">Estimated Vehicle Value</div>
                     </div>
 
+                    <div class="selling-price-wrapper">
+                        <div class="selling-price-value" id="resultSellingPrice">
+                            <span class="currency">KES</span><span class="amount">0</span>
+                        </div>
+                        <div class="selling-price-label">Recommended Selling Price</div>
+                    </div>
+
                     <div class="value-range">
                         <div class="label">Estimated Value Range</div>
                         <div class="range-value" id="resultRange">KES 0 — 0</div>
@@ -1408,6 +1481,14 @@
                         <span class="label">Confidence Score</span>
                         <div class="track"><div class="fill" id="confidenceFill" style="width:0%;"></div></div>
                         <span class="score" id="confidenceLabel">0%</span>
+                    </div>
+
+                    <div class="depreciation-section" id="depreciationSection">
+                        <h4>📉 Depreciation &amp; Mileage Breakdown</h4>
+                        <div class="depreciation-row"><span>Vehicle Age</span><span class="dep-value" id="depAge">—</span></div>
+                        <div class="depreciation-row"><span>Depreciation Rate Applied</span><span class="dep-value" id="depRate">—</span></div>
+                        <div class="depreciation-row"><span>Depreciation Adjustment</span><span class="dep-value" id="depAmount">—</span></div>
+                        <div class="depreciation-row"><span>Mileage Adjustment</span><span class="dep-value" id="depMileage">—</span></div>
                     </div>
 
                     <div class="adjustments-section">
@@ -1439,6 +1520,9 @@
                         <div class="vehicle-detail-item"><span class="label">Fuel Type</span><span class="value" id="resultFuelType">-</span></div>
                         <div class="vehicle-detail-item"><span class="label">Transmission</span><span class="value" id="resultTransmission">-</span></div>
                         <div class="vehicle-detail-item"><span class="label">Engine Size</span><span class="value" id="resultEngine">-</span></div>
+                        <div class="vehicle-detail-item"><span class="label">Vehicle Type</span><span class="value" id="resultVehicleType">-</span></div>
+                        <div class="vehicle-detail-item"><span class="label">Previous Owners</span><span class="value" id="resultOwners">-</span></div>
+                        <div class="vehicle-detail-item"><span class="label">Profit Margin</span><span class="value" id="resultProfitMargin">-</span></div>
                         <div class="vehicle-detail-item full"><span class="label">Trim</span><span class="value" id="resultTrim">-</span></div>
                     </div>
 
@@ -1531,12 +1615,34 @@
             let allModels = [];
             let allTrims = [];
 
+            const VEHICLE_TYPE_LABELS = {
+                sedan: '🚘 Sedan', suv: '🚙 SUV', hatchback: '🚗 Hatchback',
+                wagon: '🚐 Station Wagon', pickup: '🛻 Pickup', van: '🚐 Van / Minivan',
+                truck: '🚚 Truck', coupe: '🏎️ Coupe', motorcycle: '🏍️ Motorcycle', other: '❓ Other'
+            };
+
+            function guessVehicleType(bodyType) {
+                if (!bodyType) return null;
+                const b = String(bodyType).toLowerCase();
+                if (b.includes('suv') || b.includes('crossover')) return 'suv';
+                if (b.includes('hatchback') || b.includes('hatch')) return 'hatchback';
+                if (b.includes('wagon') || b.includes('estate')) return 'wagon';
+                if (b.includes('pickup') || b.includes('pick-up') || b.includes('pick up')) return 'pickup';
+                if (b.includes('van') || b.includes('minivan')) return 'van';
+                if (b.includes('truck') || b.includes('lorry')) return 'truck';
+                if (b.includes('coupe')) return 'coupe';
+                if (b.includes('motorcycle') || b.includes('motorbike')) return 'motorcycle';
+                if (b.includes('sedan') || b.includes('saloon')) return 'sedan';
+                return null;
+            }
+
             const el = {
                 registrationInput: document.getElementById('registrationInput'),
                 makeSelect: document.getElementById('makeSelect'),
                 modelSelect: document.getElementById('modelSelect'),
                 yearSelect: document.getElementById('yearSelect'),
                 trimSelect: document.getElementById('trimSelect'),
+                vehicleTypeSelect: document.getElementById('vehicleTypeSelect'),
                 fuelTypeSelect: document.getElementById('fuelTypeSelect'),
                 transmissionSelect: document.getElementById('transmissionSelect'),
                 mileageInput: document.getElementById('mileageInput'),
@@ -1544,6 +1650,7 @@
                 accidentSelect: document.getElementById('accidentSelect'),
                 ownersSelect: document.getElementById('ownersSelect'),
                 locationSelect: document.getElementById('locationSelect'),
+                profitMarginInput: document.getElementById('profitMarginInput'),
                 valuateBtn: document.getElementById('valuateBtn'),
                 vehicleLabel: document.getElementById('vehicleLabel'),
                 fuelPill: document.getElementById('fuelPill'),
@@ -1553,10 +1660,16 @@
                 vehicleSpecs: document.getElementById('vehicleSpecs'),
                 resultBox: document.getElementById('resultBox'),
                 resultMarketValue: document.getElementById('resultMarketValue'),
+                resultSellingPrice: document.getElementById('resultSellingPrice'),
                 resultRange: document.getElementById('resultRange'),
                 confidenceFill: document.getElementById('confidenceFill'),
                 confidenceLabel: document.getElementById('confidenceLabel'),
                 adjustmentsList: document.getElementById('adjustmentsList'),
+                depreciationSection: document.getElementById('depreciationSection'),
+                depAge: document.getElementById('depAge'),
+                depRate: document.getElementById('depRate'),
+                depAmount: document.getElementById('depAmount'),
+                depMileage: document.getElementById('depMileage'),
                 resultVehicle: document.getElementById('resultVehicle'),
                 resultRegistration: document.getElementById('resultRegistration'),
                 resultYear: document.getElementById('resultYear'),
@@ -1569,6 +1682,9 @@
                 resultTransmission: document.getElementById('resultTransmission'),
                 resultEngine: document.getElementById('resultEngine'),
                 resultTrim: document.getElementById('resultTrim'),
+                resultVehicleType: document.getElementById('resultVehicleType'),
+                resultOwners: document.getElementById('resultOwners'),
+                resultProfitMargin: document.getElementById('resultProfitMargin'),
                 topLoader: document.getElementById('topLoader'),
                 statusMessage: document.getElementById('statusMessage'),
                 statusMessageText: document.getElementById('statusMessageText'),
@@ -2341,6 +2457,8 @@
                     location: el.locationSelect.value,
                     fuel_type: el.fuelTypeSelect.value,
                     transmission: el.transmissionSelect.value,
+                    vehicle_type: el.vehicleTypeSelect.value,
+                    profit_margin: parseFloat(el.profitMarginInput.value) || 0,
                     engine_capacity: selectedTrim.engine_capacity,
                     crsp_kes: selectedTrim.crsp_kes
                 };
@@ -2383,10 +2501,13 @@
                     mileage_km: formData.mileage || 50000,
                     condition_name: (formData.condition || 'good').toUpperCase(),
                     accident_status: (formData.accident_history || 'none').toUpperCase(),
+                    previous_owners: formData.previous_owners || 1,
                     location_name: (formData.location || 'nairobi').toUpperCase(),
                     engine_capacity: formData.engine_capacity || '',
                     fuel_type: formData.fuel_type || '',
                     transmission: formData.transmission || '',
+                    vehicle_type: (formData.vehicle_type || 'sedan').toUpperCase(),
+                    profit_margin: formData.profit_margin || 0,
                     crsp_kes: formData.crsp_kes || null
                 };
 
@@ -2454,10 +2575,12 @@
                 formData = formData || {};
                 let data = result.data || result;
                 let currentValue = 0;
+                let sellingPrice = null;
                 let confidence = 75;
                 let vehicleName = '';
                 let year = '';
                 let mileage = '';
+                let mileageKm = null;
                 let location = '';
                 let condition = '';
                 let fuelType = '';
@@ -2466,6 +2589,10 @@
                 let trim = '';
                 let reportNumber = 'AUTO-' + String(Date.now()).slice(-6);
                 let adjustments = {};
+                let ageYears = null;
+                let depreciationRate = null;
+                let depreciationAmount = null;
+                let mileageAdjustment = null;
 
                 const vFallback = (apiVal, formVal) => {
                     if (apiVal !== undefined && apiVal !== null && apiVal !== '') return apiVal;
@@ -2476,8 +2603,13 @@
                     const val = data.valuation;
                     currentValue = val.estimated_vehicle_value || 0;
                     confidence = val.confidence_score || 75;
+                    sellingPrice = vFallback(val.recommended_selling_price, null);
                     reportNumber = data.report?.report_number || reportNumber;
                     adjustments = data.analysis?.adjustments || {};
+                    depreciationRate = vFallback(data.analysis?.depreciation_rate, null);
+                    depreciationAmount = vFallback(data.analysis?.depreciation_amount, null);
+                    mileageAdjustment = vFallback(data.analysis?.mileage_adjustment, null);
+                    ageYears = vFallback(data.analysis?.vehicle_age, null);
 
                     const apiVehicle = data.vehicle || {};
                     vehicleName = vFallback(
@@ -2492,6 +2624,7 @@
                     ) || 'Unknown Vehicle';
                     year = vFallback(apiVehicle.year, formData.year || el.yearSelect.value) || '—';
                     const mileageVal = vFallback(apiVehicle.mileage, formData.mileage || parseFloat(el.mileageInput.value));
+                    mileageKm = mileageVal || null;
                     mileage = mileageVal ? `${Number(mileageVal).toLocaleString('en-KE')} km` : '—';
                     location = vFallback(apiVehicle.location, el.locationSelect.options[el.locationSelect.selectedIndex]?.text) || '—';
                     condition = vFallback(apiVehicle.condition, el.conditionSelect.options[el.conditionSelect.selectedIndex]?.text) || '—';
@@ -2502,6 +2635,7 @@
                 } else if (data.final_market_value || data.final_value) {
                     currentValue = data.final_market_value || data.final_value || 0;
                     confidence = data.confidence_score || 75;
+                    sellingPrice = vFallback(data.recommended_selling_price, null);
                     adjustments = {
                         mileage: data.mileage_adjustment || 0,
                         condition: data.condition_adjustment || 0,
@@ -2509,8 +2643,13 @@
                         location: data.location_adjustment || 0,
                         market: data.market_adjustment || 0
                     };
+                    depreciationRate = vFallback(data.depreciation_rate, null);
+                    depreciationAmount = vFallback(data.depreciation_amount, null);
+                    mileageAdjustment = vFallback(data.mileage_adjustment, null);
+                    ageYears = vFallback(data.vehicle_age, null);
                     vehicleName = `${data.make || ''} ${data.model || ''} ${data.trim || ''}`.trim() || 'Unknown Vehicle';
                     year = data.year || el.yearSelect.value || '—';
+                    mileageKm = data.mileage_km || null;
                     mileage = data.mileage_km ? `${Number(data.mileage_km).toLocaleString('en-KE')} km` : '—';
                     location = data.location_name || el.locationSelect.options[el.locationSelect.selectedIndex]?.text || '—';
                     condition = data.condition_name || el.conditionSelect.options[el.conditionSelect.selectedIndex]?.text || '—';
@@ -2521,13 +2660,19 @@
                 } else {
                     currentValue = data.market_value || data.retail_value || data.trade_value || 0;
                     confidence = data.confidence_score || 75;
+                    sellingPrice = vFallback(data.recommended_selling_price, null);
                     adjustments = data.adjustments || {};
+                    depreciationRate = vFallback(data.depreciation_rate, null);
+                    depreciationAmount = vFallback(data.depreciation_amount, null);
+                    mileageAdjustment = vFallback(data.mileage_adjustment, null);
+                    ageYears = vFallback(data.vehicle_age, null);
                     vehicleName = getVehicleName(
                         el.makeSelect.value || '',
                         el.modelSelect.value || '',
                         el.trimSelect.value || ''
                     ) || 'Unknown Vehicle';
                     year = el.yearSelect.value || '—';
+                    mileageKm = parseFloat(el.mileageInput.value) || null;
                     mileage = el.mileageInput.value ? `${Number(el.mileageInput.value).toLocaleString('en-KE')} km` : '—';
                     location = el.locationSelect.options[el.locationSelect.selectedIndex]?.text || '—';
                     condition = el.conditionSelect.options[el.conditionSelect.selectedIndex]?.text || '—';
@@ -2537,6 +2682,30 @@
                     trim = el.trimSelect.value || '—';
                 }
 
+                // Local fallback computation if API didn't return depreciation/mileage breakdown explicitly
+                if (ageYears === null) {
+                    const yr = parseInt(year) || parseInt(el.yearSelect.value);
+                    if (yr) ageYears = new Date().getFullYear() - yr;
+                }
+                if (depreciationRate === null && ageYears !== null) {
+                    depreciationRate = getKraDepreciationRate(ageYears);
+                }
+                if (depreciationAmount === null && depreciationRate !== null && currentVariantData?.crsp_kes) {
+                    depreciationAmount = currentVariantData.crsp_kes * depreciationRate;
+                }
+                if (mileageAdjustment === null && mileageKm !== null) {
+                    // Simple heuristic fallback only used when API provides nothing: ±1% per 10,000km vs a 60,000km baseline
+                    const baseline = 60000;
+                    const diff = baseline - mileageKm;
+                    mileageAdjustment = (diff / 10000) * 0.01;
+                }
+
+                // Recommended selling price fallback: apply profit margin on top of estimated value
+                if (sellingPrice === null || sellingPrice === undefined) {
+                    const margin = formData.profit_margin || 0;
+                    sellingPrice = currentValue > 0 ? currentValue * (1 + margin / 100) : null;
+                }
+
                 const formatted = formatCurrency(currentValue);
                 el.resultMarketValue.innerHTML = `
                     <span class="currency">KES</span>
@@ -2544,12 +2713,32 @@
                     <span class="decimal">.00</span>
                 `;
 
+                if (sellingPrice && sellingPrice > 0) {
+                    el.resultSellingPrice.innerHTML = `<span class="currency">KES</span><span class="amount">${formatCurrency(sellingPrice).parts.whole}</span>`;
+                } else {
+                    el.resultSellingPrice.innerHTML = `<span class="currency">KES</span><span class="amount">—</span>`;
+                }
+
                 const rangeMin = Math.round(currentValue * 0.95);
                 const rangeMax = Math.round(currentValue * 1.05);
                 el.resultRange.textContent = `KES ${rangeMin.toLocaleString()} — ${rangeMax.toLocaleString()}`;
 
                 setTimeout(() => { el.confidenceFill.style.width = `${Math.min(confidence, 98)}%`; }, 300);
                 el.confidenceLabel.textContent = `${Math.round(confidence)}%`;
+
+                // Depreciation & mileage breakdown
+                el.depAge.textContent = ageYears !== null ? `${ageYears} yr${ageYears === 1 ? '' : 's'}` : '—';
+                el.depRate.textContent = depreciationRate !== null ? `${(depreciationRate * 100).toFixed(1)}%` : '—';
+                el.depAmount.textContent = depreciationAmount !== null ? `- KES ${formatCurrency(Math.abs(depreciationAmount)).formatted}` : '—';
+                if (mileageAdjustment !== null) {
+                    const pct = mileageAdjustment * 100;
+                    const sign = pct >= 0 ? '+' : '';
+                    el.depMileage.textContent = `${sign}${pct.toFixed(1)}%`;
+                    el.depMileage.style.color = pct >= 0 ? 'var(--green)' : 'var(--red)';
+                } else {
+                    el.depMileage.textContent = '—';
+                    el.depMileage.style.color = 'var(--amber)';
+                }
 
                 el.resultReportNum.textContent = reportNumber;
                 el.resultDate.textContent = new Date().toLocaleDateString('en-KE', {
@@ -2566,13 +2755,16 @@
                 el.resultTransmission.textContent = transmission;
                 el.resultEngine.textContent = engine;
                 el.resultTrim.textContent = trim;
+                el.resultVehicleType.textContent = VEHICLE_TYPE_LABELS[formData.vehicle_type] || formData.vehicle_type || '—';
+                el.resultOwners.textContent = formData.previous_owners !== undefined ? String(formData.previous_owners) : '—';
+                el.resultProfitMargin.textContent = formData.profit_margin !== undefined ? `${formData.profit_margin}%` : '—';
 
                 const adjList = el.adjustmentsList;
                 adjList.innerHTML = '';
                 const labels = {
                     'age': '📅 Age', 'mileage': '📊 Mileage', 'location': '📍 Location',
                     'fuel_type': '⛽ Fuel Type', 'transmission': '⚙️ Transmission',
-                    'body_type': '🚗 Body Type', 'condition': '⭐ Condition',
+                    'body_type': '🚗 Body Type', 'vehicle_type': '🚘 Vehicle Type', 'condition': '⭐ Condition',
                     'accident': '⚠️ Accident History', 'previous_owners': '👤 Previous Owners',
                     'market': '📈 Market'
                 };
@@ -2722,6 +2914,8 @@
                             if (fuelGuess) el.fuelTypeSelect.value = fuelGuess;
                             const transGuess = normalizeTransmission(selectedTrim.transmission);
                             if (transGuess) el.transmissionSelect.value = transGuess;
+                            const typeGuess = guessVehicleType(selectedTrim.body_type);
+                            if (typeGuess) el.vehicleTypeSelect.value = typeGuess;
                             updateValuateButtonState();
                         }
                         el.resultBox.classList.remove('show');
@@ -2776,7 +2970,7 @@
                     });
                     el.footerUrl.textContent = window.location.hostname || 'auto-digital.onrender.com';
                     
-                    console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.4)');
+                    console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.5)');
                     console.log(`✅ Using view: ${CONFIG.VIEW_NAME}`);
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API: ${CONFIG.API_BASE}/valuation/calculate`);
