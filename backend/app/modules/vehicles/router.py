@@ -1,11 +1,14 @@
-# app/modules/vehicles/router.py
-
+```python
 # ================================================================
 # Auto-D Kenya - Vehicle Routes
 # ================================================================
 # CRSP-driven vehicle catalogue API.
 #
-# CRSP is the authoritative vehicle identity.
+# Source of truth:
+#     public.vehicle_crsp_lookup
+#
+# Authoritative vehicle identifier:
+#     crsp_id
 # ================================================================
 
 from datetime import datetime
@@ -54,17 +57,15 @@ vehicle_service = VehicleService()
 async def get_categories(
     current_user: dict = Depends(get_current_user_optional),
 ):
-    """
-    Return approved vehicle categories.
-    """
+    """Return approved vehicle categories."""
 
     try:
         return await vehicle_service.get_categories()
 
-    except Exception as e:
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get categories: {str(e)}",
+            detail=f"Failed to get categories: {str(exc)}",
         )
 
 
@@ -83,21 +84,17 @@ async def get_makes(
     ),
     current_user: dict = Depends(get_current_user_optional),
 ):
-    """
-    Return vehicle makes.
-
-    Category filtering is optional.
-    """
+    """Return all CRSP vehicle makes."""
 
     try:
         return await vehicle_service.get_makes(
-            category_id=category_id
+            category_id=category_id,
         )
 
-    except Exception as e:
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get makes: {str(e)}",
+            detail=f"Failed to get makes: {str(exc)}",
         )
 
 
@@ -113,31 +110,29 @@ async def get_models(
     make_id: int,
     current_user: dict = Depends(get_current_user_optional),
 ):
-    """
-    Return models belonging to a make.
-    """
+    """Return CRSP models for a make."""
 
     try:
         return await vehicle_service.get_models(
-            make_id=make_id
+            make_id=make_id,
         )
 
-    except ValidationException as e:
+    except ValidationException as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=str(exc),
         )
 
-    except NotFoundException as e:
+    except NotFoundException as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
+            detail=str(exc),
         )
 
-    except Exception as e:
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get models: {str(e)}",
+            detail=f"Failed to get models: {str(exc)}",
         )
 
 
@@ -153,31 +148,31 @@ async def search_vehicles(
     search: Optional[str] = Query(
         None,
         min_length=2,
-        description="Search make, model or vehicle details",
+        description="Search make, model or trim",
     ),
     make_id: Optional[int] = Query(
         None,
-        description="Filter by make ID",
+        description="CRSP make ID",
     ),
     model_id: Optional[int] = Query(
         None,
-        description="Filter by model ID",
+        description="CRSP model ID",
     ),
     fuel: Optional[str] = Query(
         None,
-        description="Filter by fuel type",
+        description="Fuel type",
     ),
     transmission: Optional[str] = Query(
         None,
-        description="Filter by transmission",
+        description="Transmission type",
     ),
     engine_capacity_cc: Optional[int] = Query(
         None,
-        description="Filter by engine capacity in CC",
+        description="Engine capacity in CC",
     ),
     year: Optional[int] = Query(
         None,
-        description="Filter by CRSP/manufacture year",
+        description="Manufacture or CRSP year",
     ),
     limit: int = Query(
         50,
@@ -192,9 +187,7 @@ async def search_vehicles(
     ),
     current_user: dict = Depends(get_current_user_optional),
 ):
-    """
-    Search the CRSP vehicle catalogue.
-    """
+    """Search the CRSP vehicle catalogue."""
 
     try:
         return await vehicle_service.search_vehicles(
@@ -209,58 +202,16 @@ async def search_vehicles(
             offset=offset,
         )
 
-    except ValidationException as e:
+    except ValidationException as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=str(exc),
         )
 
-    except Exception as e:
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Vehicle search failed: {str(e)}",
-        )
-
-
-# ================================================================
-# SINGLE CRSP VEHICLE
-# ================================================================
-
-@router.get(
-    "/{crsp_id}",
-    response_model=VehicleMasterResponse,
-)
-async def get_vehicle(
-    crsp_id: int,
-    current_user: dict = Depends(get_current_user_optional),
-):
-    """
-    Return one complete CRSP vehicle.
-
-    crsp_id is the authoritative vehicle identifier.
-    """
-
-    try:
-        return await vehicle_service.get_vehicle(
-            crsp_id=crsp_id
-        )
-
-    except ValidationException as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-
-    except NotFoundException as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        )
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get vehicle: {str(e)}",
+            detail=f"Vehicle search failed: {str(exc)}",
         )
 
 
@@ -270,46 +221,45 @@ async def get_vehicle(
 
 @router.get(
     "/profile/{crsp_id}",
-    response_model=VehicleMasterResponse,
 )
 async def get_vehicle_profile(
     crsp_id: int,
     current_user: dict = Depends(get_current_user_optional),
 ):
     """
-    Return vehicle details together with CRSP pricing.
+    Return the complete CRSP vehicle profile.
+
+    Includes:
+        vehicle
+        pricing
     """
 
     try:
-        profile = await vehicle_service.get_vehicle_profile(
-            crsp_id=crsp_id
+        return await vehicle_service.get_vehicle_profile(
+            crsp_id=crsp_id,
         )
 
-        # VehicleMasterResponse expects the vehicle fields at
-        # the top level, so return the vehicle component.
-        return profile["vehicle"]
-
-    except ValidationException as e:
+    except ValidationException as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=str(exc),
         )
 
-    except NotFoundException as e:
+    except NotFoundException as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
+            detail=str(exc),
         )
 
-    except Exception as e:
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get vehicle profile: {str(e)}",
+            detail=f"Failed to get vehicle profile: {str(exc)}",
         )
 
 
 # ================================================================
-# BASE PRICE / CRSP
+# BASE PRICE
 # ================================================================
 
 @router.get(
@@ -320,31 +270,29 @@ async def get_base_price(
     crsp_id: int,
     current_user: dict = Depends(get_current_user_optional),
 ):
-    """
-    Return CRSP reference price for a vehicle.
-    """
+    """Return the CRSP reference price."""
 
     try:
         return await vehicle_service.get_base_price(
-            crsp_id=crsp_id
+            crsp_id=crsp_id,
         )
 
-    except ValidationException as e:
+    except ValidationException as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=str(exc),
         )
 
-    except NotFoundException as e:
+    except NotFoundException as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
+            detail=str(exc),
         )
 
-    except Exception as e:
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get CRSP price: {str(e)}",
+            detail=f"Failed to get CRSP price: {str(exc)}",
         )
 
 
@@ -359,17 +307,15 @@ async def get_base_price(
 async def get_vehicle_statistics(
     current_user: dict = Depends(get_current_user),
 ):
-    """
-    Return CRSP catalogue statistics.
-    """
+    """Return CRSP catalogue statistics."""
 
     try:
         return await vehicle_service.get_statistics()
 
-    except Exception as e:
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get statistics: {str(e)}",
+            detail=f"Failed to get statistics: {str(exc)}",
         )
 
 
@@ -382,9 +328,7 @@ async def get_vehicle_statistics(
     response_model=VehicleHealthResponse,
 )
 async def vehicle_health():
-    """
-    Vehicle catalogue health check.
-    """
+    """Check CRSP vehicle catalogue health."""
 
     try:
         result = await vehicle_service.health_check()
@@ -399,13 +343,57 @@ async def vehicle_health():
             error=result.get("error"),
         )
 
-    except Exception as e:
+    except Exception as exc:
         return VehicleHealthResponse(
             status="degraded",
             service="vehicles",
             version="2.0",
             timestamp=datetime.utcnow().isoformat(),
-            error=str(e),
+            database="error",
+            crsp_records=0,
+            error=str(exc),
+        )
+
+
+# ================================================================
+# SINGLE VEHICLE
+# ================================================================
+# IMPORTANT:
+# This dynamic route MUST remain AFTER all named routes above.
+# Otherwise paths such as /statistics, /health, etc. can be
+# interpreted as a crsp_id route.
+
+@router.get(
+    "/{crsp_id}",
+    response_model=VehicleMasterResponse,
+)
+async def get_vehicle(
+    crsp_id: int,
+    current_user: dict = Depends(get_current_user_optional),
+):
+    """Return one CRSP vehicle by authoritative crsp_id."""
+
+    try:
+        return await vehicle_service.get_vehicle(
+            crsp_id=crsp_id,
+        )
+
+    except ValidationException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    except NotFoundException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get vehicle: {str(exc)}",
         )
 
 
@@ -416,3 +404,4 @@ async def vehicle_health():
 __all__ = [
     "router",
 ]
+```
