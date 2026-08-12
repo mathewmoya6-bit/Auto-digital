@@ -10,6 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
     <style>
+        /* ─── CSS Variables & Reset ───────────────────────────────── */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -1594,6 +1595,7 @@
         (function() {
             'use strict';
 
+            // ─── CONFIGURATION ──────────────────────────────────────
             const CONFIG = {
                 SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
                 SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
@@ -1601,1394 +1603,1546 @@
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
                 MAX_PHOTOS: 4,
                 MAX_PHOTO_SIZE: 12 * 1024 * 1024,
-                REQUEST_TIMEOUT: 45000
+                REQUEST_TIMEOUT: 45000,
+                ENDPOINTS: {
+                    VALUATION: '/valuation/calculate',
+                    VEHICLE_SEARCH: '/valuation/crsp/search',
+                    VEHICLE_DETAILS: '/valuation/crsp/{crsp_id}',
+                    OWNERSHIP: '/ownership/calculate',
+                    OWNERSHIP_PUBLIC: '/ownership/calculate-public',
+                    RUNNING_COST: '/running-cost/calculate',
+                    REPORTS: '/reports'
+                }
             };
 
-            let supabaseClient = null;
-            let isAuthenticated = false;
-            let currentUser = null;
-            let currentVariantData = null;
-            let currentStep = 0;
-            let hasFlaggedPhotos = false;
-            let isValuating = false;
-            let allMakes = [];
-            let allModels = [];
-            let allTrims = [];
-
-            const VEHICLE_TYPE_LABELS = {
-                sedan: '🚘 Sedan', suv: '🚙 SUV', hatchback: '🚗 Hatchback',
-                wagon: '🚐 Station Wagon', pickup: '🛻 Pickup', van: '🚐 Van / Minivan',
-                truck: '🚚 Truck', coupe: '🏎️ Coupe', motorcycle: '🏍️ Motorcycle', other: '❓ Other'
+            // ─── STATE ──────────────────────────────────────────────
+            const state = {
+                supabase: null,
+                isAuthenticated: false,
+                currentUser: null,
+                currentVariant: null,
+                selectedMake: '',
+                selectedModel: '',
+                selectedYear: '',
+                selectedTrim: '',
+                photos: [],
+                valuationResult: null,
+                isLoading: false,
+                hasFlaggedPhotos: false
             };
 
-            function guessVehicleType(bodyType) {
-                if (!bodyType) return null;
-                const b = String(bodyType).toLowerCase();
-                if (b.includes('suv') || b.includes('crossover')) return 'suv';
-                if (b.includes('hatchback') || b.includes('hatch')) return 'hatchback';
-                if (b.includes('wagon') || b.includes('estate')) return 'wagon';
-                if (b.includes('pickup') || b.includes('pick-up') || b.includes('pick up')) return 'pickup';
-                if (b.includes('van') || b.includes('minivan')) return 'van';
-                if (b.includes('truck') || b.includes('lorry')) return 'truck';
-                if (b.includes('coupe')) return 'coupe';
-                if (b.includes('motorcycle') || b.includes('motorbike')) return 'motorcycle';
-                if (b.includes('sedan') || b.includes('saloon')) return 'sedan';
-                return null;
-            }
-
-            const el = {
-                registrationInput: document.getElementById('registrationInput'),
-                makeSelect: document.getElementById('makeSelect'),
-                modelSelect: document.getElementById('modelSelect'),
-                yearSelect: document.getElementById('yearSelect'),
-                trimSelect: document.getElementById('trimSelect'),
-                vehicleTypeSelect: document.getElementById('vehicleTypeSelect'),
-                fuelTypeSelect: document.getElementById('fuelTypeSelect'),
-                transmissionSelect: document.getElementById('transmissionSelect'),
-                mileageInput: document.getElementById('mileageInput'),
-                conditionSelect: document.getElementById('conditionSelect'),
-                accidentSelect: document.getElementById('accidentSelect'),
-                ownersSelect: document.getElementById('ownersSelect'),
-                locationSelect: document.getElementById('locationSelect'),
-                profitMarginInput: document.getElementById('profitMarginInput'),
-                valuateBtn: document.getElementById('valuateBtn'),
-                vehicleLabel: document.getElementById('vehicleLabel'),
-                fuelPill: document.getElementById('fuelPill'),
-                transmissionPill: document.getElementById('transmissionPill'),
-                engineCCDisplay: document.getElementById('engineCCDisplay'),
-                crspPill: document.getElementById('crspPill'),
-                vehicleSpecs: document.getElementById('vehicleSpecs'),
-                resultBox: document.getElementById('resultBox'),
-                resultMarketValue: document.getElementById('resultMarketValue'),
-                resultSellingPrice: document.getElementById('resultSellingPrice'),
-                resultRange: document.getElementById('resultRange'),
-                confidenceFill: document.getElementById('confidenceFill'),
-                confidenceLabel: document.getElementById('confidenceLabel'),
-                adjustmentsList: document.getElementById('adjustmentsList'),
-                depreciationSection: document.getElementById('depreciationSection'),
-                depAge: document.getElementById('depAge'),
-                depRate: document.getElementById('depRate'),
-                depAmount: document.getElementById('depAmount'),
-                depMileage: document.getElementById('depMileage'),
-                resultVehicle: document.getElementById('resultVehicle'),
-                resultRegistration: document.getElementById('resultRegistration'),
-                resultYear: document.getElementById('resultYear'),
-                resultMileage: document.getElementById('resultMileage'),
-                resultLocation: document.getElementById('resultLocation'),
-                resultDate: document.getElementById('resultDate'),
-                resultReportNum: document.getElementById('resultReportNum'),
-                resultCondition: document.getElementById('resultCondition'),
-                resultFuelType: document.getElementById('resultFuelType'),
-                resultTransmission: document.getElementById('resultTransmission'),
-                resultEngine: document.getElementById('resultEngine'),
-                resultTrim: document.getElementById('resultTrim'),
-                resultVehicleType: document.getElementById('resultVehicleType'),
-                resultOwners: document.getElementById('resultOwners'),
-                resultProfitMargin: document.getElementById('resultProfitMargin'),
-                topLoader: document.getElementById('topLoader'),
-                statusMessage: document.getElementById('statusMessage'),
-                statusMessageText: document.getElementById('statusMessageText'),
-                authStatus: document.getElementById('authStatus'),
-                authMessage: document.getElementById('authMessage'),
-                authButtons: document.getElementById('authButtons'),
-                authForms: document.getElementById('authForms'),
-                authEmail: document.getElementById('authEmail'),
-                authPassword: document.getElementById('authPassword'),
-                btnSignIn: document.getElementById('btnSignIn'),
-                btnSignOut: document.getElementById('btnSignOut'),
-                btnLogin: document.getElementById('btnLogin'),
-                btnSignup: document.getElementById('btnSignup'),
-                btnCancelAuth: document.getElementById('btnCancelAuth'),
-                loadingSteps: document.getElementById('loadingSteps'),
-                lastUpdated: document.getElementById('lastUpdated'),
-                crspInfo: document.getElementById('crspInfo'),
-                crspMatchedLine: document.getElementById('crspMatchedLine'),
-                crspBasePrice: document.getElementById('crspBasePrice'),
-                crspAge: document.getElementById('crspAge'),
-                crspDepreciationRate: document.getElementById('crspDepreciationRate'),
-                crspReferenceValue: document.getElementById('crspReferenceValue'),
-                crspResultSection: document.getElementById('crspResultSection'),
-                rCrspMatched: document.getElementById('rCrspMatched'),
-                rCrspBase: document.getElementById('rCrspBase'),
-                rCrspAge: document.getElementById('rCrspAge'),
-                rCrspRef: document.getElementById('rCrspRef'),
-                rCrspVariance: document.getElementById('rCrspVariance'),
-                flowSteps: document.getElementById('flowSteps'),
-                photoGrid: document.getElementById('photoGrid'),
-                photoAuthSummary: document.getElementById('photoAuthSummary'),
-                reportPhotosSection: document.getElementById('reportPhotosSection'),
-                reportPhotosGrid: document.getElementById('reportPhotosGrid'),
-                photoWarningSection: document.getElementById('photoWarningSection'),
-                printBtn: document.getElementById('printBtn'),
-                shareBtn: document.getElementById('shareBtn'),
-                footerUrl: document.getElementById('footerUrl')
-            };
-
-            let photos = Array.from({ length: CONFIG.MAX_PHOTOS }, () => ({ 
-                dataUrl: null, 
-                fileName: null, 
-                status: 'empty', 
-                reason: '' 
-            }));
-
-            function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
-
-            function formatCurrency(val) {
-                if (val === undefined || val === null || isNaN(val) || val < 0) {
-                    return { formatted: '0', parts: { whole: '0', decimal: '00' } };
-                }
-                const num = Number(val);
-                const formatted = num.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-                return { formatted, parts: { whole: formatted, decimal: '00' } };
-            }
-
-            function escapeHTML(str) {
-                if (!str) return '';
-                const div = document.createElement('div');
-                div.textContent = str;
-                return div.innerHTML;
-            }
-
-            function showToast(message, type = 'info') {
-                const existing = document.querySelector('.toast');
-                if (existing) existing.remove();
-                const toast = document.createElement('div');
-                toast.className = `toast toast-${type}`;
-                toast.textContent = message;
-                toast.setAttribute('role', 'alert');
-                document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 5000);
-            }
-
-            function setStatus(type, message) {
-                el.statusMessage.className = `status-message ${type}`;
-                el.statusMessageText.textContent = message;
-                const icons = { error: '❌', warning: '⚠️', success: '✅', info: '⏳' };
-                const iconSpan = el.statusMessage.querySelector('.status-icon');
-                if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
-            }
-
-            function showLoadingBar() {
-                if (!el.topLoader) return;
-                el.topLoader.classList.remove('done');
-                void el.topLoader.offsetWidth;
-                el.topLoader.classList.add('active');
-            }
-
-            function hideLoadingBar() {
-                if (!el.topLoader) return;
-                el.topLoader.classList.remove('active');
-                el.topLoader.classList.add('done');
-                setTimeout(() => { el.topLoader.classList.remove('done'); }, 300);
-            }
-
-            function getAccessToken() {
-                return localStorage.getItem('access_token');
-            }
-
-            function setTokens(session) {
-                if (session) {
-                    localStorage.setItem('access_token', session.access_token);
-                    localStorage.setItem('refresh_token', session.refresh_token);
-                    localStorage.setItem('user_id', session.user.id);
-                    localStorage.setItem('user_email', session.user.email);
-                }
-            }
-
-            function clearTokens() {
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('refresh_token');
-                localStorage.removeItem('user_id');
-                localStorage.removeItem('user_email');
-            }
-
-            function getVehicleName(make, model, trim) {
-                const cleanMake = (make || '').trim();
-                const cleanModel = (model || '').trim();
-                const cleanTrim = (trim || '').trim();
-                if (!cleanTrim) return `${cleanMake} ${cleanModel}`.trim() || 'Unknown Vehicle';
-                return `${cleanMake} ${cleanModel} ${cleanTrim}`.trim();
-            }
-
-            const FUEL_TYPE_LABELS = {
-                petrol: '⛽ Petrol', diesel: '🛢️ Diesel', lpg: '🔥 LPG', electric: '🔋 Electric'
-            };
-            const TRANSMISSION_LABELS = {
-                manual: '🎚️ Manual', automatic: '⚙️ Automatic', cvt: '🔄 CVT', amt: '🅰️ AMT'
-            };
-
-            function normalizeFuelType(name) {
-                if (!name) return null;
-                const n = String(name).toLowerCase();
-                if (n.includes('petrol') || n.includes('gasoline')) return 'petrol';
-                if (n.includes('diesel')) return 'diesel';
-                if (n.includes('lpg')) return 'lpg';
-                if (n.includes('electric') || n.includes('ev')) return 'electric';
-                if (n.includes('hybrid')) return 'petrol';
-                return null;
-            }
-
-            function normalizeTransmission(name) {
-                if (!name) return null;
-                const n = String(name).toLowerCase();
-                if (n.includes('manual')) return 'manual';
-                if (n.includes('cvt')) return 'cvt';
-                if (n.includes('amt')) return 'amt';
-                if (n.includes('auto')) return 'automatic';
-                return null;
-            }
-
-            function cleanBodyType(bodyType) {
-                if (!bodyType) return '';
-                const parts = bodyType.split(/\s+/);
-                if (parts.length >= 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
-                    return parts.slice(1).join(' ');
-                }
-                return bodyType;
-            }
-
-            function getKraDepreciationRate(ageYears) {
-                if (ageYears < 1) return 0.05;
-                if (ageYears < 2) return 0.10;
-                if (ageYears < 3) return 0.15;
-                if (ageYears < 4) return 0.20;
-                if (ageYears < 5) return 0.25;
-                if (ageYears < 6) return 0.30;
-                if (ageYears < 7) return 0.35;
-                return 0.40;
-            }
-
-            function initSupabase() {
-                try {
-                    if (typeof supabase === 'undefined') {
-                        throw new Error('Supabase SDK not loaded');
-                    }
-                    const { createClient } = supabase;
-                    supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
-                        auth: { 
-                            persistSession: true, 
-                            autoRefreshToken: true, 
-                            detectSessionInUrl: true, 
-                            storage: localStorage 
-                        }
-                    });
-                    return true;
-                } catch (error) {
-                    console.warn('Supabase init failed:', error.message);
-                    return false;
-                }
-            }
-
-            async function signIn(email, password) {
-                try {
-                    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-                    if (error) throw error;
-                    currentUser = data.session;
-                    isAuthenticated = true;
-                    setTokens(data.session);
-                    updateAuthUI();
-                    showToast('✅ Signed in successfully!', 'success');
-                    await loadMakes();
-                    return true;
-                } catch (error) {
-                    showToast('❌ Sign in failed: ' + error.message, 'error');
-                    return false;
-                }
-            }
-
-            async function signUp(email, password) {
-                try {
-                    const { data, error } = await supabaseClient.auth.signUp({ email, password });
-                    if (error) throw error;
-                    if (data.user) {
-                        showToast('✅ Account created! Please check your email to confirm.', 'success');
-                        return true;
-                    }
-                    return false;
-                } catch (error) {
-                    showToast('❌ Sign up failed: ' + error.message, 'error');
-                    return false;
-                }
-            }
-
-            async function signOut() {
-                try {
-                    await supabaseClient.auth.signOut();
-                    clearTokens();
-                    currentUser = null;
-                    isAuthenticated = false;
-                    updateAuthUI();
-                    showToast('🔓 Signed out', 'info');
-                    el.makeSelect.disabled = true;
-                    el.modelSelect.disabled = true;
-                    el.yearSelect.disabled = true;
-                    el.trimSelect.disabled = true;
-                    el.valuateBtn.disabled = true;
-                    return true;
-                } catch (error) {
-                    showToast('❌ Sign out failed: ' + error.message, 'error');
-                    return false;
-                }
-            }
-
-            async function checkAuth() {
-                try {
-                    const { data, error } = await supabaseClient.auth.getSession();
-                    if (error) throw error;
-                    if (data.session) {
-                        currentUser = data.session;
-                        isAuthenticated = true;
-                        setTokens(data.session);
-                    } else {
-                        currentUser = null;
-                        isAuthenticated = false;
-                        clearTokens();
-                    }
-                    updateAuthUI();
-                    return isAuthenticated;
-                } catch (error) {
-                    console.warn('Auth check failed:', error.message);
-                    currentUser = null;
-                    isAuthenticated = false;
-                    clearTokens();
-                    updateAuthUI();
-                    return false;
-                }
-            }
-
-            function updateAuthUI() {
-                if (isAuthenticated && currentUser) {
-                    const email = currentUser.user?.email || 'user';
-                    el.authStatus.textContent = `🔒 ${email}`;
-                    el.authStatus.className = 'auth-status authenticated';
-                    el.authMessage.textContent = `✅ Signed in as ${email}`;
-                    el.btnSignIn.style.display = 'none';
-                    el.btnSignOut.style.display = 'inline-block';
-                    el.authForms.style.display = 'none';
-                    el.makeSelect.disabled = false;
-                } else {
-                    el.authStatus.textContent = '🔓 Not Authenticated';
-                    el.authStatus.className = 'auth-status unauthenticated';
-                    el.authMessage.textContent = 'Sign in to get your instant vehicle valuation';
-                    el.btnSignIn.style.display = 'inline-block';
-                    el.btnSignOut.style.display = 'none';
-                    el.makeSelect.disabled = true;
-                    el.modelSelect.disabled = true;
-                    el.yearSelect.disabled = true;
-                    el.trimSelect.disabled = true;
-                    el.valuateBtn.disabled = true;
-                }
-            }
-
-            async function queryCRSPView(select, filter, order) {
-                if (!isAuthenticated) {
-                    throw new Error('Please sign in to browse vehicles');
-                }
-                let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
-                if (filter) query = query.eq(filter.column, filter.value);
-                if (order) query = query.order(order.column, { ascending: order.ascending !== false });
-                const { data, error } = await query;
-                if (error) throw error;
-                return data;
-            }
-
-            // ─── LOAD MAKES ─────────────────────────────────────────────
-            async function loadMakes() {
-                try {
-                    setStatus('info', 'Loading makes...');
-                    const data = await queryCRSPView(
-                        'make, make_id',
-                        null,
-                        { column: 'make', ascending: true }
-                    );
-
-                    const unique = {};
-                    data.forEach(item => {
-                        if (item.make && !unique[item.make]) {
-                            unique[item.make] = {
-                                id: item.make_id || item.make,
-                                name: item.make
-                            };
-                        }
-                    });
-                    allMakes = Object.values(unique);
-
-                    const select = el.makeSelect;
-                    select.innerHTML = '<option value="">Select Make...</option>';
-                    allMakes.forEach(make => {
-                        const opt = document.createElement('option');
-                        opt.value = make.name;
-                        opt.textContent = make.name;
-                        select.appendChild(opt);
-                    });
-                    select.disabled = false;
-                    setStatus('success', `✅ Loaded ${allMakes.length} makes`);
-                    updateFlowStep(1);
-                    return allMakes;
-                } catch (error) {
-                    console.error('Error loading makes:', error);
-                    setStatus('error', 'Failed to load makes');
-                    return [];
-                }
-            }
-
-            // ─── LOAD MODELS ────────────────────────────────────────────
-            async function loadModels(makeName) {
-                try {
-                    setStatus('info', 'Loading models...');
-                    const data = await queryCRSPView(
-                        'model, model_id, body_type, seating_capacity',
-                        { column: 'make', value: makeName },
-                        { column: 'model', ascending: true }
-                    );
-
-                    const unique = {};
-                    data.forEach(item => {
-                        const modelName = item.model;
-                        if (modelName && !unique[modelName]) {
-                            unique[modelName] = {
-                                id: item.model_id || modelName,
-                                name: modelName,
-                                body_type: item.body_type,
-                                seating: item.seating_capacity
-                            };
-                        }
-                    });
-                    allModels = Object.values(unique);
-
-                    const select = el.modelSelect;
-                    select.innerHTML = '<option value="">Select Model...</option>';
-                    allModels.forEach(model => {
-                        const opt = document.createElement('option');
-                        opt.value = model.name;
-                        let label = model.name;
-                        if (model.body_type) label += ` (${model.body_type})`;
-                        if (model.seating) label += ` · ${model.seating} seats`;
-                        opt.textContent = label;
-                        select.appendChild(opt);
-                    });
-                    select.disabled = false;
-                    setStatus('success', `✅ Loaded ${allModels.length} models`);
-                    updateFlowStep(2);
-                    return allModels;
-                } catch (error) {
-                    console.error('Error loading models:', error);
-                    setStatus('error', 'Failed to load models');
-                    return [];
-                }
-            }
-
-            // ─── LOAD YEARS ─────────────────────────────────────────────
-            async function loadYears(modelName) {
-                try {
-                    setStatus('info', 'Loading years...');
-                    const data = await queryCRSPView(
-                        'manufacture_year, crsp_year',
-                        { column: 'model', value: modelName },
-                        { column: 'manufacture_year', ascending: false }
-                    );
-
-                    const unique = {};
-                    data.forEach(item => {
-                        const year = item.manufacture_year || item.crsp_year;
-                        if (year && !unique[year]) {
-                            unique[year] = year;
-                        }
-                    });
-
-                    const years = Object.values(unique).sort((a, b) => b - a);
-                    const select = el.yearSelect;
-                    select.innerHTML = '<option value="">Select Year...</option>';
-                    years.forEach(year => {
-                        const opt = document.createElement('option');
-                        opt.value = year;
-                        opt.textContent = year;
-                        select.appendChild(opt);
-                    });
-                    select.disabled = false;
-                    setStatus('success', `✅ Loaded ${years.length} years`);
-                    updateFlowStep(3);
-                    return years;
-                } catch (error) {
-                    console.error('Error loading years:', error);
-                    setStatus('error', 'Failed to load years');
-                    return [];
-                }
-            }
-
-            // ─── LOAD TRIMS ─────────────────────────────────────────────
-            async function loadTrims(modelName, year) {
-                try {
-                    setStatus('info', 'Loading trims...');
-                    const data = await queryCRSPView(
-                        'trim_level, engine_capacity, fuel, transmission, drive_config, crsp_kes, body_type',
-                        { column: 'model', value: modelName },
-                        { column: 'trim_level', ascending: true }
-                    );
-
-                    const filtered = data.filter(item => {
-                        const itemYear = item.manufacture_year || item.crsp_year;
-                        return itemYear == year;
-                    });
-
-                    const unique = {};
-                    filtered.forEach(item => {
-                        const trim = item.trim_level || 'Base';
-                        if (!unique[trim]) {
-                            unique[trim] = {
-                                trim: trim,
-                                engine_capacity: item.engine_capacity,
-                                fuel: item.fuel,
-                                transmission: item.transmission,
-                                drive_config: item.drive_config,
-                                crsp_kes: item.crsp_kes,
-                                body_type: item.body_type
-                            };
-                        }
-                    });
-
-                    allTrims = Object.values(unique);
-                    const select = el.trimSelect;
-                    select.innerHTML = '<option value="">Select Trim...</option>';
-                    allTrims.forEach(trim => {
-                        const opt = document.createElement('option');
-                        opt.value = trim.trim;
-                        let label = trim.trim;
-                        if (trim.engine_capacity) label += ` · ${trim.engine_capacity}`;
-                        if (trim.fuel) label += ` · ${trim.fuel}`;
-                        if (trim.transmission) label += ` · ${trim.transmission}`;
-                        opt.dataset.engine = trim.engine_capacity || '';
-                        opt.dataset.fuel = trim.fuel || '';
-                        opt.dataset.transmission = trim.transmission || '';
-                        opt.dataset.drive = trim.drive_config || '';
-                        opt.dataset.crsp = trim.crsp_kes || '';
-                        opt.dataset.body = trim.body_type || '';
-                        opt.textContent = label;
-                        select.appendChild(opt);
-                    });
-                    select.disabled = false;
-                    setStatus('success', `✅ Loaded ${allTrims.length} trims`);
-                    updateFlowStep(4);
-                    return allTrims;
-                } catch (error) {
-                    console.error('Error loading trims:', error);
-                    setStatus('error', 'Failed to load trims');
-                    return [];
-                }
-            }
-
-            function updateFlowStep(step) {
-                currentStep = step;
-                const steps = el.flowSteps.querySelectorAll('.flow-step');
-                steps.forEach((s, index) => {
-                    const num = index + 1;
-                    s.classList.remove('active', 'done');
-                    if (num < step) s.classList.add('done');
-                    else if (num === step) s.classList.add('active');
-                });
-            }
-
-            function updateLoadingStep(step) {
-                document.querySelectorAll('.loading-step').forEach((el, index) => {
-                    const num = index + 1;
-                    el.classList.remove('active', 'done');
-                    if (num < step) { 
-                        el.classList.add('done');
-                        el.querySelector('.icon').textContent = '✅'; 
-                    } else if (num === step) { 
-                        el.classList.add('active');
-                        el.querySelector('.icon').innerHTML = '<div class="spinner-small"></div>'; 
-                    } else { 
-                        el.querySelector('.icon').textContent = '⏳'; 
-                    }
-                });
-            }
-
-            function displayVehicleInfo(variant) {
-                const label = getVehicleName(
-                    el.makeSelect.value || '',
-                    el.modelSelect.value || '',
-                    variant.trim || ''
-                );
-                const cleanBody = cleanBodyType(variant.body_type || '');
-                el.vehicleLabel.textContent = label || 'Unnamed vehicle';
-                const engineCC = variant.engine_capacity || null;
-                if (engineCC) {
-                    el.engineCCDisplay.textContent = `${engineCC}`;
-                    el.engineCCDisplay.style.display = 'inline-block';
-                } else {
-                    el.engineCCDisplay.textContent = '—';
-                    el.engineCCDisplay.style.display = 'inline-block';
-                }
-                
-                const specItems = [
-                    { label: '🚗', value: cleanBody || '—' },
-                    { label: '⛽', value: variant.fuel || '—' },
-                    { label: '⚙️', value: variant.transmission || '—' },
-                    { label: '🔧', value: variant.drive_config || '—' }
-                ];
-                el.vehicleSpecs.innerHTML = specItems.map(item =>
-                    `<span class="spec-item">${escapeHTML(item.label)} <span class="spec-value">${escapeHTML(item.value)}</span></span>`
-                ).join('');
-
-                if (variant.crsp_kes) {
-                    el.crspPill.textContent = `🏛️ CRSP KES ${formatCurrency(variant.crsp_kes).formatted}`;
-                    el.crspPill.classList.add('show');
-                } else {
-                    el.crspPill.classList.remove('show');
-                }
-                updateFlowStep(5);
-            }
-
-            function updateVehiclePills() {
-                const fuelVal = el.fuelTypeSelect.value;
-                const transVal = el.transmissionSelect.value;
-                el.fuelPill.textContent = FUEL_TYPE_LABELS[fuelVal] || '—';
-                el.transmissionPill.textContent = TRANSMISSION_LABELS[transVal] || '—';
-            }
-
-            function updateValuateButtonState() {
-                const hasTrim = !!el.trimSelect.value;
-                const checkingCount = photos.filter(p => p.status === 'checking').length;
-
-                if (!isAuthenticated || !hasTrim || isValuating) {
-                    el.valuateBtn.disabled = true;
-                    if (!isValuating) el.valuateBtn.innerHTML = '🚀 Get AI Valuation';
-                    return;
-                }
-                if (checkingCount > 0) {
-                    el.valuateBtn.disabled = true;
-                    el.valuateBtn.innerHTML = '<span class="spinner"></span> Scanning photos...';
-                    return;
-                }
-                el.valuateBtn.disabled = false;
-                el.valuateBtn.innerHTML = '🚀 Get AI Valuation';
-            }
-
-            // ─── PHOTO FUNCTIONS ──────────────────────────────────────
-            function renderPhotoGrid() {
-                el.photoGrid.innerHTML = '';
-                photos.forEach((p, i) => {
-                    const slot = document.createElement('div');
-                    slot.className = 'photo-slot' + (p.status !== 'empty' ? ' filled' : '');
-                    slot.dataset.index = i;
-
-                    if (p.dataUrl) {
-                        slot.innerHTML = `
-                            <img src="${p.dataUrl}" alt="Vehicle photo ${i + 1}" />
-                            <button type="button" class="photo-remove" data-index="${i}" aria-label="Remove photo ${i + 1}" title="Remove">✕</button>
-                            ${p.status === 'checking' ? '<div class="photo-scan-line"></div><div class="authenticity-badge checking">Scanning…</div>' : ''}
-                            ${p.status === 'verified' ? '<div class="authenticity-badge verified">✅ Camera metadata found</div>' : ''}
-                            ${p.status === 'flagged' ? '<div class="authenticity-badge flagged">⚠️ Flagged for review</div>' : ''}
-                        `;
-                    } else {
-                        slot.innerHTML = `
-                            <span class="placeholder-icon">📷</span>
-                            <span class="placeholder-label">Photo ${i + 1}</span>
-                            <input type="file" accept="image/*" data-index="${i}" />
-                        `;
-                    }
-                    el.photoGrid.appendChild(slot);
-                });
-
-                el.photoGrid.querySelectorAll('input[type="file"]').forEach(input => {
-                    input.addEventListener('change', function() {
-                        const idx = parseInt(this.dataset.index, 10);
-                        if (this.files && this.files[0]) onPhotoFileChosen(idx, this.files[0]);
-                    });
-                });
-                el.photoGrid.querySelectorAll('.photo-slot').forEach(slotEl => {
-                    slotEl.addEventListener('click', function(e) {
-                        if (e.target.classList.contains('photo-remove')) return;
-                        const idx = parseInt(this.dataset.index, 10);
-                        if (photos[idx].status === 'empty') {
-                            const input = this.querySelector('input[type="file"]');
-                            if (input) input.click();
-                        }
-                    });
-                });
-                el.photoGrid.querySelectorAll('.photo-remove').forEach(btn => {
-                    btn.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        const idx = parseInt(this.dataset.index, 10);
-                        photos[idx] = { dataUrl: null, fileName: null, status: 'empty', reason: '' };
-                        renderPhotoGrid();
-                        updatePhotoAuthSummary();
-                        updateValuateButtonState();
-                    });
-                });
-            }
-
-            function onPhotoFileChosen(index, file) {
-                if (!file.type || !file.type.startsWith('image/')) {
-                    showToast('Please choose an image file', 'warning');
-                    return;
-                }
-                if (file.size > CONFIG.MAX_PHOTO_SIZE) {
-                    showToast('Image is too large (max 12MB)', 'warning');
-                    return;
-                }
-                const reader = new FileReader();
-                reader.onload = async function(e) {
-                    photos[index] = { dataUrl: e.target.result, fileName: file.name, status: 'checking', reason: 'Analyzing…' };
-                    renderPhotoGrid();
-                    updatePhotoAuthSummary();
-                    updateValuateButtonState();
-                    const result = await checkImageAuthenticity(file);
-                    photos[index].status = result.flagged ? 'flagged' : 'verified';
-                    photos[index].reason = result.reason;
-                    renderPhotoGrid();
-                    updatePhotoAuthSummary();
-                    updateValuateButtonState();
-                    if (result.flagged) {
-                        showToast('⚠️ Photo flagged — valuation will proceed with a warning on the report', 'warning');
-                    }
-                };
-                reader.onerror = function() {
-                    showToast('Could not read that image file', 'error');
-                };
-                reader.readAsDataURL(file);
-            }
-
-            async function checkImageAuthenticity(file) {
-                try {
-                    if (typeof exifr === 'undefined') {
-                        return { flagged: true, reason: 'Metadata scanner unavailable — flagged for manual review' };
-                    }
-                    const meta = await exifr.parse(file, ['Make', 'Model', 'Software', 'DateTimeOriginal']).catch(() => null);
-
-                    const software = (meta && meta.Software) ? String(meta.Software).toLowerCase() : '';
-                    const aiToolPattern = /midjourney|dall-?e|stable diffusion|stablediffusion|firefly|dreamstudio|leonardo\.ai|runwayml|imagen|nightcafe|craiyon/;
-                    if (software && aiToolPattern.test(software)) {
-                        return { flagged: true, reason: `AI image-generation tool detected in file metadata (${meta.Software})` };
-                    }
-
-                    const hasCameraInfo = !!(meta && (meta.Make || meta.Model));
-                    if (!hasCameraInfo) {
-                        return {
-                            flagged: true,
-                            reason: 'No camera metadata found — could be screenshot/download/edited image. Valuation proceeds with warning.'
-                        };
-                    }
-                    const camera = [meta.Make, meta.Model].filter(Boolean).join(' ');
-                    return { flagged: false, reason: `Camera metadata found (${camera})` };
-                } catch (e) {
-                    return { flagged: true, reason: 'Could not read image metadata — flagged for manual review' };
-                }
-            }
-
-            function updatePhotoAuthSummary() {
-                const uploaded = photos.filter(p => p.status !== 'empty');
-                if (uploaded.length === 0) {
-                    el.photoAuthSummary.innerHTML = '📤 Upload clear photos of the front, rear, sides and interior. Each photo is automatically screened for signs it may be an AI-generated or non-original image.';
-                    return;
-                }
-                const checking = uploaded.filter(p => p.status === 'checking').length;
-                const flagged = uploaded.filter(p => p.status === 'flagged').length;
-                const verified = uploaded.filter(p => p.status === 'verified').length;
-                let msg = `<strong>${uploaded.length}/${CONFIG.MAX_PHOTOS} photo${uploaded.length === 1 ? '' : 's'} uploaded.</strong> `;
-                if (checking) msg += `${checking} scanning… `;
-                if (verified) msg += `<span class="ok">${verified} passed metadata check.</span> `;
-                if (flagged) msg += `<span class="warn">⚠️ ${flagged} flagged for manual review — valuation will proceed with a warning on the report.</span>`;
-                msg += ` <span class="proceed-note">(Photo screening is a heuristic — flagged images may still be genuine.)</span>`;
-                el.photoAuthSummary.innerHTML = msg;
-            }
-
-            function renderReportPhotos() {
-                const uploaded = photos.filter(p => p.dataUrl);
-                if (uploaded.length === 0) {
-                    el.reportPhotosSection.style.display = 'none';
-                    return;
-                }
-                el.reportPhotosGrid.innerHTML = uploaded.map(p => `
-                    <div class="rp-item">
-                        <img src="${p.dataUrl}" alt="${escapeHTML(p.fileName || 'Vehicle photo')}" />
-                        <div class="rp-tag ${p.status === 'flagged' ? 'warn' : 'ok'}">${p.status === 'flagged' ? '⚠️ Review' : '✅ Verified'}</div>
-                    </div>
-                `).join('');
-                el.reportPhotosSection.style.display = 'block';
-            }
-
-            // ─── VALUATE ──────────────────────────────────────────────
-            async function valuate() {
-                if (!isAuthenticated) {
-                    showToast('⚠️ Please sign in first', 'warning');
-                    return;
-                }
-                if (isValuating) return;
-                
-                const trimValue = el.trimSelect.value;
-                if (!trimValue) {
-                    showToast('Please select a trim', 'error');
-                    return;
+            // ─── API SERVICE ─────────────────────────────────────────
+            class APIService {
+                constructor(baseUrl, getToken) {
+                    this.baseUrl = baseUrl;
+                    this.getToken = getToken;
                 }
 
-                if (photos.some(p => p.status === 'checking')) {
-                    showToast('⏳ Still scanning photos — please wait', 'info');
-                    return;
-                }
-
-                hasFlaggedPhotos = photos.some(p => p.status === 'flagged');
-                if (hasFlaggedPhotos) {
-                    showToast('⚠️ Some photos were flagged — valuation will proceed with a warning on the report', 'warning');
-                }
-
-                const selectedTrim = allTrims.find(t => t.trim === trimValue);
-                if (!selectedTrim) {
-                    showToast('Failed to load trim details', 'error');
-                    return;
-                }
-
-                currentVariantData = selectedTrim;
-                displayVehicleInfo(selectedTrim);
-
-                const registration = el.registrationInput.value.trim().toUpperCase() || 'Not Provided';
-                const year = parseInt(el.yearSelect.value) || 2020;
-
-                const formData = {
-                    make: el.makeSelect.value,
-                    model: el.modelSelect.value,
-                    trim: trimValue,
-                    year: year,
-                    mileage: parseFloat(el.mileageInput.value) || 50000,
-                    condition: el.conditionSelect.value,
-                    accident_history: el.accidentSelect.value,
-                    previous_owners: parseInt(el.ownersSelect.value) || 1,
-                    location: el.locationSelect.value,
-                    fuel_type: el.fuelTypeSelect.value,
-                    transmission: el.transmissionSelect.value,
-                    vehicle_type: el.vehicleTypeSelect.value,
-                    profit_margin: parseFloat(el.profitMarginInput.value) || 0,
-                    engine_capacity: selectedTrim.engine_capacity,
-                    crsp_kes: selectedTrim.crsp_kes
-                };
-
-                isValuating = true;
-                el.valuateBtn.disabled = true;
-                el.valuateBtn.innerHTML = '<span class="spinner"></span> Valuating...';
-                el.loadingSteps.classList.add('show');
-                updateLoadingStep(1);
-
-                try {
-                    let step = 1;
-                    const stepInterval = setInterval(() => { step++; if (step <= 3) updateLoadingStep(step); }, 1000);
-                    
-                    const result = await callValuationAPI(formData);
-                    clearInterval(stepInterval);
-                    updateLoadingStep(3);
-                    el.loadingSteps.classList.remove('show');
-                    if (result && (result.valuation || result.final_value || result.final_market_value)) {
-                        showResult(result, registration, formData);
-                        showToast('✅ Valuation complete!', 'success');
-                    } else {
-                        throw new Error('No valuation data received');
-                    }
-                } catch (err) {
-                    el.loadingSteps.classList.remove('show');
-                    showToast('❌ Valuation failed: ' + err.message, 'error');
-                } finally {
-                    isValuating = false;
-                    updateValuateButtonState();
-                }
-            }
-
-            async function callValuationAPI(formData) {
-                const payload = {
-                    make: formData.make || '',
-                    model: formData.model || '',
-                    trim: formData.trim || '',
-                    year: formData.year || 2020,
-                    mileage_km: formData.mileage || 50000,
-                    condition_name: (formData.condition || 'good').toUpperCase(),
-                    accident_status: (formData.accident_history || 'none').toUpperCase(),
-                    previous_owners: formData.previous_owners || 1,
-                    location_name: (formData.location || 'nairobi').toUpperCase(),
-                    engine_capacity: formData.engine_capacity || '',
-                    fuel_type: formData.fuel_type || '',
-                    transmission: formData.transmission || '',
-                    vehicle_type: (formData.vehicle_type || 'sedan').toUpperCase(),
-                    profit_margin: formData.profit_margin || 0,
-                    crsp_kes: formData.crsp_kes || null
-                };
-
-                const response = await apiRequest('/valuation/calculate', {
-                    method: 'POST',
-                    body: JSON.stringify(payload)
-                });
-
-                if (!response.ok) {
-                    let errorData;
-                    try { errorData = await response.json(); } catch (e) { errorData = { message: `HTTP ${response.status}` }; }
-                    throw new Error(errorData.message || errorData.detail || `HTTP ${response.status}`);
-                }
-                return await response.json();
-            }
-
-            async function apiRequest(endpoint, options = {}) {
-                const url = `${CONFIG.API_BASE}${endpoint}`;
-                const token = getAccessToken();
-                const headers = { 
-                    'Content-Type': 'application/json', 
-                    'Accept': 'application/json', 
-                    ...options.headers 
-                };
-                if (token) headers['Authorization'] = `Bearer ${token}`;
-                
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT);
-                
-                try {
-                    const response = await fetch(url, { 
-                        ...options, 
-                        headers, 
-                        credentials: 'include',
-                        signal: controller.signal 
-                    });
-                    clearTimeout(timeoutId);
-                    
-                    if (response.status === 401) {
-                        try {
-                            const { data, error } = await supabaseClient.auth.refreshSession();
-                            if (!error && data.session) {
-                                setTokens(data.session);
-                                headers['Authorization'] = `Bearer ${data.session.access_token}`;
-                                const retry = await fetch(url, { ...options, headers, credentials: 'include' });
-                                if (retry.status !== 401) return retry;
-                            }
-                        } catch (e) { console.warn('Session refresh failed:', e); }
-                        clearTokens();
-                        isAuthenticated = false;
-                        updateAuthUI();
-                        throw new Error('Authentication required');
-                    }
-                    return response;
-                } catch (error) {
-                    clearTimeout(timeoutId);
-                    if (error.name === 'AbortError') {
-                        throw new Error('Request timed out after ' + (CONFIG.REQUEST_TIMEOUT / 1000) + ' seconds');
-                    }
-                    throw error;
-                }
-            }
-
-            function showResult(result, registration, formData) {
-                formData = formData || {};
-                let data = result.data || result;
-                let currentValue = 0;
-                let sellingPrice = null;
-                let confidence = 75;
-                let vehicleName = '';
-                let year = '';
-                let mileage = '';
-                let mileageKm = null;
-                let location = '';
-                let condition = '';
-                let fuelType = '';
-                let transmission = '';
-                let engine = '';
-                let trim = '';
-                let reportNumber = 'AUTO-' + String(Date.now()).slice(-6);
-                let adjustments = {};
-                let ageYears = null;
-                let depreciationRate = null;
-                let depreciationAmount = null;
-                let mileageAdjustment = null;
-
-                const vFallback = (apiVal, formVal) => {
-                    if (apiVal !== undefined && apiVal !== null && apiVal !== '') return apiVal;
-                    return formVal;
-                };
-
-                if (data.valuation) {
-                    const val = data.valuation;
-                    currentValue = val.estimated_vehicle_value || 0;
-                    confidence = val.confidence_score || 75;
-                    sellingPrice = vFallback(val.recommended_selling_price, null);
-                    reportNumber = data.report?.report_number || reportNumber;
-                    adjustments = data.analysis?.adjustments || {};
-                    depreciationRate = vFallback(data.analysis?.depreciation_rate, null);
-                    depreciationAmount = vFallback(data.analysis?.depreciation_amount, null);
-                    mileageAdjustment = vFallback(data.analysis?.mileage_adjustment, null);
-                    ageYears = vFallback(data.analysis?.vehicle_age, null);
-
-                    const apiVehicle = data.vehicle || {};
-                    vehicleName = vFallback(
-                        (apiVehicle.make || apiVehicle.model || apiVehicle.trim)
-                            ? `${apiVehicle.make || ''} ${apiVehicle.model || ''} ${apiVehicle.trim || ''}`.trim()
-                            : null,
-                        getVehicleName(
-                            el.makeSelect.value || '',
-                            el.modelSelect.value || '',
-                            el.trimSelect.value || ''
-                        )
-                    ) || 'Unknown Vehicle';
-                    year = vFallback(apiVehicle.year, formData.year || el.yearSelect.value) || '—';
-                    const mileageVal = vFallback(apiVehicle.mileage, formData.mileage || parseFloat(el.mileageInput.value));
-                    mileageKm = mileageVal || null;
-                    mileage = mileageVal ? `${Number(mileageVal).toLocaleString('en-KE')} km` : '—';
-                    location = vFallback(apiVehicle.location, el.locationSelect.options[el.locationSelect.selectedIndex]?.text) || '—';
-                    condition = vFallback(apiVehicle.condition, el.conditionSelect.options[el.conditionSelect.selectedIndex]?.text) || '—';
-                    fuelType = vFallback(apiVehicle.fuel_type, FUEL_TYPE_LABELS[el.fuelTypeSelect.value] || currentVariantData?.fuel) || '—';
-                    transmission = vFallback(apiVehicle.transmission, TRANSMISSION_LABELS[el.transmissionSelect.value] || currentVariantData?.transmission) || '—';
-                    engine = vFallback(apiVehicle.engine_capacity, currentVariantData?.engine_capacity) || '—';
-                    trim = vFallback(apiVehicle.trim, el.trimSelect.value || '') || '—';
-                } else if (data.final_market_value || data.final_value) {
-                    currentValue = data.final_market_value || data.final_value || 0;
-                    confidence = data.confidence_score || 75;
-                    sellingPrice = vFallback(data.recommended_selling_price, null);
-                    adjustments = {
-                        mileage: data.mileage_adjustment || 0,
-                        condition: data.condition_adjustment || 0,
-                        accident: data.accident_adjustment || 0,
-                        location: data.location_adjustment || 0,
-                        market: data.market_adjustment || 0
+                async request(endpoint, options = {}) {
+                    const token = await this.getToken();
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        ...options.headers
                     };
-                    depreciationRate = vFallback(data.depreciation_rate, null);
-                    depreciationAmount = vFallback(data.depreciation_amount, null);
-                    mileageAdjustment = vFallback(data.mileage_adjustment, null);
-                    ageYears = vFallback(data.vehicle_age, null);
-                    vehicleName = `${data.make || ''} ${data.model || ''} ${data.trim || ''}`.trim() || 'Unknown Vehicle';
-                    year = data.year || el.yearSelect.value || '—';
-                    mileageKm = data.mileage_km || null;
-                    mileage = data.mileage_km ? `${Number(data.mileage_km).toLocaleString('en-KE')} km` : '—';
-                    location = data.location_name || el.locationSelect.options[el.locationSelect.selectedIndex]?.text || '—';
-                    condition = data.condition_name || el.conditionSelect.options[el.conditionSelect.selectedIndex]?.text || '—';
-                    fuelType = currentVariantData?.fuel || '—';
-                    transmission = currentVariantData?.transmission || '—';
-                    engine = currentVariantData?.engine_capacity || '—';
-                    trim = data.trim || el.trimSelect.value || '—';
-                } else {
-                    currentValue = data.market_value || data.retail_value || data.trade_value || 0;
-                    confidence = data.confidence_score || 75;
-                    sellingPrice = vFallback(data.recommended_selling_price, null);
-                    adjustments = data.adjustments || {};
-                    depreciationRate = vFallback(data.depreciation_rate, null);
-                    depreciationAmount = vFallback(data.depreciation_amount, null);
-                    mileageAdjustment = vFallback(data.mileage_adjustment, null);
-                    ageYears = vFallback(data.vehicle_age, null);
-                    vehicleName = getVehicleName(
-                        el.makeSelect.value || '',
-                        el.modelSelect.value || '',
-                        el.trimSelect.value || ''
-                    ) || 'Unknown Vehicle';
-                    year = el.yearSelect.value || '—';
-                    mileageKm = parseFloat(el.mileageInput.value) || null;
-                    mileage = el.mileageInput.value ? `${Number(el.mileageInput.value).toLocaleString('en-KE')} km` : '—';
-                    location = el.locationSelect.options[el.locationSelect.selectedIndex]?.text || '—';
-                    condition = el.conditionSelect.options[el.conditionSelect.selectedIndex]?.text || '—';
-                    fuelType = FUEL_TYPE_LABELS[el.fuelTypeSelect.value] || currentVariantData?.fuel || '—';
-                    transmission = TRANSMISSION_LABELS[el.transmissionSelect.value] || currentVariantData?.transmission || '—';
-                    engine = currentVariantData?.engine_capacity || '—';
-                    trim = el.trimSelect.value || '—';
+                    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT);
+
+                    try {
+                        const response = await fetch(`${this.baseUrl}${endpoint}`, {
+                            ...options,
+                            headers,
+                            credentials: 'include',
+                            signal: controller.signal
+                        });
+                        clearTimeout(timeoutId);
+                        return response;
+                    } catch (error) {
+                        clearTimeout(timeoutId);
+                        if (error.name === 'AbortError') {
+                            throw new Error(`Request timed out after ${CONFIG.REQUEST_TIMEOUT / 1000}s`);
+                        }
+                        throw error;
+                    }
                 }
 
-                // Local fallback computation if API didn't return depreciation/mileage breakdown explicitly
-                if (ageYears === null) {
-                    const yr = parseInt(year) || parseInt(el.yearSelect.value);
-                    if (yr) ageYears = new Date().getFullYear() - yr;
-                }
-                if (depreciationRate === null && ageYears !== null) {
-                    depreciationRate = getKraDepreciationRate(ageYears);
-                }
-                if (depreciationAmount === null && depreciationRate !== null && currentVariantData?.crsp_kes) {
-                    depreciationAmount = currentVariantData.crsp_kes * depreciationRate;
-                }
-                if (mileageAdjustment === null && mileageKm !== null) {
-                    // Simple heuristic fallback only used when API provides nothing: ±1% per 10,000km vs a 60,000km baseline
-                    const baseline = 60000;
-                    const diff = baseline - mileageKm;
-                    mileageAdjustment = (diff / 10000) * 0.01;
+                async post(endpoint, data) {
+                    return this.request(endpoint, {
+                        method: 'POST',
+                        body: JSON.stringify(data)
+                    });
                 }
 
-                // Recommended selling price fallback: apply profit margin on top of estimated value
-                if (sellingPrice === null || sellingPrice === undefined) {
-                    const margin = formData.profit_margin || 0;
-                    sellingPrice = currentValue > 0 ? currentValue * (1 + margin / 100) : null;
+                async calculateValuation(data) {
+                    const response = await this.post(CONFIG.ENDPOINTS.VALUATION, data);
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({}));
+                        throw new Error(error.message || error.detail || `HTTP ${response.status}`);
+                    }
+                    return response.json();
+                }
+            }
+
+            // ─── PHOTO PROCESSOR ─────────────────────────────────────
+            class PhotoProcessor {
+                constructor(maxPhotos = 4, maxSize = 12 * 1024 * 1024) {
+                    this.maxPhotos = maxPhotos;
+                    this.maxSize = maxSize;
                 }
 
-                const formatted = formatCurrency(currentValue);
-                el.resultMarketValue.innerHTML = `
-                    <span class="currency">KES</span>
-                    <span class="amount">${formatted.parts.whole}</span>
-                    <span class="decimal">.00</span>
-                `;
-
-                if (sellingPrice && sellingPrice > 0) {
-                    el.resultSellingPrice.innerHTML = `<span class="currency">KES</span><span class="amount">${formatCurrency(sellingPrice).parts.whole}</span>`;
-                } else {
-                    el.resultSellingPrice.innerHTML = `<span class="currency">KES</span><span class="amount">—</span>`;
+                validate(file) {
+                    if (!file.type.startsWith('image/')) {
+                        return { valid: false, error: 'File must be an image' };
+                    }
+                    if (file.size > this.maxSize) {
+                        return { valid: false, error: `Image too large (max ${this.maxSize / 1024 / 1024}MB)` };
+                    }
+                    return { valid: true };
                 }
 
-                const rangeMin = Math.round(currentValue * 0.95);
-                const rangeMax = Math.round(currentValue * 1.05);
-                el.resultRange.textContent = `KES ${rangeMin.toLocaleString()} — ${rangeMax.toLocaleString()}`;
-
-                setTimeout(() => { el.confidenceFill.style.width = `${Math.min(confidence, 98)}%`; }, 300);
-                el.confidenceLabel.textContent = `${Math.round(confidence)}%`;
-
-                // Depreciation & mileage breakdown
-                el.depAge.textContent = ageYears !== null ? `${ageYears} yr${ageYears === 1 ? '' : 's'}` : '—';
-                el.depRate.textContent = depreciationRate !== null ? `${(depreciationRate * 100).toFixed(1)}%` : '—';
-                el.depAmount.textContent = depreciationAmount !== null ? `- KES ${formatCurrency(Math.abs(depreciationAmount)).formatted}` : '—';
-                if (mileageAdjustment !== null) {
-                    const pct = mileageAdjustment * 100;
-                    const sign = pct >= 0 ? '+' : '';
-                    el.depMileage.textContent = `${sign}${pct.toFixed(1)}%`;
-                    el.depMileage.style.color = pct >= 0 ? 'var(--green)' : 'var(--red)';
-                } else {
-                    el.depMileage.textContent = '—';
-                    el.depMileage.style.color = 'var(--amber)';
+                async readAsDataURL(file) {
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    });
                 }
 
-                el.resultReportNum.textContent = reportNumber;
-                el.resultDate.textContent = new Date().toLocaleDateString('en-KE', {
-                    year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                });
+                async extractMetadata(file) {
+                    try {
+                        if (typeof exifr === 'undefined') return null;
+                        return await exifr.parse(file, ['Make', 'Model', 'Software', 'DateTimeOriginal']);
+                    } catch {
+                        return null;
+                    }
+                }
 
-                el.resultVehicle.textContent = vehicleName || 'Unknown Vehicle';
-                el.resultRegistration.textContent = registration || 'Not Provided';
-                el.resultYear.textContent = year;
-                el.resultMileage.textContent = mileage;
-                el.resultLocation.textContent = location;
-                el.resultCondition.textContent = condition;
-                el.resultFuelType.textContent = fuelType;
-                el.resultTransmission.textContent = transmission;
-                el.resultEngine.textContent = engine;
-                el.resultTrim.textContent = trim;
-                el.resultVehicleType.textContent = VEHICLE_TYPE_LABELS[formData.vehicle_type] || formData.vehicle_type || '—';
-                el.resultOwners.textContent = formData.previous_owners !== undefined ? String(formData.previous_owners) : '—';
-                el.resultProfitMargin.textContent = formData.profit_margin !== undefined ? `${formData.profit_margin}%` : '—';
+                assessAuthenticity(metadata) {
+                    const aiPatterns = [
+                        'midjourney', 'dall-e', 'stable diffusion', 
+                        'firefly', 'dreamstudio', 'leonardo.ai', 'runwayml'
+                    ];
 
-                const adjList = el.adjustmentsList;
-                adjList.innerHTML = '';
-                const labels = {
-                    'age': '📅 Age', 'mileage': '📊 Mileage', 'location': '📍 Location',
-                    'fuel_type': '⛽ Fuel Type', 'transmission': '⚙️ Transmission',
-                    'body_type': '🚗 Body Type', 'vehicle_type': '🚘 Vehicle Type', 'condition': '⭐ Condition',
-                    'accident': '⚠️ Accident History', 'previous_owners': '👤 Previous Owners',
-                    'market': '📈 Market'
-                };
-                let hasAdjustments = false;
-                for (const [key, value] of Object.entries(adjustments)) {
-                    if (value !== 1.0 && value !== undefined && value !== 0 && labels[key]) {
-                        hasAdjustments = true;
-                        const pct = typeof value === 'number' ? value * 100 : value;
-                        const sign = pct > 0 ? '+' : '';
-                        const cls = pct >= 0 ? 'positive' : 'negative';
-                        adjList.innerHTML += `
-                            <div class="adjustment-row">
-                                <span>${labels[key]}</span>
-                                <span class="adj-value ${cls}">${sign}${Math.abs(pct).toFixed(1)}%</span>
-                            </div>
+                    if (metadata?.Software) {
+                        const software = metadata.Software.toLowerCase();
+                        if (aiPatterns.some(pattern => software.includes(pattern))) {
+                            return { 
+                                authentic: false, 
+                                reason: `AI generation tool detected: ${metadata.Software}`
+                            };
+                        }
+                    }
+
+                    const hasCameraInfo = !!(metadata?.Make || metadata?.Model);
+                    return {
+                        authentic: hasCameraInfo,
+                        reason: hasCameraInfo ? 
+                            `Camera: ${metadata.Make || ''} ${metadata.Model || ''}`.trim() : 
+                            'No camera metadata (may be screenshot)'
+                    };
+                }
+
+                async process(file) {
+                    const validation = this.validate(file);
+                    if (!validation.valid) {
+                        return { success: false, error: validation.error };
+                    }
+
+                    try {
+                        const dataUrl = await this.readAsDataURL(file);
+                        const metadata = await this.extractMetadata(file);
+                        const authenticity = this.assessAuthenticity(metadata);
+
+                        return {
+                            success: true,
+                            dataUrl,
+                            fileName: file.name,
+                            metadata,
+                            authenticity,
+                            flagged: !authenticity.authentic
+                        };
+                    } catch (error) {
+                        return { success: false, error: 'Failed to process image' };
+                    }
+                }
+            }
+
+            // ─── UI CONTROLLER ──────────────────────────────────────
+            class UIController {
+                constructor() {
+                    this.elements = {};
+                    this.photoProcessor = new PhotoProcessor(CONFIG.MAX_PHOTOS, CONFIG.MAX_PHOTO_SIZE);
+                    this.initializeElements();
+                    this.bindEvents();
+                }
+
+                initializeElements() {
+                    const ids = [
+                        'registrationInput', 'makeSelect', 'modelSelect', 'yearSelect', 'trimSelect',
+                        'vehicleTypeSelect', 'fuelTypeSelect', 'transmissionSelect', 'mileageInput',
+                        'conditionSelect', 'accidentSelect', 'ownersSelect', 'locationSelect',
+                        'profitMarginInput', 'valuateBtn', 'vehicleLabel', 'fuelPill', 'transmissionPill',
+                        'engineCCDisplay', 'crspPill', 'vehicleSpecs', 'resultBox', 'resultMarketValue',
+                        'resultSellingPrice', 'resultRange', 'confidenceFill', 'confidenceLabel',
+                        'adjustmentsList', 'depreciationSection', 'depAge', 'depRate', 'depAmount',
+                        'depMileage', 'resultVehicle', 'resultRegistration', 'resultYear', 'resultMileage',
+                        'resultLocation', 'resultDate', 'resultReportNum', 'resultCondition', 'resultFuelType',
+                        'resultTransmission', 'resultEngine', 'resultTrim', 'resultVehicleType',
+                        'resultOwners', 'resultProfitMargin', 'topLoader', 'statusMessage',
+                        'statusMessageText', 'authStatus', 'authMessage', 'authButtons', 'authForms',
+                        'authEmail', 'authPassword', 'btnSignIn', 'btnSignOut', 'btnLogin', 'btnSignup',
+                        'btnCancelAuth', 'loadingSteps', 'lastUpdated', 'crspInfo', 'crspMatchedLine',
+                        'crspBasePrice', 'crspAge', 'crspDepreciationRate', 'crspReferenceValue',
+                        'crspResultSection', 'rCrspMatched', 'rCrspBase', 'rCrspAge', 'rCrspRef',
+                        'rCrspVariance', 'flowSteps', 'photoGrid', 'photoAuthSummary',
+                        'reportPhotosSection', 'reportPhotosGrid', 'photoWarningSection',
+                        'printBtn', 'shareBtn', 'footerUrl'
+                    ];
+
+                    ids.forEach(id => {
+                        this.elements[id] = document.getElementById(id);
+                    });
+                }
+
+                bindEvents() {
+                    // Auth events
+                    this.elements.btnSignIn?.addEventListener('click', () => this.toggleAuthForm());
+                    this.elements.btnCancelAuth?.addEventListener('click', () => this.hideAuthForm());
+                    
+                    // Vehicle selection events - to be overridden by app
+                    this.elements.makeSelect?.addEventListener('change', (e) => this.handleMakeChange(e));
+                    this.elements.modelSelect?.addEventListener('change', (e) => this.handleModelChange(e));
+                    this.elements.yearSelect?.addEventListener('change', (e) => this.handleYearChange(e));
+                    this.elements.trimSelect?.addEventListener('change', (e) => this.handleTrimChange(e));
+
+                    // Valuation event
+                    this.elements.valuateBtn?.addEventListener('click', () => this.handleValuate());
+
+                    // Report actions
+                    this.elements.printBtn?.addEventListener('click', () => setTimeout(() => window.print(), 500));
+                    this.elements.shareBtn?.addEventListener('click', () => this.handleShare());
+                }
+
+                // ─── UI HELPERS ──────────────────────────────────────
+                setStatus(type, message) {
+                    const el = this.elements.statusMessage;
+                    const textEl = this.elements.statusMessageText;
+                    if (!el || !textEl) return;
+
+                    el.className = `status-message ${type}`;
+                    textEl.textContent = message;
+
+                    const icons = { error: '❌', warning: '⚠️', success: '✅', info: '⏳' };
+                    const iconSpan = el.querySelector('.status-icon');
+                    if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
+                }
+
+                showToast(message, type = 'info') {
+                    const existing = document.querySelector('.toast');
+                    if (existing) existing.remove();
+
+                    const toast = document.createElement('div');
+                    toast.className = `toast toast-${type}`;
+                    toast.textContent = message;
+                    toast.setAttribute('role', 'alert');
+                    document.body.appendChild(toast);
+                    setTimeout(() => toast.remove(), 5000);
+                }
+
+                showLoadingBar() {
+                    const el = this.elements.topLoader;
+                    if (!el) return;
+                    el.classList.remove('done');
+                    void el.offsetWidth;
+                    el.classList.add('active');
+                }
+
+                hideLoadingBar() {
+                    const el = this.elements.topLoader;
+                    if (!el) return;
+                    el.classList.remove('active');
+                    el.classList.add('done');
+                    setTimeout(() => el.classList.remove('done'), 300);
+                }
+
+                updateFlowStep(step) {
+                    const steps = this.elements.flowSteps?.querySelectorAll('.flow-step');
+                    if (!steps) return;
+
+                    steps.forEach((s, index) => {
+                        const num = index + 1;
+                        s.classList.remove('active', 'done');
+                        if (num < step) s.classList.add('done');
+                        else if (num === step) s.classList.add('active');
+                    });
+                }
+
+                updateValuateButton(enabled, text) {
+                    const btn = this.elements.valuateBtn;
+                    if (!btn) return;
+                    btn.disabled = !enabled;
+                    btn.innerHTML = text || (enabled ? '🚀 Get AI Valuation' : '🔒 Select a trim');
+                }
+
+                updateVehiclePills(fuel, transmission, engine, crsp) {
+                    const fuelEl = this.elements.fuelPill;
+                    const transEl = this.elements.transmissionPill;
+                    const engineEl = this.elements.engineCCDisplay;
+                    const crspEl = this.elements.crspPill;
+
+                    if (fuelEl) fuelEl.textContent = fuel || '—';
+                    if (transEl) transEl.textContent = transmission || '—';
+                    if (engineEl) {
+                        engineEl.textContent = engine || '—';
+                        engineEl.style.display = 'inline-block';
+                    }
+                    if (crspEl) {
+                        if (crsp) {
+                            crspEl.textContent = `🏛️ CRSP KES ${this.formatCurrency(crsp).formatted}`;
+                            crspEl.classList.add('show');
+                        } else {
+                            crspEl.classList.remove('show');
+                        }
+                    }
+                }
+
+                formatCurrency(val) {
+                    if (val === undefined || val === null || isNaN(val) || val < 0) {
+                        return { formatted: '0', parts: { whole: '0', decimal: '00' } };
+                    }
+                    const num = Number(val);
+                    const formatted = num.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+                    return { formatted, parts: { whole: formatted, decimal: '00' } };
+                }
+
+                getVehicleName(make, model, trim) {
+                    const cleanMake = (make || '').trim();
+                    const cleanModel = (model || '').trim();
+                    const cleanTrim = (trim || '').trim();
+                    if (!cleanTrim) return `${cleanMake} ${cleanModel}`.trim() || 'Unknown Vehicle';
+                    return `${cleanMake} ${cleanModel} ${cleanTrim}`.trim();
+                }
+
+                // ─── AUTH UI ──────────────────────────────────────────
+                toggleAuthForm() {
+                    const form = this.elements.authForms;
+                    if (!form) return;
+                    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+                    if (form.style.display === 'block') {
+                        this.elements.authEmail?.focus();
+                    }
+                }
+
+                hideAuthForm() {
+                    const form = this.elements.authForms;
+                    if (form) form.style.display = 'none';
+                }
+
+                updateAuthUI(user) {
+                    const statusEl = this.elements.authStatus;
+                    const msgEl = this.elements.authMessage;
+                    const signInBtn = this.elements.btnSignIn;
+                    const signOutBtn = this.elements.btnSignOut;
+                    const makeSelect = this.elements.makeSelect;
+
+                    if (user) {
+                        const email = user.email || 'user';
+                        if (statusEl) {
+                            statusEl.textContent = `🔒 ${email}`;
+                            statusEl.className = 'auth-status authenticated';
+                        }
+                        if (msgEl) msgEl.textContent = `✅ Signed in as ${email}`;
+                        if (signInBtn) signInBtn.style.display = 'none';
+                        if (signOutBtn) signOutBtn.style.display = 'inline-block';
+                        if (makeSelect) makeSelect.disabled = false;
+                    } else {
+                        if (statusEl) {
+                            statusEl.textContent = '🔓 Not Authenticated';
+                            statusEl.className = 'auth-status unauthenticated';
+                        }
+                        if (msgEl) msgEl.textContent = 'Sign in to get your instant vehicle valuation';
+                        if (signInBtn) signInBtn.style.display = 'inline-block';
+                        if (signOutBtn) signOutBtn.style.display = 'none';
+                        if (makeSelect) makeSelect.disabled = true;
+                        this.updateValuateButton(false, '🔒 Sign in required');
+                    }
+                }
+
+                // ─── PHOTO UI ─────────────────────────────────────────
+                renderPhotoGrid(photos) {
+                    const grid = this.elements.photoGrid;
+                    if (!grid) return;
+
+                    grid.innerHTML = '';
+                    photos.forEach((p, i) => {
+                        const slot = document.createElement('div');
+                        slot.className = `photo-slot${p.status !== 'empty' ? ' filled' : ''}`;
+                        slot.dataset.index = i;
+
+                        if (p.dataUrl) {
+                            slot.innerHTML = `
+                                <img src="${p.dataUrl}" alt="Vehicle photo ${i + 1}" />
+                                <button type="button" class="photo-remove" data-index="${i}" aria-label="Remove photo ${i + 1}" title="Remove">✕</button>
+                                ${p.status === 'checking' ? '<div class="photo-scan-line"></div><div class="authenticity-badge checking">Scanning…</div>' : ''}
+                                ${p.status === 'verified' ? '<div class="authenticity-badge verified">✅ Camera metadata found</div>' : ''}
+                                ${p.status === 'flagged' ? '<div class="authenticity-badge flagged">⚠️ Flagged for review</div>' : ''}
+                            `;
+                        } else {
+                            slot.innerHTML = `
+                                <span class="placeholder-icon">📷</span>
+                                <span class="placeholder-label">Photo ${i + 1}</span>
+                                <input type="file" accept="image/*" data-index="${i}" />
+                            `;
+                        }
+                        grid.appendChild(slot);
+                    });
+
+                    // Bind file input events
+                    grid.querySelectorAll('input[type="file"]').forEach(input => {
+                        input.addEventListener('change', (e) => {
+                            const idx = parseInt(e.target.dataset.index, 10);
+                            if (e.target.files && e.target.files[0]) {
+                                this.handlePhotoUpload(idx, e.target.files[0]);
+                            }
+                        });
+                    });
+
+                    // Bind click events for upload
+                    grid.querySelectorAll('.photo-slot').forEach(slot => {
+                        slot.addEventListener('click', (e) => {
+                            if (e.target.classList.contains('photo-remove')) return;
+                            const idx = parseInt(slot.dataset.index, 10);
+                            if (photos[idx]?.status === 'empty') {
+                                const input = slot.querySelector('input[type="file"]');
+                                if (input) input.click();
+                            }
+                        });
+                    });
+
+                    // Bind remove events
+                    grid.querySelectorAll('.photo-remove').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const idx = parseInt(e.target.dataset.index, 10);
+                            photos[idx] = { dataUrl: null, fileName: null, status: 'empty', reason: '' };
+                            this.renderPhotoGrid(photos);
+                            this.updatePhotoSummary(photos);
+                            this.updateValuateButton(true);
+                        });
+                    });
+                }
+
+                updatePhotoSummary(photos) {
+                    const summary = this.elements.photoAuthSummary;
+                    if (!summary) return;
+
+                    const uploaded = photos.filter(p => p.status !== 'empty');
+                    if (uploaded.length === 0) {
+                        summary.innerHTML = '📤 Upload clear photos of the front, rear, sides and interior. Each photo is automatically screened for signs it may be an AI-generated or non-original image.';
+                        return;
+                    }
+
+                    const checking = uploaded.filter(p => p.status === 'checking').length;
+                    const flagged = uploaded.filter(p => p.status === 'flagged').length;
+                    const verified = uploaded.filter(p => p.status === 'verified').length;
+
+                    let msg = `<strong>${uploaded.length}/${CONFIG.MAX_PHOTOS} photo${uploaded.length === 1 ? '' : 's'} uploaded.</strong> `;
+                    if (checking) msg += `${checking} scanning… `;
+                    if (verified) msg += `<span class="ok">${verified} passed metadata check.</span> `;
+                    if (flagged) msg += `<span class="warn">⚠️ ${flagged} flagged for manual review — valuation will proceed with a warning on the report.</span>`;
+                    msg += ` <span class="proceed-note">(Photo screening is a heuristic — flagged images may still be genuine.)</span>`;
+                    summary.innerHTML = msg;
+                }
+
+                renderReportPhotos(photos) {
+                    const section = this.elements.reportPhotosSection;
+                    const grid = this.elements.reportPhotosGrid;
+                    if (!section || !grid) return;
+
+                    const uploaded = photos.filter(p => p.dataUrl);
+                    if (uploaded.length === 0) {
+                        section.style.display = 'none';
+                        return;
+                    }
+
+                    grid.innerHTML = uploaded.map(p => `
+                        <div class="rp-item">
+                            <img src="${p.dataUrl}" alt="${this.escapeHTML(p.fileName || 'Vehicle photo')}" />
+                            <div class="rp-tag ${p.status === 'flagged' ? 'warn' : 'ok'}">${p.status === 'flagged' ? '⚠️ Review' : '✅ Verified'}</div>
+                        </div>
+                    `).join('');
+                    section.style.display = 'block';
+                }
+
+                escapeHTML(str) {
+                    if (!str) return '';
+                    const div = document.createElement('div');
+                    div.textContent = str;
+                    return div.innerHTML;
+                }
+
+                // ─── VEHICLE DISPLAY ──────────────────────────────────
+                displayVehicleInfo(make, model, trim, variant) {
+                    const label = this.getVehicleName(make, model, trim);
+                    const labelEl = this.elements.vehicleLabel;
+                    if (labelEl) labelEl.textContent = label || 'Unnamed vehicle';
+
+                    const cleanBody = variant?.body_type ? 
+                        (variant.body_type.split(/\s+/).filter((v, i, arr) => arr.indexOf(v) === i).join(' ')) : '';
+
+                    const specItems = [
+                        { label: '🚗', value: cleanBody || '—' },
+                        { label: '⛽', value: variant?.fuel || '—' },
+                        { label: '⚙️', value: variant?.transmission || '—' },
+                        { label: '🔧', value: variant?.drive_config || '—' }
+                    ];
+
+                    const specsEl = this.elements.vehicleSpecs;
+                    if (specsEl) {
+                        specsEl.innerHTML = specItems.map(item =>
+                            `<span class="spec-item">${this.escapeHTML(item.label)} <span class="spec-value">${this.escapeHTML(item.value)}</span></span>`
+                        ).join('');
+                    }
+
+                    this.updateVehiclePills(
+                        variant?.fuel || '—',
+                        variant?.transmission || '—',
+                        variant?.engine_capacity || '—',
+                        variant?.crsp_kes
+                    );
+                }
+
+                // ─── RESULT DISPLAY ────────────────────────────────────
+                showValuationResult(result, registration, formData) {
+                    const data = result.data || result;
+                    let currentValue = 0;
+                    let sellingPrice = null;
+                    let confidence = 75;
+                    let vehicleName = '';
+                    let year = '';
+                    let mileage = '';
+                    let mileageKm = null;
+                    let location = '';
+                    let condition = '';
+                    let fuelType = '';
+                    let transmission = '';
+                    let engine = '';
+                    let trim = '';
+                    let reportNumber = 'AUTO-' + String(Date.now()).slice(-6);
+                    let adjustments = {};
+                    let ageYears = null;
+                    let depreciationRate = null;
+                    let depreciationAmount = null;
+                    let mileageAdjustment = null;
+
+                    const vFallback = (apiVal, formVal) => {
+                        if (apiVal !== undefined && apiVal !== null && apiVal !== '') return apiVal;
+                        return formVal;
+                    };
+
+                    // Extract valuation data
+                    if (data.valuation) {
+                        const val = data.valuation;
+                        currentValue = val.estimated_vehicle_value || 0;
+                        confidence = val.confidence_score || 75;
+                        sellingPrice = vFallback(val.recommended_selling_price, null);
+                        reportNumber = data.report?.report_number || reportNumber;
+                        adjustments = data.analysis?.adjustments || {};
+                        depreciationRate = vFallback(data.analysis?.depreciation_rate, null);
+                        depreciationAmount = vFallback(data.analysis?.depreciation_amount, null);
+                        mileageAdjustment = vFallback(data.analysis?.mileage_adjustment, null);
+                        ageYears = vFallback(data.analysis?.vehicle_age, null);
+
+                        const apiVehicle = data.vehicle || {};
+                        vehicleName = vFallback(
+                            (apiVehicle.make || apiVehicle.model || apiVehicle.trim)
+                                ? `${apiVehicle.make || ''} ${apiVehicle.model || ''} ${apiVehicle.trim || ''}`.trim()
+                                : null,
+                            this.getVehicleName(
+                                formData.make || '',
+                                formData.model || '',
+                                formData.trim || ''
+                            )
+                        ) || 'Unknown Vehicle';
+                        year = vFallback(apiVehicle.year, formData.year) || '—';
+                        const mileageVal = vFallback(apiVehicle.mileage, formData.mileage);
+                        mileageKm = mileageVal || null;
+                        mileage = mileageVal ? `${Number(mileageVal).toLocaleString('en-KE')} km` : '—';
+                        location = vFallback(apiVehicle.location, formData.location) || '—';
+                        condition = vFallback(apiVehicle.condition, formData.condition) || '—';
+                        fuelType = vFallback(apiVehicle.fuel_type, formData.fuel_type) || '—';
+                        transmission = vFallback(apiVehicle.transmission, formData.transmission) || '—';
+                        engine = vFallback(apiVehicle.engine_capacity, formData.engine_capacity) || '—';
+                        trim = vFallback(apiVehicle.trim, formData.trim) || '—';
+                    } else if (data.final_market_value || data.final_value) {
+                        currentValue = data.final_market_value || data.final_value || 0;
+                        confidence = data.confidence_score || 75;
+                        sellingPrice = vFallback(data.recommended_selling_price, null);
+                        adjustments = {
+                            mileage: data.mileage_adjustment || 0,
+                            condition: data.condition_adjustment || 0,
+                            accident: data.accident_adjustment || 0,
+                            location: data.location_adjustment || 0,
+                            market: data.market_adjustment || 0
+                        };
+                        depreciationRate = vFallback(data.depreciation_rate, null);
+                        depreciationAmount = vFallback(data.depreciation_amount, null);
+                        mileageAdjustment = vFallback(data.mileage_adjustment, null);
+                        ageYears = vFallback(data.vehicle_age, null);
+                        vehicleName = `${data.make || ''} ${data.model || ''} ${data.trim || ''}`.trim() || 'Unknown Vehicle';
+                        year = data.year || '—';
+                        mileageKm = data.mileage_km || null;
+                        mileage = data.mileage_km ? `${Number(data.mileage_km).toLocaleString('en-KE')} km` : '—';
+                        location = data.location_name || '—';
+                        condition = data.condition_name || '—';
+                        fuelType = formData.fuel_type || '—';
+                        transmission = formData.transmission || '—';
+                        engine = formData.engine_capacity || '—';
+                        trim = data.trim || '—';
+                    }
+
+                    // Display the result
+                    this.displayValuationValues(currentValue, sellingPrice, confidence);
+                    this.displayValuationDetails(
+                        vehicleName, registration, year, mileage, location, condition,
+                        fuelType, transmission, engine, trim, reportNumber,
+                        formData.vehicle_type, formData.previous_owners, formData.profit_margin
+                    );
+                    this.displayDepreciation(ageYears, depreciationRate, depreciationAmount, mileageAdjustment);
+                    this.displayAdjustments(adjustments);
+                    this.displayCRSPInfo(formData.crsp_kes, currentValue, vehicleName);
+
+                    // Show result box
+                    const box = this.elements.resultBox;
+                    if (box) {
+                        box.classList.add('show');
+                        box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+
+                    if (currentValue > 0) this.fireConfetti();
+                }
+
+                displayValuationValues(value, sellingPrice, confidence) {
+                    const formatted = this.formatCurrency(value);
+                    const valueEl = this.elements.resultMarketValue;
+                    if (valueEl) {
+                        valueEl.innerHTML = `
+                            <span class="currency">KES</span>
+                            <span class="amount">${formatted.parts.whole}</span>
+                            <span class="decimal">.00</span>
                         `;
                     }
-                }
-                if (!hasAdjustments) {
-                    adjList.innerHTML = `<div class="adjustment-row"><span>No adjustments applied</span><span class="adj-value">—</span></div>`;
-                }
 
-                // Show CRSP info if available
-                if (currentVariantData?.crsp_kes) {
-                    el.rCrspBase.textContent = `KES ${formatCurrency(currentVariantData.crsp_kes).formatted}`;
-                    el.rCrspRef.textContent = `KES ${formatCurrency(currentVariantData.crsp_kes * 0.85).formatted}`;
-                    el.rCrspMatched.textContent = `${el.makeSelect.value} ${el.modelSelect.value} ${el.trimSelect.value}`;
-                    const variance = currentVariantData.crsp_kes > 0 ? ((currentValue - currentVariantData.crsp_kes) / currentVariantData.crsp_kes * 100) : 0;
-                    el.rCrspVariance.textContent = `${variance > 0 ? '+' : ''}${variance.toFixed(1)}%`;
-                    el.rCrspVariance.className = `value ${Math.abs(variance) > 20 ? 'negative' : variance >= 0 ? 'positive' : 'negative'}`;
-                    el.crspResultSection.style.display = 'block';
-                } else {
-                    el.crspResultSection.style.display = 'none';
-                }
-
-                renderReportPhotos();
-
-                if (hasFlaggedPhotos) {
-                    el.photoWarningSection.style.display = 'block';
-                } else {
-                    el.photoWarningSection.style.display = 'none';
-                }
-
-                el.resultBox.classList.add('show');
-                el.resultBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                if (currentValue > 0) fireConfetti();
-            }
-
-            function fireConfetti() {
-                const container = document.createElement('div');
-                container.className = 'confetti-container';
-                document.body.appendChild(container);
-                const colors = ['#eab308', '#22c55e', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#f59e0b'];
-                for (let i = 0; i < 60; i++) {
-                    const piece = document.createElement('div');
-                    piece.className = 'confetti-piece';
-                    piece.style.left = Math.random() * 100 + '%';
-                    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
-                    piece.style.width = (Math.random() * 8 + 4) + 'px';
-                    piece.style.height = (Math.random() * 8 + 4) + 'px';
-                    piece.style.animationDuration = (Math.random() * 2 + 2) + 's';
-                    piece.style.animationDelay = (Math.random() * 2) + 's';
-                    container.appendChild(piece);
-                }
-                setTimeout(() => container.remove(), 5000);
-            }
-
-            // ─── EVENT LISTENERS ─────────────────────────────────────────
-            function initEventListeners() {
-                el.btnSignIn.addEventListener('click', () => {
-                    el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
-                    if (el.authForms.style.display === 'block') {
-                        el.authEmail.focus();
-                    }
-                });
-                el.btnCancelAuth.addEventListener('click', () => { el.authForms.style.display = 'none'; });
-                el.btnLogin.addEventListener('click', async () => {
-                    const email = el.authEmail.value.trim();
-                    const password = el.authPassword.value;
-                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
-                    await signIn(email, password);
-                    el.authForms.style.display = 'none';
-                    el.authEmail.value = '';
-                    el.authPassword.value = '';
-                });
-                el.btnSignup.addEventListener('click', async () => {
-                    const email = el.authEmail.value.trim();
-                    const password = el.authPassword.value;
-                    if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
-                    if (password.length < 6) { showToast('Password must be at least 6 characters', 'warning'); return; }
-                    await signUp(email, password);
-                    el.authForms.style.display = 'none';
-                    el.authEmail.value = '';
-                    el.authPassword.value = '';
-                });
-                el.btnSignOut.addEventListener('click', signOut);
-
-                el.authEmail.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.authPassword.focus(); });
-                el.authPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.btnLogin.click(); });
-
-                el.makeSelect.addEventListener('change', async function() {
-                    if (!isAuthenticated) return;
-                    const makeName = this.value;
-                    if (makeName) {
-                        await loadModels(makeName);
-                        el.yearSelect.innerHTML = '<option value="">Select a model first</option>';
-                        el.yearSelect.disabled = true;
-                        el.trimSelect.innerHTML = '<option value="">Select a year first</option>';
-                        el.trimSelect.disabled = true;
-                        el.valuateBtn.disabled = true;
-                        el.resultBox.classList.remove('show');
-                    }
-                });
-
-                el.modelSelect.addEventListener('change', async function() {
-                    if (!isAuthenticated) return;
-                    const modelName = this.value;
-                    if (modelName) {
-                        await loadYears(modelName);
-                        el.trimSelect.innerHTML = '<option value="">Select a year first</option>';
-                        el.trimSelect.disabled = true;
-                        el.valuateBtn.disabled = true;
-                        el.resultBox.classList.remove('show');
-                    }
-                });
-
-                el.yearSelect.addEventListener('change', async function() {
-                    if (!isAuthenticated) return;
-                    const year = this.value;
-                    const modelName = el.modelSelect.value;
-                    if (year && modelName) {
-                        await loadTrims(modelName, year);
-                        el.valuateBtn.disabled = true;
-                        el.resultBox.classList.remove('show');
-                    }
-                });
-
-                el.trimSelect.addEventListener('change', function() {
-                    if (!isAuthenticated) return;
-                    const trim = this.value;
-                    if (trim) {
-                        const selectedTrim = allTrims.find(t => t.trim === trim);
-                        if (selectedTrim) {
-                            currentVariantData = selectedTrim;
-                            displayVehicleInfo(selectedTrim);
-                            const fuelGuess = normalizeFuelType(selectedTrim.fuel);
-                            if (fuelGuess) el.fuelTypeSelect.value = fuelGuess;
-                            const transGuess = normalizeTransmission(selectedTrim.transmission);
-                            if (transGuess) el.transmissionSelect.value = transGuess;
-                            const typeGuess = guessVehicleType(selectedTrim.body_type);
-                            if (typeGuess) el.vehicleTypeSelect.value = typeGuess;
-                            updateValuateButtonState();
+                    const priceEl = this.elements.resultSellingPrice;
+                    if (priceEl) {
+                        if (sellingPrice && sellingPrice > 0) {
+                            priceEl.innerHTML = `<span class="currency">KES</span><span class="amount">${this.formatCurrency(sellingPrice).parts.whole}</span>`;
+                        } else {
+                            priceEl.innerHTML = `<span class="currency">KES</span><span class="amount">—</span>`;
                         }
-                        el.resultBox.classList.remove('show');
                     }
-                });
 
-                el.fuelTypeSelect.addEventListener('change', updateVehiclePills);
-                el.transmissionSelect.addEventListener('change', updateVehiclePills);
+                    const rangeEl = this.elements.resultRange;
+                    if (rangeEl) {
+                        const rangeMin = Math.round(value * 0.95);
+                        const rangeMax = Math.round(value * 1.05);
+                        rangeEl.textContent = `KES ${rangeMin.toLocaleString()} — ${rangeMax.toLocaleString()}`;
+                    }
 
-                el.valuateBtn.addEventListener('click', valuate);
+                    const fillEl = this.elements.confidenceFill;
+                    const labelEl = this.elements.confidenceLabel;
+                    if (fillEl) {
+                        setTimeout(() => { fillEl.style.width = `${Math.min(confidence, 98)}%`; }, 300);
+                    }
+                    if (labelEl) labelEl.textContent = `${Math.round(confidence)}%`;
+                }
 
-                el.printBtn.addEventListener('click', function() {
-                    setTimeout(() => window.print(), 500);
-                });
+                displayValuationDetails(vehicle, registration, year, mileage, location, condition,
+                    fuelType, transmission, engine, trim, reportNumber, vehicleType, owners, profitMargin) {
+                    
+                    const mappings = {
+                        resultVehicle: vehicle,
+                        resultRegistration: registration,
+                        resultYear: year,
+                        resultMileage: mileage,
+                        resultLocation: location,
+                        resultCondition: condition,
+                        resultFuelType: fuelType,
+                        resultTransmission: transmission,
+                        resultEngine: engine,
+                        resultTrim: trim,
+                        resultVehicleType: vehicleType ? this.getVehicleTypeLabel(vehicleType) : '—',
+                        resultOwners: owners !== undefined ? String(owners) : '—',
+                        resultProfitMargin: profitMargin !== undefined ? `${profitMargin}%` : '—',
+                        resultReportNum: reportNumber,
+                        resultDate: new Date().toLocaleDateString('en-KE', {
+                            year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                        })
+                    };
 
-                el.shareBtn.addEventListener('click', function() {
+                    Object.entries(mappings).forEach(([id, value]) => {
+                        const el = this.elements[id];
+                        if (el) el.textContent = value;
+                    });
+                }
+
+                displayDepreciation(ageYears, rate, amount, mileageAdj) {
+                    const ageEl = this.elements.depAge;
+                    const rateEl = this.elements.depRate;
+                    const amountEl = this.elements.depAmount;
+                    const mileageEl = this.elements.depMileage;
+
+                    if (ageEl) ageEl.textContent = ageYears !== null ? `${ageYears} yr${ageYears === 1 ? '' : 's'}` : '—';
+                    if (rateEl) rateEl.textContent = rate !== null ? `${(rate * 100).toFixed(1)}%` : '—';
+                    if (amountEl) amountEl.textContent = amount !== null ? `- KES ${this.formatCurrency(Math.abs(amount)).formatted}` : '—';
+                    
+                    if (mileageEl) {
+                        if (mileageAdj !== null) {
+                            const pct = mileageAdj * 100;
+                            const sign = pct >= 0 ? '+' : '';
+                            mileageEl.textContent = `${sign}${pct.toFixed(1)}%`;
+                            mileageEl.style.color = pct >= 0 ? 'var(--green)' : 'var(--red)';
+                        } else {
+                            mileageEl.textContent = '—';
+                            mileageEl.style.color = 'var(--amber)';
+                        }
+                    }
+                }
+
+                displayAdjustments(adjustments) {
+                    const list = this.elements.adjustmentsList;
+                    if (!list) return;
+
+                    const labels = {
+                        'age': '📅 Age', 'mileage': '📊 Mileage', 'location': '📍 Location',
+                        'fuel_type': '⛽ Fuel Type', 'transmission': '⚙️ Transmission',
+                        'body_type': '🚗 Body Type', 'vehicle_type': '🚘 Vehicle Type', 'condition': '⭐ Condition',
+                        'accident': '⚠️ Accident History', 'previous_owners': '👤 Previous Owners',
+                        'market': '📈 Market'
+                    };
+
+                    let hasAdjustments = false;
+                    list.innerHTML = '';
+
+                    for (const [key, value] of Object.entries(adjustments)) {
+                        if (value !== 1.0 && value !== undefined && value !== 0 && labels[key]) {
+                            hasAdjustments = true;
+                            const pct = typeof value === 'number' ? value * 100 : value;
+                            const sign = pct > 0 ? '+' : '';
+                            const cls = pct >= 0 ? 'positive' : 'negative';
+                            list.innerHTML += `
+                                <div class="adjustment-row">
+                                    <span>${labels[key]}</span>
+                                    <span class="adj-value ${cls}">${sign}${Math.abs(pct).toFixed(1)}%</span>
+                                </div>
+                            `;
+                        }
+                    }
+
+                    if (!hasAdjustments) {
+                        list.innerHTML = `<div class="adjustment-row"><span>No adjustments applied</span><span class="adj-value">—</span></div>`;
+                    }
+                }
+
+                displayCRSPInfo(crspKes, currentValue, vehicleName) {
+                    const section = this.elements.crspResultSection;
+                    if (!section) return;
+
+                    if (crspKes) {
+                        const baseEl = this.elements.rCrspBase;
+                        const refEl = this.elements.rCrspRef;
+                        const matchedEl = this.elements.rCrspMatched;
+                        const varianceEl = this.elements.rCrspVariance;
+
+                        if (baseEl) baseEl.textContent = `KES ${this.formatCurrency(crspKes).formatted}`;
+                        if (refEl) refEl.textContent = `KES ${this.formatCurrency(crspKes * 0.85).formatted}`;
+                        if (matchedEl) matchedEl.textContent = vehicleName || '—';
+                        
+                        if (varianceEl) {
+                            const variance = crspKes > 0 ? ((currentValue - crspKes) / crspKes * 100) : 0;
+                            varianceEl.textContent = `${variance > 0 ? '+' : ''}${variance.toFixed(1)}%`;
+                            varianceEl.className = `value ${Math.abs(variance) > 20 ? 'negative' : variance >= 0 ? 'positive' : 'negative'}`;
+                        }
+                        section.style.display = 'block';
+                    } else {
+                        section.style.display = 'none';
+                    }
+                }
+
+                getVehicleTypeLabel(type) {
+                    const labels = {
+                        sedan: '🚘 Sedan', suv: '🚙 SUV', hatchback: '🚗 Hatchback',
+                        wagon: '🚐 Station Wagon', pickup: '🛻 Pickup', van: '🚐 Van / Minivan',
+                        truck: '🚚 Truck', coupe: '🏎️ Coupe', motorcycle: '🏍️ Motorcycle', other: '❓ Other'
+                    };
+                    return labels[type] || type || '—';
+                }
+
+                fireConfetti() {
+                    const container = document.createElement('div');
+                    container.className = 'confetti-container';
+                    document.body.appendChild(container);
+                    
+                    const colors = ['#eab308', '#22c55e', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#f59e0b'];
+                    for (let i = 0; i < 60; i++) {
+                        const piece = document.createElement('div');
+                        piece.className = 'confetti-piece';
+                        piece.style.left = Math.random() * 100 + '%';
+                        piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+                        piece.style.width = (Math.random() * 8 + 4) + 'px';
+                        piece.style.height = (Math.random() * 8 + 4) + 'px';
+                        piece.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                        piece.style.animationDelay = (Math.random() * 2) + 's';
+                        container.appendChild(piece);
+                    }
+                    setTimeout(() => container.remove(), 5000);
+                }
+
+                // ─── EVENT HANDLERS (to be overridden) ──────────────────
+                handlePhotoUpload(index, file) {}
+                handleMakeChange(e) {}
+                handleModelChange(e) {}
+                handleYearChange(e) {}
+                handleTrimChange(e) {}
+                handleValuate() {}
+                handleLogin() {}
+                handleSignup() {}
+                handleSignOut() {}
+                handleShare() {
                     const url = window.location.href;
-                    const text = `Auto-D Kenya Vehicle Valuation\nVehicle: ${el.vehicleLabel.textContent}\nValue: ${el.resultMarketValue.textContent}`;
+                    const vehicle = this.elements.vehicleLabel?.textContent || 'Vehicle';
+                    const value = this.elements.resultMarketValue?.textContent || '0';
+                    const text = `Auto-D Kenya Vehicle Valuation\nVehicle: ${vehicle}\nValue: ${value}`;
+                    
                     if (navigator.share) {
                         navigator.share({ title: 'Auto-D Kenya Vehicle Valuation', text, url }).catch(() => {});
                     } else {
                         navigator.clipboard.writeText(`${text}\n${url}`).then(() => {
-                            showToast('📋 Report copied to clipboard!', 'success');
-                        }).catch(() => showToast('Share not available', 'error'));
+                            this.showToast('📋 Report copied to clipboard!', 'success');
+                        }).catch(() => this.showToast('Share not available', 'error'));
                     }
-                });
-
-                setInterval(async () => { await checkAuth(); }, 30000);
-            }
-
-            // ─── INIT ──────────────────────────────────────────────────
-            async function init() {
-                showLoadingBar();
-                try {
-                    renderPhotoGrid();
-                    updateValuateButtonState();
-                    
-                    const supabaseOk = initSupabase();
-                    if (!supabaseOk) {
-                        setStatus('error', "Connection failed — please refresh");
-                        hideLoadingBar();
-                        return;
-                    }
-                    
-                    await checkAuth();
-                    if (isAuthenticated) {
-                        await loadMakes();
-                    }
-                    
-                    el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
-                        year: 'numeric', month: 'short', day: 'numeric'
-                    });
-                    el.footerUrl.textContent = window.location.hostname || 'auto-digital.onrender.com';
-                    
-                    console.log('✅ Auto-D Kenya Instant Value Check initialized (v5.5)');
-                    console.log(`✅ Using view: ${CONFIG.VIEW_NAME}`);
-                    console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
-                    console.log(`🔗 API: ${CONFIG.API_BASE}/valuation/calculate`);
-                } catch (error) {
-                    console.error('Init error:', error);
-                    setStatus('error', "Something went wrong — please refresh");
-                } finally {
-                    hideLoadingBar();
                 }
             }
 
+            // ─── MAIN APPLICATION ─────────────────────────────────────
+            class App {
+                constructor() {
+                    this.ui = new UIController();
+                    this.api = null;
+                    this.state = {
+                        photos: Array.from({ length: CONFIG.MAX_PHOTOS }, () => ({ 
+                            dataUrl: null, 
+                            fileName: null, 
+                            status: 'empty', 
+                            reason: '' 
+                        })),
+                        allMakes: [],
+                        allModels: [],
+                        allTrims: [],
+                        currentVariant: null,
+                        isValuating: false
+                    };
+                    this.init();
+                }
+
+                async init() {
+                    this.ui.showLoadingBar();
+                    try {
+                        // Initialize Supabase
+                        const supabaseOk = this.initSupabase();
+                        if (!supabaseOk) {
+                            this.ui.setStatus('error', 'Connection failed — please refresh');
+                            this.ui.hideLoadingBar();
+                            return;
+                        }
+
+                        // Initialize API service
+                        this.api = new APIService(
+                            CONFIG.API_BASE,
+                            () => localStorage.getItem('access_token')
+                        );
+
+                        // Check authentication
+                        await this.checkAuth();
+
+                        // Render photo grid
+                        this.ui.renderPhotoGrid(this.state.photos);
+                        this.ui.updatePhotoSummary(this.state.photos);
+
+                        // Update UI
+                        this.ui.elements.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', {
+                            year: 'numeric', month: 'short', day: 'numeric'
+                        });
+                        this.ui.elements.footerUrl.textContent = window.location.hostname || 'auto-digital.onrender.com';
+
+                        // Override UI event handlers
+                        this.overrideUIHandlers();
+
+                        console.log('✅ Auto-D Kenya Instant Value Check initialized (v6.0)');
+                        console.log(`🔐 Authenticated: ${this.state.isAuthenticated ? '✅ Yes' : '❌ No'}`);
+                        console.log(`🔗 API: ${CONFIG.API_BASE}`);
+                    } catch (error) {
+                        console.error('Init error:', error);
+                        this.ui.setStatus('error', 'Something went wrong — please refresh');
+                    } finally {
+                        this.ui.hideLoadingBar();
+                    }
+                }
+
+                overrideUIHandlers() {
+                    const ui = this.ui;
+                    const app = this;
+
+                    // Auth handlers
+                    ui.handleLogin = async function() {
+                        const email = this.elements.authEmail?.value?.trim();
+                        const password = this.elements.authPassword?.value;
+                        if (!email || !password) {
+                            this.showToast('Please enter email and password', 'warning');
+                            return;
+                        }
+                        await app.signIn(email, password);
+                        this.hideAuthForm();
+                        if (this.elements.authEmail) this.elements.authEmail.value = '';
+                        if (this.elements.authPassword) this.elements.authPassword.value = '';
+                    };
+
+                    ui.handleSignup = async function() {
+                        const email = this.elements.authEmail?.value?.trim();
+                        const password = this.elements.authPassword?.value;
+                        if (!email || !password) {
+                            this.showToast('Please enter email and password', 'warning');
+                            return;
+                        }
+                        if (password.length < 6) {
+                            this.showToast('Password must be at least 6 characters', 'warning');
+                            return;
+                        }
+                        await app.signUp(email, password);
+                        this.hideAuthForm();
+                        if (this.elements.authEmail) this.elements.authEmail.value = '';
+                        if (this.elements.authPassword) this.elements.authPassword.value = '';
+                    };
+
+                    ui.handleSignOut = async function() {
+                        await app.signOut();
+                    };
+
+                    // Photo handler
+                    ui.handlePhotoUpload = function(index, file) {
+                        app.handlePhotoUpload(index, file);
+                    };
+
+                    // Vehicle selection handlers
+                    ui.handleMakeChange = async function(e) {
+                        if (!app.state.isAuthenticated) return;
+                        const makeName = e.target.value;
+                        if (makeName) {
+                            await app.loadModels(makeName);
+                            const yearSelect = this.elements.yearSelect;
+                            const trimSelect = this.elements.trimSelect;
+                            if (yearSelect) {
+                                yearSelect.innerHTML = '<option value="">Select a model first</option>';
+                                yearSelect.disabled = true;
+                            }
+                            if (trimSelect) {
+                                trimSelect.innerHTML = '<option value="">Select a year first</option>';
+                                trimSelect.disabled = true;
+                            }
+                            this.updateValuateButton(false, '🔒 Select a trim');
+                            const box = this.elements.resultBox;
+                            if (box) box.classList.remove('show');
+                        }
+                    };
+
+                    ui.handleModelChange = async function(e) {
+                        if (!app.state.isAuthenticated) return;
+                        const modelName = e.target.value;
+                        if (modelName) {
+                            await app.loadYears(modelName);
+                            const trimSelect = this.elements.trimSelect;
+                            if (trimSelect) {
+                                trimSelect.innerHTML = '<option value="">Select a year first</option>';
+                                trimSelect.disabled = true;
+                            }
+                            this.updateValuateButton(false, '🔒 Select a trim');
+                            const box = this.elements.resultBox;
+                            if (box) box.classList.remove('show');
+                        }
+                    };
+
+                    ui.handleYearChange = async function(e) {
+                        if (!app.state.isAuthenticated) return;
+                        const year = e.target.value;
+                        const modelName = this.elements.modelSelect?.value;
+                        if (year && modelName) {
+                            await app.loadTrims(modelName, year);
+                            this.updateValuateButton(false, '🔒 Select a trim');
+                            const box = this.elements.resultBox;
+                            if (box) box.classList.remove('show');
+                        }
+                    };
+
+                    ui.handleTrimChange = function(e) {
+                        if (!app.state.isAuthenticated) return;
+                        const trim = e.target.value;
+                        if (trim) {
+                            const selectedTrim = app.state.allTrims.find(t => t.trim === trim);
+                            if (selectedTrim) {
+                                app.state.currentVariant = selectedTrim;
+                                this.displayVehicleInfo(
+                                    this.elements.makeSelect?.value || '',
+                                    this.elements.modelSelect?.value || '',
+                                    trim,
+                                    selectedTrim
+                                );
+                                const fuelGuess = app.normalizeFuelType(selectedTrim.fuel);
+                                if (fuelGuess && this.elements.fuelTypeSelect) {
+                                    this.elements.fuelTypeSelect.value = fuelGuess;
+                                }
+                                const transGuess = app.normalizeTransmission(selectedTrim.transmission);
+                                if (transGuess && this.elements.transmissionSelect) {
+                                    this.elements.transmissionSelect.value = transGuess;
+                                }
+                                const typeGuess = app.guessVehicleType(selectedTrim.body_type);
+                                if (typeGuess && this.elements.vehicleTypeSelect) {
+                                    this.elements.vehicleTypeSelect.value = typeGuess;
+                                }
+                                this.updateValuateButton(true);
+                            }
+                            const box = this.elements.resultBox;
+                            if (box) box.classList.remove('show');
+                        }
+                    };
+
+                    // Valuation handler
+                    ui.handleValuate = function() {
+                        app.calculateValuation();
+                    };
+
+                    // Bind auth button events
+                    this.ui.elements.btnLogin?.addEventListener('click', () => this.ui.handleLogin());
+                    this.ui.elements.btnSignup?.addEventListener('click', () => this.ui.handleSignup());
+                    this.ui.elements.btnSignOut?.addEventListener('click', () => this.ui.handleSignOut());
+                }
+
+                initSupabase() {
+                    try {
+                        if (typeof supabase === 'undefined') {
+                            throw new Error('Supabase SDK not loaded');
+                        }
+                        const { createClient } = supabase;
+                        this.supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
+                            auth: { 
+                                persistSession: true, 
+                                autoRefreshToken: true, 
+                                detectSessionInUrl: true, 
+                                storage: localStorage 
+                            }
+                        });
+                        return true;
+                    } catch (error) {
+                        console.warn('Supabase init failed:', error.message);
+                        return false;
+                    }
+                }
+
+                // ─── AUTH ──────────────────────────────────────────────
+                async checkAuth() {
+                    try {
+                        const { data, error } = await this.supabase.auth.getSession();
+                        if (error) throw error;
+                        if (data.session) {
+                            this.state.isAuthenticated = true;
+                            this.state.currentUser = data.session.user;
+                            localStorage.setItem('access_token', data.session.access_token);
+                            localStorage.setItem('refresh_token', data.session.refresh_token);
+                            localStorage.setItem('user_id', data.session.user.id);
+                            localStorage.setItem('user_email', data.session.user.email);
+                            this.ui.updateAuthUI(data.session.user);
+                            await this.loadMakes();
+                        } else {
+                            this.state.isAuthenticated = false;
+                            this.state.currentUser = null;
+                            this.ui.updateAuthUI(null);
+                        }
+                        return this.state.isAuthenticated;
+                    } catch (error) {
+                        console.warn('Auth check failed:', error.message);
+                        this.state.isAuthenticated = false;
+                        this.state.currentUser = null;
+                        this.ui.updateAuthUI(null);
+                        return false;
+                    }
+                }
+
+                async signIn(email, password) {
+                    try {
+                        const { data, error } = await this.supabase.auth.signInWithPassword({ email, password });
+                        if (error) throw error;
+                        this.state.isAuthenticated = true;
+                        this.state.currentUser = data.session.user;
+                        localStorage.setItem('access_token', data.session.access_token);
+                        localStorage.setItem('refresh_token', data.session.refresh_token);
+                        localStorage.setItem('user_id', data.session.user.id);
+                        localStorage.setItem('user_email', data.session.user.email);
+                        this.ui.updateAuthUI(data.session.user);
+                        this.ui.showToast('✅ Signed in successfully!', 'success');
+                        await this.loadMakes();
+                        return true;
+                    } catch (error) {
+                        this.ui.showToast('❌ Sign in failed: ' + error.message, 'error');
+                        return false;
+                    }
+                }
+
+                async signUp(email, password) {
+                    try {
+                        const { data, error } = await this.supabase.auth.signUp({ email, password });
+                        if (error) throw error;
+                        if (data.user) {
+                            this.ui.showToast('✅ Account created! Please check your email to confirm.', 'success');
+                            return true;
+                        }
+                        return false;
+                    } catch (error) {
+                        this.ui.showToast('❌ Sign up failed: ' + error.message, 'error');
+                        return false;
+                    }
+                }
+
+                async signOut() {
+                    try {
+                        await this.supabase.auth.signOut();
+                        localStorage.removeItem('access_token');
+                        localStorage.removeItem('refresh_token');
+                        localStorage.removeItem('user_id');
+                        localStorage.removeItem('user_email');
+                        this.state.isAuthenticated = false;
+                        this.state.currentUser = null;
+                        this.ui.updateAuthUI(null);
+                        this.ui.showToast('🔓 Signed out', 'info');
+                        this.ui.updateValuateButton(false, '🔒 Sign in required');
+                        return true;
+                    } catch (error) {
+                        this.ui.showToast('❌ Sign out failed: ' + error.message, 'error');
+                        return false;
+                    }
+                }
+
+                // ─── VEHICLE DATA ──────────────────────────────────────
+                async queryCRSPView(select, filter, order) {
+                    if (!this.state.isAuthenticated) {
+                        throw new Error('Please sign in to browse vehicles');
+                    }
+                    let query = this.supabase.from(CONFIG.VIEW_NAME).select(select);
+                    if (filter) query = query.eq(filter.column, filter.value);
+                    if (order) query = query.order(order.column, { ascending: order.ascending !== false });
+                    const { data, error } = await query;
+                    if (error) throw error;
+                    return data;
+                }
+
+                async loadMakes() {
+                    try {
+                        this.ui.setStatus('info', 'Loading makes...');
+                        const data = await this.queryCRSPView(
+                            'make, make_id',
+                            null,
+                            { column: 'make', ascending: true }
+                        );
+
+                        const unique = {};
+                        data.forEach(item => {
+                            if (item.make && !unique[item.make]) {
+                                unique[item.make] = {
+                                    id: item.make_id || item.make,
+                                    name: item.make
+                                };
+                            }
+                        });
+                        this.state.allMakes = Object.values(unique);
+
+                        const select = this.ui.elements.makeSelect;
+                        if (select) {
+                            select.innerHTML = '<option value="">Select Make...</option>';
+                            this.state.allMakes.forEach(make => {
+                                const opt = document.createElement('option');
+                                opt.value = make.name;
+                                opt.textContent = make.name;
+                                select.appendChild(opt);
+                            });
+                            select.disabled = false;
+                        }
+                        this.ui.setStatus('success', `✅ Loaded ${this.state.allMakes.length} makes`);
+                        this.ui.updateFlowStep(1);
+                        return this.state.allMakes;
+                    } catch (error) {
+                        console.error('Error loading makes:', error);
+                        this.ui.setStatus('error', 'Failed to load makes');
+                        return [];
+                    }
+                }
+
+                async loadModels(makeName) {
+                    try {
+                        this.ui.setStatus('info', 'Loading models...');
+                        const data = await this.queryCRSPView(
+                            'model, model_id, body_type, seating_capacity',
+                            { column: 'make', value: makeName },
+                            { column: 'model', ascending: true }
+                        );
+
+                        const unique = {};
+                        data.forEach(item => {
+                            const modelName = item.model;
+                            if (modelName && !unique[modelName]) {
+                                unique[modelName] = {
+                                    id: item.model_id || modelName,
+                                    name: modelName,
+                                    body_type: item.body_type,
+                                    seating: item.seating_capacity
+                                };
+                            }
+                        });
+                        this.state.allModels = Object.values(unique);
+
+                        const select = this.ui.elements.modelSelect;
+                        if (select) {
+                            select.innerHTML = '<option value="">Select Model...</option>';
+                            this.state.allModels.forEach(model => {
+                                const opt = document.createElement('option');
+                                opt.value = model.name;
+                                let label = model.name;
+                                if (model.body_type) label += ` (${model.body_type})`;
+                                if (model.seating) label += ` · ${model.seating} seats`;
+                                opt.textContent = label;
+                                select.appendChild(opt);
+                            });
+                            select.disabled = false;
+                        }
+                        this.ui.setStatus('success', `✅ Loaded ${this.state.allModels.length} models`);
+                        this.ui.updateFlowStep(2);
+                        return this.state.allModels;
+                    } catch (error) {
+                        console.error('Error loading models:', error);
+                        this.ui.setStatus('error', 'Failed to load models');
+                        return [];
+                    }
+                }
+
+                async loadYears(modelName) {
+                    try {
+                        this.ui.setStatus('info', 'Loading years...');
+                        const data = await this.queryCRSPView(
+                            'manufacture_year, crsp_year',
+                            { column: 'model', value: modelName },
+                            { column: 'manufacture_year', ascending: false }
+                        );
+
+                        const unique = {};
+                        data.forEach(item => {
+                            const year = item.manufacture_year || item.crsp_year;
+                            if (year && !unique[year]) {
+                                unique[year] = year;
+                            }
+                        });
+
+                        const years = Object.values(unique).sort((a, b) => b - a);
+                        const select = this.ui.elements.yearSelect;
+                        if (select) {
+                            select.innerHTML = '<option value="">Select Year...</option>';
+                            years.forEach(year => {
+                                const opt = document.createElement('option');
+                                opt.value = year;
+                                opt.textContent = year;
+                                select.appendChild(opt);
+                            });
+                            select.disabled = false;
+                        }
+                        this.ui.setStatus('success', `✅ Loaded ${years.length} years`);
+                        this.ui.updateFlowStep(3);
+                        return years;
+                    } catch (error) {
+                        console.error('Error loading years:', error);
+                        this.ui.setStatus('error', 'Failed to load years');
+                        return [];
+                    }
+                }
+
+                async loadTrims(modelName, year) {
+                    try {
+                        this.ui.setStatus('info', 'Loading trims...');
+                        const data = await this.queryCRSPView(
+                            'trim_level, engine_capacity, fuel, transmission, drive_config, crsp_kes, body_type, manufacture_year, crsp_year',
+                            { column: 'model', value: modelName },
+                            { column: 'trim_level', ascending: true }
+                        );
+
+                        const filtered = data.filter(item => {
+                            const itemYear = item.manufacture_year || item.crsp_year;
+                            return itemYear == year;
+                        });
+
+                        const unique = {};
+                        filtered.forEach(item => {
+                            const trim = item.trim_level || 'Base';
+                            if (!unique[trim]) {
+                                unique[trim] = {
+                                    trim: trim,
+                                    engine_capacity: item.engine_capacity,
+                                    fuel: item.fuel,
+                                    transmission: item.transmission,
+                                    drive_config: item.drive_config,
+                                    crsp_kes: item.crsp_kes,
+                                    body_type: item.body_type
+                                };
+                            }
+                        });
+
+                        this.state.allTrims = Object.values(unique);
+                        const select = this.ui.elements.trimSelect;
+                        if (select) {
+                            select.innerHTML = '<option value="">Select Trim...</option>';
+                            this.state.allTrims.forEach(trim => {
+                                const opt = document.createElement('option');
+                                opt.value = trim.trim;
+                                let label = trim.trim;
+                                if (trim.engine_capacity) label += ` · ${trim.engine_capacity}`;
+                                if (trim.fuel) label += ` · ${trim.fuel}`;
+                                if (trim.transmission) label += ` · ${trim.transmission}`;
+                                opt.dataset.engine = trim.engine_capacity || '';
+                                opt.dataset.fuel = trim.fuel || '';
+                                opt.dataset.transmission = trim.transmission || '';
+                                opt.dataset.drive = trim.drive_config || '';
+                                opt.dataset.crsp = trim.crsp_kes || '';
+                                opt.dataset.body = trim.body_type || '';
+                                opt.textContent = label;
+                                select.appendChild(opt);
+                            });
+                            select.disabled = false;
+                        }
+                        this.ui.setStatus('success', `✅ Loaded ${this.state.allTrims.length} trims`);
+                        this.ui.updateFlowStep(4);
+                        return this.state.allTrims;
+                    } catch (error) {
+                        console.error('Error loading trims:', error);
+                        this.ui.setStatus('error', 'Failed to load trims');
+                        return [];
+                    }
+                }
+
+                // ─── PHOTO HANDLING ────────────────────────────────────
+                async handlePhotoUpload(index, file) {
+                    if (!file.type || !file.type.startsWith('image/')) {
+                        this.ui.showToast('Please choose an image file', 'warning');
+                        return;
+                    }
+                    if (file.size > CONFIG.MAX_PHOTO_SIZE) {
+                        this.ui.showToast('Image is too large (max 12MB)', 'warning');
+                        return;
+                    }
+
+                    this.state.photos[index] = { dataUrl: null, fileName: file.name, status: 'checking', reason: 'Analyzing…' };
+                    this.ui.renderPhotoGrid(this.state.photos);
+                    this.ui.updatePhotoSummary(this.state.photos);
+                    this.ui.updateValuateButton(false, '🔍 Scanning photos...');
+
+                    const result = await this.ui.photoProcessor.process(file);
+                    if (result.success) {
+                        this.state.photos[index] = {
+                            dataUrl: result.dataUrl,
+                            fileName: result.fileName,
+                            status: result.flagged ? 'flagged' : 'verified',
+                            reason: result.authenticity.reason
+                        };
+                        if (result.flagged) {
+                            this.ui.showToast('⚠️ Photo flagged — valuation will proceed with a warning on the report', 'warning');
+                        }
+                    } else {
+                        this.state.photos[index] = {
+                            dataUrl: null,
+                            fileName: file.name,
+                            status: 'flagged',
+                            reason: result.error || 'Processing failed'
+                        };
+                        this.ui.showToast('❌ ' + result.error, 'error');
+                    }
+
+                    this.ui.renderPhotoGrid(this.state.photos);
+                    this.ui.updatePhotoSummary(this.state.photos);
+                    this.ui.updateValuateButton(true);
+                }
+
+                // ─── VALUATION ──────────────────────────────────────────
+                async calculateValuation() {
+                    if (!this.state.isAuthenticated) {
+                        this.ui.showToast('⚠️ Please sign in first', 'warning');
+                        return;
+                    }
+                    if (this.state.isValuating) return;
+
+                    const trimValue = this.ui.elements.trimSelect?.value;
+                    if (!trimValue) {
+                        this.ui.showToast('Please select a trim', 'error');
+                        return;
+                    }
+
+                    if (this.state.photos.some(p => p.status === 'checking')) {
+                        this.ui.showToast('⏳ Still scanning photos — please wait', 'info');
+                        return;
+                    }
+
+                    this.state.hasFlaggedPhotos = this.state.photos.some(p => p.status === 'flagged');
+                    if (this.state.hasFlaggedPhotos) {
+                        this.ui.showToast('⚠️ Some photos were flagged — valuation will proceed with a warning on the report', 'warning');
+                    }
+
+                    const selectedTrim = this.state.allTrims.find(t => t.trim === trimValue);
+                    if (!selectedTrim) {
+                        this.ui.showToast('Failed to load trim details', 'error');
+                        return;
+                    }
+
+                    this.state.currentVariant = selectedTrim;
+                    this.ui.displayVehicleInfo(
+                        this.ui.elements.makeSelect?.value || '',
+                        this.ui.elements.modelSelect?.value || '',
+                        trimValue,
+                        selectedTrim
+                    );
+
+                    const registration = this.ui.elements.registrationInput?.value?.trim()?.toUpperCase() || 'Not Provided';
+                    const year = parseInt(this.ui.elements.yearSelect?.value) || 2020;
+
+                    const formData = {
+                        make: this.ui.elements.makeSelect?.value || '',
+                        model: this.ui.elements.modelSelect?.value || '',
+                        trim: trimValue,
+                        year: year,
+                        mileage: parseFloat(this.ui.elements.mileageInput?.value) || 50000,
+                        condition: this.ui.elements.conditionSelect?.value || 'good',
+                        accident_history: this.ui.elements.accidentSelect?.value || 'none',
+                        previous_owners: parseInt(this.ui.elements.ownersSelect?.value) || 1,
+                        location: this.ui.elements.locationSelect?.value || 'nairobi',
+                        fuel_type: this.ui.elements.fuelTypeSelect?.value || 'petrol',
+                        transmission: this.ui.elements.transmissionSelect?.value || 'automatic',
+                        vehicle_type: this.ui.elements.vehicleTypeSelect?.value || 'sedan',
+                        profit_margin: parseFloat(this.ui.elements.profitMarginInput?.value) || 0,
+                        engine_capacity: selectedTrim.engine_capacity,
+                        crsp_kes: selectedTrim.crsp_kes
+                    };
+
+                    this.state.isValuating = true;
+                    this.ui.updateValuateButton(false, '⏳ Valuating...');
+                    
+                    const stepsEl = this.ui.elements.loadingSteps;
+                    if (stepsEl) stepsEl.classList.add('show');
+                    this.updateLoadingStep(1);
+
+                    try {
+                        let step = 1;
+                        const stepInterval = setInterval(() => { 
+                            step++; 
+                            if (step <= 3) this.updateLoadingStep(step); 
+                        }, 1000);
+
+                        const result = await this.api.calculateValuation(formData);
+                        clearInterval(stepInterval);
+                        this.updateLoadingStep(3);
+                        if (stepsEl) stepsEl.classList.remove('show');
+
+                        if (result && (result.valuation || result.final_value || result.final_market_value)) {
+                            this.ui.showValuationResult(result, registration, formData);
+                            this.ui.showToast('✅ Valuation complete!', 'success');
+                        } else {
+                            throw new Error('No valuation data received');
+                        }
+                    } catch (error) {
+                        if (stepsEl) stepsEl.classList.remove('show');
+                        this.ui.showToast('❌ Valuation failed: ' + error.message, 'error');
+                        this.ui.setStatus('error', 'Valuation failed: ' + error.message);
+                    } finally {
+                        this.state.isValuating = false;
+                        this.ui.updateValuateButton(true);
+                    }
+                }
+
+                updateLoadingStep(step) {
+                    const steps = this.ui.elements.loadingSteps?.querySelectorAll('.loading-step');
+                    if (!steps) return;
+
+                    steps.forEach((el, index) => {
+                        const num = index + 1;
+                        el.classList.remove('active', 'done');
+                        if (num < step) {
+                            el.classList.add('done');
+                            const icon = el.querySelector('.icon');
+                            if (icon) icon.textContent = '✅';
+                        } else if (num === step) {
+                            el.classList.add('active');
+                            const icon = el.querySelector('.icon');
+                            if (icon) icon.innerHTML = '<div class="spinner-small"></div>';
+                        } else {
+                            const icon = el.querySelector('.icon');
+                            if (icon) icon.textContent = '⏳';
+                        }
+                    });
+                }
+
+                // ─── HELPERS ───────────────────────────────────────────
+                normalizeFuelType(name) {
+                    if (!name) return null;
+                    const n = String(name).toLowerCase();
+                    if (n.includes('petrol') || n.includes('gasoline')) return 'petrol';
+                    if (n.includes('diesel')) return 'diesel';
+                    if (n.includes('lpg')) return 'lpg';
+                    if (n.includes('electric') || n.includes('ev')) return 'electric';
+                    if (n.includes('hybrid')) return 'petrol';
+                    return null;
+                }
+
+                normalizeTransmission(name) {
+                    if (!name) return null;
+                    const n = String(name).toLowerCase();
+                    if (n.includes('manual')) return 'manual';
+                    if (n.includes('cvt')) return 'cvt';
+                    if (n.includes('amt')) return 'amt';
+                    if (n.includes('auto')) return 'automatic';
+                    return null;
+                }
+
+                guessVehicleType(bodyType) {
+                    if (!bodyType) return null;
+                    const b = String(bodyType).toLowerCase();
+                    if (b.includes('suv') || b.includes('crossover')) return 'suv';
+                    if (b.includes('hatchback') || b.includes('hatch')) return 'hatchback';
+                    if (b.includes('wagon') || b.includes('estate')) return 'wagon';
+                    if (b.includes('pickup') || b.includes('pick-up') || b.includes('pick up')) return 'pickup';
+                    if (b.includes('van') || b.includes('minivan')) return 'van';
+                    if (b.includes('truck') || b.includes('lorry')) return 'truck';
+                    if (b.includes('coupe')) return 'coupe';
+                    if (b.includes('motorcycle') || b.includes('motorbike')) return 'motorcycle';
+                    if (b.includes('sedan') || b.includes('saloon')) return 'sedan';
+                    return null;
+                }
+            }
+
+            // ─── BOOTSTRAP ──────────────────────────────────────────────
             document.addEventListener('DOMContentLoaded', function() {
-                initEventListeners();
-                init();
+                // Set up interval for auth check
+                setInterval(async () => { 
+                    if (window.app) await window.app.checkAuth(); 
+                }, 30000);
+
+                window.app = new App();
+                console.log('✅ Auto-D Kenya app fully initialized');
             });
 
         })();
     </script>
-
 </body>
 </html>
