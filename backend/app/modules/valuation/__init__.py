@@ -1,22 +1,14 @@
-# app/modules/valuation/__init__.py
+"""
+app/modules/valuation/__init__.py
 
-# ================================================================
-# Auto-D Kenya - Valuation Module
-# ================================================================
+Exposes the valuation router for app.main to import as:
 
-"""Valuation module for Auto-D Kenya."""
+    from app.modules.valuation.router import router as valuation_router
+
+Keeping this export here too means `from app.modules.valuation import router`
+(the package, not just the module) also works if anything imports it that way.
+"""
 
 from .router import router
-from .engine import ValuationEngine
-from .service import ValuationService
-from .repository import ValuationRepository
-from .schemas import ValuationRequest, ValuationResponse
 
-__all__ = [
-    "router",
-    "ValuationEngine",
-    "ValuationService",
-    "ValuationRepository",
-    "ValuationRequest",
-    "ValuationResponse",
-]
+__all__ = ["router"]
