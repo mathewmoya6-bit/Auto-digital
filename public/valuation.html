@@ -2738,12 +2738,33 @@
                     if (!this.state.isAuthenticated) {
                         throw new Error('Please sign in to browse vehicles');
                     }
-                    let query = this.supabase.from(CONFIG.VIEW_NAME).select(select);
-                    if (filter) query = query.eq(filter.column, filter.value);
-                    if (order) query = query.order(order.column, { ascending: order.ascending !== false });
-                    const { data, error } = await query;
-                    if (error) throw error;
-                    return data;
+                    // Paginate through all rows. A single unbounded select() only
+                    // returns whatever Supabase's server-side "Max Rows" API setting
+                    // allows (Dashboard → Settings → API → Max Rows) — if that's set
+                    // low, or the view has more rows than the default cap, results
+                    // get silently truncated (e.g. only 2 makes showing up after
+                    // dedup). Looping with .range() guarantees we fetch every row
+                    // the current RLS policy allows, regardless of that setting.
+                    const PAGE_SIZE = 1000;
+                    let allRows = [];
+                    let from = 0;
+
+                    while (true) {
+                        let query = this.supabase.from(CONFIG.VIEW_NAME).select(select);
+                        if (filter) query = query.eq(filter.column, filter.value);
+                        if (order) query = query.order(order.column, { ascending: order.ascending !== false });
+                        query = query.range(from, from + PAGE_SIZE - 1);
+
+                        const { data, error } = await query;
+                        if (error) throw error;
+
+                        allRows = allRows.concat(data || []);
+
+                        if (!data || data.length < PAGE_SIZE) break; // last page reached
+                        from += PAGE_SIZE;
+                    }
+
+                    return allRows;
                 }
 
                 async loadMakes() {
@@ -2754,6 +2775,7 @@
                             null,
                             { column: 'make', ascending: true }
                         );
+                        console.log(`🔎 CRSP view returned ${data.length} raw rows for makes`);
 
                         const unique = {};
                         data.forEach(item => {
