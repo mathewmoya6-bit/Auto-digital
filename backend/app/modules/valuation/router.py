@@ -1,3 +1,4 @@
+"""
 app/modules/valuation/router.py
 
 Routes registered under prefix /api/v1/valuation (see main app include:
@@ -6,7 +7,7 @@ tags=["Valuation"])`).
 
 Endpoint set matches openapi.json exactly:
   POST /calculate                       (auth required)
-  POST /calculate-public                (no auth — used by public widgets)
+  POST /calculate-public                (no auth -- used by public widgets)
   POST /quick                           (no auth, no persistence)
   POST /calculate-legacy                (back-compat shape, deprecated)
   GET  /health
@@ -20,7 +21,7 @@ Endpoint set matches openapi.json exactly:
 NOTE: instant-value.html currently calls plain "/valuation/calculate"
 (not "-public") and always attaches a Bearer token because the make/
 model/trim dropdowns themselves are gated behind Supabase auth
-(`makeSelect.disabled = !authenticated`) — so `get_current_user` is a
+(`makeSelect.disabled = !authenticated`) -- so `get_current_user` is a
 hard dependency here, matching that flow. `/calculate-public` exists for
 other embeds (e.g. a marketing landing page widget) that never gate on
 sign-in.
@@ -61,9 +62,9 @@ def _service_dep() -> ValuationService:
     return get_valuation_service()
 
 
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 # Calculation endpoints
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 
 @router.post("/calculate", response_model=ValuationResponse, status_code=status.HTTP_200_OK)
 async def calculate_valuation(
@@ -71,7 +72,7 @@ async def calculate_valuation(
     user=Depends(get_current_user),
     svc: ValuationService = Depends(_service_dep),
 ):
-    """Authenticated valuation — the path instant-value.html actually calls."""
+    """Authenticated valuation -- the path instant-value.html actually calls."""
     try:
         data = await svc.calculate(payload, user_id=str(user.id), persist=True)
         return ValuationResponse(data=data)
@@ -91,7 +92,7 @@ async def calculate_valuation_public(
     user=Depends(get_optional_user),
     svc: ValuationService = Depends(_service_dep),
 ):
-    """Same engine, no auth gate — for public/embed widgets. Still
+    """Same engine, no auth gate -- for public/embed widgets. Still
     persists (with user_id=None) so it shows up in aggregate stats.
     """
     try:
@@ -112,7 +113,7 @@ async def quick_valuation(
     payload: ValuationRequest,
     svc: ValuationService = Depends(_service_dep),
 ):
-    """Fast ballpark estimate — no CRSP round-trip, no DB write."""
+    """Fast ballpark estimate -- no CRSP round-trip, no DB write."""
     try:
         return await svc.calculate_quick(payload)
     except Exception as exc:  # noqa: BLE001
@@ -142,9 +143,9 @@ async def calculate_valuation_legacy(
     return ValuationResponse(data=data)
 
 
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 # Bulk / compare
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 
 @router.post("/bulk", response_model=BulkValuationResponse)
 async def bulk_valuation(
@@ -166,9 +167,9 @@ async def compare_valuations(
     return CompareValuationResponse(results=results, best_value=best_idx)
 
 
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 # History / stats
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 
 @router.get("/history", response_model=ValuationHistoryResponse)
 async def get_valuation_history(
@@ -213,7 +214,7 @@ async def get_valuation_by_report_number(
     user=Depends(get_optional_user),
     svc: ValuationService = Depends(_service_dep),
 ):
-    """No hard auth requirement — report numbers are unguessable UUID-
+    """No hard auth requirement -- report numbers are unguessable UUID-
     suffixed tokens, used for e.g. sharing a printed report link. Owner-
     only fields are not exposed beyond what's already in the payload.
     """
@@ -225,22 +226,22 @@ async def get_valuation_by_report_number(
 
 @router.get("/stats", response_model=ValuationStatsResponse)
 async def get_valuation_stats(
-    user=Depends(get_current_user),  # admin-ish aggregate — require auth
+    user=Depends(get_current_user),  # admin-ish aggregate -- require auth
     svc: ValuationService = Depends(_service_dep),
 ):
     stats = await svc.get_stats()
     return ValuationStatsResponse(**stats)
 
 
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 # Health
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 
 @router.get("/health", response_model=HealthResponse)
 async def valuation_health(svc: ValuationService = Depends(_service_dep)):
     crsp_available = True
     try:
-        # Cheap liveness probe against the CRSP view — don't fail health
+        # Cheap liveness probe against the CRSP view -- don't fail health
         # over a single flaky lookup.
         await svc._repo.get_crsp_by_fuzzy_match("Toyota", "Corolla", None, 2020)
     except Exception:  # noqa: BLE001
