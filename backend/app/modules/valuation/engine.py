@@ -1,887 +1,257 @@
+"""
+app/modules/valuation/engine.py
 
-# ================================================================
-# Auto-D Kenya - Valuation Engine
-# ================================================================
-# TYPE: MODULE - Valuation API/Service Adapter
-#
-# PostgreSQL calculate_vehicle_valuation() is the SINGLE SOURCE
-# OF TRUTH for valuation calculations.
-#
-# Python DOES NOT calculate:
-#   - depreciation
-#   - market adjustments
-#   - final market value
-#   - profit
-#
-# Python only:
-#   - validates the request
-#   - resolves the CRSP identifier
-#   - calls PostgreSQL
-#   - normalises the RPC response
-#   - builds the API response
-# ================================================================
+Pure calculation logic — no I/O, no Supabase, fully unit-testable.
+Takes a CRSP base price (if found) plus vehicle attributes and returns a
+fully-adjusted valuation.
 
-import logging
-from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
-from typing import Dict, Any, List
+Mirrors the KRA-style age-bracket depreciation approach used in
+baseprice_engine.py. The "over 7 years" bracket is a flat cap carried
+over from that module and is still flagged there as requiring gazette
+verification before being treated as authoritative — same caveat
+applies here.
 
-from app.core.database import get_supabase
+When no CRSP match exists, the engine falls back to a market-anchor
+heuristic (MARKET_ANCHOR_KES_PER_CC) so the calculator never hard-fails
+just because a trim isn't in the CRSP table yet — it just reports a
+lower confidence score.
+"""
 
-logger = logging.getLogger(__name__)
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# KRA-style age-bracket depreciation
+# (rate applied to CRSP/base price; TODO gazette-verify the >7yr cap)
+# ─────────────────────────────────────────────────────────────────────────
+AGE_DEPRECIATION_BRACKETS: list[tuple[int, int, float]] = [
+    # (min_age_years, max_age_years_inclusive, rate)
+    (0, 0, 0.05),
+    (1, 1, 0.15),
+    (2, 2, 0.23),
+    (3, 3, 0.30),
+    (4, 4, 0.37),
+    (5, 5, 0.43),
+    (6, 6, 0.49),
+    (7, 999, 0.55),  # flat cap beyond 7 years — needs gazette verification
+]
+
+# Straight-line mileage adjustment: expected km/year band, +/- a capped
+# fraction outside that band. Deliberately conservative vs. price swings.
+EXPECTED_KM_PER_YEAR = 15_000
+MILEAGE_ADJUSTMENT_PER_10K_OVER = -0.01   # -1% per 10,000km over expected
+MILEAGE_ADJUSTMENT_PER_10K_UNDER = 0.006  # +0.6% per 10,000km under expected
+MILEAGE_ADJUSTMENT_CAP = 0.25             # +/-25% max
+
+CONDITION_FACTORS = {
+    "excellent": 1.08,
+    "very_good": 1.03,
+    "good": 1.00,
+    "fair": 0.90,
+    "poor": 0.75,
+}
+
+ACCIDENT_FACTORS = {
+    "none": 1.00,
+    "minor": 0.94,
+    "major": 0.82,
+    "total_loss": 0.55,
+}
+
+OWNER_FACTORS = {
+    0: 1.03,  # brand new / never registered to a previous owner
+    1: 1.00,
+    2: 0.97,
+    3: 0.94,
+    4: 0.91,
+}
+OWNER_FACTOR_FLOOR = 0.88  # 5+ owners
+
+LOCATION_FACTORS = {
+    "nairobi": 1.02,
+    "mombasa": 1.00,
+    "kiambu": 1.01,
+    "kajiado": 1.00,
+    "nakuru": 0.98,
+    "kisumu": 0.97,
+    "eldoret": 0.97,
+    "thika": 0.99,
+    "machakos": 0.98,
+    "meru": 0.96,
+    "nyeri": 0.97,
+    "embu": 0.96,
+    "malindi": 0.97,
+    "nanyuki": 0.96,
+    "other": 0.95,
+}
+
+FUEL_TYPE_FACTORS = {
+    "diesel": 1.02,
+    "petrol": 1.00,
+    "lpg": 0.97,
+    "electric": 1.05,
+}
+
+TRANSMISSION_FACTORS = {
+    "automatic": 1.03,
+    "cvt": 1.00,
+    "amt": 0.98,
+    "manual": 0.96,
+}
+
+# Used only when no CRSP match is found at all.
+MARKET_ANCHOR_KES_PER_CC = 950.0
+MARKET_ANCHOR_MIN_KES = 400_000.0
+
+
+@dataclass
+class ValuationInput:
+    make: str
+    model: str
+    trim: str | None
+    year: int
+    mileage: float
+    condition: str
+    accident_history: str
+    previous_owners: int
+    location: str
+    fuel_type: str
+    transmission: str
+    vehicle_type: str
+    profit_margin_pct: float
+    engine_capacity_cc: float | None = None
+    crsp_base_price_kes: float | None = None
+    photos_flagged: bool = False
+
+
+@dataclass
+class ValuationOutput:
+    estimated_vehicle_value: float
+    recommended_selling_price: float | None
+    confidence_score: float
+    vehicle_age: int
+    depreciation_rate: float
+    depreciation_amount: float
+    mileage_adjustment: float
+    adjustments: dict[str, float] = field(default_factory=dict)
+    crsp_used: bool = False
+    crsp_variance_pct: float | None = None
 
 
 class ValuationEngine:
-    """
-    Auto-D Kenya valuation engine.
+    """Stateless — safe to instantiate once and reuse (see service.py)."""
 
-    PostgreSQL is the authoritative valuation calculator.
+    def __init__(self, as_of: date | None = None):
+        self._as_of = as_of or date.today()
 
-    PostgreSQL function:
-        public.calculate_vehicle_valuation()
-    """
+    # ── public API ──────────────────────────────────────────────────
 
-    DEFAULT_PROFIT_MARGIN = Decimal("5.00")
+    def calculate(self, inp: ValuationInput) -> ValuationOutput:
+        age = self._vehicle_age(inp.year)
+        depreciation_rate = self._depreciation_rate(age)
 
-    def __init__(self):
-        self.supabase = get_supabase()
-        logger.info("ValuationEngine initialized")
+        base_price, crsp_used = self._resolve_base_price(inp)
+        after_depreciation = base_price * (1 - depreciation_rate)
+        depreciation_amount = base_price - after_depreciation
 
-    # ============================================================
-    # MAIN VALUATION
-    # ============================================================
+        mileage_adj = self._mileage_adjustment(inp.mileage, age)
+        value = after_depreciation * (1 + mileage_adj)
 
-    async def calculate(self, request) -> Dict[str, Any]:
-        """
-        Calculate valuation using PostgreSQL.
+        adjustments = self._attribute_adjustments(inp)
+        for factor in adjustments.values():
+            value *= factor
 
-        No valuation is calculated in Python.
-        """
-
-        self._validate_request(request)
-
-        crsp_id = self._get_crsp_id(request)
-
-        logger.info(
-            "Starting valuation: crsp_id=%s year=%s mileage=%s",
-            crsp_id,
-            getattr(request, "year", None),
-            getattr(request, "mileage", 0),
+        # Photo-authenticity flag doesn't move the number — it's a
+        # disclosure concern, not a pricing one — but we shave a little
+        # off confidence for it (handled in _confidence_score).
+        confidence = self._confidence_score(
+            crsp_used=crsp_used,
+            has_trim=bool(inp.trim),
+            photos_flagged=inp.photos_flagged,
+            age=age,
         )
 
-        try:
-            result = await self._call_database_valuation(request)
-
-        except Exception as exc:
-            logger.exception(
-                "Database valuation RPC failed for CRSP %s: %s",
-                crsp_id,
-                exc,
+        value = max(value, MARKET_ANCHOR_MIN_KES)
+        recommended_selling_price = None
+        if inp.profit_margin_pct:
+            recommended_selling_price = round(
+                value * (1 + inp.profit_margin_pct / 100), -2
             )
 
-            raise ValueError(
-                f"Valuation database calculation failed for CRSP "
-                f"{crsp_id}: {exc}"
-            ) from exc
-
-        if result is None:
-            raise ValueError(
-                f"Valuation database returned no data for CRSP {crsp_id}"
+        crsp_variance_pct = None
+        if crsp_used and inp.crsp_base_price_kes:
+            crsp_variance_pct = round(
+                (value - inp.crsp_base_price_kes) / inp.crsp_base_price_kes * 100, 1
             )
 
-        valuation = self._normalise_rpc_result(result)
-
-        if not valuation:
-            raise ValueError(
-                f"Valuation database returned an empty result "
-                f"for CRSP {crsp_id}"
-            )
-
-        logger.info(
-            "RPC valuation response for CRSP %s: %s",
-            crsp_id,
-            valuation,
+        return ValuationOutput(
+            estimated_vehicle_value=round(value, -2),  # nearest 100 KES
+            recommended_selling_price=recommended_selling_price,
+            confidence_score=confidence,
+            vehicle_age=age,
+            depreciation_rate=depreciation_rate,
+            depreciation_amount=round(depreciation_amount, 2),
+            mileage_adjustment=round(mileage_adj, 4),
+            adjustments=adjustments,
+            crsp_used=crsp_used,
+            crsp_variance_pct=crsp_variance_pct,
         )
 
-        response = self._build_response(
-            valuation,
-            request,
-        )
+    # ── internals ───────────────────────────────────────────────────
 
-        # Make sure a real valuation was actually returned.
-        if response.get("final_market_value") is None:
-            raise ValueError(
-                "Valuation database returned data, but "
-                "final_market_value is missing. "
-                f"CRSP={crsp_id}; response={valuation}"
-            )
+    def _vehicle_age(self, year: int) -> int:
+        return max(0, self._as_of.year - year)
 
-        logger.info(
-            "Valuation completed: CRSP=%s final=%s selling=%s confidence=%s",
-            response.get("vehicle_crsp_id"),
-            response.get("final_market_value"),
-            response.get("recommended_selling_price"),
-            response.get("confidence_score"),
-        )
+    def _depreciation_rate(self, age: int) -> float:
+        for lo, hi, rate in AGE_DEPRECIATION_BRACKETS:
+            if lo <= age <= hi:
+                return rate
+        return AGE_DEPRECIATION_BRACKETS[-1][2]
 
-        return response
+    def _resolve_base_price(self, inp: ValuationInput) -> tuple[float, bool]:
+        if inp.crsp_base_price_kes and inp.crsp_base_price_kes > 0:
+            return inp.crsp_base_price_kes, True
 
-    # ============================================================
-    # CRSP ID RESOLUTION
-    # ============================================================
+        # Fallback market-anchor estimate when no CRSP line matched.
+        cc = inp.engine_capacity_cc or 1500.0
+        estimate = max(cc * MARKET_ANCHOR_KES_PER_CC, MARKET_ANCHOR_MIN_KES)
+        return estimate, False
 
-    @staticmethod
-    def _get_crsp_id(request) -> int:
-        """
-        Resolve the authoritative CRSP vehicle ID.
+    def _mileage_adjustment(self, mileage: float, age: int) -> float:
+        expected = EXPECTED_KM_PER_YEAR * max(age, 1)
+        delta = mileage - expected
+        if delta > 0:
+            adj = (delta / 10_000) * MILEAGE_ADJUSTMENT_PER_10K_OVER
+        else:
+            adj = (abs(delta) / 10_000) * MILEAGE_ADJUSTMENT_PER_10K_UNDER
+        return max(-MILEAGE_ADJUSTMENT_CAP, min(MILEAGE_ADJUSTMENT_CAP, adj))
 
-        New contract:
-            vehicle_crsp_id
-
-        Backward compatibility:
-            variant_id
-        """
-
-        crsp_id = getattr(
-            request,
-            "vehicle_crsp_id",
-            None,
-        )
-
-        if crsp_id is None:
-            crsp_id = getattr(
-                request,
-                "variant_id",
-                None,
-            )
-
-        if crsp_id is None:
-            raise ValueError(
-                "vehicle_crsp_id is required"
-            )
-
-        try:
-            crsp_id = int(crsp_id)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Invalid vehicle_crsp_id: {crsp_id}"
-            ) from exc
-
-        if crsp_id <= 0:
-            raise ValueError(
-                "vehicle_crsp_id must be greater than zero"
-            )
-
-        return crsp_id
-
-    # ============================================================
-    # REQUEST VALIDATION
-    # ============================================================
-
-    def _validate_request(self, request) -> None:
-        """
-        Validate valuation request.
-
-        This does NOT perform valuation calculations.
-        """
-
-        crsp_id = self._get_crsp_id(request)
-
-        year = getattr(
-            request,
-            "year",
-            None,
-        )
-
-        if year is None:
-            raise ValueError(
-                f"Manufacture year is required for CRSP {crsp_id}"
-            )
-
-        try:
-            year = int(year)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Invalid manufacture year: {year}"
-            ) from exc
-
-        current_year = datetime.now(
-            timezone.utc
-        ).year
-
-        if year < 1900 or year > current_year + 1:
-            raise ValueError(
-                f"Invalid manufacture year: {year}"
-            )
-
-        mileage = getattr(
-            request,
-            "mileage",
-            0,
-        )
-
-        if mileage is None:
-            mileage = 0
-
-        try:
-            mileage = int(mileage)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Invalid mileage: {mileage}"
-            ) from exc
-
-        if mileage < 0:
-            raise ValueError(
-                "Mileage cannot be negative"
-            )
-
-    # ============================================================
-    # DATABASE VALUATION
-    # ============================================================
-
-    async def _call_database_valuation(
-        self,
-        request,
-    ) -> Any:
-        """
-        Call PostgreSQL calculate_vehicle_valuation().
-
-        PostgreSQL performs all valuation calculations.
-        """
-
-        crsp_id = self._get_crsp_id(request)
-
-        manufacture_year = int(
-            getattr(request, "year")
-        )
-
-        mileage_km = getattr(
-            request,
-            "mileage",
-            0,
-        ) or 0
-
-        vehicle_type = getattr(
-            request,
-            "vehicle_type",
-            None,
-        ) or "SEDAN"
-
-        condition_name = getattr(
-            request,
-            "condition",
-            None,
-        ) or "GOOD"
-
-        accident_status = getattr(
-            request,
-            "accident_history",
-            None,
-        ) or "NONE"
-
-        location_name = getattr(
-            request,
-            "location",
-            None,
-        ) or "NAIROBI"
-
-        profit_margin = getattr(
-            request,
-            "profit_margin_percent",
-            None,
-        )
-
-        if profit_margin is None:
-            profit_margin = self.DEFAULT_PROFIT_MARGIN
-
-        try:
-            profit_margin = Decimal(
-                str(profit_margin)
-            )
-        except (InvalidOperation, TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Invalid profit_margin_percent: {profit_margin}"
-            ) from exc
-
-        if profit_margin < 0:
-            raise ValueError(
-                "profit_margin_percent cannot be negative"
-            )
-
-        rpc_params = {
-            "p_vehicle_crsp_id": crsp_id,
-            "p_manufacture_year": manufacture_year,
-            "p_mileage_km": int(mileage_km),
-            "p_vehicle_type": str(
-                vehicle_type
-            ).strip().upper(),
-            "p_condition_name": str(
-                condition_name
-            ).strip().upper(),
-            "p_accident_status": str(
-                accident_status
-            ).strip().upper(),
-            "p_location_name": str(
-                location_name
-            ).strip().upper(),
-            "p_profit_margin_percent": float(
-                profit_margin
-            ),
+    def _attribute_adjustments(self, inp: ValuationInput) -> dict[str, float]:
+        owner_factor = OWNER_FACTORS.get(inp.previous_owners, OWNER_FACTOR_FLOOR)
+        return {
+            "condition": CONDITION_FACTORS.get(inp.condition, 1.0),
+            "accident": ACCIDENT_FACTORS.get(inp.accident_history, 1.0),
+            "previous_owners": owner_factor,
+            "location": LOCATION_FACTORS.get(inp.location, 0.97),
+            "fuel_type": FUEL_TYPE_FACTORS.get(inp.fuel_type, 1.0),
+            "transmission": TRANSMISSION_FACTORS.get(inp.transmission, 1.0),
+            "vehicle_type": 1.0,  # reserved: no body-style premium data yet
+            "market": 1.0,        # reserved: live market-scrape adjustment
         }
 
-        logger.info(
-            "Calling calculate_vehicle_valuation RPC: %s",
-            rpc_params,
-        )
-
-        try:
-            response = (
-                self.supabase
-                .rpc(
-                    "calculate_vehicle_valuation",
-                    rpc_params,
-                )
-                .execute()
-            )
-        except Exception as exc:
-            logger.exception(
-                "Supabase RPC exception for CRSP %s",
-                crsp_id,
-            )
-            raise
-
-        if response is None:
-            raise ValueError(
-                "No response received from "
-                "calculate_vehicle_valuation RPC"
-            )
-
-        logger.info(
-            "Valuation RPC raw response: data=%s count=%s",
-            getattr(response, "data", None),
-            getattr(response, "count", None),
-        )
-
-        data = getattr(
-            response,
-            "data",
-            None,
-        )
-
-        if data is None:
-            raise ValueError(
-                "calculate_vehicle_valuation RPC returned "
-                "NULL data"
-            )
-
-        if isinstance(data, list):
-            if len(data) == 0:
-                raise ValueError(
-                    "calculate_vehicle_valuation RPC returned "
-                    "an empty array"
-                )
-
-            return data
-
-        if isinstance(data, dict):
-            if not data:
-                raise ValueError(
-                    "calculate_vehicle_valuation RPC returned "
-                    "an empty object"
-                )
-
-            return data
-
-        raise ValueError(
-            "Unexpected valuation RPC response type: "
-            f"{type(data).__name__}"
-        )
-
-    # ============================================================
-    # RPC RESULT NORMALISATION
-    # ============================================================
-
-    @staticmethod
-    def _normalise_rpc_result(
-        result: Any,
-    ) -> Dict[str, Any]:
-        """
-        Normalise Supabase RPC result.
-
-        Supports:
-            - list[dict]
-            - dict
-
-        If PostgreSQL returns a single row as a list,
-        use that row.
-        """
-
-        if isinstance(result, list):
-
-            if not result:
-                return {}
-
-            first = result[0]
-
-            if isinstance(first, dict):
-                return first
-
-            raise ValueError(
-                "Valuation RPC returned a list containing "
-                f"an unexpected type: {type(first).__name__}"
-            )
-
-        if isinstance(result, dict):
-            return result
-
-        raise ValueError(
-            "Unexpected valuation result type: "
-            f"{type(result).__name__}"
-        )
-
-    # ============================================================
-    # RESPONSE BUILDER
-    # ============================================================
-
-    def _build_response(
-        self,
-        valuation: Dict[str, Any],
-        request,
-    ) -> Dict[str, Any]:
-        """
-        Convert PostgreSQL valuation result into API response.
-
-        PostgreSQL remains the source of every calculated value.
-        """
-
-        def money(value):
-            if value is None:
-                return None
-
-            try:
-                return float(
-                    Decimal(
-                        str(value)
-                    ).quantize(
-                        Decimal("0.01")
-                    )
-                )
-            except (
-                InvalidOperation,
-                TypeError,
-                ValueError,
-            ):
-                return None
-
-        def number(value):
-            if value is None:
-                return None
-
-            try:
-                return float(value)
-            except (
-                TypeError,
-                ValueError,
-            ):
-                return None
-
-        crsp_id = self._get_crsp_id(request)
-
-        # --------------------------------------------------------
-        # Support both current and legacy PostgreSQL field names.
-        # --------------------------------------------------------
-
-        vehicle_crsp_id = (
-            valuation.get("vehicle_crsp_id")
-            or valuation.get("crsp_id")
-            or crsp_id
-        )
-
-        final_market_value = money(
-            valuation.get("final_market_value")
-            or valuation.get("market_value")
-            or valuation.get("final_value")
-        )
-
-        recommended_selling_price = money(
-            valuation.get(
-                "recommended_selling_price"
-            )
-            or valuation.get(
-                "selling_price"
-            )
-        )
-
-        crsp_value = money(
-            valuation.get("crsp_value")
-            or valuation.get("crsp_kes")
-            or valuation.get("base_price")
-        )
-
-        profit_margin_value = money(
-            valuation.get(
-                "profit_margin_value"
-            )
-        )
-
-        profit_margin_percent = number(
-            valuation.get(
-                "profit_margin_percent"
-            )
-        )
-
-        if profit_margin_percent is None:
-            profit_margin_percent = number(
-                getattr(
-                    request,
-                    "profit_margin_percent",
-                    self.DEFAULT_PROFIT_MARGIN,
-                )
-            )
-
-        # --------------------------------------------------------
-        # Response
-        # --------------------------------------------------------
-
-        response = {
-
-            # Vehicle
-            "vehicle_crsp_id": vehicle_crsp_id,
-
-            "make": valuation.get(
-                "make"
-            ),
-
-            "model": valuation.get(
-                "model"
-            ),
-
-            "manufacture_year": (
-                valuation.get(
-                    "manufacture_year"
-                )
-                or getattr(
-                    request,
-                    "year",
-                    None,
-                )
-            ),
-
-            "vehicle_age": valuation.get(
-                "vehicle_age"
-            ),
-
-            # CRSP
-            "crsp_value": crsp_value,
-
-            # Depreciation
-            "depreciation_rate": number(
-                valuation.get(
-                    "depreciation_rate"
-                )
-            ),
-
-            "depreciation_value": money(
-                valuation.get(
-                    "depreciation_value"
-                )
-            ),
-
-            "value_after_depreciation": money(
-                valuation.get(
-                    "value_after_depreciation"
-                )
-            ),
-
-            # Adjustments
-            "mileage_adjustment": money(
-                valuation.get(
-                    "mileage_adjustment"
-                )
-            ),
-
-            "condition_adjustment": money(
-                valuation.get(
-                    "condition_adjustment"
-                )
-            ),
-
-            "accident_adjustment": money(
-                valuation.get(
-                    "accident_adjustment"
-                )
-            ),
-
-            "location_adjustment": money(
-                valuation.get(
-                    "location_adjustment"
-                )
-            ),
-
-            "market_adjustment": money(
-                valuation.get(
-                    "market_adjustment"
-                )
-            ),
-
-            # Final valuation
-            "final_market_value":
-                final_market_value,
-
-            # Profit
-            "profit_margin_percent":
-                profit_margin_percent,
-
-            "profit_margin_value":
-                profit_margin_value,
-
-            "recommended_selling_price":
-                recommended_selling_price,
-
-            # Confidence
-            "confidence_score": number(
-                valuation.get(
-                    "confidence_score"
-                )
-            ),
-
-            # Reference
-            "valuation_reference":
-                valuation.get(
-                    "valuation_reference"
-                ),
-
-            # Currency
-            "currency":
-                valuation.get(
-                    "currency"
-                )
-                or "KES",
-
-            # Timestamp
-            "calculated_at":
-                datetime.now(
-                    timezone.utc
-                ).isoformat(),
-
-            # Raw database result
-            # Useful for debugging and audit.
-            "database_result": valuation,
-
-            # Calculation
-            "calculation": {
-
-                "crsp_value":
-                    crsp_value,
-
-                "depreciation_rate":
-                    number(
-                        valuation.get(
-                            "depreciation_rate"
-                        )
-                    ),
-
-                "depreciation_value":
-                    money(
-                        valuation.get(
-                            "depreciation_value"
-                        )
-                    ),
-
-                "value_after_depreciation":
-                    money(
-                        valuation.get(
-                            "value_after_depreciation"
-                        )
-                    ),
-
-                "mileage_adjustment":
-                    money(
-                        valuation.get(
-                            "mileage_adjustment"
-                        )
-                    ),
-
-                "condition_adjustment":
-                    money(
-                        valuation.get(
-                            "condition_adjustment"
-                        )
-                    ),
-
-                "accident_adjustment":
-                    money(
-                        valuation.get(
-                            "accident_adjustment"
-                        )
-                    ),
-
-                "location_adjustment":
-                    money(
-                        valuation.get(
-                            "location_adjustment"
-                        )
-                    ),
-
-                "market_adjustment":
-                    money(
-                        valuation.get(
-                            "market_adjustment"
-                        )
-                    ),
-
-                "final_market_value":
-                    final_market_value,
-
-                "profit_margin_percent":
-                    profit_margin_percent,
-
-                "profit_margin_value":
-                    profit_margin_value,
-
-                "recommended_selling_price":
-                    recommended_selling_price,
-            },
-
-            # API-friendly adjustments
-            "adjustments": [
-
-                {
-                    "factor": "mileage",
-                    "value": money(
-                        valuation.get(
-                            "mileage_adjustment"
-                        )
-                    ),
-                    "rate": number(
-                        valuation.get(
-                            "mileage_rate"
-                        )
-                    ),
-                },
-
-                {
-                    "factor": "condition",
-                    "value": money(
-                        valuation.get(
-                            "condition_adjustment"
-                        )
-                    ),
-                    "rate": number(
-                        valuation.get(
-                            "condition_rate"
-                        )
-                    ),
-                },
-
-                {
-                    "factor": "accident",
-                    "value": money(
-                        valuation.get(
-                            "accident_adjustment"
-                        )
-                    ),
-                    "rate": number(
-                        valuation.get(
-                            "accident_rate"
-                        )
-                    ),
-                },
-
-                {
-                    "factor": "location",
-                    "value": money(
-                        valuation.get(
-                            "location_adjustment"
-                        )
-                    ),
-                    "rate": number(
-                        valuation.get(
-                            "location_rate"
-                        )
-                    ),
-                },
-
-                {
-                    "factor": "market",
-                    "value": money(
-                        valuation.get(
-                            "market_adjustment"
-                        )
-                    ),
-                    "rate": number(
-                        valuation.get(
-                            "market_rate"
-                        )
-                    ),
-                },
-            ],
-        }
-
-        return response
-
-    # ============================================================
-    # BULK VALUATION
-    # ============================================================
-
-    async def calculate_bulk(
-        self,
-        requests: list,
-    ) -> List[Dict[str, Any]]:
-        """
-        Calculate multiple valuations.
-
-        Each valuation is independently processed by PostgreSQL.
-        """
-
-        results = []
-
-        for request in requests:
-
-            crsp_id = getattr(
-                request,
-                "vehicle_crsp_id",
-                None,
-            )
-
-            if crsp_id is None:
-                crsp_id = getattr(
-                    request,
-                    "variant_id",
-                    None,
-                )
-
-            try:
-                result = await self.calculate(
-                    request
-                )
-
-                results.append(result)
-
-            except Exception as exc:
-
-                logger.exception(
-                    "Bulk valuation failed for CRSP %s: %s",
-                    crsp_id,
-                    exc,
-                )
-
-                results.append(
-                    {
-                        "error": str(exc),
-                        "vehicle_crsp_id": crsp_id,
-                        "status": "failed",
-                    }
-                )
-
-        return results
-
-
-# ================================================================
-# EXPORTS
-# ================================================================
-
-__all__ = [
-    "ValuationEngine",
-]
-
+    def _confidence_score(
+        self, *, crsp_used: bool, has_trim: bool, photos_flagged: bool, age: int
+    ) -> float:
+        score = 60.0
+        if crsp_used:
+            score += 25.0
+        if has_trim:
+            score += 8.0
+        if age <= 10:
+            score += 5.0
+        if photos_flagged:
+            score -= 8.0
+        return round(max(20.0, min(97.0, score)), 1)
