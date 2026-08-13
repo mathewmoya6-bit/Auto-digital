@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
+        /* ─── CSS Variables & Reset ───────────────────────────────── */
         :root {
             --amber: #eab308;
             --amber-dark: #ca8a04;
@@ -47,21 +48,11 @@
         .header-right .auth-status.unauthenticated { background: rgba(239,68,68,0.15); color: #ef4444; }
         .dashboard-link { display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; background: rgba(234,179,8,0.12); border: 1px solid rgba(234,179,8,0.2); border-radius: 8px; color: #eab308; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; text-decoration: none; transition: all 0.3s ease; margin-top: 8px; }
         .dashboard-link:hover { background: rgba(234,179,8,0.2); border-color: #eab308; transform: translateY(-2px); box-shadow: 0 4px 20px rgba(234,179,8,0.15); }
-        .dashboard-link .arrow { font-size: 16px; transition: transform 0.3s ease; }
-        .dashboard-link:hover .arrow { transform: translateX(-4px); }
         .main-grid { display: grid; grid-template-columns: 420px 1fr; gap: 28px; }
         @media (max-width: 1024px) { .main-grid { grid-template-columns: 1fr; } .calculator-panel { position: static !important; max-height: none !important; } }
         .calculator-panel { background: #111827; border: 1px solid var(--border); border-radius: 12px; padding: 24px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); height: fit-content; position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; }
         .calculator-panel::-webkit-scrollbar { width: 4px; }
-        .calculator-panel::-webkit-scrollbar-track { background: transparent; }
         .calculator-panel::-webkit-scrollbar-thumb { background: #eab308; border-radius: 10px; }
-        .auth-section { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-        .auth-section .auth-buttons { display: flex; gap: 8px; margin-top: 8px; }
-        .auth-section .auth-buttons button { flex: 1; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
-        .auth-section .auth-buttons button:hover { border-color: var(--amber); color: var(--amber); }
-        .auth-section .auth-buttons button.primary { background: var(--amber); color: #0a0c10; border-color: var(--amber); }
-        .auth-section .auth-buttons button.primary:hover { background: var(--amber-dark); }
-        .auth-section .user-email { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); padding: 4px 0; }
         .panel-label { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #eab308; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: 16px; }
         .panel-label:first-of-type { margin-top: 0; }
         .panel-label .num { font-family: 'JetBrains Mono', monospace; color: #64748b; background: #1e293b; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
@@ -73,6 +64,7 @@
         select, input[type="number"], input[type="text"], input[type="password"] { width: 100%; background: #f0ece4; color: #0a0c10; border: none; border-radius: 6px; padding: 8px 12px; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500; appearance: none; transition: outline 0.15s; }
         select:disabled, input:disabled { opacity: 0.6; cursor: not-allowed; }
         select:focus, input:focus { outline: 2px solid #eab308; outline-offset: 1px; }
+        select option { color: #0a0c10; }
         .fuel-filter-group { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
         .fuel-filter-btn { padding: 3px 10px; border: 1px solid var(--border); border-radius: 14px; background: transparent; color: #cbd5e1; font-family: 'JetBrains Mono', monospace; font-size: 8px; cursor: pointer; transition: all 0.3s; }
         .fuel-filter-btn:hover { border-color: #eab308; color: #eab308; }
@@ -91,7 +83,6 @@
         .quick-routes-title { font-size: 8px; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.08em; font-family: 'JetBrains Mono', monospace; margin-bottom: 4px; opacity: 0.7; }
         .route-chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 60px; overflow-y: auto; padding-right: 4px; }
         .route-chips::-webkit-scrollbar { width: 3px; }
-        .route-chips::-webkit-scrollbar-track { background: transparent; }
         .route-chips::-webkit-scrollbar-thumb { background: #eab308; border-radius: 10px; }
         .chip { font-family: 'JetBrains Mono', monospace; font-size: 8px; border: 1px solid var(--border); color: #cbd5e1; padding: 3px 8px; border-radius: 4px; cursor: pointer; transition: all 0.3s; white-space: nowrap; background: rgba(255,255,255,0.03); }
         .chip:hover { border-color: #eab308; color: #eab308; background: rgba(234,179,8,0.08); }
@@ -337,23 +328,15 @@
 
                 <!-- Authentication -->
                 <div class="panel-label"><span class="num">🔐</span> Authentication</div>
-                <div class="auth-section">
-                    <div id="authMessage" class="user-email" style="color:var(--text-muted);font-size:10px;">
-                        Sign in to access the calculator
-                    </div>
-                    <div class="auth-buttons" id="authButtons">
-                        <button class="primary" id="btnSignIn">🔑 Sign In</button>
-                        <button id="btnSignOut" style="display:none;">🚪 Sign Out</button>
-                    </div>
-                    <div id="authForms" style="display:none;margin-top:8px;">
-                        <input type="email" id="authEmail" placeholder="Email" style="margin-bottom:6px;" />
-                        <input type="password" id="authPassword" placeholder="Password" style="margin-bottom:6px;" />
-                        <div style="display:flex;gap:6px;">
-                            <button class="primary" id="btnLogin" style="flex:1;padding:6px;border:none;border-radius:4px;background:var(--amber);color:#0a0c10;font-weight:600;cursor:pointer;">Login</button>
-                            <button id="btnSignup" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;">Sign Up</button>
-                            <button id="btnCancelAuth" style="padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;">Cancel</button>
-                        </div>
-                    </div>
+                <div id="authMessage" style="font-size:10px;color:var(--text-muted);margin-bottom:8px;">
+                    Sign in to access the calculator
+                </div>
+                <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+                    <input type="email" id="authEmail" placeholder="Email" style="flex:1;min-width:120px;" />
+                    <input type="password" id="authPassword" placeholder="Password" style="flex:1;min-width:120px;" />
+                    <button id="btnLogin" style="padding:6px 16px;background:var(--amber);color:#0a0c10;border:none;border-radius:4px;cursor:pointer;font-weight:600;">Login</button>
+                    <button id="btnSignup" style="padding:6px 16px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-weight:600;">Sign Up</button>
+                    <button id="btnSignOut" style="display:none;padding:6px 16px;background:transparent;color:var(--red);border:1px solid var(--red);border-radius:4px;cursor:pointer;font-weight:600;">Sign Out</button>
                 </div>
 
                 <!-- Status Message -->
@@ -377,14 +360,8 @@
                 <div class="panel-label"><span class="num">01</span> Vehicle Selection</div>
 
                 <div class="form-group">
-                    <label for="categorySelect">Vehicle Category</label>
-                    <select id="categorySelect"><option value="">Loading categories...</option></select>
-                    <div class="error-text" id="categoryError">Please select a category</div>
-                </div>
-
-                <div class="form-group">
                     <label for="makeSelect">Vehicle Make</label>
-                    <select id="makeSelect" disabled><option value="">Select a category first</option></select>
+                    <select id="makeSelect" disabled><option value="">Loading makes...</option></select>
                     <div class="error-text" id="makeError">Please select a make</div>
                 </div>
 
@@ -636,7 +613,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost · CRSP Base Price<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v9.3
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v9.5
             </div>
         </footer>
     </div>
@@ -644,7 +621,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 9.4 - Aligned all vehicle lookups to vehicle_crsp_lookup view
+        // Version 9.5 - Removed Category selection, direct make → model → generation → engine
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -663,23 +640,6 @@
                 DASHBOARD_URL: '/dashboard.html'
             };
 
-            // ─── CRSP Category Mapping ──────────────────────────────
-            const CRSP_CATEGORIES = {
-                SEDAN: 'SEDAN',
-                COMMERCIAL: 'COMMERCIAL',
-                ELECTRIC: 'ELECTRIC',
-                LUXURY: 'LUXURY',
-                PICKUP: 'PICKUP'
-            };
-
-            const CATEGORY_DISPLAY_NAMES = {
-                SEDAN: 'Sedan',
-                COMMERCIAL: 'Commercial',
-                ELECTRIC: 'Electric',
-                LUXURY: 'Luxury',
-                PICKUP: 'Pickup'
-            };
-
             // ─── STATE ──────────────────────────────────────────────────
             let supabaseClient = null;
             let isAuthenticated = false;
@@ -695,7 +655,6 @@
 
             // ─── DOM REFS ──────────────────────────────────────────────
             const el = {
-                categorySelect: document.getElementById('categorySelect'),
                 makeSelect: document.getElementById('makeSelect'),
                 modelSelect: document.getElementById('modelSelect'),
                 generationSelect: document.getElementById('generationSelect'),
@@ -737,15 +696,11 @@
                 statusMessageText: document.getElementById('statusMessageText'),
                 authStatus: document.getElementById('authStatus'),
                 authMessage: document.getElementById('authMessage'),
-                authButtons: document.getElementById('authButtons'),
-                authForms: document.getElementById('authForms'),
                 authEmail: document.getElementById('authEmail'),
                 authPassword: document.getElementById('authPassword'),
-                btnSignIn: document.getElementById('btnSignIn'),
-                btnSignOut: document.getElementById('btnSignOut'),
                 btnLogin: document.getElementById('btnLogin'),
                 btnSignup: document.getElementById('btnSignup'),
-                btnCancelAuth: document.getElementById('btnCancelAuth'),
+                btnSignOut: document.getElementById('btnSignOut'),
                 btnCash: document.getElementById('btnCash'),
                 btnFinanced: document.getElementById('btnFinanced'),
                 financedFields: document.getElementById('financedFields'),
@@ -952,31 +907,26 @@
                     el.authStatus.textContent = `🔒 ${email}`;
                     el.authStatus.className = 'auth-status authenticated';
                     el.authMessage.textContent = `✅ Signed in as ${email}`;
-                    el.btnSignIn.style.display = 'none';
+                    el.btnLogin.style.display = 'none';
+                    el.btnSignup.style.display = 'none';
                     el.btnSignOut.style.display = 'inline-block';
-                    el.authForms.style.display = 'none';
-                    el.categorySelect.disabled = false;
+                    el.makeSelect.disabled = false;
                 } else {
                     el.authStatus.textContent = '🔓 Not Authenticated';
                     el.authStatus.className = 'auth-status unauthenticated';
                     el.authMessage.textContent = 'Sign in to access the calculator';
-                    el.btnSignIn.style.display = 'inline-block';
+                    el.btnLogin.style.display = 'inline-block';
+                    el.btnSignup.style.display = 'inline-block';
                     el.btnSignOut.style.display = 'none';
+                    el.makeSelect.disabled = true;
+                    el.modelSelect.disabled = true;
+                    el.generationSelect.disabled = true;
+                    el.engineCapacitySelect.disabled = true;
+                    el.calculateBtn.disabled = true;
                 }
             }
 
             // ─── DATA QUERY FUNCTIONS ───────────────────────────────────
-            // All vehicle lookups (categories, makes, models, generations, engine
-            // capacities, variant details) go through CONFIG.VIEW_NAME
-            // ('vehicle_crsp_lookup'). This is the single source of truth for
-            // vehicle data across all three Auto-D calculators.
-            //
-            // Paginates through all rows in the view instead of relying on a
-            // single unbounded select() — an unbounded select only returns
-            // whatever Supabase's server-side "Max Rows" API setting allows
-            // (Dashboard → Settings → API → Max Rows), and truncation there
-            // silently drops rows before they ever reach the dedup logic
-            // below (this is what was causing "only 2 makes" to load).
             async function queryCRSPView(select, filter, order) {
                 if (!supabaseClient) {
                     const client = initSupabase();
@@ -1000,7 +950,7 @@
 
                     allRows = allRows.concat(data || []);
 
-                    if (!data || data.length < PAGE_SIZE) break; // last page reached
+                    if (!data || data.length < PAGE_SIZE) break;
                     from += PAGE_SIZE;
                 }
 
@@ -1008,111 +958,25 @@
             }
 
             // ─── VEHICLE DATA LOADING ──────────────────────────────────
-            async function loadCategories() {
-                try {
-                    setStatus('info', 'Loading categories...');
-
-                    let data = [];
-                    try {
-                        data = await queryCRSPView(
-                            'vehicle_category',
-                            null,
-                            { column: 'vehicle_category', ascending: true }
-                        );
-                        data = (data || []).filter(item => item.vehicle_category);
-                    } catch (e) {
-                        console.warn('Category query via queryCRSPView failed:', e.message);
-                        data = [];
-                    }
-
-                    if (data && data.length > 0) {
-                        const unique = {};
-                        data.forEach(item => {
-                            const cat = item.vehicle_category;
-                            if (cat && !unique[cat]) {
-                                unique[cat] = { 
-                                    id: cat, 
-                                    name: CATEGORY_DISPLAY_NAMES[cat] || cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase()
-                                };
-                            }
-                        });
-                        const result = Object.values(unique);
-                        if (result.length > 0) {
-                            console.log(`✅ Categories loaded from ${CONFIG.VIEW_NAME} (${data.length} raw rows):`, result);
-                            setStatus('success', `✅ Loaded ${result.length} categories`);
-                            return result;
-                        }
-                    }
-
-                    // Fallback: Hard-coded categories
-                    const fallback = Object.keys(CRSP_CATEGORIES).map(key => ({
-                        id: key,
-                        name: CATEGORY_DISPLAY_NAMES[key] || key
-                    }));
-                    
-                    console.log('✅ Using fallback CRSP categories:', fallback);
-                    setStatus('success', `✅ Loaded ${fallback.length} categories`);
-                    return fallback;
-                } catch (error) {
-                    console.error('Error loading categories:', error);
-                    setStatus('error', `Failed to load categories${error.message ? ': ' + error.message : ''}`);
-                    return [];
-                }
-            }
-
-            async function loadMakes(categoryId) {
+            async function loadMakes() {
                 try {
                     setStatus('info', 'Loading makes...');
-                    // NOTE: only select columns known to exist on vehicle_crsp_lookup.
-                    // Do not select *_id columns here — they are not guaranteed to be
-                    // exposed by the view and a missing column causes the whole
-                    // query (and thus every downstream step) to fail.
                     const data = await queryCRSPView(
-                        'make, vehicle_category',
+                        'make',
                         null,
                         { column: 'make', ascending: true }
                     );
-                    console.log(`🔎 CRSP view returned ${data.length} raw rows for makes (category filter: ${categoryId || 'all'})`);
-
-                    // Filter by category if provided
-                    let filteredData = data;
-                    if (categoryId && categoryId !== 'all') {
-                        filteredData = data.filter(item => 
-                            (item.vehicle_category || '').toUpperCase() === categoryId.toUpperCase()
-                        );
-                    }
 
                     const unique = {};
-                    filteredData.forEach(item => {
+                    data.forEach(item => {
                         if (item.make && !unique[item.make]) {
-                            unique[item.make] = { 
-                                id: item.make, 
-                                name: item.make,
-                                country: null 
-                            };
+                            unique[item.make] = { id: item.make, name: item.make };
                         }
                     });
 
-                    // Try to enrich with country data (optional, non-fatal)
-                    if (Object.keys(unique).length > 0) {
-                        const makeNames = Object.keys(unique);
-                        try {
-                            const { data: makesData } = await supabaseClient
-                                .from('vehicle_makes')
-                                .select('make_name, make_country')
-                                .in('make_name', makeNames);
-                            
-                            if (makesData) {
-                                makesData.forEach(m => {
-                                    if (unique[m.make_name]) {
-                                        unique[m.make_name].country = m.make_country;
-                                    }
-                                });
-                            }
-                        } catch (e) { /* enrichment is optional */ }
-                    }
-
-                    return Object.values(unique);
+                    const result = Object.values(unique);
+                    console.log(`✅ Loaded ${result.length} makes`);
+                    return result;
                 } catch (error) {
                     console.error('Error loading makes:', error);
                     setStatus('error', `Failed to load makes${error.message ? ': ' + error.message : ''}`);
@@ -1124,20 +988,15 @@
                 try {
                     setStatus('info', 'Loading models...');
                     const data = await queryCRSPView(
-                        'model, master_model_name',
+                        'model',
                         { column: 'make', value: makeName },
                         { column: 'model', ascending: true }
                     );
 
                     const unique = {};
                     data.forEach(item => {
-                        const modelName = item.model || item.master_model_name;
-                        if (modelName && !unique[modelName]) {
-                            unique[modelName] = { 
-                                id: modelName,
-                                name: modelName,
-                                body_type: null
-                            };
+                        if (item.model && !unique[item.model]) {
+                            unique[item.model] = { id: item.model, name: item.model };
                         }
                     });
 
@@ -1153,7 +1012,7 @@
                 try {
                     setStatus('info', 'Loading generations...');
                     const filter = { column: 'model', value: modelName };
-                    
+
                     const data = await queryCRSPView(
                         'manufacture_year, crsp_year, model, make',
                         filter,
@@ -1162,7 +1021,7 @@
 
                     let filteredData = data;
                     if (makeName) {
-                        filteredData = data.filter(item => 
+                        filteredData = data.filter(item =>
                             (item.make || '').toLowerCase() === makeName.toLowerCase()
                         );
                     }
@@ -1195,7 +1054,7 @@
 
                     const data = await queryCRSPView(
                         `crsp_id, engine_capacity, fuel, transmission, 
-                         body_type, make, model, manufacture_year, crsp_kes, vehicle_category`,
+                         body_type, make, model, manufacture_year, crsp_kes`,
                         filter,
                         { column: 'engine_capacity', ascending: true }
                     );
@@ -1204,14 +1063,13 @@
                     data.forEach(v => {
                         const key = v.engine_capacity || 'Unknown';
                         if (!grouped[key]) {
-                            grouped[key] = { 
-                                engine_size_cc: key, 
+                            grouped[key] = {
+                                engine_size_cc: key,
                                 variants: [],
                                 crsp_kes: v.crsp_kes,
                                 fuel: v.fuel,
                                 transmission: v.transmission,
-                                body_type: v.body_type,
-                                vehicle_category: v.vehicle_category
+                                body_type: v.body_type
                             };
                         }
                         grouped[key].variants.push(v);
@@ -1231,7 +1089,7 @@
                     const data = await queryCRSPView('*', { column: 'crsp_id', value: crspId });
                     if (data && data.length > 0) {
                         const v = data[0];
-                        console.log(`✅ Loaded variant: ${v.make} ${v.model} ${v.engine_capacity}cc (Category: ${v.vehicle_category || 'Unknown'})`);
+                        console.log(`✅ Loaded variant: ${v.make} ${v.model} ${v.engine_capacity}cc`);
                         return {
                             variant_id: v.crsp_id,
                             make_name: v.make,
@@ -1249,7 +1107,6 @@
                             doors: null,
                             drive_type_name: v.drive_configuration,
                             trim_level: null,
-                            category_name: v.vehicle_category,
                             crsp_kes: v.crsp_kes,
                             manufacture_year: v.manufacture_year
                         };
@@ -1267,7 +1124,7 @@
                 try {
                     if (crspId) {
                         const data = await queryCRSPView(
-                            'crsp_kes, make, model, engine_capacity, fuel, transmission, body_type, vehicle_category', 
+                            'crsp_kes, make, model, engine_capacity, fuel, transmission, body_type',
                             { column: 'crsp_id', value: crspId }
                         );
                         if (data && data.length > 0) {
@@ -1280,7 +1137,6 @@
                                 fuel: record.fuel,
                                 transmission: record.transmission,
                                 body_type: record.body_type,
-                                vehicle_category: record.vehicle_category,
                                 matchQuality: 'Direct from vehicle_crsp_lookup'
                             };
                             currentBasePrice = record.crsp_kes;
@@ -1300,7 +1156,6 @@
                             fuel: variantData.fuel_type_name,
                             transmission: variantData.transmission_type_name,
                             body_type: variantData.body_type_name,
-                            vehicle_category: variantData.category_name,
                             matchQuality: 'From variant data'
                         };
                         currentBasePrice = variantData.crsp_kes;
@@ -1341,17 +1196,16 @@
                     el.basePricePill.textContent = '⚠️ No CRSP Record — Estimates Used';
                     el.basePricePill.style.display = 'inline-block';
                     el.basePricePill.className = 'base-price-pill estimated';
-                    
+
                     el.calculateBtn.disabled = false;
                     showToast('ℹ️ No CRSP record found. Using estimated values.', 'warning');
                     return;
                 }
 
                 const data = crspReferenceData;
-                const categoryDisplay = CATEGORY_DISPLAY_NAMES[data.vehicle_category] || data.vehicle_category || '';
                 const matchedLine = `${data.make || ''} ${data.model || ''}`.trim() || '—';
 
-                el.crspMatchedLine.textContent = matchedLine + (categoryDisplay ? ` (${categoryDisplay})` : '');
+                el.crspMatchedLine.textContent = matchedLine;
                 el.crspMatchedLine.className = 'value crsp-found';
                 el.crspBasePrice.textContent = `KES ${formatCurrency(data.crsp_kes)}`;
                 el.crspBasePrice.className = 'value crsp-found';
@@ -1364,7 +1218,7 @@
                 el.basePricePill.textContent = `CRSP Base: KES ${formatNumber(data.crsp_kes)}`;
                 el.basePricePill.style.display = 'inline-block';
                 el.basePricePill.className = 'base-price-pill';
-                
+
                 el.calculateBtn.disabled = false;
                 showToast('✅ CRSP record found!', 'success');
             }
@@ -1383,27 +1237,7 @@
                 }
             }
 
-            async function populateCategories() {
-                const select = el.categorySelect;
-                select.innerHTML = '<option value="all">All Categories</option>';
-                select.disabled = true;
-                const categories = await loadCategories();
-                if (!categories || categories.length === 0) {
-                    select.innerHTML = '<option value="">No categories available</option>';
-                    setStatus('warning', 'No categories found in database');
-                    return;
-                }
-                categories.forEach(cat => {
-                    const opt = document.createElement('option');
-                    opt.value = cat.id;
-                    opt.textContent = cat.name;
-                    select.appendChild(opt);
-                });
-                select.disabled = !isAuthenticated;
-                setStatus('success', `✅ Loaded ${categories.length} categories — select one to begin`);
-            }
-
-            async function populateMakes(categoryId) {
+            async function populateMakes() {
                 const select = el.makeSelect;
                 select.innerHTML = '<option value="">Select Make...</option>';
                 select.disabled = true;
@@ -1419,22 +1253,22 @@
                 currentBasePrice = null;
                 hasCRSP = false;
                 el.crspInfo.classList.remove('show');
-                if (!categoryId) return;
-                const makes = await loadMakes(categoryId);
+
+                const makes = await loadMakes();
                 if (!makes || makes.length === 0) {
                     select.innerHTML = '<option value="">No makes available</option>';
+                    setStatus('warning', 'No makes found in database');
                     return;
                 }
+
                 makes.forEach(make => {
                     const opt = document.createElement('option');
                     opt.value = make.name;
-                    let label = make.name;
-                    if (make.country) label += ` (${make.country})`;
-                    opt.textContent = label;
+                    opt.textContent = make.name;
                     select.appendChild(opt);
                 });
                 select.disabled = false;
-                setStatus('success', `✅ Loaded ${makes.length} makes`);
+                setStatus('success', `✅ Loaded ${makes.length} makes — select one to begin`);
             }
 
             async function populateModels(makeName) {
@@ -1451,6 +1285,7 @@
                 currentBasePrice = null;
                 hasCRSP = false;
                 el.crspInfo.classList.remove('show');
+
                 if (!makeName) return;
                 const models = await loadModels(makeName);
                 if (!models || models.length === 0) {
@@ -1460,9 +1295,7 @@
                 models.forEach(model => {
                     const opt = document.createElement('option');
                     opt.value = model.name;
-                    let label = model.name;
-                    if (model.body_type) label += ` (${model.body_type})`;
-                    opt.textContent = label;
+                    opt.textContent = model.name;
                     select.appendChild(opt);
                 });
                 select.disabled = false;
@@ -1481,8 +1314,8 @@
                 currentBasePrice = null;
                 hasCRSP = false;
                 el.crspInfo.classList.remove('show');
+
                 if (!modelName) return;
-                
                 const makeName = el.makeSelect.value;
                 const generations = await loadGenerations(modelName, makeName);
                 if (!generations || generations.length === 0) {
@@ -1510,8 +1343,9 @@
                 currentBasePrice = null;
                 hasCRSP = false;
                 el.crspInfo.classList.remove('show');
+
                 if (!generationId) return;
-                
+
                 let engineGroups = await loadEngineCapacities(generationId);
 
                 if (selectedFuelFilter !== 'all') {
@@ -1535,7 +1369,6 @@
                     opt.dataset.modelName = rep.model || '';
                     opt.dataset.engineCc = group.engine_size_cc || '';
                     opt.dataset.crspKes = group.crsp_kes || '';
-                    opt.dataset.category = group.vehicle_category || '';
 
                     const fuelTypes = group.fuel ? [group.fuel] : ['Unknown'];
                     let label = `${group.engine_size_cc}cc`;
@@ -1572,9 +1405,7 @@
                     el.basePricePill.className = 'base-price-pill estimated';
                 }
 
-                const categoryDisplay = CATEGORY_DISPLAY_NAMES[variant.category_name] || variant.category_name || '—';
                 const specItems = [
-                    { label: '📂', value: categoryDisplay },
                     { label: '🔧', value: variant.trim_level || 'Standard' },
                     { label: '⚡', value: variant.power_hp ? `${variant.power_hp} HP` : '—' },
                     { label: '🔄', value: variant.torque_nm ? `${variant.torque_nm} Nm` : '—' },
@@ -1762,30 +1593,30 @@
                 }
             }
 
-            // ─── SCHEMA-ALIGNED SAVE FUNCTIONS ──────────────────────────
+            // ─── SAVE FUNCTION ──────────────────────────────────────────
             function buildCalculationRow({ result, variant, distance, annualKm, fuelPrice, rateRow }) {
                 const fuelCost = result.fuel_cost || result.fuel || 0;
                 const serviceCost = result.service_cost || result.maintenance || 0;
                 const tyreCost = result.tyre_cost || result.tyres || 0;
                 const repairCost = result.repair_cost || 0;
                 const depreciationCost = result.depreciation_cost || result.depreciation || 0;
-                
+
                 const d = distance || 1;
-                
+
                 const fuel_cost_per_km = fuelCost ? fuelCost / d : (rateRow?.fuel_cost_per_km ?? 0);
                 const service_cost_per_km = serviceCost ? serviceCost / d : (rateRow?.service_cost_per_km ?? 0);
                 const tyre_cost_per_km = tyreCost ? tyreCost / d : (rateRow?.tyre_cost_per_km ?? 0);
                 const repair_cost_per_km = repairCost ? repairCost / d : (rateRow?.repair_cost_per_km ?? 0);
                 const depreciation_per_km = depreciationCost ? depreciationCost / d : (rateRow?.depreciation_per_km ?? 0);
-                
-                const total_cost_per_km = result.cost_per_km || result.per_km || 
+
+                const total_cost_per_km = result.cost_per_km || result.per_km ||
                     (fuel_cost_per_km + service_cost_per_km + tyre_cost_per_km + repair_cost_per_km + depreciation_per_km);
-                
+
                 const annual_cost = total_cost_per_km * (annualKm || 0);
                 const monthly_cost = annual_cost / 12;
-                
-                const recommended_rate_per_km = result.recommended_rate_per_km ?? 
-                    rateRow?.recommended_rate_per_km ?? 
+
+                const recommended_rate_per_km = result.recommended_rate_per_km ??
+                    rateRow?.recommended_rate_per_km ??
                     (total_cost_per_km * 1.15);
 
                 return {
@@ -1816,23 +1647,23 @@
                         showToast('⚠️ Calculation shown, but not saved — no rate row for this vehicle yet', 'warning');
                         return null;
                     }
-                    
-                    const row = buildCalculationRow({ 
-                        result, 
-                        variant, 
-                        distance, 
-                        annualKm, 
-                        fuelPrice, 
-                        rateRow 
+
+                    const row = buildCalculationRow({
+                        result,
+                        variant,
+                        distance,
+                        annualKm,
+                        fuelPrice,
+                        rateRow
                     });
-                    
+
                     console.log('📝 Inserting into running_cost_calculations:', row);
-                    
+
                     const { data, error } = await supabaseClient
                         .from(CONFIG.RESULTS_TABLE)
                         .insert(row)
                         .select();
-                        
+
                     if (error) throw error;
                     console.log('✅ Saved calculation:', data[0]);
                     return data[0];
@@ -1888,7 +1719,7 @@
                 let originalCost = currentBasePrice;
                 if (!originalCost && result.purchase_price) originalCost = result.purchase_price;
                 if (!originalCost && result.original_cost) originalCost = result.original_cost;
-                
+
                 if (!originalCost) {
                     originalCost = result.estimated_purchase_price || 1500000;
                     console.log('ℹ️ Using estimated purchase price:', originalCost);
@@ -1956,11 +1787,7 @@
 
                 // RCI
                 let rciLabel, rciStars, rciClass;
-                if (tripCostPerKm <= 20) { rciLabel = 'Excellent'; rciStars = '★★★★★'; rciClass = 'excellent'; }
-                else if (tripCostPerKm <= 35) { rciLabel = 'Good'; rciStars = '★★★★'; rciClass = 'good'; }
-                else if (tripCostPerKm <= 50) { rciLabel = 'Average'; rciStars = '★★★'; rciClass = 'average'; }
-                else if (tripCostPerKm <= 70) { rciLabel = 'Expensive'; rciStars = '★★'; rciClass = 'expensive'; }
-                else { rciLabel = 'Very Expensive'; rciStars = '★'; rciClass = 'very-expensive'; }
+                if (tripCostPerKm <= 20) { rciLabel = 'Excellent'; rciStars = '★★★★★'; rciClass = 'excellent'; } else if (tripCostPerKm <= 35) { rciLabel = 'Good'; rciStars = '★★★★'; rciClass = 'good'; } else if (tripCostPerKm <= 50) { rciLabel = 'Average'; rciStars = '★★★'; rciClass = 'average'; } else if (tripCostPerKm <= 70) { rciLabel = 'Expensive'; rciStars = '★★'; rciClass = 'expensive'; } else { rciLabel = 'Very Expensive'; rciStars = '★'; rciClass = 'very-expensive'; }
 
                 el.rciValue.textContent = formatCurrency(tripCostPerKm) + ' KES/km';
                 el.rciValue.className = 'rci-value ' + rciClass;
@@ -1983,16 +1810,16 @@
                 // Recommendations
                 const recList = el.recList;
                 const recs = [];
-                
+
                 if (!hasCRSP) {
                     recs.push({ icon: '⚠️', text: 'No CRSP record found — using estimated purchase price and depreciation values.', type: 'warning' });
                 }
-                
+
                 if (tripCostPerKm > 50) recs.push({ icon: '⚠️', text: 'High running cost detected. Consider a more fuel-efficient vehicle.', type: 'warning' });
                 else if (tripCostPerKm < 20) recs.push({ icon: '✅', text: 'Excellent running cost efficiency! Your vehicle is economical to operate.', type: 'success' });
                 if (fuelType.toLowerCase() === 'electric') recs.push({ icon: '🌱', text: 'Electric vehicle - zero emissions and lower running costs.', type: 'success' });
                 recs.push({ icon: '📊', text: `5-Year running cost: KES ${formatCurrency(total5Year)}.`, type: 'info' });
-                
+
                 recList.innerHTML = recs.map(rec => `
                     <div class="rec-item ${rec.type}">
                         <span class="icon">${rec.icon}</span><span class="rec-text">${rec.text}</span>
@@ -2103,47 +1930,50 @@
             // ─── EVENT LISTENERS ─────────────────────────────────────────
             function initEventListeners() {
                 // Auth
-                el.btnSignIn.addEventListener('click', () => {
-                    el.authForms.style.display = el.authForms.style.display === 'none' ? 'block' : 'none';
-                });
-                el.btnCancelAuth.addEventListener('click', () => { el.authForms.style.display = 'none'; });
                 el.btnLogin.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
                     if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
                     await signIn(email, password);
+                    el.authEmail.value = '';
+                    el.authPassword.value = '';
                 });
+
                 el.btnSignup.addEventListener('click', async () => {
                     const email = el.authEmail.value.trim();
                     const password = el.authPassword.value;
                     if (!email || !password) { showToast('Please enter email and password', 'warning'); return; }
                     if (password.length < 6) { showToast('Password must be at least 6 characters', 'warning'); return; }
                     await signUp(email, password);
-                    el.authForms.style.display = 'none';
                     el.authEmail.value = '';
                     el.authPassword.value = '';
                 });
+
                 el.btnSignOut.addEventListener('click', signOut);
 
                 // Vehicle selection chain
-                el.categorySelect.addEventListener('change', async function() {
-                    const catId = this.value;
-                    if (catId) await populateMakes(catId);
-                });
-
                 el.makeSelect.addEventListener('change', async function() {
                     const makeName = this.value;
-                    if (makeName) await populateModels(makeName);
+                    if (makeName) {
+                        await populateModels(makeName);
+                        el.modelSelect.disabled = false;
+                    }
                 });
 
                 el.modelSelect.addEventListener('change', async function() {
                     const modelName = this.value;
-                    if (modelName) await populateGenerations(modelName);
+                    if (modelName) {
+                        await populateGenerations(modelName);
+                        el.generationSelect.disabled = false;
+                    }
                 });
 
                 el.generationSelect.addEventListener('change', async function() {
                     const genId = this.value;
-                    if (genId) await populateEngineCapacities(genId);
+                    if (genId) {
+                        await populateEngineCapacities(genId);
+                        el.engineCapacitySelect.disabled = false;
+                    }
                 });
 
                 // Engine capacity selection
@@ -2163,8 +1993,7 @@
                         make_name: selectedOpt.dataset.makeName || '',
                         model_name: selectedOpt.dataset.modelName || '',
                         engine_size_cc: parseInt(selectedOpt.dataset.engineCc) || null,
-                        crsp_kes: parseFloat(selectedOpt.dataset.crspKes) || null,
-                        category: selectedOpt.dataset.category || ''
+                        crsp_kes: parseFloat(selectedOpt.dataset.crspKes) || null
                     };
 
                     el.calculateBtn.disabled = true;
@@ -2249,19 +2078,15 @@
                     }
                     el.loadingStatus.textContent = 'Checking session...';
                     await checkAuth();
-                    el.loadingStatus.textContent = 'Loading categories...';
-                    await populateCategories();
+                    el.loadingStatus.textContent = 'Loading makes...';
+                    await populateMakes();
                     el.loadingStatus.textContent = 'Loading routes...';
                     await loadRoutes();
                     renderRouteChips();
                     el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
-                    console.log('✅ Auto-D Kenya Mileage & Running Cost Calculator initialized (v9.4)');
+                    console.log('✅ Auto-D Kenya Mileage & Running Cost Calculator initialized (v9.5)');
                     console.log(`✅ Using view: ${CONFIG.VIEW_NAME}`);
-                    console.log(`📂 CRSP Categories: SEDAN, COMMERCIAL, ELECTRIC, LUXURY, PICKUP`);
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
-                    console.log(`🏛️ CRSP Table: ${CONFIG.CRSP_TABLE}`);
-                    console.log(`📊 Results Table: ${CONFIG.RESULTS_TABLE} (schema-aligned)`);
-                    console.log(`💡 Calculations will proceed even without CRSP`);
                 } catch (error) {
                     console.error('Init error:', error);
                     setStatus('error', 'Something went wrong — please refresh');
