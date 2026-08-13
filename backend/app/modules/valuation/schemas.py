@@ -19,9 +19,9 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# Enums — mirror the <select> option values in instant-value.html exactly
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
+# Enums -- mirror the <select> option values in instant-value.html exactly
+# -------------------------------------------------------------------------
 
 class ConditionEnum(str, Enum):
     excellent = "excellent"
@@ -65,9 +65,9 @@ class VehicleTypeEnum(str, Enum):
     other = "other"
 
 
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 # Request
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 
 class ValuationRequest(BaseModel):
     """Body of POST /valuation/calculate and /calculate-public.
@@ -96,7 +96,7 @@ class ValuationRequest(BaseModel):
     engine_capacity: Optional[str] = None
     # engine_capacity_id is the FK actually used server-side for the
     # vehicle_crsp_prices lookup (per the Aug CRSP alignment work).
-    # The current frontend build (v6.0) does not yet send this — it only
+    # The current frontend build (v6.0) does not yet send this -- it only
     # sends the free-text `engine_capacity` string plus a client-computed
     # `crsp_kes`. Until instant-value.html is updated to pass
     # `engine_capacity_id` (mirroring total-cost-ownership.html /
@@ -105,7 +105,7 @@ class ValuationRequest(BaseModel):
     engine_capacity_id: Optional[int] = None
 
     # Client already resolved this against the CRSP view during trim
-    # selection — treated as an untrusted hint, never as source of truth.
+    # selection -- treated as an untrusted hint, never as source of truth.
     # The engine re-derives its own CRSP figure server-side and only uses
     # this for a variance sanity-check / fallback if the server lookup
     # misses.
@@ -127,9 +127,9 @@ class CompareValuationRequest(BaseModel):
     items: list[ValuationRequest] = Field(..., min_length=2, max_length=10)
 
 
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 # Response building blocks
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 
 class VehicleBlock(BaseModel):
     make: str
