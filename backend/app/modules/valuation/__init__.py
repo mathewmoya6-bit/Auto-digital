@@ -1,14 +1,14 @@
 """
 app/modules/valuation/__init__.py
 
-Exposes the valuation router for app.main to import as:
+Exposes the valuation router and the ValuationService compatibility
+wrapper (used by app.modules.reports.service) for:
 
     from app.modules.valuation.router import router as valuation_router
-
-Keeping this export here too means `from app.modules.valuation import router`
-(the package, not just the module) also works if anything imports it that way.
+    from app.modules.valuation.service import ValuationService
 """
 
 from .router import router
+from .service import ValuationService
 
-__all__ = ["router"]
+__all__ = ["router", "ValuationService"]
