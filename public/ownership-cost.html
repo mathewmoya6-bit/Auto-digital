@@ -1112,7 +1112,7 @@
                 </a>
             </div>
             <div class="header-right">
-                <div class="version">Version <span>v9.5</span> <span class="auto-d-badge">Auto-D</span></div>
+                <div class="version">Version <span>v9.6</span> <span class="auto-d-badge">Auto-D</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div>
                     <span class="auth-status unauthenticated" id="authStatus" aria-live="polite">🔓 Not Authenticated</span>
@@ -1454,7 +1454,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - TOTAL COST OF OWNERSHIP CALCULATOR
-        // Version 9.5 - Uses /api/v1/vehicles/makes for all 62 makes
+        // Version 9.6 - Fixed CRSP ID alignment for running-cost API
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -1713,26 +1713,29 @@
                         }
                     }
 
-                    if (response.status === 429) {
-                        const err = new Error('Too many requests. Please wait a moment and try again.');
-                        err.userFacing = true;
-                        throw err;
-                    }
-                    if (response.status === 503) {
-                        const err = new Error('Service temporarily unavailable. Please try again shortly.');
-                        err.userFacing = true;
-                        throw err;
-                    }
-
+                    // Try to parse error response body for detailed message
                     if (!response.ok) {
                         let errorData;
-                        try { errorData = await response.json(); } catch (e) { errorData = { message: `HTTP ${response.status}` }; }
-                        let detailMsg = errorData.message || errorData.detail || `HTTP ${response.status}`;
-                        if (errorData.detail && Array.isArray(errorData.detail)) {
-                            detailMsg = errorData.detail.map(d => `${(d.loc || []).join('.')}: ${d.msg}`).join('; ');
+                        let detailMsg = `HTTP ${response.status}`;
+                        try {
+                            errorData = await response.json();
+                            // Extract the most informative error message
+                            if (errorData.detail && typeof errorData.detail === 'string') {
+                                detailMsg = errorData.detail;
+                            } else if (errorData.message) {
+                                detailMsg = errorData.message;
+                            } else if (errorData.error && typeof errorData.error === 'string') {
+                                detailMsg = errorData.error;
+                            } else if (errorData.detail && Array.isArray(errorData.detail)) {
+                                detailMsg = errorData.detail.map(d => `${(d.loc || []).join('.')}: ${d.msg}`).join('; ');
+                            }
+                        } catch (e) {
+                            // If response is not JSON, use status text
+                            detailMsg = response.statusText || `HTTP ${response.status}`;
                         }
                         const err = new Error(detailMsg);
                         err.status = response.status;
+                        err.userFacing = true;
                         throw err;
                     }
 
@@ -1742,6 +1745,10 @@
                         const err = new Error('Request timed out. Please try again.');
                         err.userFacing = true;
                         throw err;
+                    }
+                    // Re-throw with user-friendly message if not already set
+                    if (!error.userFacing) {
+                        error.userFacing = true;
                     }
                     throw error;
                 } finally {
@@ -1904,11 +1911,6 @@
             }
 
             // ─── Data Query Functions ────────────────────────────────
-            // All vehicle lookups go through the API endpoints:
-            // GET /api/v1/vehicles/makes
-            // GET /api/v1/vehicles/models/{make_id}
-            // GET /api/v1/vehicles/search
-            // GET /api/v1/vehicles/{crsp_id}
             async function queryAPI(endpoint, options = {}) {
                 if (!isAuthenticated) {
                     setStatus('warning', 'Please sign in to load vehicle data');
@@ -1929,7 +1931,6 @@
                     setStatus('info', 'Loading makes...');
                     showProgress(20, 'Loading makes...');
 
-                    // Use the correct API endpoint: GET /api/v1/vehicles/makes
                     const data = await queryAPI('/vehicles/makes');
 
                     if (!data || data.length === 0) {
@@ -1967,7 +1968,6 @@
 
                     if (!makeId) return [];
 
-                    // GET /api/v1/vehicles/models/{make_id}
                     const data = await queryAPI(`/vehicles/models/${makeId}`);
 
                     if (!data || data.length === 0) {
@@ -2005,7 +2005,6 @@
 
                     if (!make || !model) return [];
 
-                    // GET /api/v1/vehicles/search?make={make}&model={model}
                     const params = new URLSearchParams({ make, model });
                     const data = await queryAPI(`/vehicles/search?${params}`);
 
@@ -2014,7 +2013,6 @@
                         return [];
                     }
 
-                    // Extract unique years
                     const years = [...new Set(data.map(item => item.manufacture_year))].sort((a, b) => b - a);
                     console.log(`✅ Loaded ${years.length} years for ${make} ${model}`);
                     allYears = years;
@@ -2046,7 +2044,6 @@
 
                     if (!make || !model || !year) return [];
 
-                    // GET /api/v1/vehicles/search?make={make}&model={model}&year={year}
                     const params = new URLSearchParams({ make, model, year });
                     const data = await queryAPI(`/vehicles/search?${params}`);
 
@@ -2062,7 +2059,7 @@
                     select.innerHTML = '<option value="">Select Trim...</option>';
                     data.forEach(entry => {
                         const opt = document.createElement('option');
-                        opt.value = entry.id;
+                        opt.value = entry.crsp_id;  // Use CRSP ID as the value
                         opt.textContent = `${entry.trim_level || 'Base'} - KES ${fmtCurrency(entry.crsp_kes)}`;
                         opt.dataset.crsp = entry.crsp_kes;
                         opt.dataset.engine = entry.engine_capacity || '';
@@ -2071,6 +2068,7 @@
                         opt.dataset.body = entry.body_type || '';
                         opt.dataset.make = entry.make || '';
                         opt.dataset.model = entry.model || '';
+                        opt.dataset.crsp_id = entry.crsp_id;
                         select.appendChild(opt);
                     });
                     select.disabled = false;
@@ -2090,7 +2088,6 @@
                     setStatus('info', 'Loading vehicle details...');
                     showProgress(90, 'Loading vehicle details...');
 
-                    // GET /api/v1/vehicles/{crsp_id}
                     const data = await queryAPI(`/vehicles/${crspId}`);
 
                     if (!data) {
@@ -2125,10 +2122,11 @@
             async function fetchBasePrice(crspId) {
                 if (!supabaseClient || !crspId) return null;
                 try {
+                    // Use vehicle_crsp_lookup table
                     const { data, error } = await supabaseClient
-                        .from(CONFIG.CRSP_TABLE)
-                        .select('id, make, model, transmission, drive_configuration, engine_capacity, body_type, fuel, crsp_kes')
-                        .eq('id', crspId)
+                        .from('vehicle_crsp_lookup')
+                        .select('crsp_id, make, model, engine_capacity, fuel, transmission, body_type, crsp_kes, currency, crsp_status')
+                        .eq('crsp_id', crspId)
                         .limit(1);
                     if (error) throw error;
                     if (!data || data.length === 0) {
@@ -2262,9 +2260,10 @@
             }
 
             // ─── TCO Calculation ────────────────────────────────────
+            // IMPORTANT: This now uses vehicle_crsp_id (not variant_id)
             function buildTCOPayload(formData) {
                 const payload = {
-                    variant_id: parseInt(formData.variant_id),
+                    vehicle_crsp_id: parseInt(formData.vehicle_crsp_id),  // CRSP ID (authoritative)
                     purchase_price: parseFloat(formData.purchase_price),
                     down_payment: parseFloat(formData.down_payment),
                     loan_term_years: parseInt(formData.loan_term_years),
@@ -2304,7 +2303,7 @@
 
             async function calculateTCO(formData) {
                 const payload = buildTCOPayload(formData);
-                console.log('📤 TCO Request:', JSON.stringify(payload, null, 2));
+                console.log('📤 TCO Request (using vehicle_crsp_id):', JSON.stringify(payload, null, 2));
                 return apiRequest('/ownership/calculate', {
                     method: 'POST',
                     body: JSON.stringify(payload),
@@ -2350,7 +2349,7 @@
                 displayVehicleInfo(variant);
 
                 const formData = {
-                    variant_id: crspId,
+                    vehicle_crsp_id: parseInt(crspId),  // CRSP ID (authoritative)
                     purchase_price: num(el.purchasePrice.value) || 4500000,
                     down_payment: num(el.downPayment.value) || 1000000,
                     loan_term_years: parseInt(el.loanTermRange.value) || 3,
@@ -2399,6 +2398,7 @@
                 } catch (error) {
                     clearTimeout(wakeupTimer);
                     hideProgress();
+                    // Show detailed error message from the backend
                     const message = error.message || 'Something went wrong while calculating. Please try again.';
                     showToast('❌ ' + message, 'error');
                 }
@@ -2834,7 +2834,6 @@
                         body_type: selectedOpt.dataset.body || ''
                     };
 
-                    // Get full variant details
                     const variant = await loadVariantDetails(crspId);
                     if (variant) {
                         currentVariantData = variant;
@@ -2918,10 +2917,11 @@
 
                     el.loadingOverlay.classList.remove('active');
 
-                    console.log('✅ Auto-D Kenya TCO Calculator v9.5');
+                    console.log('✅ Auto-D Kenya TCO Calculator v9.6 (CRSP ID fix)');
                     console.log('✅ Using API endpoints: /api/v1/vehicles/makes, /api/v1/vehicles/models/{make_id}, /api/v1/vehicles/search, /api/v1/vehicles/{crsp_id}');
                     console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
                     console.log(`🔗 API Endpoint: ${CONFIG.API_BASE}/ownership/calculate`);
+                    console.log('📤 Payload uses vehicle_crsp_id (not variant_id)');
                 } catch (error) {
                     console.error('❌ Initialization error:', error);
                     showToast('Failed to initialize the calculator. Please refresh the page.', 'error');
