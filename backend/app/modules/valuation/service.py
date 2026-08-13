@@ -10,6 +10,7 @@ import secrets
 
 from app.modules.valuation.repository import ValuationRepository
 from app.core.exceptions import NotFoundException, ValidationException
+from app.core.database import get_supabase
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class ValuationService:
     
     def __init__(self):
         self.repository = ValuationRepository()
+        self.supabase = get_supabase()
         logger.info("ValuationService initialized")
     
     # ================================================================
@@ -41,6 +43,9 @@ class ValuationService:
         trim: Optional[str] = None,
         engine_capacity: Optional[str] = None,
         profit_margin: float = 0.0,
+        crsp_id: Optional[int] = None,
+        crsp_kes: Optional[float] = None,
+        variant_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Calculate vehicle valuation based on frontend payload.
@@ -60,16 +65,94 @@ class ValuationService:
             trim: Vehicle trim
             engine_capacity: Engine capacity
             profit_margin: Profit margin percentage
+            crsp_id: Optional CRSP ID
+            crsp_kes: Optional CRSP price
+            variant_id: Optional variant ID (for lookup)
             
         Returns:
             Dict[str, Any]: Valuation results
         """
-        logger.info(f"Calculating valuation for {make} {model} {year}")
+        logger.info(f"Calculating valuation for make='{make}', model='{model}', year={year}")
+        logger.info(f"Additional params: crsp_id={crsp_id}, variant_id={variant_id}")
         
-        # ─── Validation ──────────────────────────────────────────────
-        if not make or not model:
-            raise ValidationException("Make and model are required")
+        # ─── Try to resolve make and model if missing ──────────────────
+        resolved_make = make
+        resolved_model = model
         
+        # If make or model is missing, try to look them up
+        if not resolved_make or not resolved_model:
+            logger.warning(f"Make or model missing: make='{resolved_make}', model='{resolved_model}'")
+            
+            # Try using crsp_id first
+            lookup_id = crsp_id or variant_id
+            if lookup_id:
+                logger.info(f"Attempting to look up make/model from ID: {lookup_id}")
+                
+                # Try vehicle_master_specs first (most complete data)
+                try:
+                    response = (
+                        self.supabase
+                        .table("vehicle_master_specs")
+                        .select("make_name, model_name, variant_name")
+                        .eq("variant_id", lookup_id)
+                        .limit(1)
+                        .execute()
+                    )
+                    if response.data:
+                        resolved_make = response.data[0].get("make_name") or resolved_make
+                        resolved_model = response.data[0].get("model_name") or resolved_model
+                        if not trim:
+                            trim = response.data[0].get("variant_name") or trim
+                        logger.info(f"Found from master_specs: make='{resolved_make}', model='{resolved_model}'")
+                except Exception as e:
+                    logger.warning(f"Failed to lookup in master_specs: {e}")
+            
+            # If still missing, try CRSP table
+            if not resolved_make or not resolved_model:
+                try:
+                    # Try vehicle_crsp_lookup
+                    response = (
+                        self.supabase
+                        .table("vehicle_crsp_lookup")
+                        .select("make, model, trim_level, engine_capacity, fuel, transmission")
+                        .eq("crsp_id", lookup_id)
+                        .limit(1)
+                        .execute()
+                    )
+                    if not response.data:
+                        response = (
+                            self.supabase
+                            .table("vehicle_crsp_lookup")
+                            .select("make, model, trim_level, engine_capacity, fuel, transmission")
+                            .eq("id", lookup_id)
+                            .limit(1)
+                            .execute()
+                        )
+                    if response.data:
+                        resolved_make = response.data[0].get("make") or resolved_make
+                        resolved_model = response.data[0].get("model") or resolved_model
+                        if not trim:
+                            trim = response.data[0].get("trim_level") or trim
+                        if not engine_capacity:
+                            engine_capacity = response.data[0].get("engine_capacity") or engine_capacity
+                        if not fuel_type:
+                            fuel_type = response.data[0].get("fuel") or fuel_type
+                        if not transmission:
+                            transmission = response.data[0].get("transmission") or transmission
+                        logger.info(f"Found from CRSP: make='{resolved_make}', model='{resolved_model}'")
+                except Exception as e:
+                    logger.warning(f"Failed to lookup in CRSP: {e}")
+        
+        # ─── Final validation ──────────────────────────────────────────
+        # If still empty, use placeholders
+        if not resolved_make:
+            resolved_make = "Unknown"
+            logger.warning("Using 'Unknown' for make")
+        if not resolved_model:
+            resolved_model = "Unknown"
+            logger.warning("Using 'Unknown' for model")
+        
+        # Validate year
         if year < 1900 or year > datetime.now(timezone.utc).year + 1:
             raise ValidationException(f"Invalid year: {year}")
         
@@ -83,8 +166,8 @@ class ValuationService:
         
         # ─── Calculate Valuation ──────────────────────────────────────
         result = self.repository.calculate_valuation(
-            make=make,
-            model=model,
+            make=resolved_make,
+            model=resolved_model,
             year=year,
             mileage=mileage,
             condition=condition,
@@ -97,7 +180,16 @@ class ValuationService:
             trim=trim,
             engine_capacity=engine_capacity,
             profit_margin=profit_margin,
+            crsp_id=crsp_id,
+            crsp_kes=crsp_kes,
         )
+        
+        # Add resolved values to result
+        if result.get("vehicle"):
+            result["vehicle"]["make"] = resolved_make
+            result["vehicle"]["model"] = resolved_model
+            if trim:
+                result["vehicle"]["trim"] = trim
         
         logger.info(f"Valuation complete: {result.get('estimated_value', 0)} KES")
         return result
@@ -117,10 +209,11 @@ class ValuationService:
                 result = self.calculate_valuation(**req)
                 results.append({"success": True, "result": result})
             except Exception as e:
+                logger.error(f"Bulk valuation failed: {e}")
                 results.append({
                     "success": False,
                     "error": str(e),
-                    "vehicle": f"{req.get('make')} {req.get('model')}"
+                    "vehicle": f"{req.get('make', 'Unknown')} {req.get('model', 'Unknown')}"
                 })
         return results
     
@@ -178,14 +271,18 @@ class ValuationService:
     ) -> None:
         """Save valuation to history."""
         try:
-            from app.core.database import get_supabase
             supabase = get_supabase()
+            
+            # Get make and model from result or request
+            vehicle = result.get("vehicle", {})
+            make = request.get("make") or vehicle.get("make") or "Unknown"
+            model = request.get("model") or vehicle.get("model") or "Unknown"
             
             history_data = {
                 "user_id": user_id,
-                "make": request.get("make"),
-                "model": request.get("model"),
-                "year": request.get("year"),
+                "make": make,
+                "model": model,
+                "year": request.get("year", 0),
                 "mileage": request.get("mileage", 0),
                 "market_value": result.get("market_value", 0),
                 "retail_value": result.get("retail_value", 0),
@@ -204,7 +301,6 @@ class ValuationService:
     async def get_valuation_history(self, user_id: str) -> List[Dict[str, Any]]:
         """Get valuation history for a user."""
         try:
-            from app.core.database import get_supabase
             supabase = get_supabase()
             response = (
                 supabase
@@ -222,7 +318,6 @@ class ValuationService:
     async def get_valuation_by_id(self, report_id: int, user_id: str) -> Optional[Dict[str, Any]]:
         """Get valuation by ID."""
         try:
-            from app.core.database import get_supabase
             supabase = get_supabase()
             response = (
                 supabase
