@@ -10,6 +10,7 @@ the only place that should import both `schemas.py` and `models.py`.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
 from typing import Optional
