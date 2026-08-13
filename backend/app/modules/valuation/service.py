@@ -1,384 +1,269 @@
-# app/modules/valuation/service.py
-# ================================================================
-# Auto-D Kenya - Valuation Service
-# ================================================================
+"""
+services/valuation_service.py
+
+Business logic for vehicle valuation. Wraps the existing Postgres
+function `calculate_vehicle_valuation` (already deployed in Supabase,
+confirmed working against real data) and reshapes its flat result row
+into the nested JSON structure the "Instant Value Check" frontend
+expects from POST /api/v1/valuation/calculate:
+
+    {
+      "success": true,
+      "data": {
+        "vehicle": {
+          "make": ..., "model": ..., "trim": ..., "year": ...,
+          "mileage": ..., "location": ..., "condition": ...,
+          "fuel_type": ..., "transmission": ..., "engine_capacity": ...
+        },
+        "valuation": {
+          "estimated_vehicle_value": ...,
+          "recommended_selling_price": ...,
+          "confidence_score": ...
+        },
+        "analysis": {
+          "adjustments": {
+            "mileage": ..., "condition": ..., "accident": ...,
+            "location": ..., "market": ...
+          },
+          "depreciation_rate": ...,
+          "depreciation_amount": ...,
+          "mileage_adjustment": ...,
+          "vehicle_age": ...
+        },
+        "report": { "report_number": "..." }
+      }
+    }
+
+ASSUMPTIONS — adjust to match your actual project if different:
+  1. A Supabase client is reachable via `get_supabase()` (see the
+     import below). Swap this for however your project actually
+     wires up the Supabase / DB client.
+  2. `vehicle_crsp` (or the `vehicle_crsp_lookup` view your frontend
+     already queries) can be filtered by make / model / trim_level /
+     manufacture_year to resolve a single `crsp_id`, since the SQL
+     function takes `p_vehicle_crsp_id` rather than make/model/trim
+     strings directly.
+  3. The SQL function's `p_condition_name` / `p_accident_status` /
+     `p_location_name` args are UPPERCASE enum-like strings (matches
+     your tested example: 'GOOD', 'NONE', 'NAIROBI').
+"""
+
+from __future__ import annotations
 
 import logging
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
-import secrets
+import uuid
+from typing import Any, Optional
 
-from app.modules.valuation.repository import ValuationRepository
-from app.core.exceptions import NotFoundException, ValidationException
-from app.core.database import get_supabase
+from pydantic import BaseModel, Field, field_validator
+
+# TODO: point this at wherever your project actually creates its
+# Supabase client (service-role client, since this runs server-side).
+from app.db import get_supabase  # noqa: F401  (placeholder import)
 
 logger = logging.getLogger(__name__)
 
 
+# ─────────────────────────────────────────────────────────────────
+# Request / response models
+# ─────────────────────────────────────────────────────────────────
+
+class ValuationRequest(BaseModel):
+    """Matches the `formData` payload built by the frontend's
+    App.calculateValuation()."""
+
+    make: str
+    model: str
+    trim: str
+    year: int
+    mileage: float = Field(ge=0)
+    condition: str = "good"
+    accident_history: str = "none"
+    previous_owners: int = 1
+    location: str = "nairobi"
+    fuel_type: str = "petrol"
+    transmission: str = "automatic"
+    vehicle_type: str = "sedan"
+    profit_margin: float = Field(default=0, ge=0, le=100)
+    engine_capacity: Optional[str] = None
+    crsp_kes: Optional[float] = None  # informational only; not sent to the SQL fn
+
+    @field_validator("make", "model", "trim", "location", "condition", "accident_history")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        return v.strip() if isinstance(v, str) else v
+
+
+CONDITION_MAP = {
+    "excellent": "EXCELLENT",
+    "very_good": "VERY_GOOD",
+    "good": "GOOD",
+    "fair": "FAIR",
+    "poor": "POOR",
+}
+
+ACCIDENT_MAP = {
+    "none": "NONE",
+    "minor": "MINOR",
+    "major": "MAJOR",
+    "total_loss": "TOTAL_LOSS",
+}
+
+
+class ValuationError(Exception):
+    """Raised for any failure in the valuation pipeline; the router
+    turns this into an appropriate HTTP response."""
+
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
+# ─────────────────────────────────────────────────────────────────
+# Service
+# ─────────────────────────────────────────────────────────────────
+
 class ValuationService:
-    """Valuation service for Auto-D Kenya."""
-    
-    def __init__(self):
-        self.repository = ValuationRepository()
-        self.supabase = get_supabase()
-        logger.info("ValuationService initialized")
-    
-    # ================================================================
-    # MAIN VALUATION
-    # ================================================================
-    
-    def calculate_valuation(
-        self,
-        make: str,
-        model: str,
-        year: int,
-        mileage: int = 0,
-        condition: str = "good",
-        accident_history: str = "none",
-        previous_owners: int = 1,
-        location: str = "nairobi",
-        fuel_type: Optional[str] = None,
-        transmission: Optional[str] = None,
-        vehicle_type: Optional[str] = None,
-        trim: Optional[str] = None,
-        engine_capacity: Optional[str] = None,
-        profit_margin: float = 0.0,
-        crsp_id: Optional[int] = None,
-        crsp_kes: Optional[float] = None,
-        variant_id: Optional[int] = None,
-    ) -> Dict[str, Any]:
+    def __init__(self, supabase):
+        self.supabase = supabase
+
+    # ---- crsp lookup -------------------------------------------------
+
+    async def _resolve_crsp_id(self, req: ValuationRequest) -> tuple[int, dict[str, Any]]:
+        """Find the vehicle_crsp row matching make/model/trim/year.
+
+        Falls back through progressively looser filters (drop trim,
+        then pick the closest year) since real-world trim strings and
+        CRSP schedule years don't always line up exactly.
         """
-        Calculate vehicle valuation based on frontend payload.
-        
-        Args:
-            make: Vehicle make
-            model: Vehicle model
-            year: Manufacture year
-            mileage: Odometer reading
-            condition: Vehicle condition
-            accident_history: Accident history
-            previous_owners: Number of previous owners
-            location: Vehicle location
-            fuel_type: Fuel type
-            transmission: Transmission type
-            vehicle_type: Vehicle type
-            trim: Vehicle trim
-            engine_capacity: Engine capacity
-            profit_margin: Profit margin percentage
-            crsp_id: Optional CRSP ID
-            crsp_kes: Optional CRSP price
-            variant_id: Optional variant ID (for lookup)
-            
-        Returns:
-            Dict[str, Any]: Valuation results
-        """
-        logger.info(f"Calculating valuation for make='{make}', model='{model}', year={year}")
-        logger.info(f"Additional params: crsp_id={crsp_id}, variant_id={variant_id}")
-        
-        # ─── Try to resolve make and model if missing ──────────────────
-        resolved_make = make
-        resolved_model = model
-        
-        # If make or model is missing, try to look them up
-        if not resolved_make or not resolved_model:
-            logger.warning(f"Make or model missing: make='{resolved_make}', model='{resolved_model}'")
-            
-            # Try using crsp_id first
-            lookup_id = crsp_id or variant_id
-            if lookup_id:
-                logger.info(f"Attempting to look up make/model from ID: {lookup_id}")
-                
-                # Try vehicle_master_specs first (most complete data)
-                try:
-                    response = (
-                        self.supabase
-                        .table("vehicle_master_specs")
-                        .select("make_name, model_name, variant_name")
-                        .eq("variant_id", lookup_id)
-                        .limit(1)
-                        .execute()
-                    )
-                    if response.data:
-                        resolved_make = response.data[0].get("make_name") or resolved_make
-                        resolved_model = response.data[0].get("model_name") or resolved_model
-                        if not trim:
-                            trim = response.data[0].get("variant_name") or trim
-                        logger.info(f"Found from master_specs: make='{resolved_make}', model='{resolved_model}'")
-                except Exception as e:
-                    logger.warning(f"Failed to lookup in master_specs: {e}")
-            
-            # If still missing, try CRSP table
-            if not resolved_make or not resolved_model:
-                try:
-                    # Try vehicle_crsp_lookup
-                    response = (
-                        self.supabase
-                        .table("vehicle_crsp_lookup")
-                        .select("make, model, trim_level, engine_capacity, fuel, transmission")
-                        .eq("crsp_id", lookup_id)
-                        .limit(1)
-                        .execute()
-                    )
-                    if not response.data:
-                        response = (
-                            self.supabase
-                            .table("vehicle_crsp_lookup")
-                            .select("make, model, trim_level, engine_capacity, fuel, transmission")
-                            .eq("id", lookup_id)
-                            .limit(1)
-                            .execute()
-                        )
-                    if response.data:
-                        resolved_make = response.data[0].get("make") or resolved_make
-                        resolved_model = response.data[0].get("model") or resolved_model
-                        if not trim:
-                            trim = response.data[0].get("trim_level") or trim
-                        if not engine_capacity:
-                            engine_capacity = response.data[0].get("engine_capacity") or engine_capacity
-                        if not fuel_type:
-                            fuel_type = response.data[0].get("fuel") or fuel_type
-                        if not transmission:
-                            transmission = response.data[0].get("transmission") or transmission
-                        logger.info(f"Found from CRSP: make='{resolved_make}', model='{resolved_model}'")
-                except Exception as e:
-                    logger.warning(f"Failed to lookup in CRSP: {e}")
-        
-        # ─── Final validation ──────────────────────────────────────────
-        # If still empty, use placeholders
-        if not resolved_make:
-            resolved_make = "Unknown"
-            logger.warning("Using 'Unknown' for make")
-        if not resolved_model:
-            resolved_model = "Unknown"
-            logger.warning("Using 'Unknown' for model")
-        
-        # Validate year
-        if year < 1900 or year > datetime.now(timezone.utc).year + 1:
-            raise ValidationException(f"Invalid year: {year}")
-        
-        if mileage < 0:
-            raise ValidationException(f"Invalid mileage: {mileage}")
-        
-        # ─── Normalize inputs ────────────────────────────────────────
-        condition = condition.lower().strip()
-        accident_history = accident_history.lower().strip()
-        location = location.lower().strip()
-        
-        # ─── Calculate Valuation ──────────────────────────────────────
-        result = self.repository.calculate_valuation(
-            make=resolved_make,
-            model=resolved_model,
-            year=year,
-            mileage=mileage,
-            condition=condition,
-            accident_history=accident_history,
-            previous_owners=previous_owners,
-            location=location,
-            fuel_type=fuel_type,
-            transmission=transmission,
-            vehicle_type=vehicle_type,
-            trim=trim,
-            engine_capacity=engine_capacity,
-            profit_margin=profit_margin,
-            crsp_id=crsp_id,
-            crsp_kes=crsp_kes,
+        query = (
+            self.supabase.table("vehicle_crsp")
+            .select("crsp_id, make, model, trim_level, manufacture_year, crsp_year, crsp_kes")
+            .ilike("make", req.make)
+            .ilike("model", req.model)
         )
-        
-        # Add resolved values to result
-        if result.get("vehicle"):
-            result["vehicle"]["make"] = resolved_make
-            result["vehicle"]["model"] = resolved_model
-            if trim:
-                result["vehicle"]["trim"] = trim
-        
-        logger.info(f"Valuation complete: {result.get('estimated_value', 0)} KES")
-        return result
-    
-    # ================================================================
-    # BULK VALUATION
-    # ================================================================
-    
-    def calculate_bulk_valuations(
-        self,
-        requests: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Calculate multiple valuations."""
-        results = []
-        for req in requests:
-            try:
-                result = self.calculate_valuation(**req)
-                results.append({"success": True, "result": result})
-            except Exception as e:
-                logger.error(f"Bulk valuation failed: {e}")
-                results.append({
-                    "success": False,
-                    "error": str(e),
-                    "vehicle": f"{req.get('make', 'Unknown')} {req.get('model', 'Unknown')}"
-                })
-        return results
-    
-    # ================================================================
-    # CRSP LOOKUP HELPERS
-    # ================================================================
-    
-    def search_crsp(
-        self,
-        make: Optional[str] = None,
-        model: Optional[str] = None,
-        year: Optional[int] = None,
-        limit: int = 25,
-    ) -> List[Dict[str, Any]]:
-        """Search CRSP records."""
-        return self.repository.search_crsp(
-            make=make,
-            model=model,
-            manufacture_year=year,
-            limit=limit,
+        res = query.execute()
+        rows = res.data or []
+
+        if not rows:
+            raise ValuationError(
+                f"No CRSP schedule found for {req.make} {req.model}", status_code=404
+            )
+
+        # Prefer an exact trim + year match
+        exact = [
+            r for r in rows
+            if (r.get("trim_level") or "").strip().lower() == req.trim.strip().lower()
+            and int(r.get("manufacture_year") or r.get("crsp_year") or -1) == req.year
+        ]
+        if exact:
+            return exact[0]["crsp_id"], exact[0]
+
+        # Next: exact trim, closest year
+        by_trim = [
+            r for r in rows
+            if (r.get("trim_level") or "").strip().lower() == req.trim.strip().lower()
+        ]
+        candidates = by_trim or rows
+        best = min(
+            candidates,
+            key=lambda r: abs(int(r.get("manufacture_year") or r.get("crsp_year") or 0) - req.year),
         )
-    
-    def get_crsp_vehicle(self, crsp_id: int) -> Optional[Dict[str, Any]]:
-        """Get CRSP vehicle by ID."""
-        record = self.repository.get_crsp_by_id(crsp_id)
-        if not record:
-            record = self.repository.get_crsp_by_crsp_id(crsp_id)
-        return record
-    
-    def get_makes(self) -> List[str]:
-        """Get all makes."""
-        return self.repository.get_all_makes()
-    
-    def get_models(self, make: str) -> List[str]:
-        """Get models for a make."""
-        return self.repository.get_models_by_make(make)
-    
-    def get_years(self, make: str, model: str) -> List[int]:
-        """Get years for a model."""
-        return self.repository.get_years_by_model(make, model)
-    
-    def get_trims(self, make: str, model: str, year: int) -> List[Dict[str, Any]]:
-        """Get trims for a model and year."""
-        return self.repository.get_trims_by_model_year(make, model, year)
-    
-    # ================================================================
-    # HISTORY MANAGEMENT
-    # ================================================================
-    
-    async def save_valuation_history(
-        self,
-        user_id: str,
-        result: Dict[str, Any],
-        request: Dict[str, Any],
-    ) -> None:
-        """Save valuation to history."""
+        return best["crsp_id"], best
+
+    # ---- main entrypoint ----------------------------------------------
+
+    async def calculate(self, req: ValuationRequest) -> dict[str, Any]:
+        crsp_id, crsp_row = await self._resolve_crsp_id(req)
+
+        condition_name = CONDITION_MAP.get(req.condition, req.condition.upper())
+        accident_status = ACCIDENT_MAP.get(req.accident_history, req.accident_history.upper())
+        location_name = req.location.strip().upper()
+
         try:
-            supabase = get_supabase()
-            
-            # Get make and model from result or request
-            vehicle = result.get("vehicle", {})
-            make = request.get("make") or vehicle.get("make") or "Unknown"
-            model = request.get("model") or vehicle.get("model") or "Unknown"
-            
-            history_data = {
-                "user_id": user_id,
-                "make": make,
-                "model": model,
-                "year": request.get("year", 0),
-                "mileage": request.get("mileage", 0),
-                "market_value": result.get("market_value", 0),
-                "retail_value": result.get("retail_value", 0),
-                "trade_value": result.get("trade_value", 0),
-                "confidence_score": result.get("confidence_score", 0),
-                "valuation_date": datetime.now(timezone.utc).isoformat(),
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-            
-            supabase.table("valuation_history").insert(history_data).execute()
-            logger.info(f"Valuation history saved for user {user_id}")
-            
-        except Exception as e:
-            logger.warning(f"Failed to save valuation history: {str(e)}")
-    
-    async def get_valuation_history(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get valuation history for a user."""
-        try:
-            supabase = get_supabase()
-            response = (
-                supabase
-                .table("valuation_history")
-                .select("*")
-                .eq("user_id", user_id)
-                .order("created_at", desc=True)
-                .execute()
-            )
-            return response.data if response.data else []
-        except Exception as e:
-            logger.error(f"Failed to get history: {e}")
-            return []
-    
-    async def get_valuation_by_id(self, report_id: int, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get valuation by ID."""
-        try:
-            supabase = get_supabase()
-            response = (
-                supabase
-                .table("valuation_history")
-                .select("*")
-                .eq("id", report_id)
-                .eq("user_id", user_id)
-                .execute()
-            )
-            return response.data[0] if response.data else None
-        except Exception as e:
-            logger.error(f"Failed to get valuation {report_id}: {e}")
-            return None
-    
-    # ================================================================
-    # STATISTICS
-    # ================================================================
-    
-    async def get_valuation_stats(self, user_id: str) -> Dict[str, Any]:
-        """Get valuation statistics."""
-        history = await self.get_valuation_history(user_id)
-        
-        if not history:
-            return {
-                "total_valuations": 0,
-                "average_value": 0.0,
-                "average_confidence_score": 0.0,
-                "min_market_value": 0.0,
-                "max_market_value": 0.0,
-                "currency": "KES",
-            }
-        
-        values = [h.get("market_value", 0) for h in history if h.get("market_value", 0) > 0]
-        confidences = [h.get("confidence_score", 0) for h in history if h.get("confidence_score", 0) > 0]
-        
-        return {
-            "total_valuations": len(history),
-            "average_value": sum(values) / len(values) if values else 0.0,
-            "average_confidence_score": sum(confidences) / len(confidences) if confidences else 0.0,
-            "min_market_value": min(values) if values else 0.0,
-            "max_market_value": max(values) if values else 0.0,
-            "currency": "KES",
+            rpc_res = self.supabase.rpc(
+                "calculate_vehicle_valuation",
+                {
+                    "p_vehicle_crsp_id": crsp_id,
+                    "p_manufacture_year": req.year,
+                    "p_mileage_km": req.mileage,
+                    "p_vehicle_type": req.vehicle_type.upper(),
+                    "p_condition_name": condition_name,
+                    "p_accident_status": accident_status,
+                    "p_location_name": location_name,
+                    "p_profit_margin_percent": req.profit_margin,
+                },
+            ).execute()
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("calculate_vehicle_valuation RPC failed")
+            raise ValuationError(f"Valuation calculation failed: {exc}", status_code=502) from exc
+
+        rows = rpc_res.data or []
+        if not rows:
+            raise ValuationError("Valuation function returned no rows", status_code=502)
+
+        row = rows[0]
+        return self._to_api_shape(row, req, crsp_row)
+
+    # ---- response shaping ----------------------------------------------
+
+    @staticmethod
+    def _to_api_shape(
+        row: dict[str, Any], req: ValuationRequest, crsp_row: dict[str, Any]
+    ) -> dict[str, Any]:
+        depreciation_rate = row.get("depreciation_rate")
+        depreciation_rate_frac = (
+            float(depreciation_rate) / 100.0 if depreciation_rate is not None else None
+        )
+
+        def pct_of_base(amount: Optional[float]) -> float:
+            base = row.get("value_after_depreciation") or row.get("crsp_value")
+            if amount is None or not base:
+                return 0.0
+            return float(amount) / float(base)
+
+        adjustments = {
+            "mileage": pct_of_base(row.get("mileage_adjustment")),
+            "condition": pct_of_base(row.get("condition_adjustment")),
+            "accident": pct_of_base(row.get("accident_adjustment")),
+            "location": pct_of_base(row.get("location_adjustment")),
+            "market": pct_of_base(row.get("market_adjustment")),
         }
-    
-    # ================================================================
-    # HEALTH CHECK
-    # ================================================================
-    
-    def health_check(self) -> Dict[str, Any]:
-        """Health check for valuation service."""
-        try:
-            self.repository.get_all_makes()
-            db_status = "healthy"
-        except Exception as e:
-            logger.error(f"Health check failed: {e}")
-            db_status = "unhealthy"
-        
+
+        report_number = row.get("valuation_reference") or f"AUTO-V-{uuid.uuid4().hex[:8].upper()}"
+
         return {
-            "status": "healthy" if db_status == "healthy" else "degraded",
-            "service": "valuation",
-            "version": "2.0",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "database": db_status,
+            "success": True,
+            "data": {
+                "vehicle": {
+                    "make": row.get("make", req.make),
+                    "model": row.get("model", req.model),
+                    "trim": req.trim,
+                    "year": row.get("manufacture_year", req.year),
+                    "mileage": req.mileage,
+                    "location": req.location,
+                    "condition": req.condition,
+                    "fuel_type": req.fuel_type,
+                    "transmission": req.transmission,
+                    "engine_capacity": req.engine_capacity,
+                },
+                "valuation": {
+                    "estimated_vehicle_value": row.get("final_market_value"),
+                    "recommended_selling_price": row.get("recommended_selling_price"),
+                    "confidence_score": row.get("confidence_score"),
+                },
+                "analysis": {
+                    "adjustments": adjustments,
+                    "depreciation_rate": depreciation_rate_frac,
+                    "depreciation_amount": row.get("depreciation_value"),
+                    "mileage_adjustment": pct_of_base(row.get("mileage_adjustment")),
+                    "vehicle_age": row.get("vehicle_age"),
+                },
+                "report": {"report_number": report_number},
+                "crsp": {
+                    "crsp_id": crsp_row.get("crsp_id"),
+                    "crsp_value": row.get("crsp_value"),
+                    "trim_level": crsp_row.get("trim_level"),
+                },
+            },
         }
