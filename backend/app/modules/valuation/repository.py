@@ -5,8 +5,10 @@
 
 import logging
 from typing import Optional, Dict, Any, List
+from datetime import datetime, timezone
+
 from app.core.database import get_supabase
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import NotFoundException, ValidationException
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,6 @@ class ValuationRepository:
             if body_type:
                 query = query.ilike("body_type", f"%{body_type}%")
             
-            # Prefer records with prices first
             query = query.order("crsp_kes", desc=True)
             query = query.limit(limit)
             
@@ -108,7 +109,6 @@ class ValuationRepository:
     ) -> Optional[Dict[str, Any]]:
         """Get best matching CRSP record by make, model, year."""
         try:
-            # First try exact year match
             query = (
                 self.supabase
                 .table(self.CRSP_TABLE)
@@ -235,7 +235,7 @@ class ValuationRepository:
         make: str,
         model: str,
         year: int,
-        mileage: int,
+        mileage: int = 0,
         condition: str = "good",
         accident_history: str = "none",
         previous_owners: int = 1,
@@ -246,25 +246,81 @@ class ValuationRepository:
         trim: Optional[str] = None,
         engine_capacity: Optional[str] = None,
         profit_margin: float = 0.0,
+        crsp_id: Optional[int] = None,
+        crsp_kes: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Calculate vehicle valuation using CRSP data and adjustment factors.
+        
+        Args:
+            make: Vehicle make
+            model: Vehicle model
+            year: Manufacture year
+            mileage: Odometer reading
+            condition: Vehicle condition
+            accident_history: Accident history
+            previous_owners: Number of previous owners
+            location: Vehicle location
+            fuel_type: Fuel type
+            transmission: Transmission type
+            vehicle_type: Vehicle type
+            trim: Vehicle trim
+            engine_capacity: Engine capacity
+            profit_margin: Profit margin percentage
+            crsp_id: Optional CRSP ID to use directly
+            crsp_kes: Optional CRSP price to use directly
+            
+        Returns:
+            Dict[str, Any]: Valuation results
         """
         # ─── Find CRSP Record ─────────────────────────────────────────
-        crsp_record = self.get_crsp_by_make_model_year(make, model, year)
-        
-        if not crsp_record:
-            # Try broader search without year
-            crsp_record = self.get_crsp_by_make_model_year(make, model, None)
-        
+        crsp_record = None
         crsp_value = 0.0
-        crsp_id = None
+        crsp_found_id = None
         
+        # First, try using provided CRSP ID or price
+        if crsp_id:
+            crsp_record = self.get_crsp_by_id(crsp_id)
+            if not crsp_record:
+                crsp_record = self.get_crsp_by_crsp_id(crsp_id)
+            if crsp_record:
+                logger.info(f"Found CRSP record by ID {crsp_id}")
+        
+        # If provided CRSP price, use it directly
+        if crsp_kes and crsp_kes > 0:
+            crsp_value = crsp_kes
+            logger.info(f"Using provided CRSP price: {crsp_value}")
+        
+        # If not found by ID, search by make/model/year
+        if not crsp_record and make and model:
+            crsp_record = self.get_crsp_by_make_model_year(make, model, year)
+            if not crsp_record:
+                crsp_record = self.get_crsp_by_make_model_year(make, model, None)
+            if crsp_record:
+                logger.info(f"Found CRSP record by make/model")
+        
+        # If we have a CRSP record, extract values
         if crsp_record:
-            crsp_value = float(crsp_record.get("crsp_kes", 0) or 0)
-            crsp_id = crsp_record.get("crsp_id") or crsp_record.get("id")
-            logger.info(f"Found CRSP record: ID={crsp_id}, value={crsp_value}")
-        else:
+            if crsp_value == 0:
+                crsp_value = float(crsp_record.get("crsp_kes", 0) or 0)
+            crsp_found_id = crsp_record.get("crsp_id") or crsp_record.get("id")
+            # Use CRSP values if not provided
+            if not make:
+                make = crsp_record.get("make") or make
+            if not model:
+                model = crsp_record.get("model") or model
+            if not trim:
+                trim = crsp_record.get("trim_level") or trim
+            if not engine_capacity:
+                engine_capacity = str(crsp_record.get("engine_capacity") or "")
+            if not fuel_type:
+                fuel_type = crsp_record.get("fuel") or fuel_type
+            if not transmission:
+                transmission = crsp_record.get("transmission") or transmission
+            logger.info(f"CRSP record: ID={crsp_found_id}, value={crsp_value}")
+        
+        # If no CRSP record and no CRSP value, estimate
+        if crsp_value == 0:
             logger.warning(f"No CRSP record found for {make} {model} {year}")
         
         # ─── Calculate Age ────────────────────────────────────────────
@@ -285,7 +341,6 @@ class ValuationRepository:
         
         # ─── Calculate Base Value ─────────────────────────────────────
         if crsp_value > 0:
-            # Use CRSP value as base
             base_value = crsp_value
             crsp_found = True
         else:
@@ -344,7 +399,7 @@ class ValuationRepository:
             "success": True,
             "status": "completed",
             "crsp_found": crsp_found,
-            "crsp_id": crsp_id,
+            "crsp_id": crsp_found_id,
             "crsp_value": round(crsp_value, 2),
             "estimated_value": final_value,
             "estimated_value_min": round(final_value * 0.90, 2),
@@ -362,7 +417,7 @@ class ValuationRepository:
                 "remaining_value_percent": round((1.0 - depreciation_rate) * 100, 1),
             },
             "vehicle": {
-                "crsp_id": crsp_id,
+                "crsp_id": crsp_found_id,
                 "make": make,
                 "model": model,
                 "trim": trim,
@@ -575,7 +630,7 @@ class ValuationRepository:
         }
         
         # Get base value
-        base_value = 2500000  # Default
+        base_value = 2500000
         for key, value in base_values.items():
             if key in make_lower:
                 base_value = value
