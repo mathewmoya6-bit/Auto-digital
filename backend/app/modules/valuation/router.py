@@ -1,254 +1,348 @@
-"""
-app/modules/valuation/router.py
+# app/modules/valuation/router.py
+# ================================================================
+# Auto-D Kenya - Valuation Routes
+# ================================================================
 
-Routes registered under prefix /api/v1/valuation (see main app include:
-`app.include_router(valuation_router, prefix="/api/v1/valuation",
-tags=["Valuation"])`).
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional, List
 
-Endpoint set matches openapi.json exactly:
-  POST /calculate                       (auth required)
-  POST /calculate-public                (no auth -- used by public widgets)
-  POST /quick                           (no auth, no persistence)
-  POST /calculate-legacy                (back-compat shape, deprecated)
-  GET  /health
-  POST /bulk                            (auth required)
-  POST /compare                         (auth required)
-  GET  /history                         (auth required)
-  GET  /history/{report_id}
-  GET  /history/report/{report_number}
-  GET  /stats
-
-NOTE: instant-value.html currently calls plain "/valuation/calculate"
-(not "-public") and always attaches a Bearer token because the make/
-model/trim dropdowns themselves are gated behind Supabase auth
-(`makeSelect.disabled = !authenticated`) -- so `get_current_user` is a
-hard dependency here, matching that flow. `/calculate-public` exists for
-other embeds (e.g. a marketing landing page widget) that never gate on
-sign-in.
-"""
-
-from __future__ import annotations
-
-import logging
-from typing import Optional
-from uuid import UUID
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-
-from app.core.auth import get_current_user, get_optional_user  # existing auth deps
 from app.modules.valuation.schemas import (
-    BulkValuationRequest,
-    BulkValuationResponse,
-    CompareValuationRequest,
-    CompareValuationResponse,
-    HealthResponse,
-    ValuationBlock,
-    ValuationHistoryItem,
-    ValuationHistoryResponse,
     ValuationRequest,
     ValuationResponse,
-    ValuationStatsResponse,
+    ValuationReportResponse,
+    ValuationStats,
+    ValuationHealthResponse,
+    ValuationHistoryResponse,
+    LegacyValuationRequest,
+    ReportMetadata,
 )
-from app.modules.valuation.service import ValuationService, get_valuation_service
+from app.modules.valuation.service import ValuationService
+from app.core.dependencies import get_current_user, get_current_user_optional
 
-logger = logging.getLogger("valuation.router")
+# ─── ROUTER ──────────────────────────────────────────────────────────
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/valuation",
+    tags=["Vehicle Valuation"],
+)
 
-ENGINE_VERSION = "2026.08"
+service = ValuationService()
 
 
-def _service_dep() -> ValuationService:
-    return get_valuation_service()
+# ================================================================
+# VALUATION ENDPOINTS
+# ================================================================
 
-
-# -------------------------------------------------------------------------
-# Calculation endpoints
-# -------------------------------------------------------------------------
-
-@router.post("/calculate", response_model=ValuationResponse, status_code=status.HTTP_200_OK)
+@router.post("/calculate", response_model=ValuationResponse)
 async def calculate_valuation(
-    payload: ValuationRequest,
-    user=Depends(get_current_user),
-    svc: ValuationService = Depends(_service_dep),
+    request: ValuationRequest,
+    current_user: dict = Depends(get_current_user_optional)
 ):
-    """Authenticated valuation -- the path instant-value.html actually calls."""
-    try:
-        data = await svc.calculate(payload, user_id=str(user.id), persist=True)
-        return ValuationResponse(data=data)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("calculate_valuation failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Valuation calculation failed: {exc}",
-        ) from exc
-
-
-@router.post(
-    "/calculate-public", response_model=ValuationResponse, status_code=status.HTTP_200_OK
-)
-async def calculate_valuation_public(
-    payload: ValuationRequest,
-    user=Depends(get_optional_user),
-    svc: ValuationService = Depends(_service_dep),
-):
-    """Same engine, no auth gate -- for public/embed widgets. Still
-    persists (with user_id=None) so it shows up in aggregate stats.
+    """
+    Calculate vehicle valuation.
+    
+    Accepts the frontend payload with make, model, year, mileage, etc.
+    Returns comprehensive valuation results.
     """
     try:
-        data = await svc.calculate(
-            payload, user_id=str(user.id) if user else None, persist=True
+        user_id = current_user.get("id") if current_user else None
+        
+        result = service.calculate_valuation(
+            make=request.make,
+            model=request.model,
+            year=request.year,
+            mileage=request.mileage,
+            condition=request.condition,
+            accident_history=request.accident_history,
+            previous_owners=request.previous_owners,
+            location=request.location,
+            fuel_type=request.fuel_type,
+            transmission=request.transmission,
+            vehicle_type=request.vehicle_type,
+            trim=request.trim,
+            engine_capacity=request.engine_capacity,
+            profit_margin=request.profit_margin,
         )
-        return ValuationResponse(data=data)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("calculate_valuation_public failed")
+        
+        # Save to history if user is authenticated
+        if user_id:
+            request_data = request.model_dump()
+            await service.save_valuation_history(user_id, result, request_data)
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Valuation error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Valuation calculation failed: {exc}",
-        ) from exc
+            detail=f"Valuation failed: {str(e)}"
+        )
 
 
-@router.post("/quick", response_model=ValuationBlock, status_code=status.HTTP_200_OK)
-async def quick_valuation(
-    payload: ValuationRequest,
-    svc: ValuationService = Depends(_service_dep),
+@router.post("/calculate-public", response_model=ValuationResponse)
+async def calculate_valuation_public(
+    request: ValuationRequest
 ):
-    """Fast ballpark estimate -- no CRSP round-trip, no DB write."""
-    try:
-        return await svc.calculate_quick(payload)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("quick_valuation failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Quick valuation failed: {exc}",
-        ) from exc
-
-
-@router.post(
-    "/calculate-legacy", response_model=ValuationResponse, status_code=status.HTTP_200_OK
-)
-async def calculate_valuation_legacy(
-    payload: ValuationRequest,
-    user=Depends(get_optional_user),
-    svc: ValuationService = Depends(_service_dep),
-):
-    """Deprecated shape kept only so older cached frontend bundles (pre
-    v6.0, before the flat `data.valuation.*` contract) don't 404 outright.
-    Internally identical to /calculate-public; do not build new features
-    against this path.
     """
-    data = await svc.calculate(
-        payload, user_id=str(user.id) if user else None, persist=True
-    )
-    return ValuationResponse(data=data)
+    Calculate vehicle valuation (public endpoint - no authentication required).
+    """
+    try:
+        result = service.calculate_valuation(
+            make=request.make,
+            model=request.model,
+            year=request.year,
+            mileage=request.mileage,
+            condition=request.condition,
+            accident_history=request.accident_history,
+            previous_owners=request.previous_owners,
+            location=request.location,
+            fuel_type=request.fuel_type,
+            transmission=request.transmission,
+            vehicle_type=request.vehicle_type,
+            trim=request.trim,
+            engine_capacity=request.engine_capacity,
+            profit_margin=request.profit_margin,
+        )
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Valuation failed: {str(e)}"
+        )
 
 
-# -------------------------------------------------------------------------
-# Bulk / compare
-# -------------------------------------------------------------------------
-
-@router.post("/bulk", response_model=BulkValuationResponse)
-async def bulk_valuation(
-    payload: BulkValuationRequest,
-    user=Depends(get_current_user),
-    svc: ValuationService = Depends(_service_dep),
+@router.post("/calculate-legacy", response_model=ValuationResponse)
+async def calculate_valuation_legacy(
+    request: LegacyValuationRequest,
+    current_user: dict = Depends(get_current_user_optional)
 ):
-    results, failed = await svc.calculate_bulk(payload.items, user_id=str(user.id))
-    return BulkValuationResponse(results=results, failed=failed)
+    """
+    Calculate vehicle valuation (legacy format - backward compatibility).
+    """
+    try:
+        user_id = current_user.get("id") if current_user else None
+        
+        # Convert legacy request to new format
+        result = service.calculate_valuation(
+            make="",  # Legacy doesn't have make/model
+            model="",
+            year=request.year,
+            mileage=request.mileage,
+            condition=request.condition,
+            accident_history=request.accident_history,
+            previous_owners=request.ownership_count,
+            location=request.location,
+            fuel_type=request.fuel_type,
+            transmission=request.transmission,
+            profit_margin=request.profit_margin_percent,
+        )
+        
+        if user_id:
+            await service.save_valuation_history(user_id, result, {"year": request.year})
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Valuation failed: {str(e)}"
+        )
 
 
-@router.post("/compare", response_model=CompareValuationResponse)
-async def compare_valuations(
-    payload: CompareValuationRequest,
-    user=Depends(get_current_user),
-    svc: ValuationService = Depends(_service_dep),
+# ================================================================
+# CRSP LOOKUP ENDPOINTS
+# ================================================================
+
+@router.get("/crsp/makes")
+async def get_makes(
+    current_user: dict = Depends(get_current_user_optional)
 ):
-    results, best_idx = await svc.compare(payload.items, user_id=str(user.id))
-    return CompareValuationResponse(results=results, best_value=best_idx)
+    """Get all makes from CRSP."""
+    return service.get_makes()
 
 
-# -------------------------------------------------------------------------
-# History / stats
-# -------------------------------------------------------------------------
+@router.get("/crsp/models")
+async def get_models(
+    make: str,
+    current_user: dict = Depends(get_current_user_optional)
+):
+    """Get models for a make."""
+    return service.get_models(make)
+
+
+@router.get("/crsp/years")
+async def get_years(
+    make: str,
+    model: str,
+    current_user: dict = Depends(get_current_user_optional)
+):
+    """Get years for a model."""
+    return service.get_years(make, model)
+
+
+@router.get("/crsp/trims")
+async def get_trims(
+    make: str,
+    model: str,
+    year: int,
+    current_user: dict = Depends(get_current_user_optional)
+):
+    """Get trims for a model and year."""
+    return service.get_trims(make, model, year)
+
+
+@router.get("/crsp/search")
+async def search_crsp(
+    make: Optional[str] = None,
+    model: Optional[str] = None,
+    year: Optional[int] = None,
+    limit: int = 25,
+    current_user: dict = Depends(get_current_user_optional)
+):
+    """Search CRSP records."""
+    return service.search_crsp(make, model, year, limit)
+
+
+@router.get("/crsp/{crsp_id}")
+async def get_crsp_vehicle(
+    crsp_id: int,
+    current_user: dict = Depends(get_current_user_optional)
+):
+    """Get CRSP vehicle by ID."""
+    result = service.get_crsp_vehicle(crsp_id)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"CRSP vehicle {crsp_id} not found"
+        )
+    return result
+
+
+# ================================================================
+# HISTORY ENDPOINTS
+# ================================================================
 
 @router.get("/history", response_model=ValuationHistoryResponse)
 async def get_valuation_history(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    user=Depends(get_current_user),
-    svc: ValuationService = Depends(_service_dep),
+    current_user: dict = Depends(get_current_user)
 ):
-    rows, total = await svc.get_history(str(user.id), page, page_size)
-    items = [
-        ValuationHistoryItem(
-            report_id=row["id"],
-            report_number=row["report_number"],
-            make=row["make"],
-            model=row["model"],
-            year=row["year"],
-            estimated_vehicle_value=row["estimated_vehicle_value"],
-            created_at=row["created_at"],
+    """Get valuation history for the current user."""
+    try:
+        user_id = current_user.get("id")
+        history = await service.get_valuation_history(user_id)
+        return {"items": history, "total": len(history)}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get history: {str(e)}"
         )
-        for row in rows
-    ]
-    return ValuationHistoryResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/history/{report_id}")
 async def get_valuation_report(
-    report_id: UUID,
-    user=Depends(get_current_user),
-    svc: ValuationService = Depends(_service_dep),
+    report_id: int,
+    current_user: dict = Depends(get_current_user)
 ):
-    report = await svc.get_report_by_id(report_id)
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-    if report.get("user_id") and report["user_id"] != str(user.id):
-        raise HTTPException(status_code=403, detail="Not authorized to view this report")
-    return report
-
-
-@router.get("/history/report/{report_number}")
-async def get_valuation_by_report_number(
-    report_number: str,
-    user=Depends(get_optional_user),
-    svc: ValuationService = Depends(_service_dep),
-):
-    """No hard auth requirement -- report numbers are unguessable UUID-
-    suffixed tokens, used for e.g. sharing a printed report link. Owner-
-    only fields are not exposed beyond what's already in the payload.
-    """
-    report = await svc.get_report_by_number(report_number)
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-    return report
-
-
-@router.get("/stats", response_model=ValuationStatsResponse)
-async def get_valuation_stats(
-    user=Depends(get_current_user),  # admin-ish aggregate -- require auth
-    svc: ValuationService = Depends(_service_dep),
-):
-    stats = await svc.get_stats()
-    return ValuationStatsResponse(**stats)
-
-
-# -------------------------------------------------------------------------
-# Health
-# -------------------------------------------------------------------------
-
-@router.get("/health", response_model=HealthResponse)
-async def valuation_health(svc: ValuationService = Depends(_service_dep)):
-    crsp_available = True
+    """Get a specific valuation report by ID."""
     try:
-        # Cheap liveness probe against the CRSP view -- don't fail health
-        # over a single flaky lookup.
-        await svc._repo.get_crsp_by_fuzzy_match("Toyota", "Corolla", None, 2020)
-    except Exception:  # noqa: BLE001
-        crsp_available = False
+        user_id = current_user.get("id")
+        report = await service.get_valuation_by_id(report_id, user_id)
+        if not report:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Valuation report not found"
+            )
+        return report
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get report: {str(e)}"
+        )
 
-    return HealthResponse(
-        status="ok",
-        engine_version=ENGINE_VERSION,
-        crsp_lookup_available=crsp_available,
-    )
+
+# ================================================================
+# STATISTICS ENDPOINTS
+# ================================================================
+
+@router.get("/stats", response_model=ValuationStats)
+async def get_valuation_stats(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get valuation statistics for the current user."""
+    try:
+        user_id = current_user.get("id")
+        return await service.get_valuation_stats(user_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get stats: {str(e)}"
+        )
+
+
+# ================================================================
+# HEALTH ENDPOINT
+# ================================================================
+
+@router.get("/health", response_model=ValuationHealthResponse)
+async def valuation_health():
+    """Health check for valuation service."""
+    return service.health_check()
+
+
+# ================================================================
+# BULK ENDPOINTS
+# ================================================================
+
+@router.post("/bulk")
+async def bulk_valuation(
+    requests: List[ValuationRequest],
+    current_user: dict = Depends(get_current_user_optional)
+):
+    """Calculate valuations for multiple vehicles."""
+    try:
+        user_id = current_user.get("id") if current_user else None
+        request_data = [req.model_dump() for req in requests]
+        results = service.calculate_bulk_valuations(request_data)
+        
+        if user_id:
+            for i, result in enumerate(results):
+                if result.get("success"):
+                    await service.save_valuation_history(user_id, result["result"], request_data[i])
+        
+        return {
+            "total": len(requests),
+            "successful": sum(1 for r in results if r.get("success")),
+            "failed": sum(1 for r in results if not r.get("success")),
+            "results": results
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Bulk valuation failed: {str(e)}"
+        )
+
+
+# ================================================================
+# EXPORTS
+# ================================================================
+
+__all__ = ["router"]
