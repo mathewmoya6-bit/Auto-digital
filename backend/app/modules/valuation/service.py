@@ -31,9 +31,9 @@ from app.modules.valuation.schemas import (
 
 logger = logging.getLogger("valuation.service")
 
-# ── bounded TTL cache for CRSP lookups ──────────────────────────────────
+# -- bounded TTL cache for CRSP lookups ----------------------------------
 # Keyed on (make, model, trim, year, engine_capacity_id). Small footprint,
-# short TTL — CRSP data changes rarely intraday but we don't want a stale
+# short TTL -- CRSP data changes rarely intraday but we don't want a stale
 # cache surviving a mid-day data correction either.
 _CRSP_CACHE_TTL_SECONDS = 300
 _CRSP_CACHE_MAX_ENTRIES = 2_000
@@ -72,7 +72,7 @@ class ValuationService:
         self._repo = repository or ValuationRepository()
         self._engine = engine or ValuationEngine()
 
-    # ── core flow shared by calculate / calculate-public / quick ──────
+    # -- core flow shared by calculate / calculate-public / quick ------
 
     async def _lookup_crsp(self, req: ValuationRequest) -> tuple[Optional[dict[str, Any]], str]:
         cache_key = (req.make, req.model, req.trim, req.year, req.engine_capacity_id)
@@ -106,7 +106,7 @@ class ValuationService:
             crsp_base_price = crsp_row.get("crsp_kes")
         elif req.crsp_kes:
             # Untrusted client hint used only when the server-side lookup
-            # missed entirely — better than falling straight to the
+            # missed entirely -- better than falling straight to the
             # generic market anchor.
             crsp_base_price = req.crsp_kes
             crsp_source = "client_hint"
@@ -196,7 +196,7 @@ class ValuationService:
         return data
 
     async def calculate_quick(self, req: ValuationRequest) -> ValuationBlock:
-        """Lightweight path for /valuation/quick — no CRSP lookup, no
+        """Lightweight path for /valuation/quick -- no CRSP lookup, no
         persistence, pure engine estimate. Used for instant "ballpark"
         widgets where latency matters more than precision.
         """
@@ -253,7 +253,7 @@ class ValuationService:
             )
         return results, best_idx
 
-    # ── history / stats passthroughs ───────────────────────────────────
+    # -- history / stats passthroughs -----------------------------------
 
     async def get_report_by_id(self, report_id):
         return await self._repo.get_report_by_id(report_id)
@@ -267,12 +267,12 @@ class ValuationService:
     async def get_stats(self):
         return await self._repo.get_stats()
 
-    # ── helpers ─────────────────────────────────────────────────────────
+    # -- helpers ---------------------------------------------------------
 
     @staticmethod
     def _parse_cc(engine_capacity: Optional[str]) -> Optional[float]:
         """`engine_capacity` arrives as a display string like "1998cc" or
-        "2.0L" from the trim dropdown — best-effort numeric extraction."""
+        "2.0L" from the trim dropdown -- best-effort numeric extraction."""
         if not engine_capacity:
             return None
         digits = "".join(c for c in engine_capacity if c.isdigit() or c == ".")
@@ -287,7 +287,7 @@ class ValuationService:
         return value * 1000 if value < 100 else value
 
 
-# ── singleton accessor (matches mpesa service's singleton pattern) ──────
+# -- singleton accessor (matches mpesa service's singleton pattern) ------
 _service_instance: Optional[ValuationService] = None
 
 
