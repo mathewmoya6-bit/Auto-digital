@@ -5,9 +5,9 @@ Data access layer. All writes and CRSP reads go through the Supabase
 service-role client (never the anon/browser client used in the frontend),
 consistent with the rest of the backend.
 
-ASSUMPTIONS FLAGGED BELOW — confirm/adjust against the live schema:
+ASSUMPTIONS FLAGGED BELOW -- confirm/adjust against the live schema:
 
-1. `vehicle_crsp_prices` — the FK-normalized CRSP pricing table referenced
+1. `vehicle_crsp_prices` -- the FK-normalized CRSP pricing table referenced
    in the Aug alignment work. Assumed columns:
      id, engine_capacity_id (FK), make, model, trim_level, crsp_kes,
      body_type, fuel, transmission, crsp_year
@@ -16,17 +16,17 @@ ASSUMPTIONS FLAGGED BELOW — confirm/adjust against the live schema:
    `.in_()` fallback across sibling variant_ids when a dropdown option
    represents multiple grouped trims.
 
-2. `crsp_makes` / `crsp_models` / `crsp_price_list` — the normalized KRA
+2. `crsp_makes` / `crsp_models` / `crsp_price_list` -- the normalized KRA
    CRSP pipeline tables from the DB audit. Used here only as a secondary
    fuzzy-match path when `engine_capacity_id` isn't supplied by the
    caller (current instant-value.html v6.0 doesn't send it yet).
 
-3. `vehicle_master_specs` — confirmed view, PK `variant_id`, has
+3. `vehicle_master_specs` -- confirmed view, PK `variant_id`, has
    `engine_size_cc`, `make_id`, `model_id`, `generation_id`,
    `fuel_consumption_combined`. Used to resolve a display engine size
    when only a text `engine_capacity` string comes in.
 
-4. `valuation_reports` — assumed table for persisted reports (not yet
+4. `valuation_reports` -- assumed table for persisted reports (not yet
    confirmed to exist). Columns assumed:
      id (uuid pk), report_number (text unique), user_id (uuid, nullable
      for public/quick valuations), make, model, trim, year, mileage,
@@ -37,7 +37,7 @@ ASSUMPTIONS FLAGGED BELOW — confirm/adjust against the live schema:
    valuation keeps working while the migration is pending.
 
 Swap in real column/table names as soon as you confirm the CRSP audit
-results — the public method signatures below are what `service.py`
+results -- the public method signatures below are what `service.py`
 depends on, so internals can change freely.
 """
 
@@ -63,20 +63,20 @@ REPORTS_TABLE = "valuation_reports"
 class ValuationRepository:
     """Thin, testable wrapper around Supabase calls used by the valuation
     domain. Instantiated once (see service.py singleton) and reused across
-    requests — supabase-py's client is safe to share.
+    requests -- supabase-py's client is safe to share.
     """
 
     def __init__(self, client=None):
         self._client = client or get_service_client()
 
-    # ── CRSP LOOKUP ────────────────────────────────────────────────────
+    # -- CRSP LOOKUP ----------------------------------------------------
 
     async def get_crsp_by_engine_capacity_id(
         self,
         engine_capacity_id: int,
         sibling_ids: Optional[list[int]] = None,
     ) -> Optional[dict[str, Any]]:
-        """Primary CRSP lookup path — mirrors the pattern already proven
+        """Primary CRSP lookup path -- mirrors the pattern already proven
         out in total-cost-ownership.html / mileage-running-cost.html.
 
         `sibling_ids` covers the case where a cc-grouped dropdown option
@@ -106,7 +106,7 @@ class ValuationRepository:
                     return resp.data[0]
 
             return None
-        except Exception as exc:  # noqa: BLE001 — degrade, don't 500 the valuation
+        except Exception as exc:  # noqa: BLE001 -- degrade, don't 500 the valuation
             logger.warning("CRSP lookup by engine_capacity_id failed: %s", exc)
             return None
 
@@ -119,7 +119,7 @@ class ValuationRepository:
     ) -> Optional[dict[str, Any]]:
         """Fallback path used when the caller hasn't supplied
         engine_capacity_id (current frontend build). Filters make/model/
-        year server-side, then does a light in-process trim match —
+        year server-side, then does a light in-process trim match --
         the heavier rapidfuzz scoring lives in baseprice_engine.py and
         can be swapped in here once this module needs the same accuracy.
         """
@@ -142,7 +142,7 @@ class ValuationRepository:
             for row in rows:
                 if str(row.get("trim_level", "")).strip().lower() == trim_norm:
                     return row
-            # No exact trim match — best-effort: shortest Levenshtein-free
+            # No exact trim match -- best-effort: shortest Levenshtein-free
             # substring match, else just the first row for the year.
             for row in rows:
                 row_trim = str(row.get("trim_level", "")).strip().lower()
@@ -167,7 +167,7 @@ class ValuationRepository:
             logger.warning("vehicle_master_specs lookup failed: %s", exc)
             return None
 
-    # ── REPORT PERSISTENCE ─────────────────────────────────────────────
+    # -- REPORT PERSISTENCE ---------------------------------------------
 
     async def save_report(
         self,
@@ -197,7 +197,7 @@ class ValuationRepository:
             resp = self._client.table(REPORTS_TABLE).insert(row).execute()
             return resp.data[0] if resp.data else row
         except Exception as exc:  # noqa: BLE001
-            # Table may not exist yet — don't break the valuation flow
+            # Table may not exist yet -- don't break the valuation flow
             # over persistence. Caller still returns a valid report_number.
             logger.error(
                 "Failed to persist valuation report %s (table missing or "
