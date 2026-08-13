@@ -16,20 +16,62 @@ match rather than changing the call site in reports/service.py.
 
 from __future__ import annotations
 
+import inspect
+from typing import Optional
+
+from app.core.database import get_supabase
+
 from .engine import ValuationEngine, ValuationEngineError  # noqa: F401  (re-exported for compatibility)
 from .repository import ValuationRepository
 from .schemas import ValuationRequest, ValuationResponse
 
 
+def _resolve_supabase_client():
+    """Resolve an actual Supabase client from get_supabase().
+
+    get_supabase() might be:
+      - a plain factory:            def get_supabase(): return client
+      - a sync generator dependency: def get_supabase(): yield client
+      - an async generator dependency (can't be resolved synchronously here)
+
+    This module-level `ReportService()` -> `ValuationService()` chain runs
+    at import time, outside FastAPI's request cycle, so we can't rely on
+    Depends() to drive a generator dependency for us. Handle the common
+    cases and fail loudly with a clear message for the one we can't.
+    """
+    result = get_supabase()
+
+    if inspect.isasyncgen(result):
+        raise RuntimeError(
+            "get_supabase() is an async-generator dependency, which can't be "
+            "resolved outside of FastAPI's request cycle. ValuationService is "
+            "being instantiated at module import time (via ReportService()), "
+            "so it needs either a plain synchronous client factory in "
+            "app/core/database.py (e.g. get_supabase_client()), or "
+            "ReportService/ValuationService should be refactored to receive "
+            "their supabase client via Depends() instead of module-level "
+            "instantiation."
+        )
+
+    if inspect.isgenerator(result) or hasattr(result, "__next__"):
+        return next(result)
+
+    return result
+
+
 class ValuationService:
-    """Thin wrapper preserving the original `ValuationService(supabase)`
-    construction + `await service.calculate(request)` call pattern that
-    other modules (e.g. reports) were built against.
+    """Thin wrapper preserving the original `ValuationService()` /
+    `ValuationService(supabase)` construction + `await service.calculate(request)`
+    call pattern that other modules (e.g. reports) were built against.
+
+    `supabase` is optional: app.modules.reports.service instantiates this
+    with no arguments (`ValuationService()`), so when it isn't passed in,
+    the client is resolved internally via _resolve_supabase_client().
     """
 
-    def __init__(self, supabase):
-        self.supabase = supabase
-        self._engine = ValuationEngine(ValuationRepository(supabase))
+    def __init__(self, supabase: Optional[object] = None):
+        self.supabase = supabase if supabase is not None else _resolve_supabase_client()
+        self._engine = ValuationEngine(ValuationRepository(self.supabase))
 
     async def calculate(self, req: ValuationRequest) -> ValuationResponse:
         # ValuationEngine.calculate is currently synchronous (it makes
