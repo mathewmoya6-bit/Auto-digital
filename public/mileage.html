@@ -970,20 +970,41 @@
             // capacities, variant details) go through CONFIG.VIEW_NAME
             // ('vehicle_crsp_lookup'). This is the single source of truth for
             // vehicle data across all three Auto-D calculators.
+            //
+            // Paginates through all rows in the view instead of relying on a
+            // single unbounded select() — an unbounded select only returns
+            // whatever Supabase's server-side "Max Rows" API setting allows
+            // (Dashboard → Settings → API → Max Rows), and truncation there
+            // silently drops rows before they ever reach the dedup logic
+            // below (this is what was causing "only 2 makes" to load).
             async function queryCRSPView(select, filter, order) {
                 if (!supabaseClient) {
                     const client = initSupabase();
                     if (!client) throw new Error('Supabase not initialized');
                 }
-                let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
-                if (filter) query = query.eq(filter.column, filter.value);
-                if (order) query = query.order(order.column, { ascending: order.ascending !== false });
-                const { data, error } = await query;
-                if (error) {
-                    console.error(`Query error on ${CONFIG.VIEW_NAME}:`, error);
-                    throw error;
+                const PAGE_SIZE = 1000;
+                let allRows = [];
+                let from = 0;
+
+                while (true) {
+                    let query = supabaseClient.from(CONFIG.VIEW_NAME).select(select);
+                    if (filter) query = query.eq(filter.column, filter.value);
+                    if (order) query = query.order(order.column, { ascending: order.ascending !== false });
+                    query = query.range(from, from + PAGE_SIZE - 1);
+
+                    const { data, error } = await query;
+                    if (error) {
+                        console.error(`Query error on ${CONFIG.VIEW_NAME}:`, error);
+                        throw error;
+                    }
+
+                    allRows = allRows.concat(data || []);
+
+                    if (!data || data.length < PAGE_SIZE) break; // last page reached
+                    from += PAGE_SIZE;
                 }
-                return data;
+
+                return allRows;
             }
 
             // ─── VEHICLE DATA LOADING ──────────────────────────────────
@@ -991,13 +1012,20 @@
                 try {
                     setStatus('info', 'Loading categories...');
 
-                    const { data, error } = await supabaseClient
-                        .from(CONFIG.VIEW_NAME)
-                        .select('vehicle_category')
-                        .not('vehicle_category', 'is', null)
-                        .order('vehicle_category');
+                    let data = [];
+                    try {
+                        data = await queryCRSPView(
+                            'vehicle_category',
+                            null,
+                            { column: 'vehicle_category', ascending: true }
+                        );
+                        data = (data || []).filter(item => item.vehicle_category);
+                    } catch (e) {
+                        console.warn('Category query via queryCRSPView failed:', e.message);
+                        data = [];
+                    }
 
-                    if (!error && data && data.length > 0) {
+                    if (data && data.length > 0) {
                         const unique = {};
                         data.forEach(item => {
                             const cat = item.vehicle_category;
@@ -1010,7 +1038,7 @@
                         });
                         const result = Object.values(unique);
                         if (result.length > 0) {
-                            console.log('✅ Categories loaded from vehicle_crsp_lookup:', result);
+                            console.log(`✅ Categories loaded from ${CONFIG.VIEW_NAME} (${data.length} raw rows):`, result);
                             setStatus('success', `✅ Loaded ${result.length} categories`);
                             return result;
                         }
@@ -1044,6 +1072,7 @@
                         null,
                         { column: 'make', ascending: true }
                     );
+                    console.log(`🔎 CRSP view returned ${data.length} raw rows for makes (category filter: ${categoryId || 'all'})`);
 
                     // Filter by category if provided
                     let filteredData = data;
