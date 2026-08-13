@@ -1,19 +1,19 @@
 """
 app/modules/valuation/engine.py
 
-Pure calculation logic — no I/O, no Supabase, fully unit-testable.
+Pure calculation logic -- no I/O, no Supabase, fully unit-testable.
 Takes a CRSP base price (if found) plus vehicle attributes and returns a
 fully-adjusted valuation.
 
 Mirrors the KRA-style age-bracket depreciation approach used in
 baseprice_engine.py. The "over 7 years" bracket is a flat cap carried
 over from that module and is still flagged there as requiring gazette
-verification before being treated as authoritative — same caveat
+verification before being treated as authoritative -- same caveat
 applies here.
 
 When no CRSP match exists, the engine falls back to a market-anchor
 heuristic (MARKET_ANCHOR_KES_PER_CC) so the calculator never hard-fails
-just because a trim isn't in the CRSP table yet — it just reports a
+just because a trim isn't in the CRSP table yet -- it just reports a
 lower confidence score.
 """
 
@@ -23,10 +23,10 @@ from dataclasses import dataclass, field
 from datetime import date
 
 
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 # KRA-style age-bracket depreciation
 # (rate applied to CRSP/base price; TODO gazette-verify the >7yr cap)
-# ─────────────────────────────────────────────────────────────────────────
+# -------------------------------------------------------------------------
 AGE_DEPRECIATION_BRACKETS: list[tuple[int, int, float]] = [
     # (min_age_years, max_age_years_inclusive, rate)
     (0, 0, 0.05),
@@ -36,7 +36,7 @@ AGE_DEPRECIATION_BRACKETS: list[tuple[int, int, float]] = [
     (4, 4, 0.37),
     (5, 5, 0.43),
     (6, 6, 0.49),
-    (7, 999, 0.55),  # flat cap beyond 7 years — needs gazette verification
+    (7, 999, 0.55),  # flat cap beyond 7 years -- needs gazette verification
 ]
 
 # Straight-line mileage adjustment: expected km/year band, +/- a capped
@@ -142,12 +142,12 @@ class ValuationOutput:
 
 
 class ValuationEngine:
-    """Stateless — safe to instantiate once and reuse (see service.py)."""
+    """Stateless -- safe to instantiate once and reuse (see service.py)."""
 
     def __init__(self, as_of: date | None = None):
         self._as_of = as_of or date.today()
 
-    # ── public API ──────────────────────────────────────────────────
+    # -- public API --------------------------------------------------
 
     def calculate(self, inp: ValuationInput) -> ValuationOutput:
         age = self._vehicle_age(inp.year)
@@ -164,8 +164,8 @@ class ValuationEngine:
         for factor in adjustments.values():
             value *= factor
 
-        # Photo-authenticity flag doesn't move the number — it's a
-        # disclosure concern, not a pricing one — but we shave a little
+        # Photo-authenticity flag doesn't move the number -- it's a
+        # disclosure concern, not a pricing one -- but we shave a little
         # off confidence for it (handled in _confidence_score).
         confidence = self._confidence_score(
             crsp_used=crsp_used,
@@ -200,7 +200,7 @@ class ValuationEngine:
             crsp_variance_pct=crsp_variance_pct,
         )
 
-    # ── internals ───────────────────────────────────────────────────
+    # -- internals ---------------------------------------------------
 
     def _vehicle_age(self, year: int) -> int:
         return max(0, self._as_of.year - year)
