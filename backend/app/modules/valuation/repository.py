@@ -1,295 +1,649 @@
-"""
-app/modules/valuation/repository.py
-
-Data access layer. All writes and CRSP reads go through the Supabase
-service-role client (never the anon/browser client used in the frontend),
-consistent with the rest of the backend.
-
-ASSUMPTIONS FLAGGED BELOW -- confirm/adjust against the live schema:
-
-1. `vehicle_crsp_prices` -- the FK-normalized CRSP pricing table referenced
-   in the Aug alignment work. Assumed columns:
-     id, engine_capacity_id (FK), make, model, trim_level, crsp_kes,
-     body_type, fuel, transmission, crsp_year
-   Lookup pattern follows total-cost-ownership.html / mileage-running-
-   cost.html: `.eq('engine_capacity_id', variant_id)` first, with an
-   `.in_()` fallback across sibling variant_ids when a dropdown option
-   represents multiple grouped trims.
-
-2. `crsp_makes` / `crsp_models` / `crsp_price_list` -- the normalized KRA
-   CRSP pipeline tables from the DB audit. Used here only as a secondary
-   fuzzy-match path when `engine_capacity_id` isn't supplied by the
-   caller (current instant-value.html v6.0 doesn't send it yet).
-
-3. `vehicle_master_specs` -- confirmed view, PK `variant_id`, has
-   `engine_size_cc`, `make_id`, `model_id`, `generation_id`,
-   `fuel_consumption_combined`. Used to resolve a display engine size
-   when only a text `engine_capacity` string comes in.
-
-4. `valuation_reports` -- assumed table for persisted reports (not yet
-   confirmed to exist). Columns assumed:
-     id (uuid pk), report_number (text unique), user_id (uuid, nullable
-     for public/quick valuations), make, model, trim, year, mileage,
-     location, condition, estimated_vehicle_value, confidence_score,
-     recommended_selling_price, payload (jsonb), created_at.
-   If this table doesn't exist yet, `save_report()` degrades gracefully
-   (logs + returns an in-memory-only report) rather than raising, so
-   valuation keeps working while the migration is pending.
-
-Swap in real column/table names as soon as you confirm the CRSP audit
-results -- the public method signatures below are what `service.py`
-depends on, so internals can change freely.
-"""
-
-from __future__ import annotations
+# app/modules/valuation/repository.py
+# ================================================================
+# Auto-D Kenya - Valuation Repository
+# ================================================================
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Optional
-from uuid import UUID
+from typing import Optional, Dict, Any, List
+from app.core.database import get_supabase
+from app.core.exceptions import NotFoundException
 
-from app.core.supabase import get_service_client  # existing service-role client factory
-
-logger = logging.getLogger("valuation.repository")
-
-CRSP_VIEW = "vehicle_crsp_prices"
-CRSP_MAKES_TABLE = "crsp_makes"
-CRSP_MODELS_TABLE = "crsp_models"
-CRSP_PRICE_LIST_TABLE = "crsp_price_list"
-MASTER_SPECS_VIEW = "vehicle_master_specs"
-REPORTS_TABLE = "valuation_reports"
+logger = logging.getLogger(__name__)
 
 
 class ValuationRepository:
-    """Thin, testable wrapper around Supabase calls used by the valuation
-    domain. Instantiated once (see service.py singleton) and reused across
-    requests -- supabase-py's client is safe to share.
-    """
-
-    def __init__(self, client=None):
-        self._client = client or get_service_client()
-
-    # -- CRSP LOOKUP ----------------------------------------------------
-
-    async def get_crsp_by_engine_capacity_id(
+    """Valuation data access layer."""
+    
+    CRSP_TABLE = "vehicle_crsp_lookup"
+    
+    def __init__(self):
+        self.supabase = get_supabase()
+        logger.info("ValuationRepository initialized")
+    
+    # ================================================================
+    # CRSP LOOKUP
+    # ================================================================
+    
+    def search_crsp(
         self,
-        engine_capacity_id: int,
-        sibling_ids: Optional[list[int]] = None,
-    ) -> Optional[dict[str, Any]]:
-        """Primary CRSP lookup path -- mirrors the pattern already proven
-        out in total-cost-ownership.html / mileage-running-cost.html.
-
-        `sibling_ids` covers the case where a cc-grouped dropdown option
-        represents several underlying variant_ids; if the primary id
-        misses, we widen to `.in_()` across the group before giving up.
-        """
+        make: Optional[str] = None,
+        model: Optional[str] = None,
+        manufacture_year: Optional[int] = None,
+        trim: Optional[str] = None,
+        engine_capacity: Optional[str] = None,
+        fuel: Optional[str] = None,
+        transmission: Optional[str] = None,
+        body_type: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Search CRSP records with filters."""
         try:
-            resp = (
-                self._client.table(CRSP_VIEW)
+            query = self.supabase.table(self.CRSP_TABLE).select("*")
+            
+            if make:
+                query = query.ilike("make", f"%{make}%")
+            if model:
+                query = query.ilike("model", f"%{model}%")
+            if manufacture_year:
+                query = query.eq("manufacture_year", manufacture_year)
+            if trim:
+                query = query.ilike("trim_level", f"%{trim}%")
+            if engine_capacity:
+                query = query.eq("engine_capacity", engine_capacity)
+            if fuel:
+                query = query.ilike("fuel", f"%{fuel}%")
+            if transmission:
+                query = query.ilike("transmission", f"%{transmission}%")
+            if body_type:
+                query = query.ilike("body_type", f"%{body_type}%")
+            
+            # Prefer records with prices first
+            query = query.order("crsp_kes", desc=True)
+            query = query.limit(limit)
+            
+            response = query.execute()
+            return response.data if response.data else []
+            
+        except Exception as e:
+            logger.error(f"CRSP search failed: {e}")
+            return []
+    
+    def get_crsp_by_id(self, crsp_id: int) -> Optional[Dict[str, Any]]:
+        """Get CRSP record by ID."""
+        try:
+            response = (
+                self.supabase
+                .table(self.CRSP_TABLE)
                 .select("*")
-                .eq("engine_capacity_id", engine_capacity_id)
+                .eq("id", crsp_id)
                 .limit(1)
                 .execute()
             )
-            if resp.data:
-                return resp.data[0]
-
-            if sibling_ids:
-                resp = (
-                    self._client.table(CRSP_VIEW)
-                    .select("*")
-                    .in_("engine_capacity_id", sibling_ids)
-                    .limit(1)
-                    .execute()
-                )
-                if resp.data:
-                    return resp.data[0]
-
+            return response.data[0] if response.data else None
+        except Exception as e:
+            logger.error(f"Failed to get CRSP by ID {crsp_id}: {e}")
             return None
-        except Exception as exc:  # noqa: BLE001 -- degrade, don't 500 the valuation
-            logger.warning("CRSP lookup by engine_capacity_id failed: %s", exc)
+    
+    def get_crsp_by_crsp_id(self, crsp_id: int) -> Optional[Dict[str, Any]]:
+        """Get CRSP record by crsp_id column."""
+        try:
+            response = (
+                self.supabase
+                .table(self.CRSP_TABLE)
+                .select("*")
+                .eq("crsp_id", crsp_id)
+                .limit(1)
+                .execute()
+            )
+            return response.data[0] if response.data else None
+        except Exception as e:
+            logger.error(f"Failed to get CRSP by crsp_id {crsp_id}: {e}")
             return None
-
-    async def get_crsp_by_fuzzy_match(
+    
+    def get_crsp_by_make_model_year(
         self,
         make: str,
         model: str,
-        trim: Optional[str],
-        year: int,
-    ) -> Optional[dict[str, Any]]:
-        """Fallback path used when the caller hasn't supplied
-        engine_capacity_id (current frontend build). Filters make/model/
-        year server-side, then does a light in-process trim match --
-        the heavier rapidfuzz scoring lives in baseprice_engine.py and
-        can be swapped in here once this module needs the same accuracy.
-        """
+        year: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Get best matching CRSP record by make, model, year."""
         try:
-            resp = (
-                self._client.table(CRSP_VIEW)
+            # First try exact year match
+            query = (
+                self.supabase
+                .table(self.CRSP_TABLE)
                 .select("*")
-                .ilike("make", make)
-                .ilike("model", model)
-                .eq("crsp_year", year)
-                .execute()
+                .ilike("make", f"%{make}%")
+                .ilike("model", f"%{model}%")
             )
-            rows = resp.data or []
-            if not rows:
-                return None
-            if not trim:
-                return rows[0]
-
-            trim_norm = trim.strip().lower()
-            for row in rows:
-                if str(row.get("trim_level", "")).strip().lower() == trim_norm:
-                    return row
-            # No exact trim match -- best-effort: shortest Levenshtein-free
-            # substring match, else just the first row for the year.
-            for row in rows:
-                row_trim = str(row.get("trim_level", "")).strip().lower()
-                if row_trim and (row_trim in trim_norm or trim_norm in row_trim):
-                    return row
-            return rows[0]
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("CRSP fuzzy match failed: %s", exc)
-            return None
-
-    async def get_vehicle_master_spec(self, variant_id: int) -> Optional[dict[str, Any]]:
-        try:
-            resp = (
-                self._client.table(MASTER_SPECS_VIEW)
+            
+            if year:
+                query = query.eq("manufacture_year", year)
+            
+            query = query.order("crsp_kes", desc=True).limit(1)
+            response = query.execute()
+            
+            if response.data:
+                return response.data[0]
+            
+            # Try without year
+            query = (
+                self.supabase
+                .table(self.CRSP_TABLE)
                 .select("*")
-                .eq("variant_id", variant_id)
+                .ilike("make", f"%{make}%")
+                .ilike("model", f"%{model}%")
+                .order("crsp_kes", desc=True)
                 .limit(1)
+            )
+            response = query.execute()
+            return response.data[0] if response.data else None
+            
+        except Exception as e:
+            logger.error(f"Failed to get CRSP by make/model: {e}")
+            return None
+    
+    def get_all_makes(self) -> List[str]:
+        """Get all unique makes from CRSP."""
+        try:
+            response = (
+                self.supabase
+                .table(self.CRSP_TABLE)
+                .select("make")
+                .order("make")
                 .execute()
             )
-            return resp.data[0] if resp.data else None
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("vehicle_master_specs lookup failed: %s", exc)
-            return None
-
-    # -- REPORT PERSISTENCE ---------------------------------------------
-
-    async def save_report(
+            makes = set()
+            for row in response.data or []:
+                if row.get("make"):
+                    makes.add(row["make"])
+            return sorted(list(makes))
+        except Exception as e:
+            logger.error(f"Failed to get makes: {e}")
+            return []
+    
+    def get_models_by_make(self, make: str) -> List[str]:
+        """Get all models for a make."""
+        try:
+            response = (
+                self.supabase
+                .table(self.CRSP_TABLE)
+                .select("model")
+                .ilike("make", f"%{make}%")
+                .order("model")
+                .execute()
+            )
+            models = set()
+            for row in response.data or []:
+                if row.get("model"):
+                    models.add(row["model"])
+            return sorted(list(models))
+        except Exception as e:
+            logger.error(f"Failed to get models for {make}: {e}")
+            return []
+    
+    def get_years_by_model(self, make: str, model: str) -> List[int]:
+        """Get all years for a model."""
+        try:
+            response = (
+                self.supabase
+                .table(self.CRSP_TABLE)
+                .select("manufacture_year")
+                .ilike("make", f"%{make}%")
+                .ilike("model", f"%{model}%")
+                .order("manufacture_year", desc=True)
+                .execute()
+            )
+            years = set()
+            for row in response.data or []:
+                if row.get("manufacture_year"):
+                    years.add(row["manufacture_year"])
+            return sorted(list(years), reverse=True)
+        except Exception as e:
+            logger.error(f"Failed to get years for {make} {model}: {e}")
+            return []
+    
+    def get_trims_by_model_year(
         self,
-        *,
-        report_number: str,
-        user_id: Optional[str],
-        request_payload: dict[str, Any],
-        result_payload: dict[str, Any],
-    ) -> Optional[dict[str, Any]]:
-        row = {
-            "report_number": report_number,
-            "user_id": user_id,
-            "make": request_payload.get("make"),
-            "model": request_payload.get("model"),
-            "trim": request_payload.get("trim"),
-            "year": request_payload.get("year"),
-            "mileage": request_payload.get("mileage"),
-            "location": request_payload.get("location"),
-            "condition": request_payload.get("condition"),
-            "estimated_vehicle_value": result_payload.get("estimated_vehicle_value"),
-            "confidence_score": result_payload.get("confidence_score"),
-            "recommended_selling_price": result_payload.get("recommended_selling_price"),
-            "payload": {"request": request_payload, "result": result_payload},
-            "created_at": datetime.now(timezone.utc).isoformat(),
+        make: str,
+        model: str,
+        year: int,
+    ) -> List[Dict[str, Any]]:
+        """Get all trims for a model and year."""
+        try:
+            response = (
+                self.supabase
+                .table(self.CRSP_TABLE)
+                .select("*")
+                .ilike("make", f"%{make}%")
+                .ilike("model", f"%{model}%")
+                .eq("manufacture_year", year)
+                .order("trim_level")
+                .execute()
+            )
+            return response.data if response.data else []
+        except Exception as e:
+            logger.error(f"Failed to get trims for {make} {model} {year}: {e}")
+            return []
+    
+    # ================================================================
+    # VALUATION CALCULATION
+    # ================================================================
+    
+    def calculate_valuation(
+        self,
+        make: str,
+        model: str,
+        year: int,
+        mileage: int,
+        condition: str = "good",
+        accident_history: str = "none",
+        previous_owners: int = 1,
+        location: str = "nairobi",
+        fuel_type: Optional[str] = None,
+        transmission: Optional[str] = None,
+        vehicle_type: Optional[str] = None,
+        trim: Optional[str] = None,
+        engine_capacity: Optional[str] = None,
+        profit_margin: float = 0.0,
+    ) -> Dict[str, Any]:
+        """
+        Calculate vehicle valuation using CRSP data and adjustment factors.
+        """
+        # ─── Find CRSP Record ─────────────────────────────────────────
+        crsp_record = self.get_crsp_by_make_model_year(make, model, year)
+        
+        if not crsp_record:
+            # Try broader search without year
+            crsp_record = self.get_crsp_by_make_model_year(make, model, None)
+        
+        crsp_value = 0.0
+        crsp_id = None
+        
+        if crsp_record:
+            crsp_value = float(crsp_record.get("crsp_kes", 0) or 0)
+            crsp_id = crsp_record.get("crsp_id") or crsp_record.get("id")
+            logger.info(f"Found CRSP record: ID={crsp_id}, value={crsp_value}")
+        else:
+            logger.warning(f"No CRSP record found for {make} {model} {year}")
+        
+        # ─── Calculate Age ────────────────────────────────────────────
+        current_year = datetime.now(timezone.utc).year
+        age = max(0, current_year - year)
+        
+        # ─── Depreciation Rate ────────────────────────────────────────
+        depreciation_rate = self._get_depreciation_rate(age, vehicle_type)
+        
+        # ─── Adjustment Factors ──────────────────────────────────────
+        mileage_factor = self._get_mileage_factor(mileage, age)
+        condition_factor = self._get_condition_factor(condition)
+        accident_factor = self._get_accident_factor(accident_history)
+        owner_factor = self._get_owner_factor(previous_owners)
+        location_factor = self._get_location_factor(location)
+        fuel_factor = self._get_fuel_factor(fuel_type)
+        transmission_factor = self._get_transmission_factor(transmission)
+        
+        # ─── Calculate Base Value ─────────────────────────────────────
+        if crsp_value > 0:
+            # Use CRSP value as base
+            base_value = crsp_value
+            crsp_found = True
+        else:
+            # Estimate based on make/model
+            base_value = self._estimate_base_value(make, model, year)
+            crsp_found = False
+            logger.info(f"Using estimated base value: {base_value}")
+        
+        # ─── Apply Adjustments ────────────────────────────────────────
+        adjusted_value = (
+            base_value
+            * (1.0 - depreciation_rate)
+            * mileage_factor
+            * condition_factor
+            * accident_factor
+            * owner_factor
+            * location_factor
+            * fuel_factor
+            * transmission_factor
+        )
+        
+        final_value = max(round(adjusted_value, 2), 0.0)
+        
+        # ─── Market Values ────────────────────────────────────────────
+        retail_value = round(final_value * 1.08, 2)
+        trade_value = round(final_value * 0.85, 2)
+        dealer_value = round(final_value * 0.95, 2)
+        selling_price = round(final_value * (1.0 + profit_margin / 100.0), 2) if profit_margin > 0 else None
+        
+        # ─── Confidence Score ────────────────────────────────────────
+        confidence = self._calculate_confidence(crsp_found, age, mileage, condition)
+        
+        # ─── Adjustments Dictionary ──────────────────────────────────
+        adjustments = {
+            "depreciation_rate": round(depreciation_rate * 100, 1),
+            "mileage_factor": round(mileage_factor, 2),
+            "condition_factor": round(condition_factor, 2),
+            "accident_factor": round(accident_factor, 2),
+            "owner_factor": round(owner_factor, 2),
+            "location_factor": round(location_factor, 2),
+            "fuel_factor": round(fuel_factor, 2),
+            "transmission_factor": round(transmission_factor, 2),
         }
-        try:
-            resp = self._client.table(REPORTS_TABLE).insert(row).execute()
-            return resp.data[0] if resp.data else row
-        except Exception as exc:  # noqa: BLE001
-            # Table may not exist yet -- don't break the valuation flow
-            # over persistence. Caller still returns a valid report_number.
-            logger.error(
-                "Failed to persist valuation report %s (table missing or "
-                "schema mismatch?): %s",
-                report_number,
-                exc,
-            )
-            return None
-
-    async def get_report_by_id(self, report_id: UUID) -> Optional[dict[str, Any]]:
-        try:
-            resp = (
-                self._client.table(REPORTS_TABLE)
-                .select("*")
-                .eq("id", str(report_id))
-                .limit(1)
-                .execute()
-            )
-            return resp.data[0] if resp.data else None
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("get_report_by_id failed: %s", exc)
-            return None
-
-    async def get_report_by_number(self, report_number: str) -> Optional[dict[str, Any]]:
-        try:
-            resp = (
-                self._client.table(REPORTS_TABLE)
-                .select("*")
-                .eq("report_number", report_number)
-                .limit(1)
-                .execute()
-            )
-            return resp.data[0] if resp.data else None
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("get_report_by_number failed: %s", exc)
-            return None
-
-    async def list_reports_for_user(
-        self, user_id: str, page: int = 1, page_size: int = 20
-    ) -> tuple[list[dict[str, Any]], int]:
-        start = (page - 1) * page_size
-        end = start + page_size - 1
-        try:
-            resp = (
-                self._client.table(REPORTS_TABLE)
-                .select("*", count="exact")
-                .eq("user_id", user_id)
-                .order("created_at", desc=True)
-                .range(start, end)
-                .execute()
-            )
-            return resp.data or [], resp.count or 0
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("list_reports_for_user failed: %s", exc)
-            return [], 0
-
-    async def get_stats(self) -> dict[str, Any]:
-        try:
-            resp = self._client.table(REPORTS_TABLE).select(
-                "estimated_vehicle_value, confidence_score, make"
-            ).execute()
-            rows = resp.data or []
-            if not rows:
-                return {
-                    "total_valuations": 0,
-                    "avg_confidence_score": 0.0,
-                    "avg_estimated_value": 0.0,
-                    "top_makes": [],
-                }
-            total = len(rows)
-            avg_conf = sum(r.get("confidence_score") or 0 for r in rows) / total
-            avg_val = sum(r.get("estimated_vehicle_value") or 0 for r in rows) / total
-            make_counts: dict[str, int] = {}
-            for r in rows:
-                m = r.get("make") or "Unknown"
-                make_counts[m] = make_counts.get(m, 0) + 1
-            top_makes = sorted(
-                ({"make": k, "count": v} for k, v in make_counts.items()),
-                key=lambda x: x["count"],
-                reverse=True,
-            )[:10]
-            return {
-                "total_valuations": total,
-                "avg_confidence_score": round(avg_conf, 1),
-                "avg_estimated_value": round(avg_val, 2),
-                "top_makes": top_makes,
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("get_stats failed: %s", exc)
-            return {
-                "total_valuations": 0,
-                "avg_confidence_score": 0.0,
-                "avg_estimated_value": 0.0,
-                "top_makes": [],
-            }
+        
+        # ─── Warnings ──────────────────────────────────────────────────
+        warnings = []
+        if not crsp_found:
+            warnings.append("No CRSP record found - using make/model estimate")
+        if age > 15:
+            warnings.append("Vehicle age exceeds 15 years; value may be uncertain")
+        if mileage > 200000:
+            warnings.append("High mileage may affect vehicle value")
+        
+        # ─── Build Response ───────────────────────────────────────────
+        return {
+            "success": True,
+            "status": "completed",
+            "crsp_found": crsp_found,
+            "crsp_id": crsp_id,
+            "crsp_value": round(crsp_value, 2),
+            "estimated_value": final_value,
+            "estimated_value_min": round(final_value * 0.90, 2),
+            "estimated_value_max": round(final_value * 1.10, 2),
+            "market_value": final_value,
+            "retail_value": retail_value,
+            "trade_value": trade_value,
+            "dealer_value": dealer_value,
+            "recommended_selling_price": selling_price,
+            "confidence_score": confidence,
+            "adjustments": adjustments,
+            "depreciation": {
+                "rate": round(depreciation_rate * 100, 1),
+                "age_years": age,
+                "remaining_value_percent": round((1.0 - depreciation_rate) * 100, 1),
+            },
+            "vehicle": {
+                "crsp_id": crsp_id,
+                "make": make,
+                "model": model,
+                "trim": trim,
+                "year": year,
+                "fuel_type": fuel_type,
+                "transmission": transmission,
+                "engine_capacity": engine_capacity,
+                "body_type": crsp_record.get("body_type") if crsp_record else None,
+                "vehicle_type": vehicle_type,
+            },
+            "message": "Valuation completed successfully.",
+            "warnings": warnings,
+            "currency": "KES",
+            "calculated_at": datetime.now(timezone.utc).isoformat(),
+            "comparables": [],
+            "sample_size": 1 if crsp_found else 0,
+            "recommendation": None,
+        }
+    
+    # ================================================================
+    # ADJUSTMENT FACTORS
+    # ================================================================
+    
+    def _get_depreciation_rate(self, age: int, vehicle_type: Optional[str] = None) -> float:
+        """Get depreciation rate based on age and vehicle type."""
+        if age <= 1:
+            return 0.10
+        elif age <= 3:
+            return 0.20
+        elif age <= 5:
+            return 0.30
+        elif age <= 8:
+            return 0.45
+        elif age <= 12:
+            return 0.60
+        else:
+            return 0.70
+    
+    def _get_mileage_factor(self, mileage: int, age: int) -> float:
+        """Get mileage adjustment factor."""
+        if mileage <= 0:
+            return 1.0
+        
+        expected = max(15000 * max(age, 1), 1000)
+        ratio = mileage / expected
+        
+        if ratio <= 0.75:
+            return 1.03
+        elif ratio <= 1.25:
+            return 1.00
+        elif ratio <= 1.75:
+            return 0.95
+        elif ratio <= 2.50:
+            return 0.88
+        else:
+            return 0.80
+    
+    def _get_condition_factor(self, condition: str) -> float:
+        """Get condition adjustment factor."""
+        factors = {
+            "excellent": 1.10,
+            "very_good": 1.05,
+            "good": 1.00,
+            "fair": 0.90,
+            "poor": 0.75,
+        }
+        return factors.get(condition.lower(), 1.00)
+    
+    def _get_accident_factor(self, accident_history: str) -> float:
+        """Get accident history adjustment factor."""
+        factors = {
+            "none": 1.00,
+            "minor": 0.92,
+            "major": 0.75,
+            "total_loss": 0.35,
+        }
+        return factors.get(accident_history.lower(), 1.00)
+    
+    def _get_owner_factor(self, previous_owners: int) -> float:
+        """Get previous owners adjustment factor."""
+        if previous_owners <= 1:
+            return 1.00
+        elif previous_owners <= 2:
+            return 0.98
+        elif previous_owners <= 3:
+            return 0.95
+        elif previous_owners <= 4:
+            return 0.92
+        else:
+            return 0.88
+    
+    def _get_location_factor(self, location: str) -> float:
+        """Get location adjustment factor."""
+        factors = {
+            "nairobi": 1.02,
+            "mombasa": 1.00,
+            "kisumu": 0.98,
+            "nakuru": 0.98,
+            "eldoret": 0.97,
+            "thika": 0.97,
+            "kiambu": 1.00,
+            "kajiado": 0.98,
+            "machakos": 0.97,
+            "meru": 0.96,
+            "nyeri": 0.96,
+            "embu": 0.95,
+            "malindi": 0.98,
+            "nanyuki": 0.97,
+        }
+        return factors.get(location.lower(), 0.95)
+    
+    def _get_fuel_factor(self, fuel_type: Optional[str]) -> float:
+        """Get fuel type adjustment factor."""
+        if not fuel_type:
+            return 1.0
+        factors = {
+            "petrol": 1.00,
+            "diesel": 1.02,
+            "electric": 1.05,
+            "lpg": 0.95,
+        }
+        return factors.get(fuel_type.lower(), 1.00)
+    
+    def _get_transmission_factor(self, transmission: Optional[str]) -> float:
+        """Get transmission adjustment factor."""
+        if not transmission:
+            return 1.0
+        factors = {
+            "manual": 0.95,
+            "automatic": 1.00,
+            "cvt": 0.98,
+            "amt": 0.97,
+        }
+        return factors.get(transmission.lower(), 1.00)
+    
+    # ================================================================
+    # BASE VALUE ESTIMATION
+    # ================================================================
+    
+    def _estimate_base_value(self, make: str, model: str, year: int) -> float:
+        """Estimate base value when no CRSP record exists."""
+        make_lower = make.lower()
+        model_lower = model.lower()
+        
+        # Base values by make (KES)
+        base_values = {
+            "toyota": 3500000,
+            "honda": 2800000,
+            "nissan": 2500000,
+            "mazda": 2400000,
+            "subaru": 3000000,
+            "mercedes": 5000000,
+            "bmw": 4500000,
+            "audi": 4200000,
+            "volkswagen": 3000000,
+            "vw": 3000000,
+            "ford": 3200000,
+            "chevrolet": 2800000,
+            "hyundai": 2500000,
+            "kia": 2400000,
+            "suzuki": 2000000,
+            "mitsubishi": 2600000,
+            "isuzu": 3500000,
+            "land rover": 6000000,
+            "jaguar": 5500000,
+            "porsche": 8000000,
+            "ferrari": 15000000,
+            "lamborghini": 18000000,
+        }
+        
+        # Model adjustments
+        model_adjustments = {
+            "land cruiser": 1.8,
+            "prado": 1.5,
+            "hilux": 1.3,
+            "fortuner": 1.4,
+            "rav4": 1.2,
+            "chr": 1.1,
+            "corolla": 0.8,
+            "camry": 1.0,
+            "premio": 0.85,
+            "axio": 0.8,
+            "harrier": 1.3,
+            "venza": 1.2,
+            "civic": 0.9,
+            "accord": 1.0,
+            "cr-v": 1.2,
+            "hr-v": 1.0,
+            "x-trail": 1.1,
+            "qashqai": 1.0,
+            "patrol": 1.8,
+            "cx-5": 1.1,
+            "demio": 0.7,
+            "forester": 1.1,
+            "outback": 1.0,
+            "impreza": 0.9,
+            "legacy": 0.95,
+            "golf": 0.9,
+            "passat": 1.0,
+            "tiguan": 1.1,
+            "c-class": 1.1,
+            "e-class": 1.3,
+            "s-class": 1.8,
+            "3-series": 1.0,
+            "5-series": 1.3,
+            "x5": 1.5,
+            "a4": 1.0,
+            "a6": 1.2,
+            "q5": 1.2,
+        }
+        
+        # Get base value
+        base_value = 2500000  # Default
+        for key, value in base_values.items():
+            if key in make_lower:
+                base_value = value
+                break
+        
+        # Apply model adjustment
+        model_factor = 1.0
+        for key, factor in model_adjustments.items():
+            if key in model_lower:
+                model_factor = factor
+                break
+        
+        # Year factor
+        current_year = datetime.now(timezone.utc).year
+        age = max(0, current_year - year)
+        if age <= 1:
+            year_factor = 0.95
+        elif age <= 3:
+            year_factor = 0.80
+        elif age <= 5:
+            year_factor = 0.65
+        elif age <= 8:
+            year_factor = 0.50
+        elif age <= 12:
+            year_factor = 0.35
+        else:
+            year_factor = 0.20
+        
+        return round(base_value * model_factor * year_factor, 2)
+    
+    # ================================================================
+    # CONFIDENCE CALCULATION
+    # ================================================================
+    
+    def _calculate_confidence(
+        self,
+        crsp_found: bool,
+        age: int,
+        mileage: int,
+        condition: str,
+    ) -> int:
+        """Calculate confidence score."""
+        score = 50
+        
+        if crsp_found:
+            score += 30
+        
+        if age <= 5:
+            score += 10
+        elif age <= 10:
+            score += 5
+        
+        if mileage <= 50000:
+            score += 10
+        elif mileage <= 100000:
+            score += 5
+        elif mileage <= 150000:
+            score += 0
+        else:
+            score -= 5
+        
+        condition_factors = {
+            "excellent": 10,
+            "very_good": 8,
+            "good": 5,
+            "fair": 0,
+            "poor": -5,
+        }
+        score += condition_factors.get(condition.lower(), 0)
+        
+        return min(max(score, 0), 100)
