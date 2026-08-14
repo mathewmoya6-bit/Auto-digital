@@ -98,18 +98,106 @@ class ValuationEngine:
             req.mileage,
         )
 
-        if not make or not model:
+        if not model:
             raise ValuationEngineError(
-                "Make and model are required for valuation",
+                "Model is required for valuation",
                 status_code=422,
             )
 
-        crsp = self._select_crsp(
-            req=req,
-            make=make,
-            model=model,
-            trim=trim,
-        )
+        # ------------------------------------------------------------------
+        # HANDLE CASE: make NOT supplied by frontend
+        # ------------------------------------------------------------------
+
+        if not make:
+            logger.info(
+                "No make supplied — searching CRSP by model only: %r",
+                model,
+            )
+
+            try:
+                candidates = self.repo.find_crsp_candidates(
+                    make="",
+                    model=model,
+                )
+            except RepositoryError as exc:
+                raise ValuationEngineError(
+                    str(exc),
+                    status_code=502,
+                ) from exc
+
+            if not candidates:
+                raise ValuationEngineError(
+                    f"No CRSP schedule found for model: {model}",
+                    status_code=404,
+                )
+
+            # Prefer exact trim match if possible.
+            trim_matches = [
+                c
+                for c in candidates
+                if (
+                    (c.trim_level or "")
+                    .strip()
+                    .casefold()
+                    == trim.casefold()
+                )
+            ]
+
+            pool = trim_matches or candidates
+
+            # Prefer requested year.
+            year_matches = [
+                c
+                for c in pool
+                if c.manufacture_year == req.year
+            ]
+
+            if year_matches:
+                crsp = year_matches[0]
+            else:
+                year_candidates = [
+                    c
+                    for c in pool
+                    if c.manufacture_year is not None
+                ]
+
+                if year_candidates:
+                    crsp = min(
+                        year_candidates,
+                        key=lambda c: abs(
+                            c.manufacture_year - req.year
+                        ),
+                    )
+                else:
+                    crsp = pool[0]
+
+            # Resolve make from authoritative CRSP data.
+            make = (
+                crsp.make or ""
+            ).strip()
+
+            logger.info(
+                "Make resolved from CRSP: %r "
+                "(model=%r crsp_id=%s)",
+                make,
+                model,
+                crsp.crsp_id,
+            )
+
+        else:
+            # ------------------------------------------------------------------
+            # Normal path: make was supplied by frontend.
+            # ------------------------------------------------------------------
+            crsp = self._select_crsp(
+                req=req,
+                make=make,
+                model=model,
+                trim=trim,
+            )
+
+        # ------------------------------------------------------------------
+        # Call valuation SQL function.
+        # ------------------------------------------------------------------
 
         row = self._run_valuation(
             req=req,
