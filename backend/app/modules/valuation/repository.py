@@ -4,10 +4,9 @@ repository.py
 Data-access layer for the Auto-D Kenya valuation module.
 
 Responsibilities:
-- Query the authoritative vehicle_crsp table.
-- Resolve CRSP records by make/model.
+- Look up CRSP records from vehicle_crsp.
 - Call calculate_vehicle_valuation().
-- Convert database results into domain models.
+- Convert database rows into domain models.
 
 No HTTP or frontend response logic belongs here.
 """
@@ -30,13 +29,11 @@ class RepositoryError(Exception):
 
 
 class ValuationRepository:
-    """Repository for CRSP lookup and valuation RPC operations."""
-
-    def __init__(self, supabase):
+    def __init__(self, supabase: Any):
         self.supabase = supabase
 
     # ------------------------------------------------------------------
-    # CRSP lookup
+    # CRSP LOOKUP
     # ------------------------------------------------------------------
 
     def find_crsp_candidates(
@@ -45,90 +42,94 @@ class ValuationRepository:
         model: str | None,
     ) -> list[CRSPRecord]:
         """
-        Find CRSP rows matching make and model.
+        Return CRSP rows matching make and model.
 
-        The authoritative table is vehicle_crsp.
+        The authoritative CRSP table is vehicle_crsp.
 
-        manufacture_year is the year column used by the current
-        vehicle_crsp schema. The CRSPRecord model exposes it through
-        its .year property.
+        Current columns used:
+            crsp_id
+            make
+            model
+            trim_level
+            manufacture_year
+            crsp_kes
+            crsp_status
         """
 
         make_value = (make or "").strip()
         model_value = (model or "").strip()
 
         logger.info(
-            "CRSP lookup request: make=%r model=%r",
+            "CRSP lookup: make=%r model=%r",
             make_value,
             model_value,
         )
 
-        # Do not silently perform an unfiltered full-table lookup.
-        # An empty make/model means the API request is malformed.
         if not make_value or not model_value:
             raise RepositoryError(
                 "CRSP lookup requires both make and model"
             )
 
         try:
-            query = (
+            response = (
                 self.supabase
                 .table(CRSP_TABLE)
                 .select(
-                    "crsp_id,make,model,trim_level,"
-                    "manufacture_year,crsp_kes,crsp_status"
+                    "crsp_id,"
+                    "make,"
+                    "model,"
+                    "trim_level,"
+                    "manufacture_year,"
+                    "crsp_kes,"
+                    "crsp_status"
                 )
                 .ilike("make", make_value)
                 .ilike("model", model_value)
+                .execute()
             )
-
-            response = query.execute()
 
         except Exception as exc:
             logger.exception(
-                "CRSP lookup failed: make=%r model=%r",
+                "CRSP lookup failed for make=%r model=%r",
                 make_value,
                 model_value,
             )
+
             raise RepositoryError(
                 f"CRSP lookup failed: {exc}"
             ) from exc
 
-        data = response.data or []
+        rows = response.data or []
 
         logger.info(
-            "CRSP lookup returned %d rows for make=%r model=%r",
-            len(data),
+            "CRSP lookup returned %d rows for %r %r",
+            len(rows),
             make_value,
             model_value,
         )
 
-        if data:
-            logger.info(
-                "First CRSP result: %r",
-                data[0],
-            )
-
         records: list[CRSPRecord] = []
 
-        for row in data:
+        for row in rows:
             try:
                 records.append(
                     CRSPRecord.model_validate(row)
                 )
+
             except Exception as exc:
                 logger.exception(
-                    "Invalid CRSP database row: %r",
+                    "Invalid CRSP row: %r",
                     row,
                 )
+
                 raise RepositoryError(
-                    f"Invalid CRSP record returned by database: {exc}"
+                    f"Invalid CRSP record: {exc}"
                 ) from exc
 
         return records
 
     # ------------------------------------------------------------------
-    # Valuation RPC
+    # VALUATION RPC
     # ------------------------------------------------------------------
 
     def call_valuation_function(
@@ -144,7 +145,7 @@ class ValuationRepository:
         profit_margin_percent: float,
     ) -> ValuationResultRow:
         """
-        Execute calculate_vehicle_valuation().
+        Call the PostgreSQL valuation function.
 
         Current PostgreSQL signature:
 
@@ -159,25 +160,43 @@ class ValuationRepository:
             numeric
         )
 
-        Therefore mileage_km is explicitly converted to integer before
-        being sent to PostgreSQL.
+        Therefore p_mileage_km MUST be sent as an integer.
         """
 
+        # PostgreSQL expects INTEGER.
         mileage_integer = int(round(float(mileage_km)))
 
-        rpc_params: dict[str, Any] = {
+        rpc_params = {
             "p_vehicle_crsp_id": int(crsp_id),
             "p_manufacture_year": int(manufacture_year),
             "p_mileage_km": mileage_integer,
-            "p_vehicle_type": str(vehicle_type).strip().upper(),
-            "p_condition_name": str(condition_name).strip().upper(),
-            "p_accident_status": str(accident_status).strip().upper(),
-            "p_location_name": str(location_name).strip().upper(),
-            "p_profit_margin_percent": float(profit_margin_percent),
+            "p_vehicle_type": (
+                str(vehicle_type)
+                .strip()
+                .upper()
+            ),
+            "p_condition_name": (
+                str(condition_name)
+                .strip()
+                .upper()
+            ),
+            "p_accident_status": (
+                str(accident_status)
+                .strip()
+                .upper()
+            ),
+            "p_location_name": (
+                str(location_name)
+                .strip()
+                .upper()
+            ),
+            "p_profit_margin_percent": float(
+                profit_margin_percent
+            ),
         }
 
         logger.info(
-            "Valuation RPC request: function=%s params=%r",
+            "Calling %s with params=%r",
             VALUATION_RPC,
             rpc_params,
         )
@@ -194,9 +213,10 @@ class ValuationRepository:
 
         except Exception as exc:
             logger.exception(
-                "Valuation RPC failed: crsp_id=%s",
+                "Valuation RPC failed for crsp_id=%s",
                 crsp_id,
             )
+
             raise RepositoryError(
                 f"Valuation RPC call failed: {exc}"
             ) from exc
@@ -204,21 +224,16 @@ class ValuationRepository:
         data = response.data
 
         logger.info(
-            "Valuation RPC response: type=%s data=%r",
-            type(data).__name__,
+            "Valuation RPC returned: %r",
             data,
         )
 
-        if data is None:
+        if not data:
             raise RepositoryError(
-                "Valuation RPC returned no data"
+                "No valuation data received"
             )
 
         if isinstance(data, list):
-            if not data:
-                raise RepositoryError(
-                    "Valuation RPC returned an empty result"
-                )
             row = data[0]
 
         elif isinstance(data, dict):
@@ -226,8 +241,7 @@ class ValuationRepository:
 
         else:
             raise RepositoryError(
-                "Valuation RPC returned an unexpected "
-                f"response type: {type(data).__name__}"
+                "Valuation RPC returned an unexpected response type"
             )
 
         if not isinstance(row, dict):
@@ -235,34 +249,15 @@ class ValuationRepository:
                 "Valuation RPC returned an invalid result row"
             )
 
-        logger.info(
-            "Valuation result row: %r",
-            row,
-        )
-
         try:
-            result = ValuationResultRow.model_validate(row)
+            return ValuationResultRow.model_validate(row)
 
         except Exception as exc:
             logger.exception(
-                "Valuation result validation failed: %r",
+                "Invalid valuation result: %r",
                 row,
             )
+
             raise RepositoryError(
-                f"Invalid valuation result returned by RPC: {exc}"
+                f"Invalid valuation result: {exc}"
             ) from exc
-
-        logger.info(
-            "Valuation successful: valuation_id=%r "
-            "crsp_id=%r final_market_value=%r "
-            "recommended_selling_price=%r confidence_score=%r "
-            "reference=%r",
-            result.valuation_id,
-            result.vehicle_crsp_id,
-            result.final_market_value,
-            result.recommended_selling_price,
-            result.confidence_score,
-            result.valuation_reference,
-        )
-
-        return result
