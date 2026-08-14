@@ -1,12 +1,14 @@
 """
-repository.py
+app/modules/valuation/repository.py
 
-Data access layer for Auto-D Kenya valuation.
+Database access layer for Auto-D Kenya valuation.
 
-Responsibilities:
-- Find CRSP records by make + model.
-- Find CRSP records by model when make is missing.
-- Call calculate_vehicle_valuation().
+Authoritative sources:
+    vehicle_crsp
+    calculate_vehicle_valuation(...)
+
+The repository converts Supabase/PostgREST responses into
+internal Pydantic domain models.
 """
 
 from __future__ import annotations
@@ -23,17 +25,17 @@ VALUATION_RPC = "calculate_vehicle_valuation"
 
 
 class RepositoryError(Exception):
-    """Database/data-access error for valuation."""
+    """Database/repository failure."""
 
 
 class ValuationRepository:
 
-    def __init__(self, supabase: Any):
+    def __init__(self, supabase):
         self.supabase = supabase
 
-    # ================================================================
-    # FIND BY MAKE + MODEL
-    # ================================================================
+    # =================================================================
+    # CRSP: MAKE + MODEL
+    # =================================================================
 
     def find_crsp_candidates(
         self,
@@ -69,11 +71,10 @@ class ValuationRepository:
 
         except Exception as exc:
             logger.exception(
-                "CRSP lookup failed: make=%r model=%r",
+                "CRSP make/model lookup failed: %s %s",
                 make,
                 model,
             )
-
             raise RepositoryError(
                 f"CRSP lookup failed: {exc}"
             ) from exc
@@ -81,10 +82,10 @@ class ValuationRepository:
         rows = response.data or []
 
         logger.info(
-            "CRSP lookup returned %d rows for %r %r",
-            len(rows),
+            "CRSP make/model lookup: make=%r model=%r rows=%d",
             make,
             model,
+            len(rows),
         )
 
         return [
@@ -92,9 +93,9 @@ class ValuationRepository:
             for row in rows
         ]
 
-    # ================================================================
-    # FIND BY MODEL ONLY
-    # ================================================================
+    # =================================================================
+    # CRSP: MODEL ONLY
+    # =================================================================
 
     def find_crsp_by_model(
         self,
@@ -127,10 +128,9 @@ class ValuationRepository:
 
         except Exception as exc:
             logger.exception(
-                "CRSP model lookup failed: model=%r",
+                "CRSP model-only lookup failed: %r",
                 model,
             )
-
             raise RepositoryError(
                 f"CRSP model lookup failed: {exc}"
             ) from exc
@@ -138,9 +138,9 @@ class ValuationRepository:
         rows = response.data or []
 
         logger.info(
-            "CRSP model-only lookup returned %d rows for %r",
-            len(rows),
+            "CRSP model-only lookup: model=%r rows=%d",
             model,
+            len(rows),
         )
 
         return [
@@ -148,9 +148,9 @@ class ValuationRepository:
             for row in rows
         ]
 
-    # ================================================================
+    # =================================================================
     # VALUATION RPC
-    # ================================================================
+    # =================================================================
 
     def call_valuation_function(
         self,
@@ -165,34 +165,47 @@ class ValuationRepository:
         profit_margin_percent: float,
     ) -> ValuationResultRow:
 
-        # PostgreSQL function expects INTEGER mileage.
-        mileage_integer = int(round(float(mileage_km)))
+        # -------------------------------------------------------------
+        # PostgreSQL function signature:
+        #
+        # calculate_vehicle_valuation(
+        #     bigint,
+        #     integer,
+        #     integer,
+        #     varchar,
+        #     varchar,
+        #     varchar,
+        #     varchar,
+        #     numeric
+        # )
+        #
+        # Therefore mileage MUST be INTEGER.
+        # -------------------------------------------------------------
 
-        params = {
+        try:
+            mileage_integer = int(round(float(mileage_km)))
+        except (TypeError, ValueError) as exc:
+            raise RepositoryError(
+                f"Invalid mileage: {mileage_km}"
+            ) from exc
+
+        rpc_params = {
             "p_vehicle_crsp_id": int(crsp_id),
             "p_manufacture_year": int(manufacture_year),
             "p_mileage_km": mileage_integer,
-            "p_vehicle_type": str(
-                vehicle_type
-            ).strip().upper(),
-            "p_condition_name": str(
-                condition_name
-            ).strip().upper(),
-            "p_accident_status": str(
-                accident_status
-            ).strip().upper(),
-            "p_location_name": str(
-                location_name
-            ).strip().upper(),
+            "p_vehicle_type": str(vehicle_type),
+            "p_condition_name": str(condition_name),
+            "p_accident_status": str(accident_status),
+            "p_location_name": str(location_name),
             "p_profit_margin_percent": float(
                 profit_margin_percent
             ),
         }
 
         logger.info(
-            "Calling %s: %s",
+            "Calling %s with params=%s",
             VALUATION_RPC,
-            params,
+            rpc_params,
         )
 
         try:
@@ -200,51 +213,119 @@ class ValuationRepository:
                 self.supabase
                 .rpc(
                     VALUATION_RPC,
-                    params,
+                    rpc_params,
                 )
                 .execute()
             )
 
         except Exception as exc:
             logger.exception(
-                "Valuation RPC failed: crsp_id=%s",
-                crsp_id,
+                "Valuation RPC failed: %s",
+                exc,
             )
-
             raise RepositoryError(
                 f"Valuation RPC call failed: {exc}"
             ) from exc
 
-        data = response.data or []
+        # -------------------------------------------------------------
+        # IMPORTANT:
+        # Supabase normally returns:
+        #
+        # response.data = [
+        #     {...}
+        # ]
+        #
+        # But depending on the function declaration/PostgREST
+        # configuration, we may receive a dictionary or another
+        # structure.
+        # -------------------------------------------------------------
 
-        logger.info(
-            "Valuation RPC returned %r",
-            data,
+        raw_data: Any = getattr(
+            response,
+            "data",
+            None,
         )
 
-        if not data:
+        logger.info(
+            "Valuation RPC raw response type=%s",
+            type(raw_data).__name__,
+        )
+
+        logger.info(
+            "Valuation RPC raw response=%r",
+            raw_data,
+        )
+
+        if raw_data is None:
             raise RepositoryError(
                 "No valuation data received"
             )
 
-        if isinstance(data, list):
-            row = data[0]
-        elif isinstance(data, dict):
-            row = data
+        # -------------------------------------------------------------
+        # Normal PostgREST table-returning function:
+        #
+        # [{"valuation_id": 39, ...}]
+        # -------------------------------------------------------------
+
+        if isinstance(raw_data, list):
+
+            if not raw_data:
+                raise RepositoryError(
+                    "No valuation data received"
+                )
+
+            first_row = raw_data[0]
+
+        # -------------------------------------------------------------
+        # Some RPC configurations return a single object:
+        #
+        # {"valuation_id": 39, ...}
+        # -------------------------------------------------------------
+
+        elif isinstance(raw_data, dict):
+
+            # Sometimes the RPC result can be wrapped.
+            if "data" in raw_data and isinstance(
+                raw_data["data"],
+                list,
+            ):
+                if not raw_data["data"]:
+                    raise RepositoryError(
+                        "No valuation data received"
+                    )
+
+                first_row = raw_data["data"][0]
+
+            else:
+                first_row = raw_data
+
         else:
             raise RepositoryError(
-                "Invalid valuation RPC response"
+                "Unexpected valuation RPC response format"
             )
+
+        if not isinstance(first_row, dict):
+            raise RepositoryError(
+                "Valuation RPC returned an invalid row"
+            )
+
+        logger.info(
+            "Valuation RPC parsed row=%r",
+            first_row,
+        )
+
+        # -------------------------------------------------------------
+        # Validate the database row against models.py
+        # -------------------------------------------------------------
 
         try:
             return ValuationResultRow.model_validate(
-                row
+                first_row
             )
 
         except Exception as exc:
             logger.exception(
-                "Invalid valuation result row: %r",
-                row,
+                "Unable to parse valuation RPC row"
             )
 
             raise RepositoryError(
