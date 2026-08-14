@@ -1,32 +1,31 @@
 """
-router.py
+app/modules/valuation/router.py
 
-Exposes POST /api/v1/valuation/calculate — the endpoint the
-"Instant Value Check" frontend calls via
-CONFIG.API_BASE + CONFIG.ENDPOINTS.VALUATION.
+Valuation API routes.
 
-Mount this router in your app the same way your other module routers
-are mounted, e.g. in app/main.py:
+POST /api/v1/valuation/calculate
 
-    from app.modules.valuation.router import router as valuation_router
+Flow:
 
-    app.include_router(valuation_router, prefix="/api/v1")
-
-ASSUMPTIONS:
-  - `get_supabase()` returns your configured Supabase client
-    (swap the import for your actual dependency).
-  - `get_current_user()` is your existing auth dependency that
-    validates the `Authorization: Bearer <token>` header sent by
-    the frontend's APIService and returns the authenticated user
-    (or raises 401). If you don't have one yet, replace the
-    Depends(get_current_user) call below with your own, or drop it
-    to make the endpoint public.
+    Frontend
+        ↓
+    FastAPI router
+        ↓
+    ValuationEngine
+        ↓
+    ValuationRepository
+        ↓
+    calculate_vehicle_valuation()
+        ↓
+    PostgreSQL
+        ↓
+    ValuationResponse
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -38,63 +37,254 @@ from .engine import ValuationEngine, ValuationEngineError
 from .repository import ValuationRepository
 from .schemas import ValuationRequest, ValuationResponse
 
+
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/valuation", tags=["valuation"])
+
+# =====================================================================
+# ROUTER
+# =====================================================================
+
+router = APIRouter(
+    prefix="/valuation",
+    tags=["valuation"],
+)
+
+
+# =====================================================================
+# AUTHENTICATION
+# =====================================================================
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
-) -> Dict[str, Any]:
-    """Resolve the authenticated user from the `Authorization: Bearer`
-    header using app.core.security.decode_token(), which already
-    supports both internal Auto-D HS256 tokens and Supabase
-    ES256/RS256 tokens.
-
-    NOTE: per decode_token()'s own docstring, Supabase tokens are
-    decoded as *unverified* claims — fine for reading `sub`/`email`,
-    but if this endpoint needs hard signature verification, swap this
-    for a Supabase JWKS check or supabase.auth.get_user(token)
-    instead. If your project already has a shared get_current_user
-    dependency (e.g. wired through app/core/middleware.py), prefer
-    that one over this local copy so auth behavior stays consistent
-    across routers.
+    credentials: HTTPAuthorizationCredentials = Depends(
+        _bearer_scheme
+    ),
+) -> dict[str, Any]:
     """
+    Validate the Authorization Bearer token.
+
+    Returns decoded user claims.
+    """
+
     if credentials is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
         )
+
     try:
-        return decode_token(credentials.credentials)
+        user = decode_token(credentials.credentials)
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication token",
+            )
+
+        return user
+
+    except HTTPException:
+        raise
+
     except ValueError as exc:
+        logger.warning(
+            "Authentication failed: %s",
+            exc,
+        )
+
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
         ) from exc
 
+    except Exception:
+        logger.exception(
+            "Unexpected authentication error"
+        )
 
-def get_engine(supabase=Depends(get_supabase)) -> ValuationEngine:
-    return ValuationEngine(ValuationRepository(supabase))
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+        )
 
 
-@router.post("/calculate", response_model=ValuationResponse)
+# =====================================================================
+# ENGINE DEPENDENCY
+# =====================================================================
+
+def get_engine(
+    supabase=Depends(get_supabase),
+) -> ValuationEngine:
+    """
+    Build the valuation engine using the application's
+    configured Supabase client.
+    """
+
+    if supabase is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Valuation database is unavailable",
+        )
+
+    repository = ValuationRepository(supabase)
+
+    return ValuationEngine(repository)
+
+
+# =====================================================================
+# VALIDATE REQUEST
+# =====================================================================
+
+def _validate_payload(payload: ValuationRequest) -> None:
+    """
+    Final defensive validation before the request reaches the
+    CRSP repository.
+
+    This protects against the frontend accidentally sending:
+
+        make: ""
+        model: ""
+
+    which was one of the errors appearing in the logs.
+    """
+
+    make = (payload.make or "").strip()
+    model = (payload.model or "").strip()
+
+    if not make or not model:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "INVALID_VEHICLE",
+                "message": "Make and model are required for valuation",
+                "make": make,
+                "model": model,
+            },
+        )
+
+
+# =====================================================================
+# CALCULATE VALUATION
+# =====================================================================
+
+@router.post(
+    "/calculate",
+    response_model=ValuationResponse,
+    status_code=status.HTTP_200_OK,
+)
 async def calculate_valuation(
     payload: ValuationRequest,
     engine: ValuationEngine = Depends(get_engine),
-    current_user=Depends(get_current_user),
-):
-    """Calculate an AI-assisted vehicle valuation.
-
-    Delegates to `calculate_vehicle_valuation`, the SQL function
-    already validated against real CRSP data, and returns the result
-    reshaped for the frontend's showValuationResult().
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> ValuationResponse:
     """
+    Calculate a vehicle valuation.
+
+    The PostgreSQL function:
+
+        calculate_vehicle_valuation()
+
+    remains the authoritative valuation calculation.
+
+    Python is responsible for:
+
+    - request validation
+    - CRSP selection
+    - enum normalization
+    - calling the SQL function
+    - shaping the API response
+    """
+
+    # ---------------------------------------------------------------
+    # Validate request
+    # ---------------------------------------------------------------
+
+    _validate_payload(payload)
+
+    logger.info(
+        "Valuation request: make=%r model=%r trim=%r "
+        "year=%s mileage=%s",
+        payload.make,
+        payload.model,
+        payload.trim,
+        payload.year,
+        payload.mileage,
+    )
+
+    # ---------------------------------------------------------------
+    # Calculate
+    # ---------------------------------------------------------------
+
     try:
-        return engine.calculate(payload)
+
+        result = engine.calculate(payload)
+
+        if result is None:
+            logger.error(
+                "Valuation engine returned None"
+            )
+
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error": "NO_VALUATION_RESULT",
+                    "message": "No valuation data received",
+                },
+            )
+
+        logger.info(
+            "Valuation successful: crsp_id=%s "
+            "reference=%s final_value=%s",
+            result.data.crsp.crsp_id,
+            result.data.report.report_number,
+            result.data.valuation.estimated_vehicle_value,
+        )
+
+        return result
+
+    # ---------------------------------------------------------------
+    # Known valuation errors
+    # ---------------------------------------------------------------
+
     except ValuationEngineError as exc:
-        logger.warning("Valuation request failed: %s", exc.message)
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Unexpected error during valuation")
-        raise HTTPException(status_code=500, detail="Internal valuation error") from exc
+
+        logger.warning(
+            "Valuation request failed: %s",
+            exc.message,
+        )
+
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={
+                "error": "VALUATION_ERROR",
+                "message": exc.message,
+            },
+        ) from exc
+
+    # ---------------------------------------------------------------
+    # FastAPI HTTP errors
+    # ---------------------------------------------------------------
+
+    except HTTPException:
+        raise
+
+    # ---------------------------------------------------------------
+    # Unexpected errors
+    # ---------------------------------------------------------------
+
+    except Exception as exc:
+
+        logger.exception(
+            "Unexpected error during valuation"
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "INTERNAL_VALUATION_ERROR",
+                "message": "An unexpected error occurred during valuation",
+            },
+        ) from exc
