@@ -1,4 +1,5 @@
 """Running Cost service for Auto-D Kenya"""
+
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -203,21 +204,43 @@ class RunningCostService:
     # ─── VARIANT DATA ──────────────────────────────────────────────
 
     async def _get_variant_data_cached(self, variant_id: int) -> Dict[str, Any]:
-        """Get variant data from database with manual caching"""
+        """
+        Get variant data from database with manual caching.
+        
+        FIXED: Uses vehicle_categories table (not vehicle_master_specs)
+        """
         if variant_id in self._variant_cache:
             return self._variant_cache[variant_id]
 
         try:
-            result = self.supabase.table("vehicle_master_specs")\
+            # Try vehicle_categories first (primary table)
+            result = self.supabase.table("vehicle_categories")\
                 .select("*")\
-                .eq("variant_id", variant_id)\
-                .single()\
+                .eq("id", variant_id)\
                 .execute()
 
-            if result.data:
-                self._variant_cache[variant_id] = result.data
-                return result.data
+            if result.data and len(result.data) > 0:
+                variant_data = result.data[0]
+                self._variant_cache[variant_id] = variant_data
+                logger.info(f"✅ Found variant data in vehicle_categories for ID: {variant_id}")
+                return variant_data
+
+            # Fallback: Try specification_categories
+            logger.info(f"🔍 Checking specification_categories for variant_id: {variant_id}")
+            result = self.supabase.table("specification_categories")\
+                .select("*")\
+                .eq("variant_id", variant_id)\
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                variant_data = result.data[0]
+                self._variant_cache[variant_id] = variant_data
+                logger.info(f"✅ Found variant data in specification_categories for ID: {variant_id}")
+                return variant_data
+
+            logger.warning(f"⚠️ No variant data found for ID: {variant_id}")
             return {}
+
         except Exception as e:
             logger.exception(f"Error getting variant data for ID {variant_id}: {str(e)}")
             return {}
@@ -227,22 +250,21 @@ class RunningCostService:
         return await self._get_variant_data_cached(variant_id)
 
     # ─── CRSP PRICE LOOKUP ──────────────────────────────────────────
-    # CRITICAL: This is the authoritative source for the original vehicle price
-    # The frontend variant_id maps to vehicle_crsp_lookup.engine_capacity_id
 
     async def _get_crsp_price(self, variant_id: int) -> Dict[str, Any]:
         """
         Get the authoritative original vehicle price from vehicle_crsp_lookup.
 
+        FIXED: Uses engine_capacity_cc column (not engine_capacity_id)
+
         IMPORTANT:
-        variant_id from the frontend is the engine_capacity_id used by
-        vehicle_crsp_lookup in the current vehicle-selection flow.
+        variant_id from the frontend maps to engine_capacity_cc in the CRSP table.
 
         Returns:
             Dict containing the CRSP record or empty dict if not found
         """
         try:
-            logger.info(f"🔍 Looking up CRSP for engine_capacity_id: {variant_id}")
+            logger.info(f"🔍 Looking up CRSP for engine_capacity_cc: {variant_id}")
 
             response = (
                 self.supabase
@@ -267,10 +289,10 @@ class RunningCostService:
                     make_id,
                     model_id,
                     generation_id,
-                    engine_capacity_id,
+                    engine_capacity_cc,
                     manufacture_year
                 """)
-                .eq("engine_capacity_id", variant_id)
+                .eq("engine_capacity_cc", variant_id)  # ✅ FIXED: Correct column name
                 .order("effective_date", desc=True)
                 .order("crsp_year", desc=True)
                 .limit(1)
@@ -279,7 +301,7 @@ class RunningCostService:
 
             if not response.data:
                 logger.warning(
-                    "❌ No CRSP price found for engine_capacity_id=%s",
+                    "❌ No CRSP price found for engine_capacity_cc=%s",
                     variant_id
                 )
                 return {}
@@ -305,7 +327,7 @@ class RunningCostService:
 
         except Exception as exc:
             logger.exception(
-                "❌ CRSP lookup failed for variant_id=%s: %s",
+                "❌ CRSP lookup failed for engine_capacity_cc=%s: %s",
                 variant_id,
                 exc
             )
@@ -319,7 +341,7 @@ class RunningCostService:
 
         FLOW:
         1. Resolve CRSP price from vehicle_crsp_lookup (authoritative)
-        2. Get variant details from vehicle_master_specs
+        2. Get variant details from vehicle_categories
         3. Calculate all costs using CRSP as the starting price
         4. Return comprehensive response
         """
@@ -364,17 +386,15 @@ class RunningCostService:
         if not variant:
             raise ValueError(f"Variant with ID {request.variant_id} not found")
 
-        logger.info(f"📊 Variant: {variant.get('make_name')} {variant.get('model_name')}")
+        logger.info(f"📊 Variant data retrieved for ID: {request.variant_id}")
 
         # ─── STEP 3: Determine the authoritative original price ────
-        # CRITICAL: CRSP is the authoritative source. Only use fallback if CRSP fails.
         if crsp_price is not None and crsp_price > 0:
             purchase_price = crsp_price
             original_price_source = "CRSP"
             logger.info(f"💰 Using CRSP price as original: KES {purchase_price}")
         else:
-            # Fallback only when CRSP is unavailable
-            # Try variant market_value, then insurance_value, then forced_sale_value
+            # Fallback: Try variant values
             purchase_price = (
                 variant.get("market_value") or
                 variant.get("insurance_value") or
@@ -387,7 +407,6 @@ class RunningCostService:
                 original_price_source = "Variant DB"
                 logger.info(f"💰 Using variant market value: KES {purchase_price}")
             else:
-                # Final fallback - but this should rarely happen
                 purchase_price = 2500000.0
                 original_price_source = "Fallback (2.5M)"
                 logger.warning(f"⚠️ No CRSP or variant price found. Using fallback: KES {purchase_price}")
@@ -419,7 +438,6 @@ class RunningCostService:
         vehicle_age = max(0, current_year - vehicle_year)
 
         # ─── INSURANCE VALUE from variant ────────────────────────────
-        # Use insurance_value from variant, or fallback to purchase_price
         insurance_value = variant.get("insurance_value") or purchase_price
         insured_value = float(insurance_value)
         logger.info(f"📊 Insurance value: {insured_value}")
@@ -430,7 +448,6 @@ class RunningCostService:
             fuel_efficiency = float(fuel_efficiency)
             logger.info(f"📊 Fuel consumption from DB: {fuel_efficiency} km/L")
         else:
-            # Fallback calculation if NULL
             fuel_efficiency = self._calculate_fuel_efficiency(
                 engine_size, vehicle_year, request.trip_type, fuel_type
             )
@@ -481,7 +498,7 @@ class RunningCostService:
         tyre_cost_trip = tyre_cost_per_km * request.distance
         logger.info(f"📊 Tyre cost per km: {tyre_cost_per_km}")
 
-        # Insurance cost (using insurance_value instead of purchase_price)
+        # Insurance cost
         insurance_type = getattr(request, 'insurance_type', 'comprehensive')
         insurance_rate = config["insurance_rates"].get(
             insurance_type, config["insurance_rates"].get("comprehensive", 0.04)
@@ -493,10 +510,9 @@ class RunningCostService:
 
         # ─── Yearly depreciation ──────────────────────────────────────
         total_depreciation = 0
-        remaining_value = purchase_price  # Start with CRSP or variant price
+        remaining_value = purchase_price
         yearly_depreciation_data = []
         
-        # Use current vehicle age as starting point
         age = vehicle_age
         for year in range(1, request.years + 1):
             dep_rate = self._get_depreciation_rate(age, config["depreciation_rates"])
@@ -787,100 +803,4 @@ class RunningCostService:
         condition_factors = {"excellent": 0.95, "good": 1.0, "fair": 1.05, "poor": 1.15}
         factor *= condition_factors.get(condition, 1.0)
         
-        location_factors = {"urban": 1.05, "suburban": 1.0, "rural": 0.95, "remote": 1.1}
-        factor *= location_factors.get(location, 1.0)
-        
-        return factor
-
-    def _calculate_fuel_efficiency(self, engine_size: float, year: int,
-                                   trip_type: str, fuel_type: str) -> float:
-        """Calculate fuel efficiency in km/litre (fallback method)"""
-        base_efficiency = {
-            "petrol": 12.0,
-            "diesel": 14.0,
-            "electric": 6.0,
-            "hybrid": 18.0,
-            "gas": 11.0,
-            "lpg": 11.0,
-            "cng": 10.0
-        }
-
-        efficiency = base_efficiency.get(fuel_type, 12.0)
-        efficiency -= max(0, (engine_size - 1.5) * 1.5)
-
-        age = datetime.now().year - year
-        year_factor = max(0.75, 1 - age * 0.01)
-        efficiency *= year_factor
-
-        pattern_factors = {"urban": 0.8, "highway": 1.2, "mixed": 1.0, "offroad": 0.7}
-        efficiency *= pattern_factors.get(trip_type, 1.0)
-
-        return max(efficiency, 5.0)
-
-    def _get_depreciation_rate(self, age: int, depreciation_rates: Dict[int, float]) -> float:
-        """Get depreciation rate based on age"""
-        clamped_age = min(age, 15)
-        return depreciation_rates.get(clamped_age, depreciation_rates.get(15, 0.02))
-
-    def _calculate_five_year_data(self, purchase_price: float, request: RunningCostRequest,
-                                  fuel_type: str, fuel_price: float,
-                                  maintenance_rate: float, tyre_cost_per_km: float,
-                                  insurance_rate: float, vehicle_year: int,
-                                  engine_size: float,
-                                  depreciation_rates: Dict[int, float],
-                                  driving_factor: float,
-                                  include_insurance: bool,
-                                  include_tyres: bool,
-                                  include_maintenance: bool,
-                                  include_depreciation: bool,
-                                  insured_value: float) -> List[Dict[str, Any]]:
-        """Calculate 5-year cost projection"""
-        data = []
-        current_value = purchase_price
-        current_year = datetime.now().year
-
-        for year in range(1, request.years + 1):
-            age = (current_year - vehicle_year) + (year - 1)
-            annual_mileage = request.annual_mileage
-
-            fuel_efficiency = self._calculate_fuel_efficiency(
-                engine_size, vehicle_year + year - 1, request.trip_type, fuel_type
-            )
-
-            fuel_cost = (annual_mileage / max(fuel_efficiency, 0.1)) * fuel_price * driving_factor
-            service_cost = maintenance_rate * annual_mileage * (1 + (age * 0.03)) * driving_factor
-            tyre_cost = tyre_cost_per_km * annual_mileage
-            
-            # Use insured_value for insurance projection
-            insurance_cost = insured_value * insurance_rate * (1 - min(age * 0.02, 0.4))
-            
-            if not include_insurance:
-                insurance_cost = 0
-            if not include_tyres:
-                tyre_cost = 0
-            if not include_maintenance:
-                service_cost = 0
-
-            dep_rate = self._get_depreciation_rate(age, depreciation_rates)
-            depreciation = current_value * dep_rate
-            current_value -= depreciation
-            
-            if not include_depreciation:
-                depreciation = 0
-
-            running_cost = fuel_cost + service_cost + tyre_cost + insurance_cost + depreciation
-            total = running_cost
-
-            data.append({
-                "year": year,
-                "fuel": round(fuel_cost, 2),
-                "service": round(service_cost, 2),
-                "tyres": round(tyre_cost, 2),
-                "insurance": round(insurance_cost, 2),
-                "depreciation": round(depreciation, 2),
-                "running_cost": round(running_cost, 2),
-                "total": round(total, 2),
-                "value": round(max(current_value, purchase_price * 0.15), 2)
-            })
-
-        return data
+        location_factors = {"
