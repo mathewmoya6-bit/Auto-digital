@@ -65,10 +65,38 @@ class Settings(BaseSettings):
     # JWT secret key (falls back to SUPABASE_JWT_SECRET)
     SECRET_KEY: Optional[str] = None
 
+    # JWT signing/verification algorithm used by app/core/security.py
+    # for internal Auto-D tokens (create_access_token, create_refresh_token,
+    # decode_token). Supabase-issued tokens use ES256/RS256 and are handled
+    # separately in decode_token() via unverified-claims extraction — this
+    # ALGORITHM setting only applies to internal HS256 tokens.
+    ALGORITHM: str = "HS256"
+
+    # Internal access/refresh token lifetimes, read directly (no getattr
+    # fallback) by create_access_token / create_refresh_token in security.py.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = []
     CORS_ALLOW_METHODS: str = "*"
     CORS_ALLOW_HEADERS: str = "*"
+
+
+    # ============================================================
+    # RATE LIMITING
+    # ============================================================
+
+    # Read directly (no getattr fallback) by get_rate_limiter() in
+    # app/core/dependencies.py.
+    RATE_LIMIT_REQUESTS: int = 100
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+
+    # Used via getattr(...) in app/core/middleware.py — defined explicitly
+    # here too so behavior doesn't silently depend on the getattr default.
+    ENABLE_RATE_LIMITING: bool = True
+    RATE_LIMIT_CALLS_PER_MINUTE: int = 60
+    ALLOWED_HOSTS: List[str] = ["*"]
 
 
     # ============================================================
