@@ -178,9 +178,6 @@ class ValuationRepository:
         Call the deployed calculate_vehicle_valuation PostgreSQL
         function and return its first result as a domain object.
         """
-        # Convert mileage to integer with proper rounding
-        # This ensures 49999.8 becomes 50000, not 49999
-        mileage_km_int = int(round(mileage_km))
 
         try:
             response = (
@@ -188,9 +185,9 @@ class ValuationRepository:
                 .rpc(
                     VALUATION_RPC,
                     {
-                        "p_vehicle_crsp_id": crsp_id,
-                        "p_manufacture_year": manufacture_year,
-                        "p_mileage_km": mileage_km_int,  # ✅ Fixed: rounded integer
+                        "p_vehicle_crsp_id": int(crsp_id),
+                        "p_manufacture_year": int(manufacture_year),
+                        "p_mileage_km": int(round(mileage_km)),
                         "p_vehicle_type": vehicle_type,
                         "p_condition_name": condition_name,
                         "p_accident_status": accident_status,
@@ -200,6 +197,13 @@ class ValuationRepository:
                 )
                 .execute()
             )
+
+            logger.info(
+                "Valuation RPC response: data_type=%s data=%r",
+                type(response.data).__name__,
+                response.data,
+            )
+
         except Exception as exc:
             logger.exception(
                 "Valuation RPC failed for crsp_id=%s",
@@ -209,7 +213,15 @@ class ValuationRepository:
                 f"Valuation RPC call failed: {exc}"
             ) from exc
 
-        rows = response.data or []
+        rows = response.data
+
+        if rows is None:
+            raise RepositoryError(
+                "calculate_vehicle_valuation returned NULL"
+            )
+
+        if isinstance(rows, dict):
+            rows = [rows]
 
         if not rows:
             raise RepositoryError(
@@ -220,8 +232,8 @@ class ValuationRepository:
             return ValuationResultRow.model_validate(rows[0])
         except Exception as exc:
             logger.exception(
-                "Invalid valuation RPC response for crsp_id=%s",
-                crsp_id,
+                "Invalid valuation RPC response: %r",
+                rows[0],
             )
             raise RepositoryError(
                 f"Invalid valuation result: {exc}"
