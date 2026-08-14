@@ -213,7 +213,7 @@ class RunningCostService:
     # source, effective_date, generation_id, engine_capacity_id. Do not
     # reintroduce those column names.
     #
-    # The frontend's variant_id maps to engine_capacity_cc on this table.
+    # The frontend's variant_id maps to crsp_id (the primary key) on this table.
     # Both _get_variant_data_cached and _get_crsp_price read the same row,
     # so we fetch it once and cache it for both callers.
 
@@ -226,33 +226,37 @@ class RunningCostService:
         "currency, manufacture_year"
     )
 
+    # The frontend's variant_id IS vehicle_crsp_lookup.crsp_id — confirmed
+    # from mileage.html: `opt.value = rep.crsp_id` when populating the engine
+    # capacity dropdown, and loadVariantDetails() queries `crsp_id = crspId`
+    # and returns `variant_id: v.crsp_id`. Earlier assumptions that variant_id
+    # mapped to engine_capacity_cc were wrong — do not revert this.
+
     async def _get_crsp_record(self, variant_id: int) -> Dict[str, Any]:
         """
         Fetch the vehicle_crsp_lookup row for this variant_id (cached).
 
-        variant_id from the frontend is matched against engine_capacity_cc.
+        variant_id from the frontend IS crsp_id (the table's primary key).
         Returns the raw row, or {} if not found.
         """
         if variant_id in self._variant_cache:
             return self._variant_cache[variant_id]
 
         try:
-            logger.info(f"🔍 Looking up vehicle_crsp_lookup for engine_capacity_cc: {variant_id}")
+            logger.info(f"🔍 Looking up vehicle_crsp_lookup for crsp_id: {variant_id}")
 
             response = (
                 self.supabase
                 .table("vehicle_crsp_lookup")
                 .select(self._CRSP_COLUMNS)
-                .eq("engine_capacity_cc", variant_id)
-                .order("crsp_year", desc=True)
-                .order("crsp_id", desc=True)
+                .eq("crsp_id", variant_id)
                 .limit(1)
                 .execute()
             )
 
             if not response.data:
                 logger.warning(
-                    "❌ No vehicle_crsp_lookup record found for engine_capacity_cc=%s",
+                    "❌ No vehicle_crsp_lookup record found for crsp_id=%s",
                     variant_id
                 )
                 return {}
