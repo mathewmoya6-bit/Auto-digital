@@ -21,45 +21,77 @@ class ValuationRepository:
     def __init__(self, supabase: Any):
         self.supabase = supabase
 
+    # ------------------------------------------------------------------
+    # CRSP lookup
+    # ------------------------------------------------------------------
+
     def find_crsp_candidates(
         self,
         make: str,
         model: str,
     ) -> list[CRSPRecord]:
         """
-        Find all CRSP rows for a make/model.
+        Find CRSP rows for a vehicle.
 
-        Current vehicle_crsp schema:
-        - crsp_id
-        - make
-        - model
-        - trim_level
-        - manufacture_year
-        - crsp_kes
+        The authoritative table is public.vehicle_crsp.
 
-        The database field manufacture_year is normalized to the
-        domain-model field year expected by engine.py.
+        Current database fields used:
+            crsp_id
+            make
+            model
+            trim_level
+            manufacture_year
+            crsp_kes
 
-        IMPORTANT: crsp_year is intentionally not queried.
+        Domain normalization:
+            manufacture_year -> year
+
+        IMPORTANT:
+            vehicle_crsp.crsp_year does not exist and must never be
+            queried here.
+
+        The lookup also handles the frontend case where make is blank
+        and the model contains the complete CRSP model name, e.g.:
+
+            make  = ""
+            model = "CHRYSLER 300"
+
+        In that case the repository searches the model directly.
         """
+
         make_value = (make or "").strip()
         model_value = (model or "").strip()
 
-        if not make_value or not model_value:
+        if not model_value:
             return []
 
+        select_columns = (
+            "crsp_id,make,model,trim_level,"
+            "manufacture_year,crsp_kes"
+        )
+
         try:
-            result = (
-                self.supabase
-                .table(CRSP_TABLE)
-                .select(
-                    "crsp_id,make,model,trim_level,"
-                    "manufacture_year,crsp_kes"
+            if make_value:
+                # Normal path: make + model.
+                response = (
+                    self.supabase
+                    .table(CRSP_TABLE)
+                    .select(select_columns)
+                    .ilike("make", make_value)
+                    .ilike("model", model_value)
+                    .execute()
                 )
-                .ilike("make", make_value)
-                .ilike("model", model_value)
-                .execute()
-            )
+            else:
+                # Frontend fallback: model contains the complete name.
+                # Example: model = "CHRYSLER 300"
+                response = (
+                    self.supabase
+                    .table(CRSP_TABLE)
+                    .select(select_columns)
+                    .ilike("model", model_value)
+                    .execute()
+                )
+
         except Exception as exc:
             logger.exception(
                 "CRSP lookup failed for make=%r model=%r",
@@ -70,16 +102,38 @@ class ValuationRepository:
                 f"CRSP lookup failed: {exc}"
             ) from exc
 
+        rows = response.data or []
+
+        # If make was supplied but the exact make/model combination did
+        # not match, try the model alone. This protects against frontend
+        # make/model normalization differences while still requiring an
+        # actual model match in the authoritative CRSP table.
+        if not rows and make_value:
+            try:
+                fallback_response = (
+                    self.supabase
+                    .table(CRSP_TABLE)
+                    .select(select_columns)
+                    .ilike("model", model_value)
+                    .execute()
+                )
+                rows = fallback_response.data or []
+            except Exception as exc:
+                logger.exception(
+                    "CRSP model fallback lookup failed for model=%r",
+                    model_value,
+                )
+                raise RepositoryError(
+                    f"CRSP lookup failed: {exc}"
+                ) from exc
+
         candidates: list[CRSPRecord] = []
 
-        for database_row in result.data or []:
+        for database_row in rows:
             row = dict(database_row)
 
-            # Database -> domain model normalization.
+            # Normalize current DB schema into the domain model.
             row["year"] = row.get("manufacture_year")
-
-            # Keep crsp_kes available for models that use that field.
-            row["crsp_kes"] = row.get("crsp_kes")
 
             try:
                 candidate = CRSPRecord.model_validate(row)
@@ -95,7 +149,18 @@ class ValuationRepository:
 
             candidates.append(candidate)
 
+        logger.info(
+            "CRSP lookup: make=%r model=%r -> %d candidate(s)",
+            make_value,
+            model_value,
+            len(candidates),
+        )
+
         return candidates
+
+    # ------------------------------------------------------------------
+    # Valuation RPC
+    # ------------------------------------------------------------------
 
     def call_valuation_function(
         self,
@@ -110,10 +175,12 @@ class ValuationRepository:
         profit_margin_percent: float,
     ) -> ValuationResultRow:
         """
-        Call the calculate_vehicle_valuation PostgreSQL function.
+        Call the deployed calculate_vehicle_valuation PostgreSQL
+        function and return its first result as a domain object.
         """
+
         try:
-            result = (
+            response = (
                 self.supabase
                 .rpc(
                     VALUATION_RPC,
@@ -139,7 +206,7 @@ class ValuationRepository:
                 f"Valuation RPC call failed: {exc}"
             ) from exc
 
-        rows = result.data or []
+        rows = response.data or []
 
         if not rows:
             raise RepositoryError(
