@@ -1,5 +1,3 @@
-# app/modules/mileage/service.py
-
 """
 Mileage Service
 ===============
@@ -228,13 +226,9 @@ class MileageService:
             
             # Check for normal usage
             if mileage_diff > 5000 and mileage_diff < 100000:
-                # Could be normal for some vehicles
                 suggestions.append(
                     f"Consider providing service records for the {mileage_diff} km increase"
                 )
-        
-        # Check for reasonable range based on vehicle age
-        # TODO: Get vehicle age and check against average usage
         
         return MileageValidationResponse(
             is_valid=len(issues) == 0,
@@ -283,9 +277,6 @@ class MileageService:
         mileages = [r["mileage"] for r in records]
         total_mileage = sum(mileages)
         avg_mileage = total_mileage / len(mileages)
-        
-        # Calculate daily/weekly/monthly averages
-        # TODO: Implement proper period calculations
         
         # Check service alerts
         service_alerts = await self.check_service_alerts(vehicle_id)
@@ -356,7 +347,7 @@ class MileageService:
             service_due=km_to_service <= 0,
             alert_level=alert_level,
             message=message,
-            estimated_service_date=None  # TODO: Calculate based on usage rate
+            estimated_service_date=None
         )
     
     async def check_service_alerts(
