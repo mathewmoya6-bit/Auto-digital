@@ -1,19 +1,3 @@
-repository.py
-
-Data-access layer for the valuation feature.
-
-Responsibilities:
-- Read CRSP candidates from the authoritative `vehicle_crsp` table.
-- Normalize database column names into the valuation domain model.
-- Call the deployed `calculate_vehicle_valuation` RPC.
-- Never expose database-specific errors to the public API layer.
-
-Important:
-- `vehicle_crsp.crsp_year` is NOT used.
-- The authoritative year column is `manufacture_year`.
-- `vehicle_crsp.crsp_kes` is the CRSP monetary value.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -28,16 +12,14 @@ VALUATION_RPC = "calculate_vehicle_valuation"
 
 
 class RepositoryError(Exception):
-    """Raised for valuation data-access failures."""
+    """Raised when a valuation database operation fails."""
 
 
 class ValuationRepository:
+    """Supabase/Postgres repository for vehicle valuation."""
+
     def __init__(self, supabase: Any):
         self.supabase = supabase
-
-    # ------------------------------------------------------------------
-    # CRSP lookup
-    # ------------------------------------------------------------------
 
     def find_crsp_candidates(
         self,
@@ -45,14 +27,20 @@ class ValuationRepository:
         model: str,
     ) -> list[CRSPRecord]:
         """
-        Return all CRSP schedule rows matching make/model.
+        Find all CRSP rows for a make/model.
 
-        Database -> domain normalization:
-            manufacture_year -> year
-            crsp_kes          -> crsp_kes
+        Current vehicle_crsp schema:
+        - crsp_id
+        - make
+        - model
+        - trim_level
+        - manufacture_year
+        - crsp_kes
 
-        The engine intentionally works with `CRSPRecord.year`, while
-        PostgreSQL stores the field as `manufacture_year`.
+        The database field manufacture_year is normalized to the
+        domain-model field year expected by engine.py.
+
+        IMPORTANT: crsp_year is intentionally not queried.
         """
         make_value = (make or "").strip()
         model_value = (model or "").strip()
@@ -61,49 +49,53 @@ class ValuationRepository:
             return []
 
         try:
-            response = (
+            result = (
                 self.supabase
                 .table(CRSP_TABLE)
                 .select(
-                    "crsp_id, make, model, trim_level, "
-                    "manufacture_year, crsp_kes"
+                    "crsp_id,make,model,trim_level,"
+                    "manufacture_year,crsp_kes"
                 )
                 .ilike("make", make_value)
                 .ilike("model", model_value)
                 .execute()
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception(
                 "CRSP lookup failed for make=%r model=%r",
                 make_value,
                 model_value,
             )
-            raise RepositoryError(f"CRSP lookup failed: {exc}") from exc
+            raise RepositoryError(
+                f"CRSP lookup failed: {exc}"
+            ) from exc
 
         candidates: list[CRSPRecord] = []
 
-        for raw_row in response.data or []:
-            row = dict(raw_row)
+        for database_row in result.data or []:
+            row = dict(database_row)
 
-            # Normalize the current DB schema into the domain model.
+            # Database -> domain model normalization.
             row["year"] = row.get("manufacture_year")
 
+            # Keep crsp_kes available for models that use that field.
+            row["crsp_kes"] = row.get("crsp_kes")
+
             try:
-                candidates.append(CRSPRecord.model_validate(row))
-            except Exception as exc:  # noqa: BLE001
+                candidate = CRSPRecord.model_validate(row)
+            except Exception as exc:
                 logger.exception(
-                    "Invalid CRSP row skipped: crsp_id=%r",
+                    "Invalid CRSP record: crsp_id=%r",
                     row.get("crsp_id"),
                 )
                 raise RepositoryError(
-                    f"Invalid CRSP record {row.get('crsp_id')}: {exc}"
+                    f"Invalid CRSP record "
+                    f"{row.get('crsp_id')}: {exc}"
                 ) from exc
 
-        return candidates
+            candidates.append(candidate)
 
-    # ------------------------------------------------------------------
-    # Valuation RPC
-    # ------------------------------------------------------------------
+        return candidates
 
     def call_valuation_function(
         self,
@@ -118,11 +110,10 @@ class ValuationRepository:
         profit_margin_percent: float,
     ) -> ValuationResultRow:
         """
-        Call the deployed `calculate_vehicle_valuation` PostgreSQL
-        function and return its first result as a domain object.
+        Call the calculate_vehicle_valuation PostgreSQL function.
         """
         try:
-            response = (
+            result = (
                 self.supabase
                 .rpc(
                     VALUATION_RPC,
@@ -139,16 +130,16 @@ class ValuationRepository:
                 )
                 .execute()
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception(
-                "calculate_vehicle_valuation RPC failed (crsp_id=%s)",
+                "Valuation RPC failed for crsp_id=%s",
                 crsp_id,
             )
             raise RepositoryError(
                 f"Valuation RPC call failed: {exc}"
             ) from exc
 
-        rows = response.data or []
+        rows = result.data or []
 
         if not rows:
             raise RepositoryError(
@@ -157,9 +148,9 @@ class ValuationRepository:
 
         try:
             return ValuationResultRow.model_validate(rows[0])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception(
-                "Invalid valuation RPC response (crsp_id=%s)",
+                "Invalid valuation RPC response for crsp_id=%s",
                 crsp_id,
             )
             raise RepositoryError(
