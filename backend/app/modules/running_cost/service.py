@@ -292,7 +292,7 @@ class RunningCostService:
                     engine_capacity_cc,
                     manufacture_year
                 """)
-                .eq("engine_capacity_cc", variant_id)  # ✅ FIXED: Correct column name
+                .eq("engine_capacity_cc", variant_id)
                 .order("effective_date", desc=True)
                 .order("crsp_year", desc=True)
                 .limit(1)
@@ -803,4 +803,4 @@ class RunningCostService:
         condition_factors = {"excellent": 0.95, "good": 1.0, "fair": 1.05, "poor": 1.15}
         factor *= condition_factors.get(condition, 1.0)
         
-        location_factors = {"
+        location_factors = {"urban":
