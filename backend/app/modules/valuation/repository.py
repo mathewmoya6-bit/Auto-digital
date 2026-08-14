@@ -1,43 +1,45 @@
 """
 app/modules/valuation/repository.py
 
-Database access layer for vehicle valuation.
+Data-access layer for vehicle valuation.
 
 Responsibilities:
-    1. Resolve a vehicle against vehicle_crsp.
-    2. Call calculate_vehicle_valuation().
-    3. If the RPC does not return the persisted row, retrieve the
-       newly-created result from vehicle_valuation_results.
+- CRSP lookup
+- Calling calculate_vehicle_valuation()
+- Converting Supabase responses into domain models
 
-The SQL function remains the single source of truth for calculations.
+Business logic belongs in engine.py.
+HTTP logic belongs in router.py.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any
 
 from .models import CRSPRecord, ValuationResultRow
 
 logger = logging.getLogger(__name__)
 
 CRSP_TABLE = "vehicle_crsp"
-RESULTS_TABLE = "vehicle_valuation_results"
 VALUATION_RPC = "calculate_vehicle_valuation"
 
 
 class RepositoryError(Exception):
-    """Raised when a database operation required by valuation fails."""
+    """Database/Supabase error raised by the valuation repository."""
 
 
 class ValuationRepository:
 
     def __init__(self, supabase):
+        if supabase is None:
+            raise RepositoryError("Supabase client is not configured")
+
         self.supabase = supabase
 
-    # ------------------------------------------------------------------
+    # ================================================================
     # CRSP LOOKUP
-    # ------------------------------------------------------------------
+    # ================================================================
 
     def find_crsp_candidates(
         self,
@@ -53,13 +55,13 @@ class ValuationRepository:
                 "CRSP lookup requires both make and model"
             )
 
-        logger.info(
-            "CRSP lookup: make=%r model=%r",
-            make,
-            model,
-        )
-
         try:
+            logger.info(
+                "CRSP lookup: make=%r model=%r",
+                make,
+                model,
+            )
+
             response = (
                 self.supabase
                 .table(CRSP_TABLE)
@@ -80,10 +82,11 @@ class ValuationRepository:
 
         except Exception as exc:
             logger.exception(
-                "CRSP lookup failed: %s %s",
+                "CRSP lookup failed: make=%s model=%s",
                 make,
                 model,
             )
+
             raise RepositoryError(
                 f"CRSP lookup failed: {exc}"
             ) from exc
@@ -97,14 +100,24 @@ class ValuationRepository:
             model,
         )
 
-        return [
-            CRSPRecord.model_validate(row)
-            for row in rows
-        ]
+        records: list[CRSPRecord] = []
 
-    # ------------------------------------------------------------------
+        for row in rows:
+            try:
+                records.append(
+                    CRSPRecord.model_validate(row)
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Ignoring invalid CRSP row: %s",
+                    exc,
+                )
+
+        return records
+
+    # ================================================================
     # VALUATION RPC
-    # ------------------------------------------------------------------
+    # ================================================================
 
     def call_valuation_function(
         self,
@@ -119,174 +132,127 @@ class ValuationRepository:
         profit_margin_percent: float,
     ) -> ValuationResultRow:
 
-        """
-        Calls calculate_vehicle_valuation().
-
-        IMPORTANT:
-        The PostgreSQL function signature is:
-
-        calculate_vehicle_valuation(
-            bigint,
-            integer,
-            integer,
-            varchar,
-            varchar,
-            varchar,
-            varchar,
-            numeric
-        )
-
-        Therefore mileage MUST be sent as an integer.
-        """
+        # PostgreSQL function signature expects:
+        #
+        # bigint,
+        # integer,
+        # integer,
+        # varchar,
+        # varchar,
+        # varchar,
+        # varchar,
+        # numeric
 
         try:
             mileage_integer = int(round(float(mileage_km)))
 
         except (TypeError, ValueError) as exc:
             raise RepositoryError(
-                f"Invalid mileage value: {mileage_km!r}"
+                f"Invalid mileage: {mileage_km}"
             ) from exc
 
-        logger.info(
-            "Calling valuation RPC: "
-            "crsp_id=%s year=%s mileage=%s type=%s "
-            "condition=%s accident=%s location=%s margin=%s",
-            crsp_id,
-            manufacture_year,
-            mileage_integer,
-            vehicle_type,
-            condition_name,
-            accident_status,
-            location_name,
-            profit_margin_percent,
-        )
-
-        rpc_params = {
-            "p_vehicle_crsp_id": int(crsp_id),
-            "p_manufacture_year": int(manufacture_year),
-            "p_mileage_km": mileage_integer,
-            "p_vehicle_type": vehicle_type,
-            "p_condition_name": condition_name,
-            "p_accident_status": accident_status,
-            "p_location_name": location_name,
-            "p_profit_margin_percent": float(
-                profit_margin_percent
-            ),
-        }
-
         try:
-            response = (
-                self.supabase
-                .rpc(
-                    VALUATION_RPC,
-                    rpc_params,
-                )
-                .execute()
+            logger.info(
+                "Calling valuation RPC: "
+                "crsp_id=%s year=%s mileage=%s "
+                "type=%s condition=%s accident=%s "
+                "location=%s margin=%s",
+                crsp_id,
+                manufacture_year,
+                mileage_integer,
+                vehicle_type,
+                condition_name,
+                accident_status,
+                location_name,
+                profit_margin_percent,
             )
+
+            response = self.supabase.rpc(
+                VALUATION_RPC,
+                {
+                    "p_vehicle_crsp_id": int(crsp_id),
+                    "p_manufacture_year": int(manufacture_year),
+                    "p_mileage_km": mileage_integer,
+                    "p_vehicle_type": str(vehicle_type),
+                    "p_condition_name": str(condition_name),
+                    "p_accident_status": str(accident_status),
+                    "p_location_name": str(location_name),
+                    "p_profit_margin_percent": float(
+                        profit_margin_percent
+                    ),
+                },
+            ).execute()
 
         except Exception as exc:
             logger.exception(
-                "Valuation RPC failed for CRSP %s",
-                crsp_id,
+                "calculate_vehicle_valuation RPC failed"
             )
+
             raise RepositoryError(
                 f"Valuation RPC call failed: {exc}"
             ) from exc
 
-        rows = response.data or []
+        rows: Any = response.data
 
         logger.info(
-            "Valuation RPC returned %d row(s)",
-            len(rows),
+            "Valuation RPC raw response type=%s",
+            type(rows).__name__,
         )
 
-        # --------------------------------------------------------------
-        # BEST CASE:
-        # RPC directly returned the valuation result.
-        # --------------------------------------------------------------
-
-        if rows:
-            return ValuationResultRow.model_validate(rows[0])
-
-        # --------------------------------------------------------------
-        # FALLBACK:
-        # SQL function may have inserted into
-        # vehicle_valuation_results without returning a row.
-        # Retrieve the latest matching result.
-        # --------------------------------------------------------------
-
-        logger.warning(
-            "Valuation RPC returned no rows. "
-            "Looking up persisted result in %s",
-            RESULTS_TABLE,
+        logger.info(
+            "Valuation RPC returned: %r",
+            rows,
         )
 
-        return self._get_latest_result(
-            crsp_id=crsp_id,
-            manufacture_year=manufacture_year,
-            mileage_km=mileage_integer,
-        )
-
-    # ------------------------------------------------------------------
-    # PERSISTED RESULT LOOKUP
-    # ------------------------------------------------------------------
-
-    def _get_latest_result(
-        self,
-        *,
-        crsp_id: int,
-        manufacture_year: int,
-        mileage_km: int,
-    ) -> ValuationResultRow:
-
-        try:
-            response = (
-                self.supabase
-                .table(RESULTS_TABLE)
-                .select("*")
-                .eq("vehicle_crsp_id", int(crsp_id))
-                .eq(
-                    "manufacture_year",
-                    int(manufacture_year),
-                )
-                .eq(
-                    "mileage_km",
-                    int(mileage_km),
-                )
-                .order(
-                    "id",
-                    desc=True,
-                )
-                .limit(1)
-                .execute()
-            )
-
-        except Exception as exc:
-            logger.exception(
-                "Failed to retrieve persisted valuation result"
-            )
-            raise RepositoryError(
-                f"Valuation result lookup failed: {exc}"
-            ) from exc
-
-        rows = response.data or []
-
-        if not rows:
+        if rows is None:
             raise RepositoryError(
                 "No valuation data received"
             )
 
+        # Supabase normally returns a list for a table-returning
+        # PostgreSQL function.
+        if isinstance(rows, list):
+
+            if not rows:
+                raise RepositoryError(
+                    "No valuation data received"
+                )
+
+            row = rows[0]
+
+        # Defensive support for a single dictionary response.
+        elif isinstance(rows, dict):
+
+            row = rows
+
+        else:
+            raise RepositoryError(
+                "Unexpected valuation RPC response format"
+            )
+
+        if not isinstance(row, dict):
+            raise RepositoryError(
+                "Invalid valuation data returned by database"
+            )
+
+        try:
+            result = ValuationResultRow.model_validate(row)
+
+        except Exception as exc:
+            logger.exception(
+                "Unable to parse valuation result: %r",
+                row,
+            )
+
+            raise RepositoryError(
+                f"Invalid valuation result: {exc}"
+            ) from exc
+
         logger.info(
-            "Retrieved persisted valuation result id=%s",
-            rows[0].get("id"),
+            "Valuation successful: "
+            "reference=%s final_market_value=%s",
+            result.valuation_reference,
+            result.final_market_value,
         )
 
-        return ValuationResultRow.model_validate(
-            rows[0]
-        )
-
-
-__all__ = [
-    "RepositoryError",
-    "ValuationRepository",
-]
+        return result
