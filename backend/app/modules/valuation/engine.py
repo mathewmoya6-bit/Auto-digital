@@ -1,18 +1,19 @@
 """
-Auto-D Kenya - Valuation Engine
+app/modules/valuation/engine.py
 
-Responsibilities:
-1. Validate the valuation request.
-2. Resolve CRSP from vehicle_crsp.
-3. Resolve missing make from model when necessary.
-4. Select the best CRSP row for the requested trim/year.
-5. Call calculate_vehicle_valuation().
-6. Convert the database result into the stable API response.
+Business layer for vehicle valuation.
 
-IMPORTANT:
-- vehicle_crsp is the authoritative CRSP source.
-- calculate_vehicle_valuation() is the authoritative valuation calculation.
-- This module contains business/orchestration logic only.
+Flow:
+
+    ValuationRequest
+          ↓
+    CRSP matching
+          ↓
+    calculate_vehicle_valuation()
+          ↓
+    vehicle_valuation_results
+          ↓
+    stable ValuationResponse
 """
 
 from __future__ import annotations
@@ -38,10 +39,6 @@ from .schemas import (
 logger = logging.getLogger(__name__)
 
 
-# =====================================================================
-# ENUM NORMALIZATION
-# =====================================================================
-
 CONDITION_MAP = {
     "excellent": "EXCELLENT",
     "very_good": "VERY_GOOD",
@@ -50,6 +47,7 @@ CONDITION_MAP = {
     "fair": "FAIR",
     "poor": "POOR",
 }
+
 
 ACCIDENT_MAP = {
     "none": "NONE",
@@ -60,14 +58,7 @@ ACCIDENT_MAP = {
 }
 
 
-# =====================================================================
-# ERROR
-# =====================================================================
-
 class ValuationEngineError(Exception):
-    """
-    Business/application error raised by the valuation engine.
-    """
 
     def __init__(
         self,
@@ -75,13 +66,10 @@ class ValuationEngineError(Exception):
         status_code: int = 400,
     ):
         super().__init__(message)
+
         self.message = message
         self.status_code = status_code
 
-
-# =====================================================================
-# ENGINE
-# =====================================================================
 
 class ValuationEngine:
 
@@ -91,153 +79,75 @@ class ValuationEngine:
     ):
         self.repo = repository
 
-    # =================================================================
+    # ------------------------------------------------------------------
     # PUBLIC ENTRY POINT
-    # =================================================================
+    # ------------------------------------------------------------------
 
     def calculate(
         self,
         req: ValuationRequest,
     ) -> ValuationResponse:
 
-        make = self._clean(req.make)
-        model = self._clean(req.model)
-        trim = self._clean(req.trim)
-
         logger.info(
             "Valuation request: make=%r model=%r trim=%r "
-            "year=%r mileage=%r",
-            make,
-            model,
-            trim,
+            "year=%s mileage=%s",
+            req.make,
+            req.model,
+            req.trim,
             req.year,
             req.mileage,
         )
 
-        # -------------------------------------------------------------
-        # MODEL IS REQUIRED
-        # -------------------------------------------------------------
+        make = (req.make or "").strip()
+        model = (req.model or "").strip()
 
-        if not model:
+        if not make or not model:
             raise ValuationEngineError(
-                "Vehicle model is required for valuation",
+                "Make and model are required for valuation",
                 status_code=422,
             )
 
-        # -------------------------------------------------------------
-        # RESOLVE CRSP
-        #
-        # IMPORTANT:
-        # If make is empty, DO NOT call find_crsp_candidates().
-        # That method requires both make and model.
-        #
-        # Instead search vehicle_crsp by model and derive the make.
-        # -------------------------------------------------------------
-
-        if not make:
-
-            logger.info(
-                "Make missing. Resolving make from CRSP using model=%r",
-                model,
-            )
-
-            crsp = self._resolve_crsp_without_make(
-                model=model,
-                trim=trim,
-                year=req.year,
-            )
-
-            make = self._clean(crsp.make)
-
-            if not make:
-                raise ValuationEngineError(
-                    f"CRSP record for {model} has no make",
-                    status_code=422,
-                )
-
-            logger.info(
-                "Make resolved from CRSP: make=%r model=%r "
-                "crsp_id=%s trim=%r year=%r",
-                make,
-                crsp.model,
-                crsp.crsp_id,
-                crsp.trim_level,
-                crsp.manufacture_year,
-            )
-
-        else:
-
-            crsp = self._resolve_crsp(
-                make=make,
-                model=model,
-                trim=trim,
-                year=req.year,
-            )
-
-        # -------------------------------------------------------------
-        # RUN AUTHORITATIVE SQL VALUATION
-        # -------------------------------------------------------------
-
-        row = self._run_valuation(
-            req=req,
-            crsp=crsp,
-        )
-
-        # -------------------------------------------------------------
-        # BUILD API RESPONSE
-        # -------------------------------------------------------------
-
-        return self._to_response(
-            row=row,
-            req=req,
-            crsp=crsp,
-            resolved_make=make,
-            resolved_model=model,
-        )
-
-    # =================================================================
-    # HELPERS
-    # =================================================================
-
-    @staticmethod
-    def _clean(value: Optional[str]) -> str:
-        """
-        Safely normalize strings.
-
-        None      -> ""
-        ""        -> ""
-        "  ABC "  -> "ABC"
-        """
-        if value is None:
-            return ""
-
-        return str(value).strip()
-
-    # =================================================================
-    # CRSP RESOLUTION - MAKE + MODEL
-    # =================================================================
-
-    def _resolve_crsp(
-        self,
-        *,
-        make: str,
-        model: str,
-        trim: str,
-        year: int,
-    ) -> CRSPRecord:
-
-        logger.info(
-            "CRSP lookup: make=%r model=%r trim=%r year=%r",
+        crsp = self._select_crsp(
+            req,
             make,
             model,
-            trim,
-            year,
         )
+
+        logger.info(
+            "Selected CRSP: id=%s make=%s model=%s trim=%s year=%s",
+            crsp.crsp_id,
+            crsp.make,
+            crsp.model,
+            crsp.trim_level,
+            crsp.manufacture_year,
+        )
+
+        result = self._run_valuation(
+            req,
+            crsp,
+        )
+
+        return self._to_response(
+            result,
+            req,
+            crsp,
+        )
+
+    # ------------------------------------------------------------------
+    # CRSP MATCHING
+    # ------------------------------------------------------------------
+
+    def _select_crsp(
+        self,
+        req: ValuationRequest,
+        make: str,
+        model: str,
+    ) -> CRSPRecord:
 
         try:
             candidates = self.repo.find_crsp_candidates(
-                make=make,
-                model=model,
+                make,
+                model,
             )
 
         except RepositoryError as exc:
@@ -252,279 +162,148 @@ class ValuationEngine:
                 status_code=404,
             )
 
-        return self._select_best_crsp(
-            candidates=candidates,
-            trim=trim,
-            year=year,
+        requested_trim = (
+            (req.trim or "")
+            .strip()
+            .lower()
         )
 
-    # =================================================================
-    # CRSP RESOLUTION - MODEL ONLY
-    # =================================================================
-
-    def _resolve_crsp_without_make(
-        self,
-        *,
-        model: str,
-        trim: str,
-        year: int,
-    ) -> CRSPRecord:
-
-        logger.info(
-            "CRSP model-only lookup: model=%r trim=%r year=%r",
-            model,
-            trim,
-            year,
-        )
-
-        try:
-            candidates = self.repo.find_crsp_by_model(
-                model=model,
-            )
-
-        except RepositoryError as exc:
-            raise ValuationEngineError(
-                str(exc),
-                status_code=502,
-            ) from exc
-
-        if not candidates:
-            raise ValuationEngineError(
-                f"No CRSP schedule found for model {model}",
-                status_code=404,
-            )
-
-        # -------------------------------------------------------------
-        # Make sure we don't accidentally combine unrelated makes.
-        # -------------------------------------------------------------
-
-        makes = {
-            self._clean(c.make).upper()
-            for c in candidates
-            if self._clean(c.make)
-        }
-
-        logger.info(
-            "Model-only CRSP lookup found makes=%s",
-            sorted(makes),
-        )
-
-        if len(makes) > 1:
-            # If multiple makes have the exact same model name,
-            # use trim/year to narrow the selection.
-            selected = self._select_best_crsp(
-                candidates=candidates,
-                trim=trim,
-                year=year,
-            )
-
-            if not selected.make:
-                raise ValuationEngineError(
-                    f"Unable to determine make for {model}",
-                    status_code=422,
-                )
-
-            return selected
-
-        return self._select_best_crsp(
-            candidates=candidates,
-            trim=trim,
-            year=year,
-        )
-
-    # =================================================================
-    # BEST CRSP MATCH
-    # =================================================================
-
-    def _select_best_crsp(
-        self,
-        *,
-        candidates: list[CRSPRecord],
-        trim: str,
-        year: int,
-    ) -> CRSPRecord:
-
-        if not candidates:
-            raise ValuationEngineError(
-                "No CRSP candidates available",
-                status_code=404,
-            )
-
-        requested_trim = self._clean(trim).casefold()
-
-        # -------------------------------------------------------------
+        # --------------------------------------------------------------
         # 1. Exact trim + exact year
-        # -------------------------------------------------------------
+        # --------------------------------------------------------------
 
-        exact_trim_year = [
+        exact = [
             c
             for c in candidates
-            if self._clean(c.trim_level).casefold()
-            == requested_trim
-            and c.manufacture_year == year
+            if (
+                (c.trim_level or "").strip().lower()
+                == requested_trim
+                and c.manufacture_year == req.year
+            )
         ]
 
-        if exact_trim_year:
-            selected = exact_trim_year[0]
+        if exact:
+            return exact[0]
 
-            logger.info(
-                "CRSP selected: exact trim + year "
-                "crsp_id=%s make=%r model=%r trim=%r year=%r",
-                selected.crsp_id,
-                selected.make,
-                selected.model,
-                selected.trim_level,
-                selected.manufacture_year,
-            )
+        # --------------------------------------------------------------
+        # 2. Exact trim, any year
+        # --------------------------------------------------------------
 
-            return selected
-
-        # -------------------------------------------------------------
-        # 2. Exact trim
-        # -------------------------------------------------------------
-
-        exact_trim = [
+        trim_matches = [
             c
             for c in candidates
-            if self._clean(c.trim_level).casefold()
-            == requested_trim
+            if (
+                (c.trim_level or "").strip().lower()
+                == requested_trim
+            )
         ]
 
-        if exact_trim:
-            year_candidates = [
-                c
-                for c in exact_trim
-                if c.manufacture_year is not None
-            ]
-
-            if year_candidates:
-                selected = min(
-                    year_candidates,
-                    key=lambda c: abs(
-                        c.manufacture_year - year
-                    ),
-                )
-            else:
-                selected = exact_trim[0]
-
-            logger.info(
-                "CRSP selected: exact trim / closest year "
-                "crsp_id=%s year=%r requested_year=%r",
-                selected.crsp_id,
-                selected.manufacture_year,
-                year,
+        if trim_matches:
+            return self._closest_year(
+                trim_matches,
+                req.year,
             )
 
-            return selected
+        # --------------------------------------------------------------
+        # 3. Exact year, any trim
+        # --------------------------------------------------------------
 
-        # -------------------------------------------------------------
-        # 3. Closest year regardless of trim
-        # -------------------------------------------------------------
+        year_matches = [
+            c
+            for c in candidates
+            if c.manufacture_year == req.year
+        ]
 
-        year_candidates = [
+        if year_matches:
+            return year_matches[0]
+
+        # --------------------------------------------------------------
+        # 4. Closest available year
+        # --------------------------------------------------------------
+
+        return self._closest_year(
+            candidates,
+            req.year,
+        )
+
+    @staticmethod
+    def _closest_year(
+        candidates: list[CRSPRecord],
+        requested_year: int,
+    ) -> CRSPRecord:
+
+        valid = [
             c
             for c in candidates
             if c.manufacture_year is not None
         ]
 
-        if year_candidates:
-            selected = min(
-                year_candidates,
-                key=lambda c: abs(
-                    c.manufacture_year - year
-                ),
-            )
+        if not valid:
+            # CRSP exists but has no year information.
+            return candidates[0]
 
-            logger.info(
-                "CRSP selected: closest year "
-                "crsp_id=%s year=%r requested_year=%r",
-                selected.crsp_id,
-                selected.manufacture_year,
-                year,
-            )
-
-            return selected
-
-        # -------------------------------------------------------------
-        # 4. Last resort
-        # -------------------------------------------------------------
-
-        selected = candidates[0]
-
-        logger.info(
-            "CRSP selected: fallback first candidate "
-            "crsp_id=%s",
-            selected.crsp_id,
+        return min(
+            valid,
+            key=lambda c: abs(
+                c.manufacture_year - requested_year
+            ),
         )
 
-        return selected
-
-    # =================================================================
-    # SQL VALUATION
-    # =================================================================
+    # ------------------------------------------------------------------
+    # VALUATION
+    # ------------------------------------------------------------------
 
     def _run_valuation(
         self,
-        *,
         req: ValuationRequest,
         crsp: CRSPRecord,
     ) -> ValuationResultRow:
 
-        if crsp.crsp_id is None:
-            raise ValuationEngineError(
-                "Selected CRSP record has no crsp_id",
-                status_code=422,
-            )
+        condition_key = (
+            (req.condition or "good")
+            .strip()
+            .lower()
+        )
+
+        accident_key = (
+            (req.accident_history or "none")
+            .strip()
+            .lower()
+        )
 
         condition = CONDITION_MAP.get(
-            self._clean(req.condition).casefold(),
-            self._clean(req.condition).upper(),
+            condition_key,
+            condition_key.upper(),
         )
 
         accident = ACCIDENT_MAP.get(
-            self._clean(req.accident_history).casefold(),
-            self._clean(req.accident_history).upper(),
+            accident_key,
+            accident_key.upper(),
         )
 
         vehicle_type = (
-            self._clean(req.vehicle_type).upper()
-            or "SEDAN"
+            (req.vehicle_type or "sedan")
+            .strip()
+            .upper()
         )
 
         location = (
-            self._clean(req.location).upper()
-            or "NAIROBI"
-        )
-
-        logger.info(
-            "Running valuation RPC: "
-            "crsp_id=%s year=%s mileage=%s "
-            "vehicle_type=%s condition=%s accident=%s "
-            "location=%s profit_margin=%s",
-            crsp.crsp_id,
-            req.year,
-            req.mileage,
-            vehicle_type,
-            condition,
-            accident,
-            location,
-            req.profit_margin,
+            (req.location or "nairobi")
+            .strip()
+            .upper()
         )
 
         try:
             return self.repo.call_valuation_function(
-                crsp_id=int(crsp.crsp_id),
+                crsp_id=crsp.crsp_id,
                 manufacture_year=int(req.year),
-
-                # PostgreSQL function expects INTEGER.
                 mileage_km=float(req.mileage),
-
                 vehicle_type=vehicle_type,
                 condition_name=condition,
                 accident_status=accident,
                 location_name=location,
                 profit_margin_percent=float(
-                    req.profit_margin
+                    req.profit_margin or 0
                 ),
             )
 
@@ -534,49 +313,48 @@ class ValuationEngine:
                 status_code=502,
             ) from exc
 
-    # =================================================================
+    # ------------------------------------------------------------------
     # RESPONSE
-    # =================================================================
+    # ------------------------------------------------------------------
 
     def _to_response(
         self,
-        *,
         row: ValuationResultRow,
         req: ValuationRequest,
         crsp: CRSPRecord,
-        resolved_make: str,
-        resolved_model: str,
     ) -> ValuationResponse:
 
-        base = (
-            row.value_after_depreciation
-            if row.value_after_depreciation is not None
-            else row.crsp_value
+        logger.info(
+            "Building valuation response: result_id=%s "
+            "reference=%s final_value=%s",
+            row.id,
+            row.valuation_reference,
+            row.final_market_value,
         )
 
-        def pct(
+        # --------------------------------------------------------------
+        # Adjustment percentages
+        #
+        # The database stores adjustment amounts in KES.
+        # We expose them as fractions of the post-depreciation base.
+        # --------------------------------------------------------------
+
+        base = (
+            float(row.crsp_value or 0)
+            - float(row.depreciation_value or 0)
+        )
+
+        if base <= 0:
+            base = float(row.crsp_value or 0)
+
+        def adjustment_fraction(
             amount: Optional[float],
         ) -> float:
 
-            if amount is None:
+            if amount is None or base <= 0:
                 return 0.0
 
-            if base is None:
-                return 0.0
-
-            if float(base) == 0:
-                return 0.0
-
-            return float(amount) / float(base)
-
-        # Database stores depreciation_rate as percentage:
-        #
-        # 60.0000
-        #
-        # API contract expects fraction:
-        #
-        # 0.60
-        #
+            return float(amount) / base
 
         depreciation_rate = None
 
@@ -590,138 +368,99 @@ class ValuationEngine:
             or f"AUTO-D-{uuid.uuid4().hex[:12].upper()}"
         )
 
+        vehicle_age = None
+
+        if row.manufacture_year:
+            vehicle_age = max(
+                0,
+                2026 - int(row.manufacture_year),
+            )
+
         return ValuationResponse(
             success=True,
             data=ValuationDataOut(
 
-                # -----------------------------------------------------
-                # VEHICLE
-                # -----------------------------------------------------
-
                 vehicle=VehicleOut(
-                    make=(
-                        row.make
-                        or resolved_make
-                        or req.make
-                    ),
-
-                    model=(
-                        row.model
-                        or resolved_model
-                        or req.model
-                    ),
-
+                    make=row.make or crsp.make or req.make,
+                    model=row.model or crsp.model or req.model,
                     trim=(
-                        req.trim
-                        or crsp.trim_level
+                        crsp.trim_level
+                        or req.trim
                     ),
-
                     year=(
                         row.manufacture_year
                         or req.year
                     ),
-
-                    mileage=req.mileage,
-
+                    mileage=(
+                        float(row.mileage_km)
+                        if row.mileage_km is not None
+                        else float(req.mileage)
+                    ),
                     location=req.location,
-
                     condition=req.condition,
-
                     fuel_type=req.fuel_type,
-
                     transmission=req.transmission,
-
                     engine_capacity=req.engine_capacity,
                 ),
-
-                # -----------------------------------------------------
-                # VALUATION
-                # -----------------------------------------------------
 
                 valuation=ValuationOut(
                     estimated_vehicle_value=(
                         row.final_market_value
                     ),
-
                     recommended_selling_price=(
                         row.recommended_selling_price
                     ),
-
                     confidence_score=(
                         row.confidence_score
                     ),
                 ),
 
-                # -----------------------------------------------------
-                # ANALYSIS
-                # -----------------------------------------------------
-
                 analysis=AnalysisOut(
-
                     adjustments=AdjustmentsOut(
-
-                        mileage=pct(
+                        mileage=adjustment_fraction(
                             row.mileage_adjustment
                         ),
-
-                        condition=pct(
+                        condition=adjustment_fraction(
                             row.condition_adjustment
                         ),
-
-                        accident=pct(
+                        accident=adjustment_fraction(
                             row.accident_adjustment
                         ),
-
-                        location=pct(
+                        location=adjustment_fraction(
                             row.location_adjustment
                         ),
-
-                        market=pct(
-                            row.market_adjustment
-                        ),
+                        market=0.0,
                     ),
 
-                    depreciation_rate=(
-                        depreciation_rate
-                    ),
+                    depreciation_rate=depreciation_rate,
 
                     depreciation_amount=(
                         row.depreciation_value
                     ),
 
-                    mileage_adjustment=pct(
-                        row.mileage_adjustment
+                    mileage_adjustment=(
+                        adjustment_fraction(
+                            row.mileage_adjustment
+                        )
                     ),
 
-                    vehicle_age=(
-                        row.vehicle_age
-                    ),
+                    vehicle_age=vehicle_age,
                 ),
-
-                # -----------------------------------------------------
-                # REPORT
-                # -----------------------------------------------------
 
                 report=ReportOut(
                     report_number=report_number
                 ),
 
-                # -----------------------------------------------------
-                # CRSP
-                # -----------------------------------------------------
-
                 crsp=CrspOut(
                     crsp_id=crsp.crsp_id,
-
-                    crsp_value=(
-                        row.crsp_value
-                        if row.crsp_value is not None
-                        else crsp.crsp_kes
-                    ),
-
-                    trim_level=(
-                        crsp.trim_level
-                    ),
+                    crsp_value=row.crsp_value,
+                    trim_level=crsp.trim_level,
                 ),
             ),
         )
+
+
+__all__ = [
+    "ValuationEngine",
+    "ValuationEngineError",
+]
