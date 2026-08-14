@@ -4,11 +4,9 @@ Valuation business-logic layer for Auto-D Kenya.
 
 Responsibilities:
 - Select the best CRSP record for the requested vehicle.
-- Normalize frontend condition/accident values to database values.
+- Normalize frontend condition/accident values.
 - Call the valuation repository/RPC.
 - Shape the database result into the stable public API response.
-
-The engine does not perform direct database operations.
 """
 
 from __future__ import annotations
@@ -60,24 +58,19 @@ class ValuationEngineError(Exception):
 
 
 class ValuationEngine:
-    """Orchestrates CRSP selection, valuation and response shaping."""
+    """Orchestrates CRSP selection, valuation, and response shaping."""
 
     def __init__(self, repository: ValuationRepository):
         self.repo = repository
 
     def calculate(self, req: ValuationRequest) -> ValuationResponse:
-        """Calculate a valuation for the supplied request."""
+        """Calculate a vehicle valuation."""
         crsp = self._select_crsp(req)
         row = self._run_valuation(req, crsp)
         return self._to_response(row, req, crsp)
 
-    # ------------------------------------------------------------------
-    # CRSP selection
-    # ------------------------------------------------------------------
-
     def _select_crsp(self, req: ValuationRequest) -> CRSPRecord:
         """Select the best available CRSP record."""
-
         try:
             candidates = self.repo.find_crsp_candidates(
                 req.make,
@@ -103,7 +96,7 @@ class ValuationEngine:
                 == requested_trim
             )
 
-        # 1. Exact trim + exact year.
+        # Exact trim + exact year.
         exact = [
             candidate
             for candidate in candidates
@@ -114,7 +107,7 @@ class ValuationEngine:
         if exact:
             return exact[0]
 
-        # 2. Exact trim + closest available year.
+        # Exact trim + closest available year.
         by_trim = [
             candidate
             for candidate in candidates
@@ -128,7 +121,7 @@ class ValuationEngine:
                 key=lambda candidate: abs(candidate.year - req.year),
             )
 
-        # 3. Any trim + closest available year.
+        # Any trim + closest available year.
         with_year = [
             candidate
             for candidate in candidates
@@ -147,17 +140,12 @@ class ValuationEngine:
             key=lambda candidate: abs(candidate.year - req.year),
         )
 
-    # ------------------------------------------------------------------
-    # Valuation RPC
-    # ------------------------------------------------------------------
-
     def _run_valuation(
         self,
         req: ValuationRequest,
         crsp: CRSPRecord,
     ) -> ValuationResultRow:
-        """Execute the database valuation function."""
-
+        """Execute the PostgreSQL valuation function."""
         condition_name = CONDITION_MAP.get(
             (req.condition or "").strip().lower(),
             (req.condition or "good").strip().upper(),
@@ -169,15 +157,11 @@ class ValuationEngine:
         )
 
         vehicle_type = (
-            (req.vehicle_type or "sedan")
-            .strip()
-            .upper()
+            (req.vehicle_type or "sedan").strip().upper()
         )
 
         location_name = (
-            (req.location or "nairobi")
-            .strip()
-            .upper()
+            (req.location or "nairobi").strip().upper()
         )
 
         try:
@@ -197,10 +181,6 @@ class ValuationEngine:
                 status_code=502,
             ) from exc
 
-    # ------------------------------------------------------------------
-    # Response shaping
-    # ------------------------------------------------------------------
-
     def _to_response(
         self,
         row: ValuationResultRow,
@@ -208,7 +188,6 @@ class ValuationEngine:
         crsp: CRSPRecord,
     ) -> ValuationResponse:
         """Convert the domain result into the stable API response."""
-
         base = row.value_after_depreciation or row.crsp_value
 
         def pct(amount: Optional[float]) -> float:
