@@ -1,4 +1,3 @@
-# app/modules/running_cost/service.py
 """Running Cost service for Auto-D Kenya"""
 import logging
 from typing import Dict, Any, Optional, List
@@ -229,15 +228,15 @@ class RunningCostService:
 
     # ─── CRSP PRICE LOOKUP ──────────────────────────────────────────
     # CRITICAL: This is the authoritative source for the original vehicle price
-    # The frontend variant_id maps to vehicle_crsp_prices.engine_capacity_id
+    # The frontend variant_id maps to vehicle_crsp_lookup.engine_capacity_id
 
     async def _get_crsp_price(self, variant_id: int) -> Dict[str, Any]:
         """
-        Get the authoritative original vehicle price from vehicle_crsp_prices.
+        Get the authoritative original vehicle price from vehicle_crsp_lookup.
 
         IMPORTANT:
         variant_id from the frontend is the engine_capacity_id used by
-        vehicle_crsp_prices in the current vehicle-selection flow.
+        vehicle_crsp_lookup in the current vehicle-selection flow.
 
         Returns:
             Dict containing the CRSP record or empty dict if not found
@@ -247,7 +246,7 @@ class RunningCostService:
 
             response = (
                 self.supabase
-                .table("vehicle_crsp_prices")
+                .table("vehicle_crsp_lookup")
                 .select("""
                     id,
                     make,
@@ -319,7 +318,7 @@ class RunningCostService:
         Calculate running costs.
 
         FLOW:
-        1. Resolve CRSP price from vehicle_crsp_prices (authoritative)
+        1. Resolve CRSP price from vehicle_crsp_lookup (authoritative)
         2. Get variant details from vehicle_master_specs
         3. Calculate all costs using CRSP as the starting price
         4. Return comprehensive response
