@@ -803,4 +803,4 @@ class RunningCostService:
         condition_factors = {"excellent": 0.95, "good": 1.0, "fair": 1.05, "poor": 1.15}
         factor *= condition_factors.get(condition, 1.0)
         
-        location_factors = {"urban":
+        location_f
