@@ -178,6 +178,9 @@ class ValuationRepository:
         Call the deployed calculate_vehicle_valuation PostgreSQL
         function and return its first result as a domain object.
         """
+        # Convert mileage to integer with proper rounding
+        # This ensures 49999.8 becomes 50000, not 49999
+        mileage_km_int = int(round(mileage_km))
 
         try:
             response = (
@@ -187,7 +190,7 @@ class ValuationRepository:
                     {
                         "p_vehicle_crsp_id": crsp_id,
                         "p_manufacture_year": manufacture_year,
-                        "p_mileage_km": mileage_km,
+                        "p_mileage_km": mileage_km_int,  # ✅ Fixed: rounded integer
                         "p_vehicle_type": vehicle_type,
                         "p_condition_name": condition_name,
                         "p_accident_status": accident_status,
