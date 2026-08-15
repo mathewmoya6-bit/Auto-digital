@@ -24,16 +24,23 @@ router = APIRouter(
 class TCORequest(BaseModel):
     """
     Total Cost of Ownership request.
-    
+
     Matches the HTML frontend with all options:
     - Vehicle Type (ICE, Hybrid, EV)
     - Fuel Type (Petrol, Diesel, Hybrid, LPG, Electric)
     - Vehicle Condition (New, Used)
     - Purchase Type (Cash, Financing)
+
+    NOTE: The frontend now sources vehicles directly from the
+    `vehicle_crsp_lookup` Supabase view (the same view the Instant
+    Value Check tool uses), so it selects a CRSP record and submits
+    its `crsp_id` as `vehicle_crsp_id`. This replaces the old
+    `variant_id` field, which referenced a separate variant table
+    that the frontend no longer queries.
     """
-    
+
     # ─── Vehicle Details ──────────────────────────────────────
-    variant_id: int = Field(..., description="Vehicle variant ID", gt=0)
+    vehicle_crsp_id: int = Field(..., description="CRSP vehicle ID (crsp_id) from vehicle_crsp_lookup", gt=0)
     vehicle_year: int = Field(2020, description="Vehicle year of manufacture", ge=1980, le=2026)
     vehicle_type: str = Field("ice", description="Vehicle type: ice, hybrid, ev")
     vehicle_condition: str = Field("new", description="Vehicle condition: new, used")
@@ -152,10 +159,10 @@ class LoanDetails(BaseModel):
 
 class VehicleDetails(BaseModel):
     """Vehicle details in response."""
-    variant_id: int = Field(..., description="Vehicle variant ID")
+    vehicle_crsp_id: int = Field(..., description="CRSP vehicle ID")
     make: str = Field(..., description="Vehicle make")
     model: str = Field(..., description="Vehicle model")
-    variant: str = Field(..., description="Vehicle variant name")
+    variant: str = Field(..., description="Vehicle variant/trim name")
     fuel_type: str = Field(..., description="Fuel type display name")
     fuel_type_display: str = Field(..., description="Fuel type display name")
     vehicle_condition: str = Field(..., description="Vehicle condition: new or used")
