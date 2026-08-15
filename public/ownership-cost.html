@@ -1,2760 +1,935 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Auto-D Kenya — Ownership Cost Report</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E" />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <style>
-        /* ─── CSS Variables ────────────────────────────────────────── */
-        :root {
-            --amber: #eab308;
-            --amber-dark: #ca8a04;
-            --green: #22c55e;
-            --blue: #3b82f6;
-            --cyan: #06b6d4;
-            --red: #ef4444;
-            --bg: #0a0c15;
-            --bg-panel: #111827;
-            --text-primary: #f8fafc;
-            --text-secondary: #cbd5e1;
-            --text-muted: #64748b;
-            --border: rgba(255, 255, 255, 0.06);
-            --font-heading: 'Space Grotesk', sans-serif;
-            --font-body: 'Inter', sans-serif;
-            --font-mono: 'JetBrains Mono', monospace;
-        }
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        body {
-            font-family: 'Inter', sans-serif;
-            background: #0a0c15;
-            color: #f8fafc;
-            min-height: 100vh;
-        }
-        .wrap {
-            max-width: 1440px;
-            margin: 0 auto;
-            padding: 28px 32px 60px;
-        }
-
-        /* ─── Skip Link ────────────────────────────────────────────── */
-        .skip-link {
-            position: absolute;
-            top: -40px;
-            left: 0;
-            background: #eab308;
-            color: #0a0c10;
-            padding: 8px 16px;
-            z-index: 100;
-            transition: top 0.3s;
-            font-weight: 600;
-            font-size: 14px;
-            border-radius: 0 0 8px 0;
-        }
-        .skip-link:focus {
-            top: 0;
-        }
-
-        /* ─── Top Loader ───────────────────────────────────────────── */
-        .top-loader {
-            position: fixed;
-            top: 0;
-            left: 0;
-            height: 3px;
-            width: 0%;
-            background: linear-gradient(90deg, #eab308, #22c55e);
-            z-index: 99999;
-            opacity: 0;
-            transition: opacity 0.2s ease, width 0.3s ease;
-            pointer-events: none;
-        }
-        .top-loader.active {
-            opacity: 1;
-            width: 70%;
-            transition: opacity 0.2s ease, width 8s cubic-bezier(0.1, 0.6, 0.3, 1);
-        }
-        .top-loader.done {
-            opacity: 1;
-            width: 100%;
-            transition: width 0.2s ease;
-        }
-
-        /* ─── Report Header ────────────────────────────────────────── */
-        .report-header {
-            background: linear-gradient(135deg, #111827, #0a0c15);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 16px;
-            padding: 28px 36px;
-            margin-bottom: 28px;
-            position: relative;
-            overflow: hidden;
-        }
-        .report-header::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            right: -10%;
-            width: 40%;
-            height: 200%;
-            background: radial-gradient(ellipse, rgba(234, 179, 8, 0.03), transparent 70%);
-            pointer-events: none;
-        }
-        .report-header .top-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            flex-wrap: wrap;
-            gap: 16px;
-            position: relative;
-            z-index: 1;
-        }
-        .report-header .logo {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 28px;
-            font-weight: 700;
-            color: #f8fafc;
-        }
-        .report-header .logo span {
-            color: #eab308;
-        }
-        .report-header .badge {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: #eab308;
-            background: rgba(234, 179, 8, 0.12);
-            padding: 4px 14px;
-            border-radius: 20px;
-            border: 1px solid rgba(234, 179, 8, 0.15);
-            display: inline-block;
-            margin-top: 4px;
-        }
-        .report-header .meta {
-            text-align: right;
-            font-size: 12px;
-            color: #94a3b8;
-            font-family: 'JetBrains Mono', monospace;
-            line-height: 1.9;
-        }
-        .report-header .meta strong {
-            color: #eab308;
-        }
-        .report-header .subtitle {
-            color: #94a3b8;
-            font-size: 14px;
-            margin-top: 4px;
-        }
-
-        /* ─── Status Message ───────────────────────────────────────── */
-        .status-message {
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .status-message.error {
-            background: rgba(239, 68, 68, 0.12);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            color: #ef4444;
-        }
-        .status-message.warning {
-            background: rgba(234, 179, 8, 0.12);
-            border: 1px solid rgba(234, 179, 8, 0.2);
-            color: #eab308;
-        }
-        .status-message.success {
-            background: rgba(34, 197, 94, 0.12);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            color: #22c55e;
-        }
-        .status-message.info {
-            background: rgba(59, 130, 246, 0.12);
-            border: 1px solid rgba(59, 130, 246, 0.2);
-            color: #3b82f6;
-        }
-
-        /* ─── Tabs ────────────────────────────────────────────────── */
-        .tabs {
-            display: flex;
-            gap: 4px;
-            background: #1e293b;
-            border-radius: 12px;
-            padding: 4px;
-            margin-bottom: 28px;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            overflow-x: auto;
-            position: sticky;
-            top: 8px;
-            z-index: 50;
-            backdrop-filter: blur(8px);
-        }
-        .tab-btn {
-            padding: 10px 22px;
-            border: none;
-            border-radius: 8px;
-            background: transparent;
-            color: #94a3b8;
-            font-family: 'Inter', sans-serif;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            white-space: nowrap;
-        }
-        .tab-btn:hover {
-            color: #eab308;
-            background: rgba(234, 179, 8, 0.05);
-        }
-        .tab-btn.active {
-            background: #eab308;
-            color: #0a0c10;
-        }
-        .tab-btn .count {
-            display: inline-block;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 0 8px;
-            font-size: 10px;
-            margin-left: 4px;
-        }
-        .tab-btn.active .count {
-            background: rgba(0, 0, 0, 0.15);
-        }
-
-        .tab-content {
-            display: none;
-            animation: fadeIn 0.4s ease;
-        }
-        .tab-content.active {
-            display: block;
-        }
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(12px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* ─── Cards ────────────────────────────────────────────────── */
-        .card {
-            background: #111827;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 24px 28px;
-            margin-bottom: 20px;
-            transition: border-color 0.3s ease;
-        }
-        .card:hover {
-            border-color: rgba(234, 179, 8, 0.15);
-        }
-        .card-title {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 16px;
-            font-weight: 700;
-            color: #eab308;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 16px;
-            flex-wrap: wrap;
-        }
-        .card-title .badge {
-            font-size: 9px;
-            font-weight: 500;
-            color: #94a3b8;
-            background: #1e293b;
-            padding: 2px 12px;
-            border-radius: 20px;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        .card-subtitle {
-            color: #94a3b8;
-            font-size: 12px;
-            margin-bottom: 12px;
-        }
-
-        /* ─── Grids ────────────────────────────────────────────────── */
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-        }
-        .grid-3 {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 16px;
-        }
-        .grid-4 {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr 1fr;
-            gap: 16px;
-        }
-        .grid-5 {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
-            gap: 16px;
-        }
-        @media (max-width: 1024px) {
-            .grid-4,
-            .grid-5 {
-                grid-template-columns: 1fr 1fr 1fr;
-            }
-        }
-        @media (max-width: 768px) {
-            .grid-2,
-            .grid-3,
-            .grid-4,
-            .grid-5 {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* ─── Stats ────────────────────────────────────────────────── */
-        .stat-box {
-            background: #0f172a;
-            border-radius: 10px;
-            padding: 16px 20px;
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            text-align: center;
-            transition: all 0.3s ease;
-        }
-        .stat-box:hover {
-            border-color: rgba(234, 179, 8, 0.15);
-            transform: translateY(-2px);
-        }
-        .stat-box .label {
-            font-size: 10px;
-            color: #94a3b8;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        .stat-box .value {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 22px;
-            font-weight: 700;
-            margin-top: 4px;
-            color: #f8fafc;
-            word-break: break-word;
-        }
-        .stat-box .value.amber {
-            color: #eab308;
-        }
-        .stat-box .value.green {
-            color: #22c55e;
-        }
-        .stat-box .value.blue {
-            color: #3b82f6;
-        }
-        .stat-box .value.red {
-            color: #ef4444;
-        }
-        .stat-box .sub {
-            font-size: 11px;
-            color: #64748b;
-            margin-top: 2px;
-        }
-        .stat-box.highlight {
-            border-color: #eab308;
-            background: rgba(234, 179, 8, 0.05);
-        }
-
-        /* ─── Value Display ────────────────────────────────────────── */
-        .value-display {
-            text-align: center;
-            padding: 24px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-            margin-bottom: 20px;
-        }
-        .value-display .amount {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 48px;
-            font-weight: 800;
-            color: #22c55e;
-            letter-spacing: -0.5px;
-            word-break: break-word;
-        }
-        .value-display .amount .currency {
-            font-size: 28px;
-            color: #94a3b8;
-            font-weight: 600;
-        }
-        .value-display .range {
-            color: #94a3b8;
-            font-size: 15px;
-            margin-top: 6px;
-        }
-        .value-display .range strong {
-            color: #eab308;
-        }
-
-        /* ─── Confidence Bar ────────────────────────────────────────── */
-        .confidence-bar {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            background: #0f172a;
-            padding: 10px 16px;
-            border-radius: 8px;
-            margin: 12px 0;
-            flex-wrap: wrap;
-        }
-        .confidence-bar .track {
-            flex: 1;
-            height: 6px;
-            background: #1e293b;
-            border-radius: 20px;
-            overflow: hidden;
-            min-width: 60px;
-        }
-        .confidence-bar .fill {
-            height: 100%;
-            border-radius: 20px;
-            background: linear-gradient(90deg, #eab308, #22c55e);
-            transition: width 1.5s ease;
-        }
-        .confidence-bar .label {
-            font-size: 13px;
-            font-weight: 600;
-            min-width: 60px;
-            text-align: right;
-            color: #94a3b8;
-        }
-
-        /* ─── Tables ────────────────────────────────────────────────── */
-        .table-wrap {
-            overflow-x: auto;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 12px;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        th,
-        td {
-            text-align: right;
-            padding: 8px 12px;
-            white-space: nowrap;
-        }
-        th:first-child,
-        td:first-child {
-            text-align: left;
-        }
-        th {
-            color: #94a3b8;
-            font-weight: 600;
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        td {
-            border-bottom: 1px solid rgba(51, 65, 85, 0.4);
-        }
-        tr:last-child td {
-            border-bottom: none;
-        }
-        .table-highlight td {
-            color: #eab308;
-            font-weight: 700;
-        }
-
-        /* ─── Cost Breakdown ────────────────────────────────────────── */
-        .cost-breakdown {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-            gap: 6px;
-            margin-top: 8px;
-        }
-        .cost-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 6px 12px;
-            background: #0f172a;
-            border-radius: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
-            align-items: center;
-            gap: 8px;
-        }
-        .cost-item .label {
-            color: #94a3b8;
-            font-size: 10px;
-        }
-        .cost-item .value {
-            font-weight: 600;
-            color: #f8fafc;
-            font-size: 11px;
-            text-align: right;
-        }
-        .cost-item .value.green {
-            color: #22c55e;
-        }
-        .cost-item .value.red {
-            color: #ef4444;
-        }
-        .cost-item.total {
-            background: rgba(234, 179, 8, 0.08);
-            border-color: #eab308;
-        }
-        .cost-item.total .label {
-            color: #eab308;
-            font-weight: 700;
-        }
-        .cost-item.total .value {
-            color: #eab308;
-            font-weight: 700;
-        }
-
-        /* ─── Vehicle Profile ────────────────────────────────────────── */
-        .vehicle-profile {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-wrap: wrap;
-            padding: 12px 16px;
-            background: #0f172a;
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            margin-bottom: 12px;
-        }
-        .vehicle-profile .name {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 18px;
-            font-weight: 600;
-            color: #f8fafc;
-        }
-        .vehicle-profile .pill {
-            font-size: 10px;
-            font-weight: 600;
-            padding: 2px 12px;
-            border-radius: 20px;
-            background: #1e293b;
-            color: #94a3b8;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        .vehicle-profile .pill.fuel {
-            border-left: 3px solid #22c55e;
-        }
-        .vehicle-profile .pill.trans {
-            border-left: 3px solid #3b82f6;
-        }
-        .vehicle-profile .pill.engine {
-            border-left: 3px solid #eab308;
-        }
-        .vehicle-specs {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            gap: 4px;
-        }
-        .vehicle-specs .spec {
-            font-size: 10px;
-            color: #94a3b8;
-            padding: 4px 8px;
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-        .vehicle-specs .spec .val {
-            color: #eab308;
-            font-weight: 500;
-        }
-
-        /* ─── Recommendations ────────────────────────────────────────── */
-        .rec-list {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        .rec-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 14px;
-            background: #0f172a;
-            border-radius: 6px;
-            border-left: 3px solid #eab308;
-            font-size: 12px;
-            color: #94a3b8;
-        }
-        .rec-item .icon {
-            font-size: 16px;
-            flex-shrink: 0;
-        }
-        .rec-item .text {
-            color: #f8fafc;
-        }
-        .rec-item .tag {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            text-transform: uppercase;
-            padding: 2px 10px;
-            border-radius: 10px;
-            background: rgba(234, 179, 8, 0.12);
-            color: #eab308;
-            margin-left: auto;
-            flex-shrink: 0;
-        }
-        .rec-item.success {
-            border-left-color: #22c55e;
-        }
-        .rec-item.success .tag {
-            background: rgba(34, 197, 94, 0.12);
-            color: #22c55e;
-        }
-        .rec-item.warning {
-            border-left-color: #ef4444;
-        }
-        .rec-item.warning .tag {
-            background: rgba(239, 68, 68, 0.12);
-            color: #ef4444;
-        }
-        .rec-item.info {
-            border-left-color: #3b82f6;
-        }
-        .rec-item.info .tag {
-            background: rgba(59, 130, 246, 0.12);
-            color: #3b82f6;
-        }
-
-        /* ─── Action Buttons ────────────────────────────────────────── */
-        .action-bar {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-top: 16px;
-            padding-top: 16px;
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        .action-btn {
-            padding: 10px 24px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            background: transparent;
-            color: #94a3b8;
-            cursor: pointer;
-            font-family: 'Inter', sans-serif;
-            font-size: 13px;
-            font-weight: 500;
-            transition: all 0.2s;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .action-btn:hover:not(:disabled) {
-            border-color: #eab308;
-            color: #eab308;
-            background: rgba(234, 179, 8, 0.05);
-        }
-        .action-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .action-btn.print {
-            border-color: #3b82f6;
-            color: #3b82f6;
-        }
-        .action-btn.print:hover:not(:disabled) {
-            background: rgba(59, 130, 246, 0.08);
-        }
-        .action-btn.share {
-            border-color: #22c55e;
-            color: #22c55e;
-        }
-        .action-btn.share:hover:not(:disabled) {
-            background: rgba(34, 197, 94, 0.08);
-        }
-        .action-btn.export {
-            border-color: #eab308;
-            color: #eab308;
-        }
-        .action-btn.export:hover:not(:disabled) {
-            background: rgba(234, 179, 8, 0.08);
-        }
-        .action-btn.download {
-            border-color: #8b5cf6;
-            color: #8b5cf6;
-        }
-        .action-btn.download:hover:not(:disabled) {
-            background: rgba(139, 92, 246, 0.08);
-        }
-        .action-btn .spinner-small {
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-            border: 2px solid rgba(255, 255, 255, 0.1);
-            border-top-color: currentColor;
-            border-radius: 50%;
-            animation: spin 0.6s linear infinite;
-        }
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        /* ─── Footer ────────────────────────────────────────────────── */
-        .report-footer {
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
-            padding-top: 20px;
-            margin-top: 28px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 16px;
-            font-size: 11px;
-            color: #64748b;
-        }
-        .report-footer .brand {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 14px;
-            font-weight: 600;
-            color: #cbd5e1;
-        }
-        .report-footer .brand span {
-            color: #eab308;
-        }
-        .report-footer .meta {
-            text-align: right;
-            line-height: 1.8;
-        }
-        .report-footer .meta strong {
-            color: #94a3b8;
-        }
-
-        /* ─── Disclaimer ────────────────────────────────────────────── */
-        .disclaimer {
-            font-size: 10px;
-            color: #64748b;
-            padding: 12px 16px;
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            margin-top: 16px;
-            line-height: 1.6;
-        }
-        .disclaimer strong {
-            color: #eab308;
-        }
-
-        /* ─── Toast ────────────────────────────────────────────────── */
-        .toast {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            padding: 14px 24px;
-            border-radius: 10px;
-            z-index: 99999;
-            font-weight: 500;
-            animation: slideIn .3s ease;
-            max-width: 420px;
-            font-size: 13px;
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-        }
-        .toast-success {
-            background: #22c55e;
-            color: #000;
-        }
-        .toast-error {
-            background: #ef4444;
-            color: #fff;
-        }
-        .toast-info {
-            background: #3b82f6;
-            color: #fff;
-        }
-        .toast-warning {
-            background: #eab308;
-            color: #000;
-        }
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateX(80px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-
-        /* ─── Badge ────────────────────────────────────────────────── */
-        .auto-d-badge {
-            display: inline-block;
-            background: rgba(234, 179, 8, 0.15);
-            color: #eab308;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 8px;
-            padding: 2px 8px;
-            border-radius: 10px;
-            border: 1px solid rgba(234, 179, 8, 0.2);
-            margin-left: 6px;
-        }
-
-        /* ─── Confetti ────────────────────────────────────────────── */
-        .confetti-container {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 9998;
-            overflow: hidden;
-        }
-        .confetti-piece {
-            position: absolute;
-            width: 8px;
-            height: 8px;
-            border-radius: 2px;
-            animation: confettiFall linear forwards;
-        }
-        @keyframes confettiFall {
-            0% {
-                transform: translateY(-20px) rotate(0deg);
-                opacity: 1;
-            }
-            100% {
-                transform: translateY(100vh) rotate(720deg);
-                opacity: 0;
-            }
-        }
-
-        /* ─── Responsive ────────────────────────────────────────────── */
-        @media (max-width: 768px) {
-            .wrap {
-                padding: 16px 12px 40px;
-            }
-            .report-header {
-                padding: 20px 18px;
-            }
-            .report-header .top-row {
-                flex-direction: column;
-            }
-            .report-header .meta {
-                text-align: left;
-                width: 100%;
-            }
-            .report-header .logo {
-                font-size: 22px;
-            }
-            .tabs {
-                gap: 2px;
-                padding: 2px;
-                top: 0;
-            }
-            .tab-btn {
-                padding: 8px 14px;
-                font-size: 11px;
-            }
-            .card {
-                padding: 16px 18px;
-            }
-            .value-display .amount {
-                font-size: 32px;
-            }
-            .stat-box .value {
-                font-size: 18px;
-            }
-            .action-bar {
-                flex-direction: column;
-            }
-            .action-btn {
-                justify-content: center;
-            }
-            .report-footer {
-                flex-direction: column;
-                text-align: center;
-            }
-            .report-footer .meta {
-                text-align: center;
-            }
-            .cost-breakdown {
-                grid-template-columns: 1fr 1fr;
-            }
-        }
-        @media (max-width: 480px) {
-            .cost-breakdown {
-                grid-template-columns: 1fr;
-            }
-            .vehicle-profile .name {
-                font-size: 15px;
-            }
-            .vehicle-specs {
-                grid-template-columns: 1fr 1fr;
-            }
-            .value-display .amount {
-                font-size: 26px;
-            }
-            .value-display .amount .currency {
-                font-size: 18px;
-            }
-        }
-
-        /* ─── Print ────────────────────────────────────────────────── */
-        @media print {
-            .top-loader,
-            .action-bar,
-            .tabs {
-                display: none !important;
-            }
-            body {
-                background: #fff !important;
-                color: #000 !important;
-            }
-            .wrap {
-                padding: 20px !important;
-                max-width: 100% !important;
-            }
-            .report-header {
-                background: #f5f5f5 !important;
-                border-color: #ddd !important;
-            }
-            .report-header .logo {
-                color: #000 !important;
-            }
-            .report-header .logo span {
-                color: #b8860b !important;
-            }
-            .card {
-                background: #fff !important;
-                border-color: #ddd !important;
-                page-break-inside: avoid;
-            }
-            .card-title {
-                color: #b8860b !important;
-            }
-            .stat-box {
-                background: #f5f5f5 !important;
-                border-color: #ddd !important;
-            }
-            .stat-box .value {
-                color: #000 !important;
-            }
-            .stat-box .value.amber {
-                color: #b8860b !important;
-            }
-            .stat-box .value.green {
-                color: #22c55e !important;
-            }
-            .stat-box .value.blue {
-                color: #3b82f6 !important;
-            }
-            .stat-box .value.red {
-                color: #ef4444 !important;
-            }
-            .vehicle-profile {
-                background: #f5f5f5 !important;
-                border-color: #ddd !important;
-            }
-            .vehicle-profile .name {
-                color: #000 !important;
-            }
-            .cost-item {
-                background: #f5f5f5 !important;
-                border-color: #ddd !important;
-            }
-            .cost-item .value {
-                color: #000 !important;
-            }
-            .cost-item.total {
-                background: #f5f5f5 !important;
-                border-color: #b8860b !important;
-            }
-            .cost-item.total .label,
-            .cost-item.total .value {
-                color: #b8860b !important;
-            }
-            .value-display .amount {
-                color: #22c55e !important;
-            }
-            .value-display .amount .currency {
-                color: #666 !important;
-            }
-            .value-display .range strong {
-                color: #b8860b !important;
-            }
-            .confidence-bar {
-                background: #f5f5f5 !important;
-            }
-            .confidence-bar .track {
-                background: #ddd !important;
-            }
-            .rec-item {
-                background: #f5f5f5 !important;
-                border-color: #ddd !important;
-            }
-            .rec-item .text {
-                color: #000 !important;
-            }
-            .vehicle-specs .spec {
-                color: #666 !important;
-            }
-            .vehicle-specs .spec .val {
-                color: #b8860b !important;
-            }
-            .table-highlight td {
-                color: #b8860b !important;
-            }
-            .report-footer {
-                border-color: #ddd !important;
-            }
-            .report-footer .brand {
-                color: #000 !important;
-            }
-            .report-footer .brand span {
-                color: #b8860b !important;
-            }
-            .disclaimer {
-                border-color: #ddd !important;
-                background: #f5f5f5 !important;
-            }
-            .disclaimer strong {
-                color: #b8860b !important;
-            }
-            .tab-content {
-                display: block !important;
-            }
-            .tab-content:not(.active) {
-                display: none !important;
-            }
-            .tab-btn {
-                display: none !important;
-            }
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auto-D Kenya · TCO Calculator</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23eab308' rx='20'/%3E%3Ctext x='50' y='72' font-size='60' text-anchor='middle' fill='%23000'%3E🚗%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --amber: #eab308; --amber-dark: #ca8a04; --green: #22c55e; --blue: #3b82f6;
+      --red: #ef4444; --purple: #a855f7; --cyan: #06b6d4; --pink: #ec4899; --orange: #f97316;
+      --bg: #0a0c15; --bg-panel: #111827; --bg-card: #1a1a2e;
+      --text-primary: #f8fafc; --text-secondary: #cbd5e1; --text-muted: #64748b;
+      --border: rgba(255,255,255,0.06); --focus-ring: #7dd3fc;
+      --font-heading: 'Space Grotesk', sans-serif; --font-body: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --radius: 12px; --shadow: 0 8px 40px rgba(0,0,0,0.5); --transition: all 0.3s ease;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-body); background: var(--bg); color: var(--text-primary); min-height: 100vh; line-height: 1.6; }
+    .wrap { max-width: 1440px; margin: 0 auto; padding: 24px 32px 60px; }
+    .report-header { background: linear-gradient(135deg, var(--bg-panel), var(--bg)); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px 32px; margin-bottom: 28px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:16px; position:relative; overflow:hidden; }
+    .header-left .badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); background: rgba(234,179,8,0.12); padding: 4px 14px; border-radius: 20px; display: inline-block; margin-bottom: 8px; border: 1px solid rgba(234,179,8,0.15); }
+    .header-left h1 { font-family: var(--font-heading); font-size: 30px; font-weight: 700; }
+    .header-left h1 span { color: var(--amber); }
+    .header-left .subtitle { font-size: 14px; color: var(--text-secondary); margin-top: 4px; }
+    .header-right { text-align: right; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); line-height: 1.9; }
+    .header-right .version span { color: var(--amber); }
+    .auth-status { font-size: 10px; padding: 2px 12px; border-radius: 12px; display: inline-block; }
+    .auth-status.authenticated { background: rgba(34,197,94,0.15); color: #22c55e; }
+    .auth-status.unauthenticated { background: rgba(239,68,68,0.15); color: #ef4444; }
+    .dashboard-link { display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; background: rgba(234,179,8,0.12); border: 1px solid rgba(234,179,8,0.2); border-radius: 8px; color: var(--amber); font-size: 13px; font-weight: 600; text-decoration: none; margin-top: 8px; }
+    .main-grid { display: grid; grid-template-columns: 460px 1fr; gap: 28px; }
+    @media (max-width: 1024px) { .main-grid { grid-template-columns: 1fr; } }
+    .calculator-panel { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); height: fit-content; position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; }
+    .panel-label { font-family: var(--font-heading); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--amber); display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: 18px; }
+    .panel-label:first-of-type { margin-top: 0; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 9px; color: var(--text-secondary); margin-bottom: 3px; font-family: var(--font-mono); text-transform: uppercase; }
+    .form-group select, .form-group input[type="number"], .form-group input[type="text"], .form-group input[type="password"] { width: 100%; background: var(--bg); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; font-size: 12px; font-weight: 500; }
+    .form-group select:disabled, .form-group input:disabled { opacity: 0.5; cursor: not-allowed; }
+    .form-group select.invalid, .form-group input.invalid { border-color: var(--red); }
+    .form-group input[type="range"] { width: 100%; accent-color: var(--amber); }
+    .range-value { color: var(--amber); font-weight: 600; font-size: 12px; font-family: var(--font-mono); float: right; }
+    .helper-text { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+    .toggle-group { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+    .toggle-btn { flex: 1; min-width: 60px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); color: var(--text-muted); font-size: 10px; font-weight: 600; padding: 6px 8px; border-radius: 6px; cursor: pointer; text-align: center; }
+    .toggle-btn.active { background: rgba(234,179,8,0.12); border-color: rgba(234,179,8,0.4); color: var(--amber); }
+    .purchase-type-group { display: flex; gap: 6px; margin-top: 4px; }
+    .purchase-type-btn { flex: 1; padding: 8px 12px; border: 2px solid var(--border); border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer; text-align: center; }
+    .purchase-type-btn.active { border-color: var(--amber); background: rgba(234,179,8,0.08); color: var(--amber); }
+    .purchase-type-btn .sub { font-size: 9px; color: var(--text-muted); display: block; font-weight: 400; }
+    .fuel-type-group { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+    .fuel-type-btn { padding: 4px 12px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 10px; font-weight: 600; cursor: pointer; }
+    .fuel-type-btn.active { background: rgba(234,179,8,0.12); border-color: rgba(234,179,8,0.4); color: var(--amber); }
+    .fuel-type-btn .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .dot.petrol { background: var(--amber); } .dot.diesel { background: var(--green); } .dot.hybrid { background: var(--cyan); } .dot.lpg { background: var(--orange); } .dot.electric { background: var(--purple); }
+    .calc-btn { width: 100%; padding: 12px 16px; background: var(--amber); color: #0a0c10; border: none; border-radius: 6px; font-family: var(--font-heading); font-size: 13px; font-weight: 700; cursor: pointer; margin-top: 8px; }
+    .calc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .calc-btn .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(0,0,0,0.1); border-top: 2px solid #0a0c10; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status-message { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 12px; display: flex; align-items: center; gap: 10px; }
+    .status-message.error { background: rgba(239,68,68,0.12); color: #ef4444; }
+    .status-message.success { background: rgba(34,197,94,0.12); color: #22c55e; }
+    .status-message.info { background: rgba(59,130,246,0.12); color: #3b82f6; }
+    .status-message.warning { background: rgba(234,179,8,0.12); color: var(--amber); }
+    .progress-container { display: none; margin: 8px 0 12px; padding: 6px 12px 10px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid var(--border); }
+    .progress-container.show { display: block; }
+    .progress-bar-track { width: 100%; height: 4px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; background: var(--amber); border-radius: 4px; transition: width 0.5s ease; width: 0%; }
+    .progress-text { font-size: 10px; color: var(--text-muted); margin-top: 4px; display: flex; justify-content: space-between; }
+    .crsp-info { background: var(--bg); border: 1px solid rgba(6,182,212,0.2); border-radius: 8px; padding: 12px 16px; margin: 12px 0; display: none; }
+    .crsp-info.show { display: block; }
+    .crsp-info h4 { font-size: 10px; color: var(--cyan); font-family: var(--font-mono); margin-bottom: 6px; }
+    .crsp-info .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 11px; color: var(--text-secondary); border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .crsp-info .row .value { font-weight: 600; color: var(--cyan); font-family: var(--font-mono); font-size: 10px; }
+    .crsp-info .row .value.crsp-found { color: var(--green); }
+    .disclaimer { font-size: 10px; color: var(--text-muted); margin-top: 12px; padding: 8px 12px; border-top: 1px solid var(--border); line-height: 1.6; }
+    .disclaimer strong { color: var(--amber); }
+    .result-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 22px; margin-bottom: 16px; }
+    .result-card .card-title { font-family: var(--font-heading); font-size: 13px; font-weight: 600; color: var(--amber); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .result-card .card-title .badge { font-size: 8px; color: var(--text-muted); background: var(--bg); padding: 2px 10px; border-radius: 12px; font-family: var(--font-mono); }
+    .stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+    @media (max-width:700px) { .stats-grid { grid-template-columns:1fr 1fr; } }
+    .stat-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
+    .stat-card .label { font-family: var(--font-mono); font-size: 9px; color: var(--text-muted); text-transform: uppercase; }
+    .stat-card .num { font-family: var(--font-heading); font-size: 20px; font-weight: 700; margin-top: 2px; word-break: break-word; }
+    .stat-card .num.amber { color: var(--amber); } .stat-card .num.green { color: var(--green); } .stat-card .num.blue { color: var(--blue); }
+    .stat-card .num.purple { color: var(--purple); } .stat-card .num.red { color: var(--red); } .stat-card .num.cyan { color: var(--cyan); } .stat-card .num.orange { color: var(--orange); }
+    #vehicleLabel { font-family: var(--font-heading); font-size: 16px; font-weight: 600; }
+    .vehicle-specs { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: 11px; color: var(--text-muted); }
+    .vehicle-specs .pill { background: rgba(255,255,255,0.05); padding: 2px 10px; border-radius: 12px; border: 1px solid var(--border); }
+    .vehicle-specs .pill.highlight { border-color: var(--amber); color: var(--amber); }
+    #componentsList { font-size: 12px; color: var(--text-secondary); }
+    #componentsList .comp-item { padding: 4px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; }
+    #componentsList .comp-amount { color: var(--amber); font-weight: 600; }
+    #componentsList .comp-percent { color: var(--text-muted); font-size: 11px; }
+    #componentsList .comp-bar { width: 100%; height: 3px; background: var(--border); border-radius: 2px; margin-top: 2px; overflow: hidden; }
+    #componentsList .comp-bar .fill { height: 100%; border-radius: 2px; }
+    .projection-year { display: grid; grid-template-columns: 80px 1fr 100px; gap: 12px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .projection-year .year-label { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+    .projection-year .bar-container { position: relative; height: 20px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+    .projection-year .bar-container .bar { height: 100%; border-radius: 4px; min-width: 2px; position: absolute; bottom: 0; }
+    .bar-total { background: linear-gradient(90deg, var(--amber), var(--amber-dark)); }
+    .bar-running { background: linear-gradient(90deg, var(--blue), var(--cyan)); }
+    .bar-depreciation { background: linear-gradient(90deg, var(--red), var(--pink)); }
+    .bar-insurance { background: linear-gradient(90deg, var(--purple), #8b5cf6); }
+    .bar-loan { background: linear-gradient(90deg, var(--green), #4ade80); }
+    .projection-year .amount { font-family: var(--font-mono); font-size: 12px; font-weight: 600; text-align: right; }
+    .projection-legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0 8px; padding: 8px 12px; background: var(--bg); border-radius: 6px; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); }
+    .legend-item .dot { width: 10px; height: 10px; border-radius: 3px; }
+    .action-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .action-btn { padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+    .action-btn.primary { border-color: var(--amber); color: var(--amber); }
+    .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 8px; z-index: 9999; font-weight: 500; max-width: 420px; font-size: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); }
+    .toast-success { background: var(--green); color: #000; } .toast-error { background: var(--red); color: #fff; }
+    .toast-info { background: var(--blue); color: #fff; } .toast-warning { background: var(--amber); color: #000; }
+    .loading-overlay { display: none; position: fixed; inset: 0; background: rgba(10,12,21,0.92); z-index: 99999; justify-content: center; align-items: center; flex-direction: column; gap: 20px; }
+    .loading-overlay.active { display: flex; }
+    .loading-overlay .spinner-large { width: 48px; height: 48px; border: 4px solid rgba(234,179,8,0.2); border-top: 4px solid var(--amber); border-radius: 50%; animation: spin 1s linear infinite; }
+    .loading-overlay .loading-text { color: var(--amber); font-family: var(--font-heading); font-size: 16px; font-weight: 600; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+    .auto-d-badge { display: inline-block; background: rgba(234,179,8,0.15); color: var(--amber); font-family: var(--font-mono); font-size: 8px; padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(234,179,8,0.2); margin-left: 6px; }
+    @media (max-width:768px) { .wrap { padding: 16px 12px 40px; } .report-header { flex-direction: column; } .header-right { text-align: left; width:100%; } .stats-grid { grid-template-columns: 1fr 1fr; } .action-bar { flex-direction: column; } .action-btn { justify-content: center; } }
+    @media print { .calculator-panel, .dashboard-link, .loading-overlay, .action-bar { display: none !important; } }
+  </style>
 </head>
 <body>
-
-    <div class="top-loader" id="topLoader"></div>
-
-    <a class="skip-link" href="#main-content">Skip to main content</a>
-
-    <div class="wrap" id="main-content" role="main">
-
-        <!-- ═══ REPORT HEADER ═══ -->
-        <header class="report-header" role="banner">
-            <div class="top-row">
-                <div>
-                    <div class="logo">Auto-D <span>Kenya</span></div>
-                    <div class="badge">📋 Complete Vehicle Report</div>
-                    <div class="subtitle">Valuation · Running Cost · Ownership Cost</div>
-                </div>
-                <div class="meta">
-                    <div><strong>Report #</strong> <span id="reportNumber">AUTO-2026-001</span></div>
-                    <div><strong>Generated</strong> <span id="reportDate">—</span></div>
-                    <div><strong>Version</strong> 2026.08 <span class="auto-d-badge">Auto-D</span></div>
-                </div>
-            </div>
-        </header>
-
-        <!-- ═══ STATUS MESSAGE ═══ -->
-        <div id="statusMessage" class="status-message info">
-            <span>⏳</span>
-            <span id="statusMessageText">Loading vehicle report...</span>
-        </div>
-
-        <!-- ═══ TABS ═══ -->
-        <div class="tabs no-print" role="tablist">
-            <button class="tab-btn active" data-tab="tab1" role="tab" aria-selected="true">
-                📊 Valuation <span class="count">1</span>
-            </button>
-            <button class="tab-btn" data-tab="tab2" role="tab" aria-selected="false">
-                🚗 Running Cost <span class="count">2</span>
-            </button>
-            <button class="tab-btn" data-tab="tab3" role="tab" aria-selected="false">
-                💰 Ownership <span class="count">3</span>
-            </button>
-        </div>
-
-        <!-- ═══ TAB 1: VALUATION REPORT ═══ -->
-        <div class="tab-content active" id="tab1" role="tabpanel">
-
-            <!-- Vehicle Profile -->
-            <div class="card">
-                <div class="card-title">
-                    🚗 Vehicle Profile
-                    <span class="badge">Module 1</span>
-                </div>
-                <div class="vehicle-profile">
-                    <span class="name" id="vehicleName">Loading...</span>
-                    <span class="pill fuel" id="fuelType">⛽ —</span>
-                    <span class="pill trans" id="transmission">⚙️ —</span>
-                    <span class="pill engine" id="engineSize">🔧 —</span>
-                </div>
-                <div class="vehicle-specs" id="vehicleSpecs">
-                    <span class="spec">🔧 Trim <span class="val" id="trimLevel">—</span></span>
-                    <span class="spec">⚡ Power <span class="val" id="powerHp">—</span></span>
-                    <span class="spec">🔄 Torque <span class="val" id="torqueNm">—</span></span>
-                    <span class="spec">⛽ Fuel Consumption <span class="val" id="fuelConsumption">—</span></span>
-                    <span class="spec">💺 Seats <span class="val" id="seats">—</span></span>
-                    <span class="spec">🚪 Doors <span class="val" id="doors">—</span></span>
-                    <span class="spec">🚗 Body <span class="val" id="bodyType">—</span></span>
-                    <span class="spec">🏷️ Category <span class="val" id="category">—</span></span>
-                </div>
-            </div>
-
-            <!-- Valuation Summary -->
-            <div class="card">
-                <div class="card-title">
-                    💰 Valuation Summary
-                    <span class="badge">Market Value</span>
-                </div>
-                <div class="value-display">
-                    <div class="amount">
-                        <span class="currency">KES</span> <span id="marketValue">—</span>
-                    </div>
-                    <div class="range">
-                        Expected Range: <strong>KES <span id="rangeMin">—</span> — <span id="rangeMax">—</span></strong>
-                    </div>
-                </div>
-
-                <div class="grid-3">
-                    <div class="stat-box highlight">
-                        <div class="label">Market Value</div>
-                        <div class="value amber" id="statMarketValue">KES —</div>
-                        <div class="sub">Current market estimate</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Retail Value</div>
-                        <div class="value blue" id="statRetailValue">KES —</div>
-                        <div class="sub">Dealer retail price</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Trade-in Value</div>
-                        <div class="value" id="statTradeValue">KES —</div>
-                        <div class="sub">Trade-in / wholesale</div>
-                    </div>
-                </div>
-
-                <div class="confidence-bar">
-                    <span style="font-size:14px;">📊</span>
-                    <span style="font-weight:600;color:#94a3b8;font-size:13px;">Confidence</span>
-                    <div class="track">
-                        <div class="fill" id="confidenceFill" style="width:0%;"></div>
-                    </div>
-                    <span class="label" id="confidenceLabel">0%</span>
-                </div>
-            </div>
-
-            <!-- Valuation Details -->
-            <div class="card">
-                <div class="card-title">
-                    📋 Valuation Details
-                    <span class="badge">Factors</span>
-                </div>
-                <div class="grid-3">
-                    <div class="stat-box">
-                        <div class="label">Year</div>
-                        <div class="value" id="detailYear">—</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Mileage</div>
-                        <div class="value" id="detailMileage">—</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Condition</div>
-                        <div class="value green" id="detailCondition">—</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Location</div>
-                        <div class="value" id="detailLocation">—</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Accident History</div>
-                        <div class="value green" id="detailAccident">—</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Previous Owners</div>
-                        <div class="value" id="detailOwners">—</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Value Adjustments -->
-            <div class="card">
-                <div class="card-title">
-                    📊 Value Adjustments
-                    <span class="badge">Factors Applied</span>
-                </div>
-                <div id="adjustmentsList">
-                    <div class="grid-2" id="adjustmentsGrid">
-                        <div class="cost-item">
-                            <span class="label">📅 Age Adjustment</span>
-                            <span class="value" id="adjAge">—</span>
-                        </div>
-                        <div class="cost-item">
-                            <span class="label">📊 Mileage Adjustment</span>
-                            <span class="value" id="adjMileage">—</span>
-                        </div>
-                        <div class="cost-item">
-                            <span class="label">📍 Location Adjustment</span>
-                            <span class="value" id="adjLocation">—</span>
-                        </div>
-                        <div class="cost-item">
-                            <span class="label">⭐ Condition Adjustment</span>
-                            <span class="value" id="adjCondition">—</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Recommendations -->
-            <div class="card">
-                <div class="card-title">
-                    💡 Smart Recommendations
-                    <span class="badge">AI</span>
-                </div>
-                <div class="rec-list" id="valuationRecs">
-                    <div class="rec-item info">
-                        <span class="icon">💡</span>
-                        <span class="text">Loading recommendations...</span>
-                        <span class="tag">AI</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ═══ TAB 2: MILEAGE & RUNNING COST ═══ -->
-        <div class="tab-content" id="tab2" role="tabpanel">
-
-            <!-- Trip Summary -->
-            <div class="card">
-                <div class="card-title">
-                    🚗 Trip Summary
-                    <span class="badge">Mileage Rate</span>
-                </div>
-                <div class="value-display">
-                    <div class="amount" style="font-size:36px;">
-                        <span class="currency">KES</span> <span id="tripTotal">—</span>
-                    </div>
-                    <div class="range">
-                        at <strong>KES <span id="tripCostPerKm">—</span>/km</strong> over <strong id="tripDistance">—</strong> km
-                    </div>
-                </div>
-
-                <div class="cost-breakdown" id="tripBreakdown">
-                    <div class="cost-item">
-                        <span class="label">Fuel</span>
-                        <span class="value">KES <span id="tripFuel">—</span></span>
-                    </div>
-                    <div class="cost-item">
-                        <span class="label">Service</span>
-                        <span class="value">KES <span id="tripService">—</span></span>
-                    </div>
-                    <div class="cost-item">
-                        <span class="label">Tyres</span>
-                        <span class="value">KES <span id="tripTyres">—</span></span>
-                    </div>
-                    <div class="cost-item">
-                        <span class="label">Insurance</span>
-                        <span class="value">KES <span id="tripInsurance">—</span></span>
-                    </div>
-                    <div class="cost-item">
-                        <span class="label">Depreciation</span>
-                        <span class="value">KES <span id="tripDepreciation">—</span></span>
-                    </div>
-                    <div class="cost-item total">
-                        <span class="label">TOTAL</span>
-                        <span class="value">KES <span id="tripTotalDisplay">—</span></span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Per KM Breakdown -->
-            <div class="card">
-                <div class="card-title">
-                    📊 Cost per km Breakdown
-                    <span class="badge">Running Cost</span>
-                </div>
-                <div class="grid-4" id="perKmGrid">
-                    <div class="stat-box">
-                        <div class="label">Fuel</div>
-                        <div class="value blue" id="perKmFuel">—</div>
-                        <div class="sub">KES/km</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Service</div>
-                        <div class="value" id="perKmService">—</div>
-                        <div class="sub">KES/km</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Tyres</div>
-                        <div class="value" id="perKmTyres">—</div>
-                        <div class="sub">KES/km</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Insurance</div>
-                        <div class="value" id="perKmInsurance">—</div>
-                        <div class="sub">KES/km</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Depreciation</div>
-                        <div class="value" id="perKmDepreciation">—</div>
-                        <div class="sub">KES/km</div>
-                    </div>
-                    <div class="stat-box highlight" style="grid-column: span 1;">
-                        <div class="label">TOTAL</div>
-                        <div class="value amber" id="perKmTotal">—</div>
-                        <div class="sub">KES/km</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Monthly & Annual -->
-            <div class="card">
-                <div class="card-title">
-                    📅 Monthly & Annual Costs
-                    <span class="badge">Budgeting</span>
-                </div>
-                <div class="grid-2">
-                    <div>
-                        <h4 style="color:#94a3b8;font-size:11px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📆 Monthly</h4>
-                        <div class="cost-breakdown" id="monthlyGrid">
-                            <div class="cost-item">
-                                <span class="label">Fuel</span>
-                                <span class="value">KES <span id="monthlyFuel">—</span></span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Service</span>
-                                <span class="value">KES <span id="monthlyService">—</span></span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Tyres</span>
-                                <span class="value">KES <span id="monthlyTyres">—</span></span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Insurance</span>
-                                <span class="value">KES <span id="monthlyInsurance">—</span></span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Depreciation</span>
-                                <span class="value">KES <span id="monthlyDepreciation">—</span></span>
-                            </div>
-                            <div class="cost-item total">
-                                <span class="label">TOTAL</span>
-                                <span class="value">KES <span id="monthlyTotal">—</span></span>
-                            </div>
-                        </div>
-                    </div>
-                    <div>
-                        <h4 style="color:#94a3b8;font-size:11px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📅 Annual</h4>
-                        <div class="cost-breakdown" id="annualGrid">
-                            <div class="cost-item">
-                                <span class="label">Fuel</span>
-                                <span class="value">KES <span id="annualFuel">—</span></span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Service</span>
-                                <span class="value">KES <span id="annualService">—</span></span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Tyres</span>
-                                <span class="value">KES <span id="annualTyres">—</span></span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Insurance</span>
-                                <span class="value">KES <span id="annualInsurance">—</span></span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Depreciation</span>
-                                <span class="value">KES <span id="annualDepreciation">—</span></span>
-                            </div>
-                            <div class="cost-item total">
-                                <span class="label">TOTAL</span>
-                                <span class="value">KES <span id="annualTotal">—</span></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 5-Year Projection -->
-            <div class="card">
-                <div class="card-title">
-                    📈 5-Year Running Cost Projection
-                    <span class="badge">Long-term Planning</span>
-                </div>
-                <div class="grid-4" id="fiveYearStats">
-                    <div class="stat-box">
-                        <div class="label">Original Price</div>
-                        <div class="value amber" id="originalPrice">KES —</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Est. Resale Value</div>
-                        <div class="value green" id="resaleValue">KES —</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">5-Yr Depreciation</div>
-                        <div class="value red" id="depreciationPct">—</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">5-Yr Running Cost</div>
-                        <div class="value amber" id="fiveYearTotal">KES —</div>
-                    </div>
-                </div>
-
-                <div class="table-wrap" style="margin-top:12px;">
-                    <table id="yearlyTable">
-                        <thead>
-                            <tr>
-                                <th>Year</th>
-                                <th>Fuel</th>
-                                <th>Service</th>
-                                <th>Tyres</th>
-                                <th>Insurance</th>
-                                <th>Depreciation</th>
-                                <th>Total</th>
-                                <th>Value</th>
-                            </tr>
-                        </thead>
-                        <tbody id="yearlyBody">
-                            <tr>
-                                <td colspan="8" style="text-align:center;color:#64748b;font-size:13px;padding:24px;">
-                                    ⏳ Loading projection data...
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- ═══ TAB 3: COST OF OWNERSHIP ═══ -->
-        <div class="tab-content" id="tab3" role="tabpanel">
-
-            <!-- Ownership Summary -->
-            <div class="card">
-                <div class="card-title">
-                    💰 Total Cost of Ownership
-                    <span class="badge">5-Year</span>
-                </div>
-                <div class="value-display">
-                    <div class="amount" style="font-size:42px;">
-                        <span class="currency">KES</span> <span id="totalOwnershipCost">—</span>
-                    </div>
-                    <div class="range">
-                        Total cost including purchase price over <strong id="ownershipYears">5</strong> years
-                    </div>
-                </div>
-
-                <div class="grid-4" id="ownershipBreakdown">
-                    <div class="stat-box highlight">
-                        <div class="label">Purchase Price</div>
-                        <div class="value amber" id="ownerPurchasePrice">KES —</div>
-                        <div class="sub">Initial cost</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Running Cost</div>
-                        <div class="value blue" id="ownerRunningCost">KES —</div>
-                        <div class="sub">Fuel + Service + Tyres + Insurance</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Depreciation</div>
-                        <div class="value red" id="ownerDepreciation">KES —</div>
-                        <div class="sub">Value loss over 5 years</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Total Cost</div>
-                        <div class="value green" id="ownerTotal">KES —</div>
-                        <div class="sub">Total including depreciation</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Cost Breakdown by Category -->
-            <div class="card">
-                <div class="card-title">
-                    📊 Cost Breakdown by Category
-                    <span class="badge">5-Year</span>
-                </div>
-                <div class="grid-3" id="costCategoryBreakdown">
-                    <div class="stat-box">
-                        <div class="label">Purchase</div>
-                        <div class="value amber" id="catPurchase">KES —</div>
-                        <div class="sub">—</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Running Costs</div>
-                        <div class="value blue" id="catRunning">KES —</div>
-                        <div class="sub">—</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Depreciation</div>
-                        <div class="value red" id="catDepreciation">KES —</div>
-                        <div class="sub">—</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Detailed Cost Breakdown -->
-            <div class="card">
-                <div class="card-title">
-                    📋 Detailed Cost Breakdown
-                    <span class="badge">5-Year</span>
-                </div>
-                <div class="grid-2">
-                    <div>
-                        <h4 style="color:#94a3b8;font-size:11px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">🚗 Purchase & Depreciation</h4>
-                        <div class="cost-breakdown" id="purchaseBreakdown">
-                            <div class="cost-item">
-                                <span class="label">Purchase Price</span>
-                                <span class="value" id="purchasePriceDetail">KES —</span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Registration / Taxes</span>
-                                <span class="value" id="registrationTax">KES —</span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Insurance (1st year)</span>
-                                <span class="value" id="firstYearInsurance">KES —</span>
-                            </div>
-                            <div class="cost-item total">
-                                <span class="label">Total Purchase Cost</span>
-                                <span class="value" id="totalPurchaseCost">KES —</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div>
-                        <h4 style="color:#94a3b8;font-size:11px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">📆 Running Costs (5-Year)</h4>
-                        <div class="cost-breakdown" id="runningBreakdown">
-                            <div class="cost-item">
-                                <span class="label">Fuel</span>
-                                <span class="value" id="runningFuel">KES —</span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Service</span>
-                                <span class="value" id="runningService">KES —</span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Tyres</span>
-                                <span class="value" id="runningTyres">KES —</span>
-                            </div>
-                            <div class="cost-item">
-                                <span class="label">Insurance</span>
-                                <span class="value" id="runningInsurance">KES —</span>
-                            </div>
-                            <div class="cost-item total">
-                                <span class="label">Total Running Cost</span>
-                                <span class="value" id="totalRunningCost">KES —</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Monthly Ownership Cost -->
-            <div class="card">
-                <div class="card-title">
-                    📆 Monthly Ownership Cost
-                    <span class="badge">Budget Planning</span>
-                </div>
-                <div class="grid-4" id="monthlyOwnershipGrid">
-                    <div class="stat-box">
-                        <div class="label">Loan Payment</div>
-                        <div class="value" id="monthlyLoan">KES —</div>
-                        <div class="sub">5-year loan @ 14%</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Insurance</div>
-                        <div class="value" id="monthlyOwnInsurance">KES —</div>
-                        <div class="sub">Monthly premium</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="label">Fuel</div>
-                        <div class="value" id="monthlyOwnFuel">KES —</div>
-                        <div class="sub">Monthly fuel cost</div>
-                    </div>
-                    <div class="stat-box highlight">
-                        <div class="label">Total Monthly</div>
-                        <div class="value amber" id="monthlyOwnTotal">KES —</div>
-                        <div class="sub">Total monthly cost</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Recommendations -->
-            <div class="card">
-                <div class="card-title">
-                    💡 Cost-Saving Recommendations
-                    <span class="badge">AI</span>
-                </div>
-                <div class="rec-list" id="ownershipRecs">
-                    <div class="rec-item info">
-                        <span class="icon">💡</span>
-                        <span class="text">Loading recommendations...</span>
-                        <span class="tag">AI</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ═══ ACTION BAR ═══ -->
-        <div class="card no-print" style="border-color:rgba(255,255,255,0.04);">
-            <div class="action-bar">
-                <button class="action-btn print" id="printBtn" aria-label="Print report">
-                    <i class="fas fa-print"></i> Print Report
-                </button>
-                <button class="action-btn share" id="shareBtn" aria-label="Share report">
-                    <i class="fas fa-share-alt"></i> Share
-                </button>
-                <button class="action-btn export" id="exportBtn" aria-label="Export as PDF">
-                    <i class="fas fa-file-pdf"></i> Export PDF
-                </button>
-                <button class="action-btn download" id="downloadBtn" aria-label="Download data">
-                    <i class="fas fa-download"></i> Download Data
-                </button>
-                <button class="action-btn" id="refreshBtn" aria-label="Refresh report">
-                    <i class="fas fa-sync-alt"></i> Refresh
-                </button>
-            </div>
-        </div>
-
-        <!-- ═══ DISCLAIMER ═══ -->
-        <div class="disclaimer">
-            ⚠️ <strong>Disclaimer:</strong> All figures are estimates based on Auto-D recommended Kenyan market rates as of 2026.
-            Actual costs vary by make, model, dealer, insurer, and driving conditions.
-            Use this as a planning guide only — <strong>not financial advice</strong>.
-        </div>
-
-        <!-- ═══ FOOTER ═══ -->
-        <footer class="report-footer" role="contentinfo">
-            <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
-            <div class="meta">
-                <strong>Engine:</strong> Valuation · Mileage Rate · Cost of Ownership<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.0
-            </div>
-        </footer>
-
+<div class="loading-overlay" id="loadingOverlay" role="status" aria-busy="true" aria-live="polite">
+  <div class="spinner-large" aria-hidden="true"></div>
+  <div class="loading-text" id="loadingOverlayText">Loading TCO Data…</div>
+</div>
+<div class="wrap" id="main-content">
+  <header class="report-header">
+    <div class="header-left">
+      <div class="badge">🚗 Auto-D <span style="color:var(--amber);font-weight:700;">TCO</span></div>
+      <h1>Auto-D <span>Kenya</span><br />Total Cost of Ownership</h1>
+      <p class="subtitle">Complete 5‑year cost projection · CRSP‑backed</p>
+      <a href="/dashboard.html" class="dashboard-link"><span aria-hidden="true">←</span> Back to Dashboard</a>
     </div>
-
-    <script>
-        // ═══════════════════════════════════════════════════════════════
-        // AUTO-D KENYA - COMPLETE VEHICLE REPORT
-        // Version 5.0 - Production Grade
-        // ═══════════════════════════════════════════════════════════════
-
-        (function() {
-            'use strict';
-
-            // ─── CONFIG ──────────────────────────────────────────────
-            const CONFIG = {
-                API_BASE: 'https://auto-digital.onrender.com/api/v1',
-                SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
-                SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-                DASHBOARD_URL: '/dashboard.html',
-                CACHE_TTL: 300000, // 5 minutes
-                REQUEST_TIMEOUT: 30000 // 30 seconds
-            };
-
-            // ─── STATE ──────────────────────────────────────────────
-            let state = {
-                reportData: null,
-                variantData: null,
-                valuationData: null,
-                runningCostData: null,
-                ownershipData: null,
-                isLoading: false,
-                isAuthenticated: false,
-                currentUser: null,
-                error: null
-            };
-
-            // ─── DOM REFS ────────────────────────────────────────────
-            const el = {
-                // Header
-                reportNumber: document.getElementById('reportNumber'),
-                reportDate: document.getElementById('reportDate'),
-                statusMessage: document.getElementById('statusMessage'),
-                statusMessageText: document.getElementById('statusMessageText'),
-
-                // Vehicle Profile
-                vehicleName: document.getElementById('vehicleName'),
-                fuelType: document.getElementById('fuelType'),
-                transmission: document.getElementById('transmission'),
-                engineSize: document.getElementById('engineSize'),
-                trimLevel: document.getElementById('trimLevel'),
-                powerHp: document.getElementById('powerHp'),
-                torqueNm: document.getElementById('torqueNm'),
-                fuelConsumption: document.getElementById('fuelConsumption'),
-                seats: document.getElementById('seats'),
-                doors: document.getElementById('doors'),
-                bodyType: document.getElementById('bodyType'),
-                category: document.getElementById('category'),
-                vehicleSpecs: document.getElementById('vehicleSpecs'),
-
-                // Valuation
-                marketValue: document.getElementById('marketValue'),
-                rangeMin: document.getElementById('rangeMin'),
-                rangeMax: document.getElementById('rangeMax'),
-                statMarketValue: document.getElementById('statMarketValue'),
-                statRetailValue: document.getElementById('statRetailValue'),
-                statTradeValue: document.getElementById('statTradeValue'),
-                confidenceFill: document.getElementById('confidenceFill'),
-                confidenceLabel: document.getElementById('confidenceLabel'),
-                detailYear: document.getElementById('detailYear'),
-                detailMileage: document.getElementById('detailMileage'),
-                detailCondition: document.getElementById('detailCondition'),
-                detailLocation: document.getElementById('detailLocation'),
-                detailAccident: document.getElementById('detailAccident'),
-                detailOwners: document.getElementById('detailOwners'),
-                adjustmentsGrid: document.getElementById('adjustmentsGrid'),
-                valuationRecs: document.getElementById('valuationRecs'),
-
-                // Running Cost
-                tripTotal: document.getElementById('tripTotal'),
-                tripCostPerKm: document.getElementById('tripCostPerKm'),
-                tripDistance: document.getElementById('tripDistance'),
-                tripFuel: document.getElementById('tripFuel'),
-                tripService: document.getElementById('tripService'),
-                tripTyres: document.getElementById('tripTyres'),
-                tripInsurance: document.getElementById('tripInsurance'),
-                tripDepreciation: document.getElementById('tripDepreciation'),
-                tripTotalDisplay: document.getElementById('tripTotalDisplay'),
-                perKmFuel: document.getElementById('perKmFuel'),
-                perKmService: document.getElementById('perKmService'),
-                perKmTyres: document.getElementById('perKmTyres'),
-                perKmInsurance: document.getElementById('perKmInsurance'),
-                perKmDepreciation: document.getElementById('perKmDepreciation'),
-                perKmTotal: document.getElementById('perKmTotal'),
-                monthlyFuel: document.getElementById('monthlyFuel'),
-                monthlyService: document.getElementById('monthlyService'),
-                monthlyTyres: document.getElementById('monthlyTyres'),
-                monthlyInsurance: document.getElementById('monthlyInsurance'),
-                monthlyDepreciation: document.getElementById('monthlyDepreciation'),
-                monthlyTotal: document.getElementById('monthlyTotal'),
-                annualFuel: document.getElementById('annualFuel'),
-                annualService: document.getElementById('annualService'),
-                annualTyres: document.getElementById('annualTyres'),
-                annualInsurance: document.getElementById('annualInsurance'),
-                annualDepreciation: document.getElementById('annualDepreciation'),
-                annualTotal: document.getElementById('annualTotal'),
-                originalPrice: document.getElementById('originalPrice'),
-                resaleValue: document.getElementById('resaleValue'),
-                depreciationPct: document.getElementById('depreciationPct'),
-                fiveYearTotal: document.getElementById('fiveYearTotal'),
-                yearlyBody: document.getElementById('yearlyBody'),
-
-                // Ownership
-                totalOwnershipCost: document.getElementById('totalOwnershipCost'),
-                ownershipYears: document.getElementById('ownershipYears'),
-                ownerPurchasePrice: document.getElementById('ownerPurchasePrice'),
-                ownerRunningCost: document.getElementById('ownerRunningCost'),
-                ownerDepreciation: document.getElementById('ownerDepreciation'),
-                ownerTotal: document.getElementById('ownerTotal'),
-                catPurchase: document.getElementById('catPurchase'),
-                catRunning: document.getElementById('catRunning'),
-                catDepreciation: document.getElementById('catDepreciation'),
-                purchasePriceDetail: document.getElementById('purchasePriceDetail'),
-                registrationTax: document.getElementById('registrationTax'),
-                firstYearInsurance: document.getElementById('firstYearInsurance'),
-                totalPurchaseCost: document.getElementById('totalPurchaseCost'),
-                runningFuel: document.getElementById('runningFuel'),
-                runningService: document.getElementById('runningService'),
-                runningTyres: document.getElementById('runningTyres'),
-                runningInsurance: document.getElementById('runningInsurance'),
-                totalRunningCost: document.getElementById('totalRunningCost'),
-                monthlyLoan: document.getElementById('monthlyLoan'),
-                monthlyOwnInsurance: document.getElementById('monthlyOwnInsurance'),
-                monthlyOwnFuel: document.getElementById('monthlyOwnFuel'),
-                monthlyOwnTotal: document.getElementById('monthlyOwnTotal'),
-                ownershipRecs: document.getElementById('ownershipRecs'),
-
-                // Actions
-                printBtn: document.getElementById('printBtn'),
-                shareBtn: document.getElementById('shareBtn'),
-                exportBtn: document.getElementById('exportBtn'),
-                downloadBtn: document.getElementById('downloadBtn'),
-                refreshBtn: document.getElementById('refreshBtn'),
-                topLoader: document.getElementById('topLoader'),
-
-                // Tabs
-                tabBtns: document.querySelectorAll('.tab-btn'),
-                tabContents: {
-                    tab1: document.getElementById('tab1'),
-                    tab2: document.getElementById('tab2'),
-                    tab3: document.getElementById('tab3')
-                }
-            };
-
-            // ─── HELPERS ──────────────────────────────────────────────
-
-            function num(v) {
-                const n = parseFloat(v);
-                return isNaN(n) ? 0 : n;
-            }
-
-            function formatCurrency(val) {
-                if (val === undefined || val === null || isNaN(val)) return '0';
-                return Number(val).toLocaleString('en-KE', {
-                    minimumFractionDigits: 0,
-                    maximumFractionDigits: 0
-                });
-            }
-
-            function formatNumber(val) {
-                if (val === undefined || val === null || isNaN(val)) return '0';
-                return Number(val).toLocaleString('en-KE');
-            }
-
-            function formatPercent(val) {
-                if (val === undefined || val === null || isNaN(val)) return '0%';
-                return Number(val).toFixed(1) + '%';
-            }
-
-            function getUrlParams() {
-                const params = new URLSearchParams(window.location.search);
-                return {
-                    variantId: params.get('variant_id'),
-                    vehicleCrspId: params.get('vehicle_crsp_id') || params.get('crsp_id'),
-                    crspId: params.get('crsp_id'),
-                    purchasePrice: params.get('purchase_price'),
-                    purchaseType: params.get('purchase_type'),
-                    downPayment: params.get('down_payment'),
-                    loanTermYears: params.get('loan_term_years'),
-                    interestRate: params.get('interest_rate'),
-                    yearsOwned: params.get('years') || params.get('years_owned'),
-                    insuranceRate: params.get('insurance_rate'),
-                    maintenanceCostPerKm: params.get('maintenance_cost_per_km'),
-                    tyreCostPerKm: params.get('tyre_cost_per_km'),
-                    includeDepreciation: params.get('include_depreciation'),
-                    includeInsurance: params.get('include_insurance'),
-                    includeMaintenance: params.get('include_maintenance'),
-                    includeTyres: params.get('include_tyres'),
-                    usageType: params.get('usage_type'),
-                    vehicleType: params.get('vehicle_type'),
-                    fuelType: params.get('fuel_type'),
-                    reportId: params.get('report_id'),
-                    year: params.get('year'),
-                    mileage: params.get('mileage'),
-                    condition: params.get('condition'),
-                    location: params.get('location'),
-                    distance: params.get('distance'),
-                    annualMileage: params.get('annual_mileage'),
-                    fuelPrice: params.get('fuel_price'),
-                    make: params.get('make'),
-                    model: params.get('model'),
-                    variant: params.get('variant')
-                };
-            }
-
-            function getAccessToken() {
-                return localStorage.getItem('access_token');
-            }
-
-            function setStatus(type, message) {
-                const icons = { error: '❌', warning: '⚠️', success: '✅', info: '⏳' };
-                el.statusMessage.className = `status-message ${type}`;
-                el.statusMessageText.textContent = message;
-                const iconSpan = el.statusMessage.querySelector('span:first-child');
-                if (iconSpan) iconSpan.textContent = icons[type] || 'ℹ️';
-            }
-
-            function showToast(message, type = 'info') {
-                const existing = document.querySelector('.toast');
-                if (existing) existing.remove();
-
-                const toast = document.createElement('div');
-                toast.className = `toast toast-${type}`;
-                toast.textContent = message;
-                toast.setAttribute('role', 'alert');
-                toast.setAttribute('aria-live', 'polite');
-                document.body.appendChild(toast);
-
-                setTimeout(() => {
-                    toast.style.opacity = '0';
-                    toast.style.transform = 'translateX(80px)';
-                    setTimeout(() => toast.remove(), 300);
-                }, 4000);
-            }
-
-            function showLoading(show) {
-                if (!el.topLoader) return;
-                if (show) {
-                    el.topLoader.classList.remove('done');
-                    void el.topLoader.offsetWidth;
-                    el.topLoader.classList.add('active');
-                    setStatus('info', 'Loading report data...');
-                } else {
-                    el.topLoader.classList.remove('active');
-                    el.topLoader.classList.add('done');
-                    setTimeout(() => {
-                        el.topLoader.classList.remove('done');
-                    }, 500);
-                }
-                state.isLoading = show;
-            }
-
-            function escapeHTML(str) {
-                if (!str) return '';
-                const div = document.createElement('div');
-                div.textContent = str;
-                return div.innerHTML;
-            }
-
-            // ─── API REQUEST ──────────────────────────────────────────
-
-            async function apiRequest(endpoint, options = {}) {
-                const url = `${CONFIG.API_BASE}${endpoint}`;
-                const token = getAccessToken();
-
-                const headers = {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    ...options.headers
-                };
-
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
-
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT);
-
-                try {
-                    const response = await fetch(url, {
-                        ...options,
-                        headers,
-                        credentials: 'include',
-                        signal: controller.signal
-                    });
-
-                    clearTimeout(timeoutId);
-
-                    if (!response.ok) {
-                        let errorData;
-                        try {
-                            errorData = await response.json();
-                        } catch (e) {
-                            errorData = { message: `HTTP ${response.status}` };
-                        }
-                        throw new Error(errorData.detail || errorData.message || `HTTP ${response.status}`);
-                    }
-
-                    return await response.json();
-
-                } catch (error) {
-                    clearTimeout(timeoutId);
-                    if (error.name === 'AbortError') {
-                        throw new Error('Request timed out. Please try again.');
-                    }
-                    throw error;
-                }
-            }
-
-            // ─── FETCH VEHICLE DATA ──────────────────────────────────
-
-            async function fetchVariantData(variantId) {
-                try {
-                    const result = await apiRequest(`/variant/${variantId}`);
-                    if (result && result.data) {
-                        return result.data;
-                    }
-                    return result;
-                } catch (error) {
-                    console.error('Error fetching variant:', error);
-                    return null;
-                }
-            }
-
-            // ─── FETCH VALUATION ──────────────────────────────────────
-
-            async function fetchValuation(variantId, year, mileage, condition, location) {
-                try {
-                    const payload = {
-                        variant_id: parseInt(variantId),
-                        year: parseInt(year) || 2020,
-                        mileage: parseInt(mileage) || 50000,
-                        condition: condition || 'good',
-                        accident_history: 'none',
-                        location: location || 'nairobi'
-                    };
-
-                    const result = await apiRequest('/valuation/calculate', {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
-
-                    return result;
-
-                } catch (error) {
-                    console.error('Valuation error:', error);
-                    throw error;
-                }
-            }
-
-            // ─── FETCH RUNNING COST ──────────────────────────────────
-
-            async function fetchRunningCost(variantId, distance, annualMileage, fuelPrice, year) {
-                try {
-                    const payload = {
-                        variant_id: parseInt(variantId),
-                        distance: parseFloat(distance) || 150,
-                        annual_mileage: parseFloat(annualMileage) || 20000,
-                        fuel_price: parseFloat(fuelPrice) || 200,
-                        trip_type: 'mixed',
-                        driving_style: 'normal',
-                        usage_type: 'private',
-                        location: 'nairobi',
-                        condition: 'good',
-                        year: parseInt(year) || 2020,
-                        financed: false,
-                        include_insurance: true,
-                        include_maintenance: true,
-                        include_tyres: true,
-                        include_depreciation: true,
-                        years: 5
-                    };
-
-                    const result = await apiRequest('/running-cost/calculate', {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
-
-                    return result;
-
-                } catch (error) {
-                    console.error('Running cost error:', error);
-                    throw error;
-                }
-            }
-
-            // ─── FETCH OWNERSHIP COST ────────────────────────────────
-            async function fetchOwnershipCost(vehicleCrspId, purchasePrice, params = {}) {
-                // IMPORTANT: Ownership backend uses vehicle_crsp_id as the
-                // authoritative vehicle key. Do not send variant_id here.
-                const yearsOwned = Math.min(15, Math.max(1, parseInt(params.yearsOwned, 10) || 5));
-                const loanTermYears = Math.min(7, Math.max(1, parseInt(params.loanTermYears, 10) || yearsOwned));
-                const interestRate = Math.max(0, Math.min(100, Number(params.interestRate ?? 14)));
-                const purchaseType = String(params.purchaseType || 'cash').toLowerCase() === 'finance' ? 'finance' : 'cash';
-                const financed = purchaseType === 'finance';
-                const downPayment = Math.max(0, Number(params.downPayment ?? 0));
-
-                const payload = {
-                    vehicle_crsp_id: parseInt(vehicleCrspId, 10),
-                    purchase_price: Math.max(0, Number(purchasePrice) || 0),
-                    down_payment: financed ? downPayment : 0,
-                    loan_term_years: loanTermYears,
-                    interest_rate: interestRate,
-                    annual_mileage: Math.max(0, Number(params.annualMileage) || 20000),
-                    fuel_price: Math.max(0, Number(params.fuelPrice) || 200),
-                    insurance_rate: Math.max(0, Math.min(10, Number(params.insuranceRate ?? 3))),
-                    maintenance_cost_per_km: Math.max(0, Number(params.maintenanceCostPerKm ?? 1.5)),
-                    tyre_cost_per_km: Math.max(0, Number(params.tyreCostPerKm ?? 0.8)),
-                    include_depreciation: params.includeDepreciation !== 'false',
-                    include_insurance: params.includeInsurance !== 'false',
-                    include_maintenance: params.includeMaintenance !== 'false',
-                    include_tyres: params.includeTyres !== 'false',
-                    years: yearsOwned,
-                    vehicle_year: params.year ? parseInt(params.year, 10) : null,
-                    vehicle_type: params.vehicleType || 'ice',
-                    fuel_type: params.fuelType || undefined,
-                    vehicle_condition: params.condition || 'used',
-                    purchase_type: purchaseType,
-                    usage_type: params.usageType || 'private',
-                    location: params.location || 'nairobi'
-                };
-
-                if (!payload.vehicle_crsp_id || Number.isNaN(payload.vehicle_crsp_id)) {
-                    throw new Error('A valid vehicle CRSP ID is required for ownership calculation.');
-                }
-
-                return await apiRequest('/ownership/calculate', {
-                    method: 'POST',
-                    body: JSON.stringify(payload)
-                });
-            }
-
-            // ─── RENDER VEHICLE PROFILE ──────────────────────────────
-
-            function renderVehicleProfile(variant) {
-                if (!variant) return;
-
-                const make = variant.make_name || '';
-                const model = variant.model_name || '';
-                const variantName = variant.variant_name || '';
-                const fullName = [make, model, variantName].filter(Boolean).join(' ') || 'Unknown Vehicle';
-
-                el.vehicleName.textContent = fullName;
-                el.fuelType.textContent = variant.fuel_type_name ? `⛽ ${variant.fuel_type_name}` : '⛽ —';
-                el.transmission.textContent = variant.transmission_type_name ? `⚙️ ${variant.transmission_type_name}` : '⚙️ —';
-                el.engineSize.textContent = variant.engine_size_cc ? `🔧 ${variant.engine_size_cc}cc` : '🔧 —';
-
-                el.trimLevel.textContent = variant.trim_level || '—';
-                el.powerHp.textContent = variant.power_hp ? `${variant.power_hp} HP` : '—';
-                el.torqueNm.textContent = variant.torque_nm ? `${variant.torque_nm} Nm` : '—';
-                el.fuelConsumption.textContent = variant.fuel_consumption_combined ? `${variant.fuel_consumption_combined} km/L` : '—';
-                el.seats.textContent = variant.seats || '—';
-                el.doors.textContent = variant.doors || '—';
-                el.bodyType.textContent = variant.body_type_name || variant.model_body_type || '—';
-                el.category.textContent = variant.category_name || '—';
-            }
-
-            // ─── RENDER VALUATION ────────────────────────────────────
-
-            function renderValuation(data) {
-                if (!data) {
-                    showToast('No valuation data available', 'warning');
-                    return;
-                }
-
-                const marketValue = data.market_value || data.retail_value || data.value || 0;
-                const retailValue = data.retail_value || marketValue * 1.08;
-                const tradeValue = data.trade_value || marketValue * 0.85;
-
-                // Market value display
-                el.marketValue.textContent = formatCurrency(marketValue);
-
-                // Range
-                const rangeMin = Math.round(marketValue * 0.92);
-                const rangeMax = Math.round(marketValue * 1.08);
-                el.rangeMin.textContent = formatCurrency(rangeMin);
-                el.rangeMax.textContent = formatCurrency(rangeMax);
-
-                // Stats
-                el.statMarketValue.textContent = `KES ${formatCurrency(marketValue)}`;
-                el.statRetailValue.textContent = `KES ${formatCurrency(retailValue)}`;
-                el.statTradeValue.textContent = `KES ${formatCurrency(tradeValue)}`;
-
-                // Confidence
-                const confidence = data.confidence_score || 75;
-                setTimeout(() => {
-                    el.confidenceFill.style.width = `${Math.min(confidence, 98)}%`;
-                }, 200);
-                el.confidenceLabel.textContent = `${Math.round(confidence)}%`;
-
-                // Details
-                el.detailYear.textContent = data.year || '—';
-                el.detailMileage.textContent = data.mileage ? `${formatNumber(data.mileage)} km` : '—';
-                el.detailCondition.textContent = data.condition || '—';
-                el.detailLocation.textContent = data.location || '—';
-                el.detailAccident.textContent = data.accident_history || 'None';
-                el.detailOwners.textContent = data.previous_owners || '1';
-
-                // Adjustments
-                const adjustments = data.adjustments || {};
-                const adjLabels = {
-                    age: '📅 Age',
-                    mileage: '📊 Mileage',
-                    location: '📍 Location',
-                    condition: '⭐ Condition',
-                    accident: '⚠️ Accident'
-                };
-
-                let hasAdjustments = false;
-                const adjItems = el.adjustmentsGrid.querySelectorAll('.cost-item');
-                adjItems.forEach(item => {
-                    const labelEl = item.querySelector('.label');
-                    const valueEl = item.querySelector('.value');
-                    if (!labelEl || !valueEl) return;
-
-                    const key = labelEl.textContent.trim().split(' ').pop()?.toLowerCase() || '';
-                    const adjValue = adjustments[key] || adjustments[key + '_factor'] || 1.0;
-
-                    if (adjValue !== 1.0 && adjValue !== undefined) {
-                        hasAdjustments = true;
-                        const pct = (adjValue - 1.0) * 100;
-                        const sign = pct > 0 ? '+' : '';
-                        const cls = pct >= 0 ? 'green' : 'red';
-                        valueEl.textContent = `${sign}${pct.toFixed(1)}%`;
-                        valueEl.className = `value ${cls}`;
-                    } else {
-                        valueEl.textContent = '0%';
-                        valueEl.className = 'value';
-                    }
-                });
-
-                if (!hasAdjustments) {
-                    // Show neutral message
-                    adjItems.forEach(item => {
-                        const valueEl = item.querySelector('.value');
-                        if (valueEl) {
-                            valueEl.textContent = '0%';
-                            valueEl.className = 'value';
-                        }
-                    });
-                }
-
-                // Recommendations
-                const recs = [];
-                if (marketValue > 5000000) {
-                    recs.push({
-                        icon: '💰',
-                        text: 'Premium vehicle — consider comprehensive insurance coverage',
-                        type: 'info'
-                    });
-                }
-                if (confidence > 80) {
-                    recs.push({
-                        icon: '✅',
-                        text: 'High confidence valuation — market data strongly supports this estimate',
-                        type: 'success'
-                    });
-                }
-                if (data.mileage && data.mileage > 80000) {
-                    recs.push({
-                        icon: '🔧',
-                        text: 'Higher mileage — factor in upcoming major service costs',
-                        type: 'warning'
-                    });
-                }
-                if (recs.length === 0) {
-                    recs.push({
-                        icon: '📊',
-                        text: 'Valuation complete. Use this estimate as a guide for pricing decisions.',
-                        type: 'info'
-                    });
-                }
-
-                el.valuationRecs.innerHTML = recs.map(rec =>
-                    `<div class="rec-item ${rec.type}">
-                        <span class="icon">${rec.icon}</span>
-                        <span class="text">${rec.text}</span>
-                        <span class="tag">${rec.type.toUpperCase()}</span>
-                    </div>`
-                ).join('');
-            }
-
-            // ─── RENDER RUNNING COST ──────────────────────────────────
-
-            function renderRunningCost(data) {
-                if (!data) {
-                    showToast('No running cost data available', 'warning');
-                    return;
-                }
-
-                // Trip summary
-                const tripTotal = data.tripTotal || data.trip?.running_cost || 0;
-                const costPerKm = data.tripCostPerKm || data.trip?.cost_per_km || 0;
-                const distance = data.distance || data.trip?.distance || 150;
-
-                el.tripTotal.textContent = formatCurrency(tripTotal);
-                el.tripCostPerKm.textContent = formatCurrency(costPerKm);
-                el.tripDistance.textContent = formatNumber(distance);
-
-                // Trip breakdown
-                const costs = data.costs || {};
-                const fuel = costs.fuel || data.fuel_cost || 0;
-                const service = costs.service || data.service_cost || 0;
-                const tyres = costs.tyres || data.tyre_cost || 0;
-                const insurance = costs.insurance || data.insurance_cost || 0;
-                const depreciation = costs.depreciation || data.depreciation_cost || 0;
-
-                el.tripFuel.textContent = formatCurrency(fuel);
-                el.tripService.textContent = formatCurrency(service);
-                el.tripTyres.textContent = formatCurrency(tyres);
-                el.tripInsurance.textContent = formatCurrency(insurance);
-                el.tripDepreciation.textContent = formatCurrency(depreciation);
-                el.tripTotalDisplay.textContent = formatCurrency(tripTotal);
-
-                // Per km
-                const perKm = data.per_km || {};
-                el.perKmFuel.textContent = formatCurrency(perKm.fuel || data.fuelCostPerKm || 0);
-                el.perKmService.textContent = formatCurrency(perKm.service || data.servicePerKm || 0);
-                el.perKmTyres.textContent = formatCurrency(perKm.tyres || data.tyrePerKm || 0);
-                el.perKmInsurance.textContent = formatCurrency(perKm.insurance || data.insurancePerKm || 0);
-                el.perKmDepreciation.textContent = formatCurrency(perKm.depreciation || data.depreciationPerKm || 0);
-                el.perKmTotal.textContent = formatCurrency(costPerKm);
-
-                // Monthly
-                const monthly = data.monthly || {};
-                el.monthlyFuel.textContent = formatCurrency(monthly.fuel || data.monthlyFuel || 0);
-                el.monthlyService.textContent = formatCurrency(monthly.service || data.monthlyService || 0);
-                el.monthlyTyres.textContent = formatCurrency(monthly.tyres || data.monthlyTyre || 0);
-                el.monthlyInsurance.textContent = formatCurrency(monthly.insurance || data.monthlyInsurance || 0);
-                el.monthlyDepreciation.textContent = formatCurrency(monthly.depreciation || data.monthlyDepreciation || 0);
-                el.monthlyTotal.textContent = formatCurrency(monthly.total || data.monthly?.total || 0);
-
-                // Annual
-                const annual = data.annual || {};
-                el.annualFuel.textContent = formatCurrency(annual.fuel || data.annualFuel || 0);
-                el.annualService.textContent = formatCurrency(annual.service || data.annualService || 0);
-                el.annualTyres.textContent = formatCurrency(annual.tyres || data.annualTyre || 0);
-                el.annualInsurance.textContent = formatCurrency(annual.insurance || data.annualInsurance || 0);
-                el.annualDepreciation.textContent = formatCurrency(annual.depreciation || data.annualDepreciation || 0);
-                el.annualTotal.textContent = formatCurrency(annual.total || data.annual?.total || 0);
-
-                // 5-Year projection
-                const projection = data.projection || {};
-                const years = projection.years || data.fiveYearData || [];
-
-                if (years.length > 0) {
-                    renderYearlyTable(years);
-                    const total5Year = projection.total_5_year_cost || data.total5YearCost || 0;
-                    el.fiveYearTotal.textContent = `KES ${formatCurrency(total5Year)}`;
-                }
-
-                // Original price and resale
-                const vehicle = data.vehicle || {};
-                const purchasePrice = vehicle.purchase_price || data.purchase_price || 2500000;
-                const resale = vehicle.resale_value || data.resale_value || purchasePrice * 0.6;
-
-                el.originalPrice.textContent = `KES ${formatCurrency(purchasePrice)}`;
-                el.resaleValue.textContent = `KES ${formatCurrency(resale)}`;
-
-                const depPct = purchasePrice > 0 ? Math.round((1 - resale / purchasePrice) * 100) : 0;
-                el.depreciationPct.textContent = `${depPct}%`;
-
-                // Update ownership costs
-                updateOwnershipCosts(purchasePrice, tripTotal, resale);
-            }
-
-            // ─── RENDER YEARLY TABLE ──────────────────────────────────
-
-            function renderYearlyTable(years) {
-                const tbody = el.yearlyBody;
-                tbody.innerHTML = '';
-
-                let totalFuel = 0,
-                    totalService = 0,
-                    totalTyres = 0,
-                    totalInsurance = 0,
-                    totalDepreciation = 0,
-                    totalRunning = 0;
-
-                years.forEach((year, index) => {
-                    const fuel = year.fuel || year.fuel_cost || 0;
-                    const service = year.service || year.service_cost || 0;
-                    const tyres = year.tyres || year.tyre_cost || 0;
-                    const insurance = year.insurance || year.insurance_cost || 0;
-                    const depreciation = year.depreciation || year.depreciation_cost || 0;
-                    const total = year.total || year.total_cost || 0;
-                    const value = year.value || year.remaining_value || 0;
-
-                    totalFuel += fuel;
-                    totalService += service;
-                    totalTyres += tyres;
-                    totalInsurance += insurance;
-                    totalDepreciation += depreciation;
-                    totalRunning += total;
-
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>Year ${year.year || index + 1}</td>
-                        <td>KES ${formatCurrency(fuel)}</td>
-                        <td>KES ${formatCurrency(service)}</td>
-                        <td>KES ${formatCurrency(tyres)}</td>
-                        <td>KES ${formatCurrency(insurance)}</td>
-                        <td>KES ${formatCurrency(depreciation)}</td>
-                        <td><strong>KES ${formatCurrency(total)}</strong></td>
-                        <td>KES ${formatCurrency(value)}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-
-                // Total row
-                const totalTr = document.createElement('tr');
-                totalTr.className = 'table-highlight';
-                totalTr.innerHTML = `
-                    <td><strong>Total</strong></td>
-                    <td>KES ${formatCurrency(totalFuel)}</td>
-                    <td>KES ${formatCurrency(totalService)}</td>
-                    <td>KES ${formatCurrency(totalTyres)}</td>
-                    <td>KES ${formatCurrency(totalInsurance)}</td>
-                    <td>KES ${formatCurrency(totalDepreciation)}</td>
-                    <td><strong>KES ${formatCurrency(totalRunning)}</strong></td>
-                    <td>KES ${formatCurrency(years[years.length - 1]?.value || 0)}</td>
-                `;
-                tbody.appendChild(totalTr);
-            }
-
-            // ─── RENDER OWNERSHIP COST ───────────────────────────────
-            function renderOwnershipCost(data) {
-                if (!data) return;
-                const projection = Array.isArray(data.yearly_breakdown) ? data.yearly_breakdown : (Array.isArray(data.projection) ? data.projection : []);
-                const monthly = data.monthly_breakdown || {};
-                const annual = data.annual_breakdown || {};
-                const years = num(data.loan_details?.term_years) || num(data.loan_term_years) || (Array.isArray(projection) && projection.length ? projection.length : 5);
-                const purchasePrice = num(data.purchase_price) || num(state.variantData?.crsp_kes) || num(state.variantData?.crsp_price) || num(state.valuationData?.market_value);
-                const resale = num(data.resale_value);
-                const totalCost = num(data.total_cost);
-                const depreciation = num(data.total_depreciation ?? data.depreciation_cost);
-                const runningTotal = num(annual.running_cost) * years;
-
-                el.totalOwnershipCost.textContent = formatCurrency(totalCost);
-                el.ownershipYears.textContent = String(years);
-                el.ownerPurchasePrice.textContent = `KES ${formatCurrency(purchasePrice)}`;
-                el.ownerRunningCost.textContent = `KES ${formatCurrency(runningTotal)}`;
-                el.ownerDepreciation.textContent = `KES ${formatCurrency(depreciation)}`;
-                el.ownerTotal.textContent = `KES ${formatCurrency(totalCost)}`;
-
-                const totalBase = totalCost || 1;
-                el.catPurchase.textContent = `KES ${formatCurrency(purchasePrice)}`;
-                el.catPurchase.nextElementSibling.textContent = `${Math.round(purchasePrice / totalBase * 100)}% of total`;
-                el.catRunning.textContent = `KES ${formatCurrency(runningTotal)}`;
-                el.catRunning.nextElementSibling.textContent = `${Math.round(runningTotal / totalBase * 100)}% of total`;
-                el.catDepreciation.textContent = `KES ${formatCurrency(depreciation)}`;
-                el.catDepreciation.nextElementSibling.textContent = `${Math.round(depreciation / totalBase * 100)}% of total`;
-
-                el.purchasePriceDetail.textContent = `KES ${formatCurrency(purchasePrice)}`;
-                el.registrationTax.textContent = 'Not included';
-                el.firstYearInsurance.textContent = `KES ${formatCurrency(annual.insurance)}`;
-                el.totalPurchaseCost.textContent = `KES ${formatCurrency(purchasePrice)}`;
-
-                el.runningFuel.textContent = `KES ${formatCurrency(data.fuel_cost)}`;
-                el.runningService.textContent = `KES ${formatCurrency(data.maintenance_cost)}`;
-                el.runningTyres.textContent = `KES ${formatCurrency(data.tyre_cost)}`;
-                el.runningInsurance.textContent = `KES ${formatCurrency(data.insurance_cost)}`;
-                el.totalRunningCost.textContent = `KES ${formatCurrency(runningTotal)}`;
-
-                el.monthlyLoan.textContent = `KES ${formatCurrency(data.monthly_payment)}`;
-                el.monthlyOwnInsurance.textContent = `KES ${formatCurrency(monthly.insurance)}`;
-                el.monthlyOwnFuel.textContent = `KES ${formatCurrency(monthly.fuel)}`;
-                el.monthlyOwnTotal.textContent = `KES ${formatCurrency(data.monthly_cost)}`;
-
-                const loanSub = el.monthlyLoan.closest('.stat-box')?.querySelector('.sub');
-                if (loanSub) loanSub.textContent = `${years}-year loan @ 14%`;
-
-                el.originalPrice.textContent = `KES ${formatCurrency(purchasePrice)}`;
-                el.resaleValue.textContent = `KES ${formatCurrency(resale)}`;
-                el.depreciationPct.textContent = purchasePrice > 0 && resale > 0
-                    ? `${Math.round((1 - resale / purchasePrice) * 100)}%` : '—';
-                el.fiveYearTotal.textContent = `KES ${formatCurrency(runningTotal)}`;
-
-                renderOwnershipYearlyTable(projection);
-
-                const recommendations = Array.isArray(data.recommendations) ? data.recommendations : [];
-                el.ownershipRecs.innerHTML = (recommendations.length ? recommendations : [
-                    'Ownership calculation completed using the Auto-D backend cost model.'
-                ]).map(text => `
-                    <div class="rec-item info">
-                        <span class="icon">💡</span>
-                        <span class="text">${escapeHTML(text)}</span>
-                        <span class="tag">BACKEND</span>
-                    </div>`).join('');
-            }
-
-            function renderOwnershipYearlyTable(years) {
-                const tbody = el.yearlyBody;
-                tbody.innerHTML = '';
-                if (!Array.isArray(years) || !years.length) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:24px;">No yearly ownership projection returned by backend.</td></tr>';
-                    return;
-                }
-                let fuel=0, service=0, tyres=0, insurance=0, depreciation=0, total=0;
-                years.forEach((row,index) => {
-                    const f=num(row.fuel ?? row.fuel_cost), s=num(row.service ?? row.service_cost ?? row.maintenance ?? row.maintenance_cost);
-                    const t=num(row.tyres ?? row.tyre_cost), i=num(row.insurance ?? row.insurance_cost);
-                    const d=num(row.depreciation ?? row.depreciation_cost), c=num(row.total ?? row.total_cost);
-                    const value=num(row.value ?? row.remaining_value ?? row.resale_value);
-                    fuel+=f; service+=s; tyres+=t; insurance+=i; depreciation+=d; total+=c;
-                    const tr=document.createElement('tr');
-                    tr.innerHTML=`<td>Year ${escapeHTML(String(row.year ?? index+1))}</td><td>KES ${formatCurrency(f)}</td><td>KES ${formatCurrency(s)}</td><td>KES ${formatCurrency(t)}</td><td>KES ${formatCurrency(i)}</td><td>KES ${formatCurrency(d)}</td><td><strong>KES ${formatCurrency(c)}</strong></td><td>KES ${formatCurrency(value)}</td>`;
-                    tbody.appendChild(tr);
-                });
-                const last=years[years.length-1];
-                const tr=document.createElement('tr'); tr.className='table-highlight';
-                tr.innerHTML=`<td><strong>Total</strong></td><td>KES ${formatCurrency(fuel)}</td><td>KES ${formatCurrency(service)}</td><td>KES ${formatCurrency(tyres)}</td><td>KES ${formatCurrency(insurance)}</td><td>KES ${formatCurrency(depreciation)}</td><td><strong>KES ${formatCurrency(total)}</strong></td><td>KES ${formatCurrency(last?.value ?? last?.remaining_value ?? last?.resale_value)}</td>`;
-                tbody.appendChild(tr);
-            }
-
-            // ─── GENERATE REPORT ──────────────────────────────────────
-
-            async function generateReport() {
-                const params = getUrlParams();
-
-                // The ownership page is driven by the authoritative CRSP ID.
-                // Accept the new parameter names first, with variant_id kept
-                // only as a backwards-compatible URL alias.
-                const vehicleCrspId = params.vehicleCrspId || params.crspId || params.variantId;
-
-                if (!vehicleCrspId) {
-                    setStatus('warning', '⚠️ No vehicle CRSP ID supplied. Select a vehicle first.');
-                    el.vehicleName.textContent = 'No vehicle selected';
-                    return;
-                }
-
-                showLoading(true);
-                setStatus('info', 'Calculating ownership cost...');
-
-                try {
-                    const purchasePrice = Number(params.purchasePrice) || 0;
-                    const ownership = await fetchOwnershipCost(vehicleCrspId, purchasePrice, params);
-
-                    state.ownershipData = ownership?.data || ownership;
-                    const data = state.ownershipData || {};
-
-                    // The ownership backend returns the vehicle identity in
-                    // vehicle_details, so this page no longer depends on
-                    // /variant/{id}, valuation, or running-cost endpoints.
-                    const vehicle = data.vehicle_details || {};
-                    const vehicleName = [vehicle.make, vehicle.model, vehicle.variant]
-                        .filter(Boolean).join(' ') || `CRSP ${vehicleCrspId}`;
-
-                    el.vehicleName.textContent = vehicleName;
-                    el.fuelType.textContent = vehicle.fuel_type ? `⛽ ${vehicle.fuel_type}` : '⛽ —';
-                    el.transmission.textContent = vehicle.transmission ? `⚙️ ${vehicle.transmission}` : '⚙️ —';
-                    el.engineSize.textContent = vehicle.engine_capacity ? `🔧 ${vehicle.engine_capacity}cc` : '🔧 —';
-                    el.trimLevel.textContent = vehicle.variant || '—';
-                    el.powerHp.textContent = '—';
-                    el.torqueNm.textContent = '—';
-                    el.fuelConsumption.textContent = 'Backend model';
-                    el.seats.textContent = '—';
-                    el.doors.textContent = '—';
-                    el.bodyType.textContent = vehicle.body_type || '—';
-                    el.category.textContent = vehicle.vehicle_type || '—';
-
-                    // Render only ownership data. Other report modules are
-                    // intentionally not called from ownership-cost.html.
-                    renderOwnershipCost(data);
-
-                    state.reportData = {
-                        ownership_cost: data,
-                        generated_at: new Date().toISOString(),
-                        params: params
-                    };
-
-                    const matchedCrsp = data.crsp_reference?.crsp_kes;
-                    if (matchedCrsp && !purchasePrice) {
-                        el.purchasePriceDetail.textContent = `KES ${formatCurrency(matchedCrsp)}`;
-                    }
-
-                    setStatus('success', '✅ Ownership cost calculated successfully!');
-                    showToast('✅ Ownership report ready!', 'success');
-                } catch (error) {
-                    console.error('Ownership calculation error:', error);
-                    setStatus('error', `❌ ${error.message}`);
-                    showToast(`❌ ${error.message}`, 'error');
-                } finally {
-                    showLoading(false);
-                }
-            }
-
-            // ─── CONFETTI ──────────────────────────────────────────────
-
-            function fireConfetti() {
-                const container = document.createElement('div');
-                container.className = 'confetti-container';
-                document.body.appendChild(container);
-
-                const colors = ['#eab308', '#22c55e', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#f59e0b'];
-                for (let i = 0; i < 60; i++) {
-                    const piece = document.createElement('div');
-                    piece.className = 'confetti-piece';
-                    piece.style.left = Math.random() * 100 + '%';
-                    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
-                    piece.style.width = (Math.random() * 8 + 4) + 'px';
-                    piece.style.height = (Math.random() * 8 + 4) + 'px';
-                    piece.style.animationDuration = (Math.random() * 2 + 2) + 's';
-                    piece.style.animationDelay = (Math.random() * 2) + 's';
-                    container.appendChild(piece);
-                }
-
-                setTimeout(() => container.remove(), 5000);
-            }
-
-            // ─── TAB HANDLING ─────────────────────────────────────────
-
-            function setupTabs() {
-                el.tabBtns.forEach(btn => {
-                    btn.addEventListener('click', function() {
-                        const tabId = this.dataset.tab;
-
-                        // Update buttons
-                        el.tabBtns.forEach(b => {
-                            b.classList.remove('active');
-                            b.setAttribute('aria-selected', 'false');
-                        });
-                        this.classList.add('active');
-                        this.setAttribute('aria-selected', 'true');
-
-                        // Update content
-                        Object.keys(el.tabContents).forEach(key => {
-                            el.tabContents[key].classList.remove('active');
-                        });
-                        if (el.tabContents[tabId]) {
-                            el.tabContents[tabId].classList.add('active');
-                        }
-                    });
-                });
-            }
-
-            // ─── ACTION HANDLERS ──────────────────────────────────────
-
-            function setupActions() {
-                // Print
-                el.printBtn.addEventListener('click', () => {
-                    window.print();
-                });
-
-                // Share
-                el.shareBtn.addEventListener('click', async () => {
-                    const url = window.location.href;
-                    const reportNum = el.reportNumber.textContent;
-                    const text =
-                        `Auto-D Kenya Vehicle Report\nReport #: ${reportNum}\nVehicle: ${el.vehicleName.textContent}\nMarket Value: ${el.marketValue.textContent}\n\nView full report: ${url}`;
-
-                    try {
-                        if (navigator.share) {
-                            await navigator.share({
-                                title: 'Auto-D Kenya Vehicle Report',
-                                text: text,
-                                url: url
-                            });
-                        } else {
-                            await navigator.clipboard.writeText(text + '\n' + url);
-                            showToast('📋 Report link copied to clipboard!', 'success');
-                        }
-                    } catch (error) {
-                        if (error.name !== 'AbortError') {
-                            showToast('Share failed: ' + error.message, 'error');
-                        }
-                    }
-                });
-
-                // Export PDF
-                el.exportBtn.addEventListener('click', () => {
-                    showToast('📥 PDF export feature coming soon!', 'info');
-                });
-
-                // Download Data
-                el.downloadBtn.addEventListener('click', () => {
-                    try {
-                        const data = {
-                            report: {
-                                number: el.reportNumber.textContent,
-                                generated: el.reportDate.textContent,
-                                version: '2026.08'
-                            },
-                            vehicle: state.variantData || null,
-                            valuation: state.valuationData || null,
-                            running_cost: state.runningCostData || null,
-                            ownership_cost: state.ownershipData || null,
-                            params: getUrlParams(),
-                            exported_at: new Date().toISOString()
-                        };
-
-                        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `auto-d-report-${el.reportNumber.textContent}.json`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(url);
-
-                        showToast('✅ Data downloaded successfully!', 'success');
-                    } catch (error) {
-                        showToast('❌ Download failed: ' + error.message, 'error');
-                    }
-                });
-
-                // Refresh
-                el.refreshBtn.addEventListener('click', () => {
-                    const params = getUrlParams();
-                    if (params.variantId) {
-                        generateReport();
-                    } else {
-                        window.location.reload();
-                    }
-                });
-            }
-
-            // ─── KEYBOARD SHORTCUTS ───────────────────────────────────
-
-            function setupKeyboardShortcuts() {
-                document.addEventListener('keydown', (e) => {
-                    // Ctrl+P = Print
-                    if (e.ctrlKey && e.key === 'p') {
-                        // Let default print dialog show
-                        return;
-                    }
-
-                    // Ctrl+Shift+Left/Right = Tab navigation
-                    if (e.ctrlKey && e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-                        e.preventDefault();
-                        const currentTab = document.querySelector('.tab-btn.active');
-                        const tabs = Array.from(el.tabBtns);
-                        const currentIndex = tabs.indexOf(currentTab);
-                        let newIndex;
-
-                        if (e.key === 'ArrowRight') {
-                            newIndex = (currentIndex + 1) % tabs.length;
-                        } else {
-                            newIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-                        }
-
-                        tabs[newIndex].click();
-                    }
-
-                    // Escape = Close toast
-                    if (e.key === 'Escape') {
-                        const toast = document.querySelector('.toast');
-                        if (toast) toast.remove();
-                    }
-                });
-            }
-
-            // ─── INIT ──────────────────────────────────────────────────
-
-            async function init() {
-                console.log('🚗 Auto-D Kenya Complete Vehicle Report');
-                console.log('📋 Version 5.0 - Production Grade');
-
-                // Setup
-                setupTabs();
-                setupActions();
-                setupKeyboardShortcuts();
-
-                // Set report number
-                const reportNum = 'AUTO-' + new Date().getFullYear() + '-' +
-                    String(Math.floor(Math.random() * 9000) + 1000);
-                el.reportNumber.textContent = reportNum;
-
-                // Set report date
-                const now = new Date();
-                el.reportDate.textContent = now.toLocaleDateString('en-KE', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
-
-                // Generate report
-                await generateReport();
-
-                // Expose for debugging
-                window.__report = {
-                    state: state,
-                    config: CONFIG,
-                    refresh: generateReport,
-                    formatCurrency: formatCurrency,
-                    formatNumber: formatNumber
-                };
-
-                console.log('✅ Report initialized');
-                console.log('📋 Report #:', reportNum);
-                console.log('🔧 Debug: window.__report');
-            }
-
-            // ─── START ──────────────────────────────────────────────────
-
-            document.addEventListener('DOMContentLoaded', init);
-
+    <div class="header-right">
+      <div class="version">Version <span>9.9</span> <span class="auto-d-badge">Auto-D</span></div>
+      <div>Last Updated: <span id="lastUpdated">—</span></div>
+      <div><span class="auth-status unauthenticated" id="authStatus" aria-live="polite">🔓 Not Authenticated</span></div>
+    </div>
+  </header>
+
+  <div class="main-grid">
+    <section class="calculator-panel" aria-label="TCO Calculator">
+      <!-- AUTH (same pattern as mileage file) -->
+      <div class="panel-label"><span aria-hidden="true">🔐</span> Authentication</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <input type="email" id="authEmail" placeholder="Email" style="flex:1;min-width:120px;background:var(--bg);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:12px;" />
+        <input type="password" id="authPassword" placeholder="Password" style="flex:1;min-width:120px;background:var(--bg);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:12px;" />
+        <button id="btnLogin" style="padding:6px 16px;background:var(--amber);color:#0a0c10;border:none;border-radius:4px;cursor:pointer;font-weight:600;">Login</button>
+        <button id="btnSignup" style="padding:6px 16px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-weight:600;">Sign Up</button>
+        <button id="btnSignOut" style="display:none;padding:6px 16px;background:transparent;color:var(--red);border:1px solid var(--red);border-radius:4px;cursor:pointer;font-weight:600;">Sign Out</button>
+      </div>
+
+      <div id="statusMessage" class="status-message info" role="status" aria-live="polite">
+        <span aria-hidden="true">⏳</span><span id="statusMessageText">Loading vehicle data…</span>
+      </div>
+      <div class="progress-container" id="progressContainer">
+        <div class="progress-bar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressBarTrack">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-text"><span id="progressLabel">Loading…</span><span id="progressPercent">0%</span></div>
+      </div>
+
+      <!-- Vehicle selection chain (make → model → year → trim) -->
+      <div class="panel-label"><span class="num">01</span> Vehicle Selection</div>
+      <div class="form-group"><label for="makeSelect">Vehicle Make</label><select id="makeSelect" disabled><option value="">Sign in to load makes</option></select></div>
+      <div class="form-group"><label for="modelSelect">Vehicle Model</label><select id="modelSelect" disabled><option value="">Select a make first</option></select></div>
+      <div class="form-group"><label for="yearSelect">Manufacture Year</label><select id="yearSelect" disabled><option value="">Select a model first</option></select></div>
+      <div class="form-group"><label for="trimSelect">Vehicle Trim / Variant</label><select id="trimSelect" disabled><option value="">Select a year first</option></select></div>
+
+      <div class="crsp-info" id="crspInfo">
+        <h4>🏛️ KRA CRSP Base Price Reference</h4>
+        <div><div class="row"><span>Matched CRSP Line</span><span class="value" id="crspMatchedLine">—</span></div>
+        <div class="row"><span>CRSP Base Price</span><span class="value" id="crspBasePrice">—</span></div>
+        <div class="row"><span>Engine Capacity</span><span class="value" id="crspEngineCapacity">—</span></div>
+        <div class="row"><span>Fuel Type</span><span class="value" id="crspFuel">—</span></div>
+        <div class="row"><span>Transmission</span><span class="value" id="crspTransmission">—</span></div></div>
+      </div>
+
+      <div class="panel-label"><span class="num">02</span> Fuel Type</div>
+      <div class="form-group">
+        <div class="fuel-type-group" id="fuelTypeGroup" role="group" aria-label="Fuel type">
+          <button type="button" class="fuel-type-btn active" data-fuel="petrol" aria-pressed="true"><span class="dot petrol" aria-hidden="true"></span> Petrol</button>
+          <button type="button" class="fuel-type-btn" data-fuel="diesel" aria-pressed="false"><span class="dot diesel" aria-hidden="true"></span> Diesel</button>
+          <button type="button" class="fuel-type-btn" data-fuel="hybrid" aria-pressed="false"><span class="dot hybrid" aria-hidden="true"></span> Hybrid</button>
+          <button type="button" class="fuel-type-btn" data-fuel="electric" aria-pressed="false"><span class="dot electric" aria-hidden="true"></span> Electric</button>
+        </div>
+        <div class="helper-text" id="fuelTypeHelper">Petrol: Standard fuel for most vehicles</div>
+      </div>
+
+      <div class="panel-label"><span class="num">03</span> Purchase Type</div>
+      <div class="form-group">
+        <div class="purchase-type-group" id="purchaseTypeGroup" role="group" aria-label="Purchase type">
+          <button type="button" class="purchase-type-btn active" data-type="cash" aria-pressed="true">💰 Cash Purchase<span class="sub">Full payment upfront</span></button>
+          <button type="button" class="purchase-type-btn" data-type="finance" aria-pressed="false">🏦 Financing<span class="sub">Loan with interest</span></button>
+        </div>
+      </div>
+
+      <div class="panel-label"><span class="num">04</span> Financial Details</div>
+      <div class="form-group">
+        <label for="purchasePrice">Purchase Price (KES) <span id="basePriceTag" style="color:var(--green);font-weight:600;display:none;">· Base price (CRSP)</span></label>
+        <input type="number" id="purchasePrice" value="4500000" min="100000" max="500000000" step="10000" />
+        <div class="field-error" id="purchasePriceError"></div>
+        <div class="helper-text" id="basePriceHelper" style="display:none;"></div>
+      </div>
+      <div id="financeFields">
+        <div class="form-group"><label for="downPayment">Down Payment (KES)</label><input type="number" id="downPayment" value="1000000" min="0" step="10000" /><div class="field-error" id="downPaymentError"></div></div>
+        <div class="form-group"><label>Loan Term <span class="range-value" id="valLoanTerm">3 years</span></label><input type="range" id="loanTermRange" min="1" max="7" step="1" value="3" /></div>
+        <div class="form-group"><label>Interest Rate <span class="range-value" id="valInterestRate">14.0%</span></label><input type="range" id="interestRateRange" min="5" max="28" step="0.5" value="14" /></div>
+      </div>
+
+      <div class="panel-label"><span class="num">05</span> Usage Profile</div>
+      <div class="form-group"><label>Annual Distance <span class="range-value" id="valMileage">20,000 km</span></label><input type="range" id="mileageRange" min="4000" max="60000" step="1000" value="20000" /></div>
+      <div class="form-group"><label for="fuelPriceInput">Fuel Price (KES/L)</label><input type="number" id="fuelPriceInput" value="200" min="0" step="5" /><div class="helper-text" id="fuelPriceHelper">Current market price</div></div>
+      <div class="form-group"><label>Insurance Rate <span class="range-value" id="valInsuranceRate">3.0%</span></label><input type="range" id="insuranceRange" min="1" max="8" step="0.5" value="3" /></div>
+      <div class="form-group"><label>Maintenance Cost/km <span class="range-value" id="valMaintenance">KES 1.50</span></label><input type="range" id="maintenanceRange" min="0.5" max="5" step="0.1" value="1.5" /></div>
+      <div class="form-group"><label>Tyre Cost/km <span class="range-value" id="valTyre">KES 0.80</span></label><input type="range" id="tyreRange" min="0.2" max="2" step="0.1" value="0.8" /></div>
+      <div class="form-group"><label>Ownership Period <span class="range-value" id="valYears">5 years</span></label><input type="range" id="yearsRange" min="1" max="10" step="1" value="5" /></div>
+
+      <button class="calc-btn" id="calculateBtn" disabled>🚀 Calculate TCO</button>
+      <div class="disclaimer">⚠️ <strong>Disclaimer:</strong> All figures are estimates based on Auto‑D recommended Kenyan market rates and CRSP cross‑check. Use as a guide only — <strong>not financial advice</strong>.</div>
+    </section>
+
+    <div class="results-panel" id="resultsPanel">
+      <div class="result-card">
+        <div class="card-title">📋 Vehicle Profile</div>
+        <div id="vehicleLabel">Select a vehicle to begin</div>
+        <div class="vehicle-specs" id="vehicleSpecs">
+          <span class="pill" id="fuelPill">—</span><span class="pill" id="transmissionPill">—</span>
+          <span class="pill" id="engineCCDisplay">—</span><span class="pill" id="bodyTypePill">—</span>
+          <span class="pill" id="conditionPill">—</span><span class="pill" id="purchaseTypePill">—</span>
+          <span class="pill highlight" id="basePricePill" style="display:none;">—</span>
+        </div>
+        <div id="vehicleExtraSpecs" style="margin-top:6px;font-size:11px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:4px 16px;"></div>
+      </div>
+
+      <div class="result-card">
+        <div class="card-title">💰 Ownership Summary</div>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="label">Total Cost</div><div class="num amber" id="outTotal">—</div></div>
+          <div class="stat-card"><div class="label">Monthly Cost</div><div class="num" id="outMonthly">—</div></div>
+          <div class="stat-card"><div class="label">Monthly Payment</div><div class="num blue" id="outPayment">—</div></div>
+          <div class="stat-card"><div class="label">Total Interest</div><div class="num green" id="outInterest">—</div></div>
+        </div>
+        <div class="stats-grid" style="margin-top:8px;">
+          <div class="stat-card"><div class="label">Cost Per KM</div><div class="num purple" id="outCostPerKm">—</div></div>
+          <div class="stat-card"><div class="label">Total Depreciation</div><div class="num red" id="outDepreciation">—</div></div>
+          <div class="stat-card"><div class="label">Resale Value</div><div class="num cyan" id="outResale">—</div></div>
+          <div class="stat-card"><div class="label">Fuel Type</div><div class="num orange" id="outFuelType">—</div></div>
+        </div>
+      </div>
+
+      <div class="result-card">
+        <div class="card-title">📊 Cost Components <span class="badge">Breakdown</span></div>
+        <div id="componentsList">No data yet</div>
+      </div>
+
+      <div class="result-card" id="projectionCard" style="display:none;">
+        <div class="card-title">📈 Cost Projection <span class="badge">Visual</span></div>
+        <div class="projection-legend">
+          <span class="legend-item"><span class="dot" style="background:var(--amber);" aria-hidden="true"></span> Total Cost</span>
+          <span class="legend-item"><span class="dot" style="background:var(--blue);" aria-hidden="true"></span> Running Cost</span>
+          <span class="legend-item"><span class="dot" style="background:var(--red);" aria-hidden="true"></span> Depreciation</span>
+          <span class="legend-item"><span class="dot" style="background:var(--purple);" aria-hidden="true"></span> Insurance</span>
+          <span class="legend-item"><span class="dot" style="background:var(--green);" aria-hidden="true"></span> Loan</span>
+        </div>
+        <div id="projectionYears"></div>
+        <div id="projectionSummary" style="margin-top:8px;font-size:11px;color:var(--text-muted);"></div>
+      </div>
+
+      <div class="result-card no-print">
+        <div class="action-bar">
+          <button class="action-btn primary" id="printBtn">🖨️ Print Report</button>
+          <button class="action-btn primary" id="shareBtn">📤 Share</button>
+          <button class="action-btn primary" id="exportBtn">📥 Export CSV</button>
+        </div>
+      </div>
+      <div class="result-card" style="border-color: rgba(239, 68, 68, 0.2);">
+        <div style="font-size:10px;color:var(--text-muted);line-height:1.6;">⚠️ <strong style="color:var(--amber);">Disclaimer:</strong> All figures are estimates. Actual costs may vary. Not financial advice.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div aria-live="assertive" class="sr-only" id="toastLiveRegion"></div>
+
+<script>
+  (function() {
+    'use strict';
+
+    // ─── CONFIG ─────────────────────────────────────────────────────────
+    const CONFIG = {
+      SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
+      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
+      VIEW_NAME: 'vehicle_crsp_lookup',
+      API_BASE: 'https://auto-digital.onrender.com/api/v1',
+      QUERY_TIMEOUT_MS: 15000,
+      CRSP_PAGE_SIZE: 1000,
+      INFLATION_RATE_PCT: 2.0,
+      DEBUG: false
+    };
+
+    // ─── HELPERS ──────────────────────────────────────────────────────
+    function num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+    function currency(v) { return 'KES ' + Math.round(num(v)).toLocaleString('en-KE'); }
+    function number(v) { return Math.round(num(v)).toLocaleString('en-KE'); }
+    function escapeHTML(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    function showToast(msg, type='info') {
+      document.querySelector('.toast')?.remove();
+      const t = document.createElement('div');
+      t.className = `toast toast-${type}`;
+      t.textContent = msg;
+      document.body.appendChild(t);
+      document.getElementById('toastLiveRegion').textContent = msg;
+      setTimeout(() => t.remove(), 4000);
+    }
+    function setStatus(type, msg) {
+      const el = document.getElementById('statusMessage');
+      el.className = `status-message ${type}`;
+      document.getElementById('statusMessageText').textContent = msg;
+      const icon = el.querySelector('span:first-child');
+      if (icon) icon.textContent = { error:'❌', warning:'⚠️', success:'✅', info:'⏳' }[type] || 'ℹ️';
+    }
+    function showProgress(pct, label) {
+      const c = document.getElementById('progressContainer');
+      c.classList.add('show');
+      document.getElementById('progressFill').style.width = Math.min(pct,100)+'%';
+      document.getElementById('progressLabel').textContent = label || 'Loading…';
+      document.getElementById('progressPercent').textContent = Math.min(pct,100)+'%';
+    }
+    function hideProgress() { document.getElementById('progressContainer').classList.remove('show'); }
+
+    function queryCRSPView(select, filter, order) {
+      const client = window.__supabase;
+      if (!client) throw new Error('Supabase not initialized');
+      const PAGE_SIZE = CONFIG.CRSP_PAGE_SIZE;
+      let all = [], from = 0;
+      return new Promise((resolve, reject) => {
+        (async function page() {
+          try {
+            let q = client.from(CONFIG.VIEW_NAME).select(select);
+            if (filter) q = q.eq(filter.column, filter.value);
+            if (order) q = q.order(order.column, { ascending: order.ascending !== false });
+            q = q.range(from, from + PAGE_SIZE - 1);
+            const { data, error } = await q;
+            if (error) throw error;
+            all = all.concat(data || []);
+            if (!data || data.length < PAGE_SIZE) resolve(all);
+            else { from += PAGE_SIZE; await page(); }
+          } catch (e) { reject(e); }
         })();
-    </script>
+      });
+    }
 
+    // ─── SUPABASE CLIENT ─────────────────────────────────────────────
+    let supabaseClient = null;
+    function initSupabase() {
+      try {
+        if (typeof supabase === 'undefined') return null;
+        const { createClient } = supabase;
+        supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
+          auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+        });
+        window.__supabase = supabaseClient;
+        return supabaseClient;
+      } catch (e) { return null; }
+    }
+    initSupabase();
+
+    // ─── AUTH ──────────────────────────────────────────────────────────
+    let session = null;
+    async function getSession() {
+      if (!supabaseClient) return null;
+      const { data, error } = await supabaseClient.auth.getSession();
+      if (error) return null;
+      return data.session;
+    }
+    async function signIn(email, password) {
+      if (!supabaseClient) throw new Error('Supabase not initialized');
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      session = data.session;
+      return session;
+    }
+    async function signUp(email, password) {
+      if (!supabaseClient) throw new Error('Supabase not initialized');
+      const { data, error } = await supabaseClient.auth.signUp({ email, password });
+      if (error) throw error;
+      return data.user;
+    }
+    async function signOut() {
+      if (!supabaseClient) return;
+      await supabaseClient.auth.signOut();
+      session = null;
+    }
+    function updateAuthUI() {
+      const status = document.getElementById('authStatus');
+      const isAuthed = !!session;
+      if (isAuthed) {
+        status.textContent = `🔒 ${session.user?.email || 'user'}`;
+        status.className = 'auth-status authenticated';
+        document.getElementById('btnLogin').style.display = 'none';
+        document.getElementById('btnSignup').style.display = 'none';
+        document.getElementById('btnSignOut').style.display = 'inline-block';
+        document.getElementById('makeSelect').disabled = false;
+      } else {
+        status.textContent = '🔓 Not Authenticated';
+        status.className = 'auth-status unauthenticated';
+        document.getElementById('btnLogin').style.display = 'inline-block';
+        document.getElementById('btnSignup').style.display = 'inline-block';
+        document.getElementById('btnSignOut').style.display = 'none';
+        document.getElementById('makeSelect').disabled = true;
+        document.getElementById('modelSelect').disabled = true;
+        document.getElementById('yearSelect').disabled = true;
+        document.getElementById('trimSelect').disabled = true;
+        document.getElementById('calculateBtn').disabled = true;
+      }
+    }
+
+    // ─── VEHICLE DATA LOADING ──────────────────────────────────────
+    async function loadMakes() {
+      const rows = await queryCRSPView('make', null, { column: 'make', ascending: true });
+      const map = {};
+      rows.forEach(r => { if (r.make) map[r.make] = { id: r.make, name: r.make }; });
+      return Object.values(map);
+    }
+    async function loadModels(make) {
+      const rows = await queryCRSPView('model', { column: 'make', value: make }, { column: 'model', ascending: true });
+      const map = {};
+      rows.forEach(r => { if (r.model) map[r.model] = { id: r.model, name: r.model }; });
+      return Object.values(map);
+    }
+    async function loadYears(model) {
+      const rows = await queryCRSPView('manufacture_year', { column: 'model', value: model }, { column: 'manufacture_year', ascending: false });
+      const years = [];
+      const seen = {};
+      rows.forEach(r => {
+        const y = r.manufacture_year;
+        if (y && !seen[y]) { seen[y]=true; years.push(y); }
+      });
+      return years.sort((a,b)=>b-a);
+    }
+    async function loadTrims(model) {
+      const rows = await queryCRSPView('crsp_id, trim_level, engine_capacity, fuel, transmission, drive_config, crsp_kes, body_type, make, model',
+        { column: 'model', value: model },
+        { column: 'trim_level', ascending: true });
+      const map = {};
+      rows.forEach(r => {
+        const key = r.crsp_id;
+        if (!map[key]) {
+          map[key] = {
+            crspId: r.crsp_id,
+            make: r.make,
+            model: r.model,
+            trim: r.trim_level || '',
+            engineCapacity: r.engine_capacity || null,
+            crspKes: r.crsp_kes || null,
+            fuel: r.fuel || '',
+            transmission: r.transmission || '',
+            driveConfig: r.drive_config || '',
+            bodyType: r.body_type || ''
+          };
+        }
+      });
+      return Object.values(map);
+    }
+
+    // ─── STATE ────────────────────────────────────────────────────────
+    let selectedTrim = null;
+    let scenarioResult = null;
+    let formState = {
+      vehicleType: 'ice',
+      fuelType: 'petrol',
+      purchaseType: 'cash',
+      includeDepreciation: true,
+      includeInsurance: true,
+      includeMaintenance: true,
+      includeTyres: true,
+      includeInflation: true,
+      purchasePriceEditedByUser: false
+    };
+    let _trimsById = new Map();
+
+    // ─── DOM REFS ─────────────────────────────────────────────────────
+    const $ = id => document.getElementById(id);
+    const dom = {
+      makeSelect: $('makeSelect'),
+      modelSelect: $('modelSelect'),
+      yearSelect: $('yearSelect'),
+      trimSelect: $('trimSelect'),
+      purchasePrice: $('purchasePrice'),
+      purchasePriceError: $('purchasePriceError'),
+      basePriceTag: $('basePriceTag'),
+      basePriceHelper: $('basePriceHelper'),
+      downPayment: $('downPayment'),
+      downPaymentError: $('downPaymentError'),
+      loanTermRange: $('loanTermRange'),
+      interestRateRange: $('interestRateRange'),
+      mileageRange: $('mileageRange'),
+      fuelPriceInput: $('fuelPriceInput'),
+      insuranceRange: $('insuranceRange'),
+      maintenanceRange: $('maintenanceRange'),
+      tyreRange: $('tyreRange'),
+      yearsRange: $('yearsRange'),
+      valLoanTerm: $('valLoanTerm'),
+      valInterestRate: $('valInterestRate'),
+      valMileage: $('valMileage'),
+      valInsuranceRate: $('valInsuranceRate'),
+      valMaintenance: $('valMaintenance'),
+      valTyre: $('valTyre'),
+      valYears: $('valYears'),
+      calculateBtn: $('calculateBtn'),
+      fuelTypeGroup: $('fuelTypeGroup'),
+      purchaseTypeGroup: $('purchaseTypeGroup'),
+      financeFields: $('financeFields'),
+      crspInfo: $('crspInfo'),
+      crspMatchedLine: $('crspMatchedLine'),
+      crspBasePrice: $('crspBasePrice'),
+      crspEngineCapacity: $('crspEngineCapacity'),
+      crspFuel: $('crspFuel'),
+      crspTransmission: $('crspTransmission'),
+      vehicleLabel: $('vehicleLabel'),
+      fuelPill: $('fuelPill'),
+      transmissionPill: $('transmissionPill'),
+      engineCCDisplay: $('engineCCDisplay'),
+      bodyTypePill: $('bodyTypePill'),
+      conditionPill: $('conditionPill'),
+      purchaseTypePill: $('purchaseTypePill'),
+      basePricePill: $('basePricePill'),
+      vehicleSpecs: $('vehicleSpecs'),
+      vehicleExtraSpecs: $('vehicleExtraSpecs'),
+      outTotal: $('outTotal'),
+      outMonthly: $('outMonthly'),
+      outPayment: $('outPayment'),
+      outInterest: $('outInterest'),
+      outCostPerKm: $('outCostPerKm'),
+      outDepreciation: $('outDepreciation'),
+      outResale: $('outResale'),
+      outFuelType: $('outFuelType'),
+      componentsList: $('componentsList'),
+      projectionCard: $('projectionCard'),
+      projectionYears: $('projectionYears'),
+      projectionSummary: $('projectionSummary'),
+      printBtn: $('printBtn'),
+      shareBtn: $('shareBtn'),
+      exportBtn: $('exportBtn'),
+      lastUpdated: $('lastUpdated'),
+      loadingOverlay: $('loadingOverlay'),
+    };
+
+    // ─── UI POPULATION ──────────────────────────────────────────────
+    async function populateMakes() {
+      const sel = dom.makeSelect;
+      sel.innerHTML = '<option value="">Select Make…</option>';
+      sel.disabled = true;
+      dom.modelSelect.innerHTML = '<option value="">Select a make first</option>';
+      dom.modelSelect.disabled = true;
+      dom.yearSelect.innerHTML = '<option value="">Select a model first</option>';
+      dom.yearSelect.disabled = true;
+      dom.trimSelect.innerHTML = '<option value="">Select a year first</option>';
+      dom.trimSelect.disabled = true;
+      dom.calculateBtn.disabled = true;
+      selectedTrim = null;
+      try {
+        const makes = await loadMakes();
+        if (!makes.length) { setStatus('warning','No makes found'); return; }
+        makes.forEach(m => {
+          const o = document.createElement('option');
+          o.value = m.name; o.textContent = m.name;
+          sel.appendChild(o);
+        });
+        sel.disabled = false;
+        setStatus('success', `✅ Loaded ${makes.length} makes`);
+      } catch (e) { setStatus('error','Failed to load makes'); }
+    }
+    async function populateModels(make) {
+      const sel = dom.modelSelect;
+      sel.innerHTML = '<option value="">Select Model…</option>';
+      sel.disabled = true;
+      dom.yearSelect.innerHTML = '<option value="">Select a model first</option>';
+      dom.yearSelect.disabled = true;
+      dom.trimSelect.innerHTML = '<option value="">Select a year first</option>';
+      dom.trimSelect.disabled = true;
+      dom.calculateBtn.disabled = true;
+      selectedTrim = null;
+      if (!make) return;
+      try {
+        const models = await loadModels(make);
+        if (!models.length) { sel.innerHTML = '<option value="">No models</option>'; return; }
+        models.forEach(m => {
+          const o = document.createElement('option');
+          o.value = m.name; o.textContent = m.name;
+          sel.appendChild(o);
+        });
+        sel.disabled = false;
+        setStatus('success', `✅ Loaded ${models.length} models`);
+      } catch (e) { setStatus('error','Failed to load models'); }
+    }
+    async function populateYears(model) {
+      const sel = dom.yearSelect;
+      sel.innerHTML = '<option value="">Select Year…</option>';
+      sel.disabled = true;
+      dom.trimSelect.innerHTML = '<option value="">Select a year first</option>';
+      dom.trimSelect.disabled = true;
+      dom.calculateBtn.disabled = true;
+      selectedTrim = null;
+      if (!model) return;
+      try {
+        const years = await loadYears(model);
+        if (!years.length) { sel.innerHTML = '<option value="">No years</option>'; return; }
+        years.forEach(y => {
+          const o = document.createElement('option');
+          o.value = y; o.textContent = y;
+          sel.appendChild(o);
+        });
+        sel.disabled = false;
+        setStatus('success', `✅ Loaded ${years.length} years`);
+      } catch (e) { setStatus('error','Failed to load years'); }
+    }
+    async function populateTrims(model) {
+      const sel = dom.trimSelect;
+      sel.innerHTML = '<option value="">Select Trim…</option>';
+      sel.disabled = true;
+      dom.calculateBtn.disabled = true;
+      selectedTrim = null;
+      dom.crspInfo.classList.remove('show');
+      if (!model) return;
+      try {
+        const trims = await loadTrims(model);
+        if (!trims.length) { sel.innerHTML = '<option value="">No trims</option>'; return; }
+        _trimsById = new Map(trims.map(t => [String(t.crspId), t]));
+        trims.forEach(t => {
+          const o = document.createElement('option');
+          o.value = t.crspId;
+          o.textContent = `${t.trim || 'Base'} - KES ${number(t.crspKes)}`;
+          sel.appendChild(o);
+        });
+        sel.disabled = false;
+        setStatus('success', `✅ Loaded ${trims.length} trims`);
+      } catch (e) { setStatus('error','Failed to load trims'); }
+    }
+
+    // ─── TRIM SELECTION ──────────────────────────────────────────────
+    function onTrimSelected(crspId) {
+      const trim = _trimsById.get(String(crspId));
+      dom.calculateBtn.disabled = !trim;
+      if (!trim) { selectedTrim = null; dom.crspInfo.classList.remove('show'); return; }
+      selectedTrim = trim;
+      dom.crspInfo.classList.add('show');
+      dom.crspMatchedLine.textContent = `${trim.make||''} ${trim.model||''}`.trim() || '—';
+      dom.crspMatchedLine.className = 'value crsp-found';
+      dom.crspBasePrice.textContent = trim.crspKes ? `KES ${number(trim.crspKes)}` : '—';
+      dom.crspBasePrice.className = 'value crsp-found';
+      dom.crspEngineCapacity.textContent = trim.engineCapacity || '—';
+      dom.crspFuel.textContent = trim.fuel || '—';
+      dom.crspTransmission.textContent = trim.transmission || '—';
+
+      if (trim.crspKes) {
+        dom.basePriceTag.style.display = 'inline';
+        dom.basePriceHelper.style.display = 'block';
+        dom.basePriceHelper.textContent = `Auto-filled from CRSP: KES ${number(trim.crspKes)}`;
+        if (!formState.purchasePriceEditedByUser) {
+          dom.purchasePrice.value = Math.round(trim.crspKes);
+          if (formState.purchaseType === 'finance') dom.downPayment.value = Math.round(trim.crspKes * 0.2);
+        }
+      } else {
+        dom.basePriceTag.style.display = 'none';
+        dom.basePriceHelper.style.display = 'none';
+      }
+      renderVehicleProfile();
+    }
+
+    function renderVehicleProfile() {
+      if (!selectedTrim) return;
+      const t = selectedTrim;
+      dom.vehicleLabel.textContent = `${t.make||''} ${t.model||''} ${t.trim||''}`.trim() || 'Unnamed';
+      dom.fuelPill.textContent = t.fuel || '—';
+      dom.transmissionPill.textContent = t.transmission || '—';
+      dom.engineCCDisplay.textContent = t.engineCapacity ? `${t.engineCapacity}cc` : '—';
+      dom.bodyTypePill.textContent = t.bodyType || '—';
+      dom.conditionPill.textContent = 'New';
+      dom.purchaseTypePill.textContent = formState.purchaseType === 'cash' ? '💰 Cash' : '🏦 Financing';
+      if (t.crspKes) {
+        dom.basePricePill.textContent = `CRSP Base: KES ${number(t.crspKes)}`;
+        dom.basePricePill.style.display = 'inline-block';
+      } else {
+        dom.basePricePill.style.display = 'none';
+      }
+      dom.vehicleExtraSpecs.innerHTML = `<span><span style="color:var(--text-muted);">Drive:</span> <span style="color:var(--text-secondary);">${t.driveConfig||'—'}</span></span>`;
+    }
+
+    // ─── CALCULATE ────────────────────────────────────────────────────
+    async function calculateTCO() {
+      if (!session) { showToast('⚠️ Please sign in','warning'); return; }
+      if (!selectedTrim) { showToast('Please select a trim','error'); return; }
+      // validate price
+      const price = num(dom.purchasePrice.value);
+      if (price < 100000) { dom.purchasePriceError.textContent = 'Price must be at least KES 100,000'; return; }
+      dom.purchasePriceError.textContent = '';
+      const down = num(dom.downPayment.value);
+      if (formState.purchaseType === 'finance' && down >= price) {
+        dom.downPaymentError.textContent = 'Down payment must be less than purchase price';
+        return;
+      }
+      dom.downPaymentError.textContent = '';
+
+      const payload = {
+        vehicle_crsp_id: parseInt(selectedTrim.crspId, 10),
+        purchase_price: price,
+        down_payment: down,
+        loan_term_years: parseInt(dom.loanTermRange.value, 10) || 3,
+        interest_rate: num(dom.interestRateRange.value),
+        annual_mileage: num(dom.mileageRange.value) || 20000,
+        fuel_price: num(dom.fuelPriceInput.value) || 200,
+        insurance_rate: num(dom.insuranceRange.value) || 3,
+        maintenance_cost_per_km: num(dom.maintenanceRange.value) || 1.5,
+        tyre_cost_per_km: num(dom.tyreRange.value) || 0.8,
+        include_depreciation: formState.includeDepreciation,
+        include_insurance: formState.includeInsurance,
+        include_maintenance: formState.includeMaintenance,
+        include_tyres: formState.includeTyres,
+        include_inflation: formState.includeInflation,
+        years: parseInt(dom.yearsRange.value, 10) || 5,
+        currency: 'KES',
+        vehicle_year: parseInt(dom.yearSelect.value, 10) || 2020,
+        trip_type: 'mixed',
+        driving_style: 'normal',
+        usage_type: 'private',
+        location: 'nairobi',
+        condition: 'good',
+        inflation_rate: CONFIG.INFLATION_RATE_PCT,
+        vehicle_type: 'ice',
+        fuel_type: formState.fuelType,
+        vehicle_condition: 'new',
+        purchase_type: formState.purchaseType
+      };
+      if (formState.fuelType === 'electric') {
+        payload.electricity_consumption_kwh_per_km = 0.15;
+        payload.electricity_price_per_kwh = 30;
+      }
+
+      dom.calculateBtn.disabled = true;
+      dom.calculateBtn.innerHTML = '<span class="spinner" aria-hidden="true"></span> Calculating…';
+      showProgress(30, 'Sending to API…');
+      try {
+        const token = session?.access_token || '';
+        const resp = await fetch(`${CONFIG.API_BASE}/ownership/calculate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+          body: JSON.stringify(payload)
+        });
+        if (!resp.ok) {
+          let err = await resp.text();
+          try { err = JSON.parse(err)?.detail || err; } catch(e) {}
+          throw new Error(err);
+        }
+        const data = await resp.json();
+        showProgress(80, 'Rendering…');
+        scenarioResult = data;
+        renderResults(data);
+        showProgress(100, 'Done!');
+        setTimeout(hideProgress, 500);
+        showToast('✅ TCO calculated!','success');
+      } catch (err) {
+        hideProgress();
+        showToast('❌ ' + (err.message || 'Calculation failed'), 'error');
+        console.error(err);
+      } finally {
+        dom.calculateBtn.disabled = false;
+        dom.calculateBtn.innerHTML = '🚀 Calculate TCO';
+      }
+    }
+
+    // ─── RENDER RESULTS ──────────────────────────────────────────────
+    function renderResults(result) {
+      dom.outTotal.textContent = currency(result.total_cost);
+      dom.outMonthly.textContent = currency(result.monthly_cost);
+      dom.outPayment.textContent = currency(result.monthly_payment);
+      dom.outInterest.textContent = currency(result.total_interest);
+      dom.outCostPerKm.textContent = currency(result.cost_per_km);
+      dom.outDepreciation.textContent = currency(result.total_depreciation);
+      dom.outResale.textContent = currency(result.resale_value);
+      dom.outFuelType.textContent = formState.fuelType.charAt(0).toUpperCase() + formState.fuelType.slice(1);
+
+      const comps = result.components || [];
+      let html = '';
+      const total = comps.reduce((s,c) => s + (c.amount||0), 0);
+      comps.forEach(c => {
+        const pct = total > 0 ? ((c.amount||0)/total*100) : 0;
+        const color = pct > 30 ? 'var(--amber)' : pct > 15 ? 'var(--blue)' : 'var(--green)';
+        html += `<div class="comp-item"><span>${escapeHTML(c.name||'Unknown')} <span class="comp-percent">(${pct.toFixed(1)}%)</span></span><span class="comp-amount">${currency(c.amount)}</span><div class="comp-bar"><div class="fill" style="width:${pct}%;background:${color};"></div></div></div>`;
+      });
+      dom.componentsList.innerHTML = html || 'No components';
+
+      const yearly = result.yearly_breakdown || result.yearly || [];
+      if (yearly.length) {
+        dom.projectionCard.style.display = 'block';
+        const maxVal = Math.max(...yearly.map(y => y.total_cost||0), 1);
+        dom.projectionYears.innerHTML = yearly.map((y,i) => {
+          const pct = v => maxVal > 0 ? (v/maxVal)*100 : 0;
+          const loanP = pct(y.loan_payment||0);
+          const insP = pct(y.insurance||0);
+          const depP = pct(y.depreciation||0);
+          const runP = pct(y.running_cost||0);
+          return `<div class="projection-year"><span class="year-label">Year ${y.year||i+1}</span><div class="bar-container">${y.loan_payment?`<div class="bar bar-loan" style="width:${loanP}%;left:0;"></div>`:''}${y.insurance?`<div class="bar bar-insurance" style="width:${insP}%;left:${loanP}%;"></div>`:''}${y.depreciation?`<div class="bar bar-depreciation" style="width:${depP}%;left:${loanP+insP}%;"></div>`:''}${y.running_cost?`<div class="bar bar-running" style="width:${runP}%;left:${loanP+insP+depP}%;"></div>`:''}<div class="bar bar-total" style="width:${pct(y.total_cost||0)}%;left:0;opacity:0.15;"></div></div><span class="amount">${currency(y.total_cost)}</span></div>`;
+        }).join('');
+        const totalCost = yearly.reduce((s,y) => s + (y.total_cost||0), 0);
+        dom.projectionSummary.innerHTML = `<strong>Total Cost:</strong> ${currency(totalCost)} &nbsp;|&nbsp; <strong>Average Yearly:</strong> ${currency(totalCost/yearly.length)}`;
+      } else {
+        dom.projectionCard.style.display = 'none';
+      }
+      dom.lastUpdated.textContent = new Date().toLocaleString('en-KE', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+    }
+
+    // ─── EXPORT CSV ──────────────────────────────────────────────────
+    function exportCSV() {
+      if (!scenarioResult) { showToast('Calculate TCO first','warning'); return; }
+      const yearly = scenarioResult.yearly_breakdown || scenarioResult.yearly || [];
+      if (!yearly.length) { showToast('No yearly data','warning'); return; }
+      let csv = 'Year,Total Cost,Depreciation,Running Cost,Insurance,Loan Payment\n';
+      yearly.forEach(y => {
+        csv += `${y.year||''},${y.total_cost||0},${y.depreciation||0},${y.running_cost||0},${y.insurance||0},${y.loan_payment||0}\n`;
+      });
+      csv += '\nSummary\n';
+      csv += `Total Cost,${scenarioResult.total_cost||0}\nMonthly Cost,${scenarioResult.monthly_cost||0}\nCost Per KM,${scenarioResult.cost_per_km||0}\nResale Value,${scenarioResult.resale_value||0}\n`;
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `tco-report-${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(link); link.click(); link.remove();
+    }
+
+    // ─── BIND EVENTS ──────────────────────────────────────────────────
+    function bindEvents() {
+      document.getElementById('btnLogin').addEventListener('click', async () => {
+        const email = document.getElementById('authEmail').value.trim();
+        const pwd = document.getElementById('authPassword').value;
+        if (!email || !pwd) { showToast('Enter email and password','warning'); return; }
+        try { await signIn(email, pwd); updateAuthUI(); showToast('✅ Signed in','success'); populateMakes(); } catch(e) { showToast('❌ '+e.message,'error'); }
+      });
+      document.getElementById('btnSignup').addEventListener('click', async () => {
+        const email = document.getElementById('authEmail').value.trim();
+        const pwd = document.getElementById('authPassword').value;
+        if (!email || !pwd) { showToast('Enter email and password','warning'); return; }
+        if (pwd.length < 6) { showToast('Password min 6 chars','warning'); return; }
+        try { await signUp(email, pwd); showToast('✅ Account created! Check email.','success'); } catch(e) { showToast('❌ '+e.message,'error'); }
+      });
+      document.getElementById('btnSignOut').addEventListener('click', async () => {
+        await signOut(); updateAuthUI(); showToast('Signed out','info'); document.getElementById('makeSelect').disabled = true;
+      });
+
+      dom.makeSelect.addEventListener('change', function() { populateModels(this.value); });
+      dom.modelSelect.addEventListener('change', function() { populateYears(this.value); });
+      dom.yearSelect.addEventListener('change', function() { populateTrims(dom.modelSelect.value); });
+      dom.trimSelect.addEventListener('change', function() { onTrimSelected(this.value); });
+      dom.calculateBtn.addEventListener('click', calculateTCO);
+
+      // Fuel type toggle
+      dom.fuelTypeGroup.addEventListener('click', e => {
+        const btn = e.target.closest('.fuel-type-btn');
+        if (!btn) return;
+        dom.fuelTypeGroup.querySelectorAll('.fuel-type-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
+        btn.classList.add('active'); btn.setAttribute('aria-pressed','true');
+        formState.fuelType = btn.dataset.fuel;
+        document.getElementById('fuelTypeHelper').textContent = { petrol:'Petrol: Standard fuel', diesel:'Diesel: More efficient', hybrid:'Hybrid: Combined', electric:'Electric: Zero emissions' }[formState.fuelType] || '';
+        dom.fuelPriceInput.disabled = formState.fuelType === 'electric';
+        if (formState.fuelType === 'electric') dom.fuelPriceInput.value = 0;
+      });
+
+      // Purchase type toggle
+      dom.purchaseTypeGroup.addEventListener('click', e => {
+        const btn = e.target.closest('.purchase-type-btn');
+        if (!btn) return;
+        dom.purchaseTypeGroup.querySelectorAll('.purchase-type-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
+        btn.classList.add('active'); btn.setAttribute('aria-pressed','true');
+        formState.purchaseType = btn.dataset.type;
+        dom.financeFields.style.display = formState.purchaseType === 'cash' ? 'none' : 'block';
+        renderVehicleProfile();
+      });
+
+      dom.purchasePrice.addEventListener('input', () => { formState.purchasePriceEditedByUser = true; });
+      dom.loanTermRange.addEventListener('input', () => { dom.valLoanTerm.textContent = dom.loanTermRange.value + ' years'; });
+      dom.interestRateRange.addEventListener('input', () => { dom.valInterestRate.textContent = parseFloat(dom.interestRateRange.value).toFixed(1) + '%'; });
+      dom.mileageRange.addEventListener('input', () => { dom.valMileage.textContent = parseInt(dom.mileageRange.value,10).toLocaleString() + ' km'; });
+      dom.insuranceRange.addEventListener('input', () => { dom.valInsuranceRate.textContent = parseFloat(dom.insuranceRange.value).toFixed(1) + '%'; });
+      dom.maintenanceRange.addEventListener('input', () => { dom.valMaintenance.textContent = 'KES ' + parseFloat(dom.maintenanceRange.value).toFixed(2); });
+      dom.tyreRange.addEventListener('input', () => { dom.valTyre.textContent = 'KES ' + parseFloat(dom.tyreRange.value).toFixed(2); });
+      dom.yearsRange.addEventListener('input', () => { dom.valYears.textContent = dom.yearsRange.value + ' years'; });
+
+      dom.printBtn.addEventListener('click', () => window.print());
+      dom.shareBtn.addEventListener('click', () => {
+        const text = `Auto-D Kenya TCO\nVehicle: ${dom.vehicleLabel.textContent}\nTotal: ${dom.outTotal.textContent}\nMonthly: ${dom.outMonthly.textContent}`;
+        if (navigator.share) navigator.share({ title:'Auto-D TCO', text, url:location.href }).catch(()=>{});
+        else navigator.clipboard.writeText(text+'\n'+location.href).then(()=>showToast('📋 Copied!','success'));
+      });
+      dom.exportBtn.addEventListener('click', exportCSV);
+
+      // Auth check every 30s
+      setInterval(async () => { const s = await getSession(); if (s) session = s; updateAuthUI(); }, 30000);
+    }
+
+    // ─── INIT ─────────────────────────────────────────────────────────
+    async function init() {
+      dom.loadingOverlay.classList.add('active');
+      try {
+        await getSession();
+        updateAuthUI();
+        if (session) await populateMakes();
+        else { dom.makeSelect.disabled = true; setStatus('info','Sign in to load vehicles'); }
+        dom.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year:'numeric', month:'short', day:'numeric' });
+        dom.financeFields.style.display = 'none';
+        console.log('✅ Auto-D TCO initialized (Supabase-ready)');
+      } catch(e) { setStatus('error','Init error: '+e.message); }
+      dom.loadingOverlay.classList.remove('active');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      bindEvents();
+      init();
+    });
+
+  })();
+</script>
 </body>
 </html>
