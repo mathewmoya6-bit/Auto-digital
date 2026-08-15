@@ -1580,7 +1580,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> AI Valuation · Real-time Market Data · KRA CRSP Cross-Check<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.4
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.5
             </div>
         </footer>
     </div>
@@ -1672,8 +1672,20 @@
                 async calculateValuation(data) {
                     const response = await this.post(CONFIG.ENDPOINTS.VALUATION, data);
                     if (!response.ok) {
-                        const error = await response.json().catch(() => ({}));
-                        throw new Error(error.message || error.detail || `HTTP ${response.status}`);
+                        const body = await response.json().catch(() => ({}));
+                        const detail = body.detail;
+
+                        let message;
+                        if (typeof detail === 'string') {
+                            message = detail;
+                        } else if (detail && typeof detail === 'object') {
+                            // FastAPI wraps our {error, message} dict under "detail"
+                            message = detail.message || detail.error || JSON.stringify(detail);
+                        } else {
+                            message = body.message || `HTTP ${response.status}`;
+                        }
+
+                        throw new Error(message);
                     }
                     return response.json();
                 }
