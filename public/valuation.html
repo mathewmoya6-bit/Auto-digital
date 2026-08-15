@@ -1580,7 +1580,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> AI Valuation · Real-time Market Data · KRA CRSP Cross-Check<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.6
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.7
             </div>
         </footer>
     </div>
@@ -2456,7 +2456,12 @@
                         allModels: [],
                         allTrims: [],
                         currentVariant: null,
-                        isValuating: false
+                        isValuating: false,
+                        // Tracks whether the Make dropdown has already been
+                        // populated for the current session, so the periodic
+                        // background auth check (every 30s) doesn't keep
+                        // wiping and rebuilding it under the user's feet.
+                        makesLoaded: false
                     };
                     this.init();
                 }
@@ -2676,10 +2681,20 @@
                             localStorage.setItem('user_id', data.session.user.id);
                             localStorage.setItem('user_email', data.session.user.email);
                             this.ui.updateAuthUI(data.session.user);
-                            await this.loadMakes();
+                            // Only populate the Make dropdown once per session.
+                            // Without this guard, the 30s background auth-check
+                            // interval calls checkAuth() -> loadMakes() on every
+                            // tick, wiping and rebuilding the <select> (and
+                            // resetting its value to "") even while the user is
+                            // mid-flow on model/year/trim selection.
+                            if (!this.state.makesLoaded) {
+                                await this.loadMakes();
+                                this.state.makesLoaded = true;
+                            }
                         } else {
                             this.state.isAuthenticated = false;
                             this.state.currentUser = null;
+                            this.state.makesLoaded = false;
                             this.ui.updateAuthUI(null);
                         }
                         return this.state.isAuthenticated;
@@ -2687,6 +2702,7 @@
                         console.warn('Auth check failed:', error.message);
                         this.state.isAuthenticated = false;
                         this.state.currentUser = null;
+                        this.state.makesLoaded = false;
                         this.ui.updateAuthUI(null);
                         return false;
                     }
@@ -2705,6 +2721,7 @@
                         this.ui.updateAuthUI(data.session.user);
                         this.ui.showToast('✅ Signed in successfully!', 'success');
                         await this.loadMakes();
+                        this.state.makesLoaded = true;
                         return true;
                     } catch (error) {
                         this.ui.showToast('❌ Sign in failed: ' + error.message, 'error');
@@ -2736,6 +2753,7 @@
                         localStorage.removeItem('user_email');
                         this.state.isAuthenticated = false;
                         this.state.currentUser = null;
+                        this.state.makesLoaded = false;
                         this.ui.updateAuthUI(null);
                         this.ui.showToast('🔓 Signed out', 'info');
                         this.ui.updateValuateButton(false, '🔒 Sign in required');
