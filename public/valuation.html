@@ -3121,7 +3121,27 @@
                         this.updateLoadingStep(3);
                         if (stepsEl) stepsEl.classList.remove('show');
 
-                        if (result && (result.valuation || result.final_value || result.final_market_value)) {
+                        // NOTE: the backend's ValuationResponse wraps the actual
+                        // payload under "data" — { success: true, data: { valuation: {...}, ... } }.
+                        // Older code here checked result.valuation / result.final_value /
+                        // result.final_market_value directly on the top-level response,
+                        // which are never present in that shape, so a fully successful
+                        // 200 response was still treated as a failure ("No valuation
+                        // data received"). Unwrap result.data (falling back to result
+                        // itself in case an older/flat response shape is ever returned
+                        // by a different endpoint) before checking for the presence of
+                        // valuation data.
+                        const valuationData = (result && result.data) ? result.data : result;
+
+                        const hasValuationData = !!(
+                            valuationData && (
+                                valuationData.valuation ||
+                                valuationData.final_value ||
+                                valuationData.final_market_value
+                            )
+                        );
+
+                        if (result && result.success !== false && hasValuationData) {
                             this.ui.showValuationResult(result, registration, formData);
                             this.ui.showToast('✅ Valuation complete!', 'success');
                         } else {
