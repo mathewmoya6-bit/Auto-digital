@@ -160,7 +160,7 @@
                 <a href="/dashboard.html" class="dashboard-link"><span aria-hidden="true">←</span> Back to Dashboard</a>
             </div>
             <div class="header-right">
-                <div class="version">Version <span>9.8</span> <span class="auto-d-badge">Auto-D</span></div>
+                <div class="version">Version <span>9.9</span> <span class="auto-d-badge">Auto-D</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div><span class="auth-status unauthenticated" id="authStatus" aria-live="polite">🔓 Not Authenticated</span></div>
                 <div id="serviceStatus" style="display:none;margin-top:4px;"><span class="auth-status authenticated" id="serviceBadge">✅ TCO Ready</span></div>
@@ -398,7 +398,21 @@
         const Config = Object.freeze({
             SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
             SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
-            VIEW_NAME: 'vehicle_crsp_lookup',
+            // vehicle_crsp_lookup cross-joins every AVAILABLE crsp row against
+            // generate_series(1990, 2026) so the app can offer a year dropdown
+            // (vehicle_crsp has no real manufacture_year column). That's fine
+            // for a single filtered trim lookup, but querying it for the makes/
+            // models/years browse steps means paging through ~193k exploded
+            // rows to get ~63 makes. Those steps now hit the lean base tables
+            // directly instead; the view is unused by this file.
+            MAKES_TABLE: 'vehicle_makes',
+            MODELS_TABLE: 'vehicle_models',
+            CRSP_TABLE: 'vehicle_crsp',
+            // Must match the generate_series(1990, 2026) bounds in the
+            // vehicle_crsp_lookup view definition — keep these in sync if
+            // that view is ever changed.
+            CRSP_YEAR_MIN: 1990,
+            CRSP_YEAR_MAX: 2026,
             API_BASE: 'https://auto-digital.onrender.com/api/v1',
             REQUEST_TIMEOUT_MS: 30000,
             COLD_START_TIMEOUT_MS: 55000,
@@ -567,41 +581,48 @@
 
         /* ============================================================
          * VehicleRepository — the only code in this file that touches
-         * `supabase.from(...)`. All four browse methods (makes / models
-         * / years / trims) share a single paginated query helper
-         * instead of four copy-pasted pagination loops. Every page
-         * fetch is timeout-guarded via Utils.withTimeout so a stuck
-         * query can't hold the UI in "Loading..." indefinitely.
+         * `supabase.from(...)`. Queries the lean base tables directly
+         * (vehicle_makes / vehicle_models / vehicle_crsp) rather than
+         * the exploded vehicle_crsp_lookup view, which cross-joins
+         * every AVAILABLE crsp row against 37 synthetic years and
+         * turns a ~63-row makes query into a ~193k-row page-through.
+         * Every query is timeout-guarded via Utils.withTimeout so a
+         * stuck query can't hold the UI in "Loading..." indefinitely.
          * ============================================================ */
         class VehicleRepository {
-            constructor(supabaseClient, { viewName, pageSize }) {
+            constructor(supabaseClient, { makesTable, modelsTable, crspTable, pageSize, yearMin, yearMax }) {
                 this.client = supabaseClient;
-                this.viewName = viewName;
+                this.makesTable = makesTable;
+                this.modelsTable = modelsTable;
+                this.crspTable = crspTable;
                 this.pageSize = pageSize;
+                this.yearMin = yearMin;
+                this.yearMax = yearMax;
             }
 
             /**
-             * Fetches every row matching `filter`, paginating with
-             * .range() so results aren't silently capped by the
-             * project's "Max Rows" API setting. Each page fetch is
-             * wrapped in Utils.withTimeout(Config.QUERY_TIMEOUT_MS) so a
-             * hung request surfaces as an error instead of an infinite spinner.
+             * Fetches every row from `table` matching `filters`, paginating
+             * with .range() so results aren't silently capped by the
+             * project's "Max Rows" API setting. Each page fetch is wrapped
+             * in Utils.withTimeout(Config.QUERY_TIMEOUT_MS) so a hung
+             * request surfaces as an error instead of an infinite spinner.
+             * @param {Array<{column:string, value:*}>} [filters] AND-ed .eq() filters
              */
-            async _queryAll(select, filter, order) {
+            async _queryAll(table, select, filters, order) {
                 const rows = [];
                 let from = 0;
 
                 while (true) {
-                    let query = this.client.from(this.viewName).select(select);
-                    if (filter) query = query.eq(filter.column, filter.value);
+                    let query = this.client.from(table).select(select);
+                    (filters || []).forEach(f => { query = query.eq(f.column, f.value); });
                     if (order) query = query.order(order.column, { ascending: order.ascending !== false });
                     query = query.range(from, from + this.pageSize - 1);
 
                     const { data, error } = await Utils.withTimeout(
-                        query, Config.QUERY_TIMEOUT_MS, `Loading ${this.viewName}`
+                        query, Config.QUERY_TIMEOUT_MS, `Loading ${table}`
                     );
                     if (error) {
-                        throw new AppError(`Query on ${this.viewName} failed: ${error.message}`, {
+                        throw new AppError(`Query on ${table} failed: ${error.message}`, {
                             userMessage: 'Could not load vehicle data. Please try again.',
                             cause: error
                         });
@@ -624,42 +645,63 @@
             }
 
             async getMakes() {
-                const rows = await this._queryAll('make, make_id', null, { column: 'make', ascending: true });
-                return VehicleRepository._dedupeBy(rows, r => r.make)
-                    .map(r => ({ id: r.make_id || r.make, name: r.make }));
-            }
-
-            async getModels(makeName) {
                 const rows = await this._queryAll(
-                    'model, model_id, body_type, seating_capacity',
-                    { column: 'make', value: makeName },
-                    { column: 'model', ascending: true }
+                    this.makesTable, 'id, make',
+                    [{ column: 'active', value: true }],
+                    { column: 'make', ascending: true }
                 );
-                return VehicleRepository._dedupeBy(rows, r => r.model)
-                    .map(r => ({ id: r.model_id || r.model, name: r.model, bodyType: r.body_type }));
+                return rows.map(r => ({ id: r.id, name: r.make }));
             }
 
-            async getYears(modelName) {
+            async getModels(makeId) {
                 const rows = await this._queryAll(
-                    'manufacture_year, crsp_year',
-                    { column: 'model', value: modelName },
-                    { column: 'manufacture_year', ascending: false }
+                    this.modelsTable, 'id, name',
+                    [{ column: 'make_id', value: makeId }, { column: 'active', value: true }],
+                    { column: 'name', ascending: true }
                 );
-                const years = VehicleRepository._dedupeBy(
-                    rows.map(r => ({ year: r.manufacture_year || r.crsp_year })),
-                    r => r.year
-                ).map(r => r.year).filter(Boolean);
-                return years.sort((a, b) => b - a);
+                return rows.map(r => ({ id: r.id, name: r.name }));
             }
 
-            async getTrims(modelName, year) {
+            /**
+             * Years aren't a real stored attribute — vehicle_crsp has no
+             * manufacture_year column. vehicle_crsp_lookup only shows a
+             * year dropdown by cross-joining AVAILABLE trims against
+             * generate_series(yearMin, yearMax), so the same range applies
+             * to every model that has at least one AVAILABLE trim. Rather
+             * than page through that exploded view, this does a single
+             * existence check and returns the constant range.
+             */
+            async getYears(modelId) {
+                const { data, error } = await Utils.withTimeout(
+                    this.client.from(this.crspTable).select('crsp_id')
+                        .eq('model_id', modelId).eq('crsp_status', 'AVAILABLE').limit(1),
+                    Config.QUERY_TIMEOUT_MS, `Loading ${this.crspTable}`
+                );
+                if (error) {
+                    throw new AppError(`Query on ${this.crspTable} failed: ${error.message}`, {
+                        userMessage: 'Could not load vehicle data. Please try again.',
+                        cause: error
+                    });
+                }
+                if (!data || !data.length) return [];
+                const years = [];
+                for (let y = this.yearMax; y >= this.yearMin; y--) years.push(y);
+                return years;
+            }
+
+            /**
+             * Trims are independent of the (synthetic) year, so this isn't
+             * filtered by year — the same trims apply across the whole
+             * yearMin–yearMax range for a given model.
+             */
+            async getTrims(modelId) {
                 const rows = await this._queryAll(
-                    'crsp_id, trim_level, engine_capacity, fuel, transmission, drive_config, crsp_kes, body_type, manufacture_year, crsp_year, make, model',
-                    { column: 'model', value: modelName },
+                    this.crspTable,
+                    'crsp_id, trim_level, engine_capacity, fuel, transmission, drive_config, crsp_kes, body_type, crsp_reference_year, make, model',
+                    [{ column: 'model_id', value: modelId }, { column: 'crsp_status', value: 'AVAILABLE' }],
                     { column: 'trim_level', ascending: true }
                 );
-                const filtered = rows.filter(r => (r.manufacture_year || r.crsp_year) == year);
-                return VehicleRepository._dedupeBy(filtered, r => `${r.trim_level || 'Base'}__${r.crsp_id}`)
+                return VehicleRepository._dedupeBy(rows, r => `${r.trim_level || 'Base'}__${r.crsp_id}`)
                     .map(r => ({
                         crspId: r.crsp_id,
                         make: r.make,
@@ -1149,7 +1191,8 @@
                     });
                     this.auth = new AuthService(this.supabaseClient);
                     this.vehicles = new VehicleRepository(this.supabaseClient, {
-                        viewName: Config.VIEW_NAME, pageSize: Config.CRSP_PAGE_SIZE
+                        makesTable: Config.MAKES_TABLE, modelsTable: Config.MODELS_TABLE, crspTable: Config.CRSP_TABLE,
+                        pageSize: Config.CRSP_PAGE_SIZE, yearMin: Config.CRSP_YEAR_MIN, yearMax: Config.CRSP_YEAR_MAX
                     });
                     this.ownershipApi = new OwnershipApi(Config.API_BASE, this.auth);
 
@@ -1211,7 +1254,7 @@
                     if (!makes.length) { this.view.setStatus('warning', 'No makes found'); return; }
 
                     this.dom.makeSelect.innerHTML = '<option value="">Select Make...</option>' +
-                        makes.map(m => `<option value="${Utils.escapeHtml(m.name)}">${Utils.escapeHtml(m.name)}</option>`).join('');
+                        makes.map(m => `<option value="${m.id}">${Utils.escapeHtml(m.name)}</option>`).join('');
                     this.dom.makeSelect.disabled = false;
                     this.view.setStatus('success', `✅ Loaded ${makes.length} makes`);
                 } catch (error) {
@@ -1220,15 +1263,15 @@
                 }
             }
 
-            async _loadModels(makeName) {
+            async _loadModels(makeId) {
                 this._resetDownstream(['modelSelect', 'yearSelect', 'trimSelect']);
-                if (!makeName) return;
+                if (!makeId) return;
                 try {
                     this.view.setStatus('info', 'Loading models...');
-                    const models = await this.vehicles.getModels(makeName);
+                    const models = await this.vehicles.getModels(makeId);
                     if (!models.length) { this.view.setStatus('warning', 'No models found for this make'); return; }
                     this.dom.modelSelect.innerHTML = '<option value="">Select Model...</option>' +
-                        models.map(m => `<option value="${Utils.escapeHtml(m.name)}">${Utils.escapeHtml(m.bodyType ? `${m.name} (${m.bodyType})` : m.name)}</option>`).join('');
+                        models.map(m => `<option value="${m.id}">${Utils.escapeHtml(m.name)}</option>`).join('');
                     this.dom.modelSelect.disabled = false;
                     this.view.setStatus('success', `✅ Loaded ${models.length} models`);
                 } catch (error) {
@@ -1237,12 +1280,12 @@
                 }
             }
 
-            async _loadYears(modelName) {
+            async _loadYears(modelId) {
                 this._resetDownstream(['yearSelect', 'trimSelect']);
-                if (!modelName) return;
+                if (!modelId) return;
                 try {
                     this.view.setStatus('info', 'Loading years...');
-                    const years = await this.vehicles.getYears(modelName);
+                    const years = await this.vehicles.getYears(modelId);
                     if (!years.length) { this.view.setStatus('warning', 'No years found for this model'); return; }
                     this.dom.yearSelect.innerHTML = '<option value="">Select Year...</option>' +
                         years.map(y => `<option value="${y}">${y}</option>`).join('');
@@ -1254,12 +1297,15 @@
                 }
             }
 
-            async _loadTrims(modelName, year) {
+            async _loadTrims(modelId, year) {
                 this._resetDownstream(['trimSelect']);
-                if (!modelName || !year) return;
+                // year is required as a UX gate (it feeds vehicle_year in the
+                // ownership payload) but trims themselves are the same across
+                // the whole year range, so it isn't passed to the repository.
+                if (!modelId || !year) return;
                 try {
                     this.view.setStatus('info', 'Loading trims...');
-                    const trims = await this.vehicles.getTrims(modelName, year);
+                    const trims = await this.vehicles.getTrims(modelId);
                     if (!trims.length) { this.view.setStatus('warning', 'No trims found for this year'); return; }
                     this._trimsById = new Map(trims.map(t => [String(t.crspId), t]));
                     this.dom.trimSelect.innerHTML = '<option value="">Select Trim...</option>' +
