@@ -1580,7 +1580,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> AI Valuation · Real-time Market Data · KRA CRSP Cross-Check<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.5
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v5.6
             </div>
         </footer>
     </div>
@@ -1677,9 +1677,17 @@
 
                         let message;
                         if (typeof detail === 'string') {
+                            // Plain string detail, e.g. simple HTTPException(detail="...")
                             message = detail;
+                        } else if (Array.isArray(detail)) {
+                            // FastAPI's default Pydantic validation error shape:
+                            // [{ "type": "...", "loc": ["body","make"], "msg": "...", ... }, ...]
+                            message = detail.map(d => {
+                                const field = Array.isArray(d.loc) ? d.loc.slice(1).join('.') : 'request';
+                                return `${field}: ${d.msg}`;
+                            }).join('; ');
                         } else if (detail && typeof detail === 'object') {
-                            // FastAPI wraps our {error, message} dict under "detail"
+                            // Our custom {error, message} dict, wrapped by FastAPI under "detail"
                             message = detail.message || detail.error || JSON.stringify(detail);
                         } else {
                             message = body.message || `HTTP ${response.status}`;
@@ -3045,9 +3053,23 @@
                     const registration = this.ui.elements.registrationInput?.value?.trim()?.toUpperCase() || 'Not Provided';
                     const year = parseInt(this.ui.elements.yearSelect?.value) || 2020;
 
+                    const makeValue = this.ui.elements.makeSelect?.value || '';
+                    const modelValue = this.ui.elements.modelSelect?.value || '';
+
+                    // Defensive guard: the backend requires non-empty make/model
+                    // (min_length=1). If the dropdowns somehow got reset or the
+                    // selection was lost between steps, catch it here with a
+                    // clear message instead of sending a request the API will
+                    // reject with a raw 422 validation error.
+                    if (!makeValue || !modelValue) {
+                        this.ui.showToast('⚠️ Please re-select the vehicle make and model before valuating', 'warning');
+                        this.ui.setStatus('warning', 'Vehicle make/model missing — please reselect from the dropdowns');
+                        return;
+                    }
+
                     const formData = {
-                        make: this.ui.elements.makeSelect?.value || '',
-                        model: this.ui.elements.modelSelect?.value || '',
+                        make: makeValue,
+                        model: modelValue,
                         trim: trimValue,
                         year: year,
                         mileage: parseFloat(this.ui.elements.mileageInput?.value) || 50000,
