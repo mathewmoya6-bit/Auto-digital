@@ -1,4 +1,10 @@
 """
 Auto-D Kenya
-Vehicle Ownership Cost Module
+Ownership Module
 """
+
+from app.modules.ownership.router import router
+
+__all__ = [
+    "router",
+]
