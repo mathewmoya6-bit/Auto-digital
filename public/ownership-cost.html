@@ -147,7 +147,7 @@
 
     <div class="loading-overlay" id="loadingOverlay" role="status" aria-busy="true" aria-live="polite">
         <div class="spinner-large" aria-hidden="true"></div>
-        <div class="loading-text">Loading Vehicle Data...</div>
+        <div class="loading-text" id="loadingOverlayText">Loading Vehicle Data...</div>
     </div>
 
     <div class="wrap" id="main-content">
@@ -160,7 +160,7 @@
                 <a href="/dashboard.html" class="dashboard-link"><span aria-hidden="true">←</span> Back to Dashboard</a>
             </div>
             <div class="header-right">
-                <div class="version">Version <span>9.7</span> <span class="auto-d-badge">Auto-D</span></div>
+                <div class="version">Version <span>9.8</span> <span class="auto-d-badge">Auto-D</span></div>
                 <div>Last Updated: <span id="lastUpdated">—</span></div>
                 <div><span class="auth-status unauthenticated" id="authStatus" aria-live="polite">🔓 Not Authenticated</span></div>
                 <div id="serviceStatus" style="display:none;margin-top:4px;"><span class="auth-status authenticated" id="serviceBadge">✅ TCO Ready</span></div>
@@ -204,7 +204,7 @@
                 </div>
 
                 <div class="panel-label"><span class="num">01</span> Vehicle Selection</div>
-                <div class="form-group"><label for="makeSelect">Vehicle Make</label><select id="makeSelect" disabled><option value="">Loading makes...</option></select></div>
+                <div class="form-group"><label for="makeSelect">Vehicle Make</label><select id="makeSelect" disabled><option value="">Sign in to load makes</option></select></div>
                 <div class="form-group"><label for="modelSelect">Vehicle Model</label><select id="modelSelect" disabled><option value="">Select a make first</option></select></div>
                 <div class="form-group"><label for="yearSelect">Manufacture Year</label><select id="yearSelect" disabled><option value="">Select a model first</option></select></div>
                 <div class="form-group"><label for="trimSelect">Vehicle Trim / Variant</label><select id="trimSelect" disabled><option value="">Select a year first</option></select></div>
@@ -407,6 +407,18 @@
             EV_KWH_PER_KM: 0.15,
             EV_PRICE_PER_KWH: 30,
             DEBUG: false,
+            // How long any single Supabase query is allowed to hang before we
+            // give up and show an error instead of spinning forever.
+            QUERY_TIMEOUT_MS: 15000,
+            // Absolute ceiling on the whole init() sequence — if this fires,
+            // something is stuck (bad RLS policy, dead connection, etc.) and
+            // the loading overlay is forced closed with an error instead of
+            // staying up indefinitely.
+            INIT_WATCHDOG_MS: 20000,
+            DEFAULT_COUNTY: 'NAIROBI',
+            // Used only as an instant fallback while the live rate loads,
+            // and if no live rate exists for a fuel type at all — the
+            // authoritative source is county_fuel_prices (admin dashboard).
             FUEL_PRICES: { petrol: 200, diesel: 190, hybrid: 180, lpg: 150, electric: 0 },
             FUEL_DESCRIPTIONS: {
                 petrol: 'Petrol: Standard fuel for most vehicles',
@@ -444,6 +456,9 @@
         /* ============================================================
          * Utils — pure functions only. No DOM reads, no network, no
          * mutation of shared state. Safe to unit test in isolation.
+         * Also home to withTimeout(), the one shared helper any
+         * "might hang forever" promise (Supabase calls, session
+         * checks, etc.) is routed through.
          * ============================================================ */
         const Utils = {
             toNumber(value, fallback = 0) {
@@ -469,13 +484,31 @@
                 const mo = (model || '').trim();
                 const t = (trim || '').trim();
                 return t ? `${m} ${mo} ${t}`.trim() : (`${m} ${mo}`.trim() || 'Unknown Vehicle');
+            },
+            /**
+             * Races `promise` against a timeout so a hung network/RLS/
+             * Supabase call can never keep the UI spinning forever.
+             * Rejects with an AppError carrying `label` in its message.
+             */
+            withTimeout(promise, ms, label) {
+                let timer;
+                const timeout = new Promise((_, reject) => {
+                    timer = setTimeout(() => {
+                        reject(new AppError(`${label} timed out after ${ms}ms`, {
+                            userMessage: `${label} is taking too long. Please check your connection and try again.`
+                        }));
+                    }, ms);
+                });
+                return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
             }
         };
 
         /* ============================================================
          * AuthService — the only code in this file that touches
          * `supabase.auth.*`. Every method throws AppError on failure
-         * so callers have one error shape to handle.
+         * so callers have one error shape to handle. getSession() is
+         * timeout-guarded since a hung auth call is the #1 way the
+         * loading overlay used to spin forever.
          * ============================================================ */
         class AuthService {
             constructor(supabaseClient) {
@@ -487,7 +520,9 @@
             }
 
             async getSession() {
-                const { data, error } = await this.client.auth.getSession();
+                const { data, error } = await Utils.withTimeout(
+                    this.client.auth.getSession(), Config.QUERY_TIMEOUT_MS, 'Checking authentication'
+                );
                 if (error) throw new AppError('getSession failed: ' + error.message, { cause: error });
                 return data.session || null;
             }
@@ -534,7 +569,9 @@
          * VehicleRepository — the only code in this file that touches
          * `supabase.from(...)`. All four browse methods (makes / models
          * / years / trims) share a single paginated query helper
-         * instead of four copy-pasted pagination loops.
+         * instead of four copy-pasted pagination loops. Every page
+         * fetch is timeout-guarded via Utils.withTimeout so a stuck
+         * query can't hold the UI in "Loading..." indefinitely.
          * ============================================================ */
         class VehicleRepository {
             constructor(supabaseClient, { viewName, pageSize }) {
@@ -546,7 +583,9 @@
             /**
              * Fetches every row matching `filter`, paginating with
              * .range() so results aren't silently capped by the
-             * project's "Max Rows" API setting.
+             * project's "Max Rows" API setting. Each page fetch is
+             * wrapped in Utils.withTimeout(Config.QUERY_TIMEOUT_MS) so a
+             * hung request surfaces as an error instead of an infinite spinner.
              */
             async _queryAll(select, filter, order) {
                 const rows = [];
@@ -558,7 +597,9 @@
                     if (order) query = query.order(order.column, { ascending: order.ascending !== false });
                     query = query.range(from, from + this.pageSize - 1);
 
-                    const { data, error } = await query;
+                    const { data, error } = await Utils.withTimeout(
+                        query, Config.QUERY_TIMEOUT_MS, `Loading ${this.viewName}`
+                    );
                     if (error) {
                         throw new AppError(`Query on ${this.viewName} failed: ${error.message}`, {
                             userMessage: 'Could not load vehicle data. Please try again.',
@@ -1071,7 +1112,7 @@
                     'conditionPill', 'purchaseTypePill', 'basePricePill', 'vehicleSpecs', 'vehicleExtraSpecs',
                     'outTotal', 'outMonthly', 'outPayment', 'outInterest', 'outCostPerKm', 'outDepreciation', 'outResale', 'outFuelType',
                     'componentsList', 'yearlyBreakdownCard', 'yearlyBreakdown', 'projectionCard', 'projectionYears', 'projectionSummary',
-                    'loadingOverlay', 'statusMessage', 'statusMessageText', 'authStatus', 'authMessage', 'authButtons', 'authForms',
+                    'loadingOverlay', 'loadingOverlayText', 'statusMessage', 'statusMessageText', 'authStatus', 'authMessage', 'authButtons', 'authForms',
                     'authEmail', 'authPassword', 'authError', 'btnSignIn', 'btnSignOut', 'btnLogin', 'btnSignup', 'btnCancelAuth',
                     'progressContainer', 'progressFill', 'progressBarTrack', 'progressLabel', 'progressPercent',
                     'printBtn', 'shareBtn', 'exportBtn', 'lastUpdated', 'serviceStatus', 'serviceBadge',
@@ -1085,6 +1126,20 @@
 
             async init() {
                 this.dom.loadingOverlay.classList.add('active');
+
+                // Hard ceiling on the whole init sequence. If anything below
+                // hangs (dead Supabase connection, stuck RLS policy, etc.)
+                // this fires and forces the overlay closed with an error
+                // instead of leaving the user staring at a spinner forever.
+                let watchdogFired = false;
+                const watchdog = setTimeout(() => {
+                    watchdogFired = true;
+                    this.dom.loadingOverlay.classList.remove('active');
+                    this.view.setStatus('error', 'Loading is taking longer than expected. Please refresh the page.');
+                    this.view.showToast('❌ Loading timed out. Please refresh the page.', 'error');
+                    Logger.error('Init watchdog fired after', Config.INIT_WATCHDOG_MS, 'ms — forcing overlay closed');
+                }, Config.INIT_WATCHDOG_MS);
+
                 try {
                     if (typeof supabase === 'undefined') {
                         throw new AppError('Supabase SDK not loaded', { userMessage: 'Failed to initialize. Please refresh the page.' });
@@ -1104,6 +1159,8 @@
                     this.session = await this.auth.getSession();
                     await this._handleSessionChange(this.session, { silent: true });
 
+                    if (watchdogFired) return; // overlay already forced closed; don't reopen UI mid-error
+
                     this._bindEvents();
                     this.dom.financeFields.style.display = 'none';
                     this.dom.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -1115,7 +1172,8 @@
                     this.view.setStatus('error', error.userMessage || 'Something went wrong — please refresh');
                     this.view.showToast(error.userMessage || 'Failed to initialize. Please refresh the page.', 'error');
                 } finally {
-                    this.dom.loadingOverlay.classList.remove('active');
+                    clearTimeout(watchdog);
+                    if (!watchdogFired) this.dom.loadingOverlay.classList.remove('active');
                 }
             }
 
