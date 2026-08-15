@@ -144,7 +144,7 @@
       <a href="/dashboard.html" class="dashboard-link"><span aria-hidden="true">←</span> Back to Dashboard</a>
     </div>
     <div class="header-right">
-      <div class="version">Version <span>9.9</span> <span class="auto-d-badge">Auto-D</span></div>
+      <div class="version">Version <span>10.0</span> <span class="auto-d-badge">Auto-D</span></div>
       <div>Last Updated: <span id="lastUpdated">—</span></div>
       <div><span class="auth-status unauthenticated" id="authStatus" aria-live="polite">🔓 Not Authenticated</span></div>
     </div>
@@ -303,7 +303,7 @@
       SUPABASE_URL: 'https://xgkdbithhlvoqjnqvfmj.supabase.co',
       SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y',
       VIEW_NAME: 'vehicle_crsp_lookup',
-      API_BASE: 'https://auto-digital.onrender.com/api/v1',
+      RPC_FUNCTION: 'calculate_vehicle_ownership',
       QUERY_TIMEOUT_MS: 15000,
       CRSP_PAGE_SIZE: 1000,
       INFLATION_RATE_PCT: 2.0,
@@ -700,6 +700,9 @@
     }
 
     // ─── CALCULATE ────────────────────────────────────────────────────
+    // Calls the public.calculate_vehicle_ownership(p_payload jsonb) Postgres
+    // function via Supabase RPC. That function is the single source of truth
+    // for the response shape consumed by renderResults() below.
     async function calculateTCO() {
       if (!session) { showToast('⚠️ Please sign in','warning'); return; }
       if (!selectedTrim) { showToast('Please select a trim','error'); return; }
@@ -714,6 +717,10 @@
       }
       dom.downPaymentError.textContent = '';
 
+      // Keys mirror what calculate_vehicle_ownership() reads from p_payload.
+      // vehicle_crsp_id is required; the function looks up make/model/trim/
+      // body_type/fuel/transmission/engine_capacity_cc/crsp_kes itself and
+      // uses crsp_kes as the fallback purchase price if purchase_price <= 0.
       const payload = {
         vehicle_crsp_id: parseInt(selectedTrim.crspId, 10),
         purchase_price: price,
@@ -730,41 +737,21 @@
         include_maintenance: formState.includeMaintenance,
         include_tyres: formState.includeTyres,
         include_inflation: formState.includeInflation,
-        years: parseInt(dom.yearsRange.value, 10) || 5,
-        currency: 'KES',
-        vehicle_year: parseInt(dom.yearSelect.value, 10) || 2020,
-        trip_type: 'mixed',
-        driving_style: 'normal',
-        usage_type: 'private',
-        location: 'nairobi',
-        condition: 'good',
         inflation_rate: CONFIG.INFLATION_RATE_PCT,
+        years: parseInt(dom.yearsRange.value, 10) || 5,
         vehicle_type: 'ice',
-        fuel_type: formState.fuelType,
-        vehicle_condition: 'new',
         purchase_type: formState.purchaseType
       };
-      if (formState.fuelType === 'electric') {
-        payload.electricity_consumption_kwh_per_km = 0.15;
-        payload.electricity_price_per_kwh = 30;
-      }
 
       dom.calculateBtn.disabled = true;
       dom.calculateBtn.innerHTML = '<span class="spinner" aria-hidden="true"></span> Calculating…';
-      showProgress(30, 'Sending to API…');
+      showProgress(30, 'Calling calculate_vehicle_ownership…');
       try {
-        const token = session?.access_token || '';
-        const resp = await fetch(`${CONFIG.API_BASE}/ownership/calculate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
-          body: JSON.stringify(payload)
-        });
-        if (!resp.ok) {
-          let err = await resp.text();
-          try { err = JSON.parse(err)?.detail || err; } catch(e) {}
-          throw new Error(err);
-        }
-        const data = await resp.json();
+        const client = window.__supabase;
+        if (!client) throw new Error('Supabase not initialized');
+        const { data, error } = await client.rpc(CONFIG.RPC_FUNCTION, { p_payload: payload });
+        if (error) throw new Error(error.message || 'Calculation failed');
+        if (!data) throw new Error('No data returned from calculate_vehicle_ownership');
         showProgress(80, 'Rendering…');
         scenarioResult = data;
         renderResults(data);
@@ -781,7 +768,18 @@
       }
     }
 
-    // ─── RENDER RESULTS (aligned to API response) ──────────────────
+    // ─── RENDER RESULTS ──────────────────────────────────────────────
+    // Maps 1:1 onto the jsonb object built by calculate_vehicle_ownership():
+    //   total_cost, monthly_cost, monthly_payment, total_interest,
+    //   cost_per_km, total_depreciation, resale_value, fuel_type,
+    //   components[]: {name, amount},
+    //   yearly_breakdown[]: {year, fuel, tyres, insurance, maintenance,
+    //     depreciation, running_cost, loan_payment, loan_interest,
+    //     loan_principal, total_cost, resale_value},
+    //   make, model, trim_level, body_type, transmission,
+    //   engine_capacity_cc, crsp_base_price,
+    //   fuel_consumption_l_per_100km, fuel_price,
+    //   total_fuel, total_maintenance, total_tyres, total_insurance
     function renderResults(result) {
       // Summary cards
       dom.outTotal.textContent = currency(result.total_cost);
@@ -793,7 +791,8 @@
       dom.outResale.textContent = currency(result.resale_value);
       dom.outFuelType.textContent = result.fuel_type || formState.fuelType;
 
-      // Components breakdown (uses the `components` array from API)
+      // Components breakdown — SQL always returns exactly these 6 rows:
+      // Depreciation, Fuel, Insurance, Maintenance, Tyres, Loan Interest
       const comps = result.components || [];
       let html = '';
       const total = comps.reduce((s,c) => s + (c.amount||0), 0);
@@ -804,7 +803,7 @@
       });
       dom.componentsList.innerHTML = html || 'No components';
 
-      // Yearly projection (uses `yearly_breakdown` array)
+      // Yearly projection
       const yearly = result.yearly_breakdown || [];
       if (yearly.length) {
         dom.projectionCard.style.display = 'block';
@@ -823,9 +822,11 @@
         dom.projectionCard.style.display = 'none';
       }
 
-      // Update vehicle profile with API data (if present)
+      // Update vehicle profile with the CRSP data the function looked up
       if (result.make) {
-        dom.vehicleLabel.textContent = `${result.make||''} ${result.model||''}`.trim() || dom.vehicleLabel.textContent;
+        const label = [result.make, result.model, result.trim_level && result.trim_level !== 'Base' ? result.trim_level : '']
+          .filter(Boolean).join(' ').trim();
+        dom.vehicleLabel.textContent = label || dom.vehicleLabel.textContent;
         dom.fuelPill.textContent = result.fuel_type || dom.fuelPill.textContent;
         dom.transmissionPill.textContent = result.transmission || dom.transmissionPill.textContent;
         dom.engineCCDisplay.textContent = result.engine_capacity_cc ? `${result.engine_capacity_cc}cc` : dom.engineCCDisplay.textContent;
@@ -844,12 +845,12 @@
       if (!scenarioResult) { showToast('Calculate TCO first','warning'); return; }
       const yearly = scenarioResult.yearly_breakdown || [];
       if (!yearly.length) { showToast('No yearly data','warning'); return; }
-      let csv = 'Year,Total Cost,Depreciation,Running Cost,Insurance,Loan Payment,Resale Value\n';
+      let csv = 'Year,Total Cost,Depreciation,Fuel,Maintenance,Tyres,Running Cost,Insurance,Loan Payment,Loan Interest,Loan Principal,Resale Value\n';
       yearly.forEach(y => {
-        csv += `${y.year||''},${y.total_cost||0},${y.depreciation||0},${y.running_cost||0},${y.insurance||0},${y.loan_payment||0},${y.resale_value||0}\n`;
+        csv += `${y.year||''},${y.total_cost||0},${y.depreciation||0},${y.fuel||0},${y.maintenance||0},${y.tyres||0},${y.running_cost||0},${y.insurance||0},${y.loan_payment||0},${y.loan_interest||0},${y.loan_principal||0},${y.resale_value||0}\n`;
       });
       csv += '\nSummary\n';
-      csv += `Total Cost,${scenarioResult.total_cost||0}\nMonthly Cost,${scenarioResult.monthly_cost||0}\nCost Per KM,${scenarioResult.cost_per_km||0}\nResale Value,${scenarioResult.resale_value||0}\n`;
+      csv += `Total Cost,${scenarioResult.total_cost||0}\nMonthly Cost,${scenarioResult.monthly_cost||0}\nCost Per KM,${scenarioResult.cost_per_km||0}\nResale Value,${scenarioResult.resale_value||0}\nTotal Interest,${scenarioResult.total_interest||0}\n`;
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
@@ -936,7 +937,7 @@
         else { dom.makeSelect.disabled = true; setStatus('info','Sign in to load vehicles'); }
         dom.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year:'numeric', month:'short', day:'numeric' });
         dom.financeFields.style.display = 'none';
-        console.log('✅ Auto-D TCO initialized (aligned to API response)');
+        console.log('✅ Auto-D TCO initialized (calls calculate_vehicle_ownership via Supabase RPC)');
       } catch(e) { setStatus('error','Init error: '+e.message); }
       dom.loadingOverlay.classList.remove('active');
     }
