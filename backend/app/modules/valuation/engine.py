@@ -324,10 +324,14 @@ class ValuationEngine:
         crsp: CRSPRecord,
     ) -> ValuationResponse:
 
+        # The RPC returns "valuation_id", not "id". Prefer whichever
+        # is actually populated so logging reflects the real row.
+        result_id = row.valuation_id if row.valuation_id is not None else row.id
+
         logger.info(
             "Building valuation response: result_id=%s "
             "reference=%s final_value=%s",
-            row.id,
+            result_id,
             row.valuation_reference,
             row.final_market_value,
         )
@@ -368,9 +372,9 @@ class ValuationEngine:
             or f"AUTO-D-{uuid.uuid4().hex[:12].upper()}"
         )
 
-        vehicle_age = None
+        vehicle_age = row.vehicle_age
 
-        if row.manufacture_year:
+        if vehicle_age is None and row.manufacture_year:
             vehicle_age = max(
                 0,
                 2026 - int(row.manufacture_year),
@@ -429,7 +433,9 @@ class ValuationEngine:
                         location=adjustment_fraction(
                             row.location_adjustment
                         ),
-                        market=0.0,
+                        market=adjustment_fraction(
+                            row.market_adjustment
+                        ),
                     ),
 
                     depreciation_rate=depreciation_rate,
