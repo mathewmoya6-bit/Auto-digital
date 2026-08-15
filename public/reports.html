@@ -353,7 +353,10 @@
             white-space: nowrap;
             word-break: normal;
             overflow: visible;
+            text-overflow: clip;
             font-variant-numeric: tabular-nums;
+            font-feature-settings: 'tnum';
+            min-width: 0;
         }
         .stat-box .value.amber {
             color: #eab308;
@@ -385,6 +388,10 @@
             margin-bottom: 20px;
         }
         .value-display .amount {
+            display: inline-flex;
+            align-items: baseline;
+            justify-content: center;
+            max-width: 100%;
             font-family: 'Space Grotesk', sans-serif;
             font-size: 48px;
             font-weight: 800;
@@ -393,7 +400,13 @@
             white-space: nowrap;
             word-break: normal;
             overflow: visible;
+            text-overflow: clip;
             font-variant-numeric: tabular-nums;
+            font-feature-settings: 'tnum';
+        }
+        .value-display .amount > span {
+            white-space: nowrap;
+            flex: 0 0 auto;
         }
         .value-display .amount .currency {
             font-size: 28px;
@@ -404,9 +417,21 @@
             color: #94a3b8;
             font-size: 15px;
             margin-top: 6px;
+            white-space: nowrap;
+            overflow: visible;
         }
         .value-display .range strong {
             color: #eab308;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+        .cost-item .value {
+            white-space: nowrap;
+            word-break: normal;
+            overflow: visible;
+            text-overflow: clip;
+            flex-shrink: 0;
+            font-variant-numeric: tabular-nums;
         }
 
         /* ─── Confidence Bar ────────────────────────────────────────── */
@@ -878,9 +903,11 @@
             }
             .value-display .amount {
                 font-size: 32px;
+                white-space: nowrap;
             }
             .stat-box .value {
                 font-size: 18px;
+                white-space: nowrap;
             }
             .action-bar {
                 flex-direction: column;
@@ -911,6 +938,7 @@
             }
             .value-display .amount {
                 font-size: 26px;
+                white-space: nowrap;
             }
             .value-display .amount .currency {
                 font-size: 18px;
@@ -918,6 +946,11 @@
         }
 
         /* ─── Print ────────────────────────────────────────────────── */
+        @page {
+            size: A4;
+            margin: 10mm;
+        }
+
         @media print {
             .top-loader,
             .action-bar,
@@ -929,8 +962,44 @@
                 color: #000 !important;
             }
             .wrap {
-                padding: 20px !important;
+                padding: 0 !important;
                 max-width: 100% !important;
+                width: 100% !important;
+            }
+            .value-display .amount,
+            .value-display .amount .currency,
+            .value-display .amount > span:not(.currency),
+            .value-display .range,
+            .value-display .range strong,
+            .stat-box .value,
+            .cost-item .value {
+                white-space: nowrap !important;
+                word-break: normal !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+            }
+            .value-display .amount {
+                display: inline-flex !important;
+                align-items: baseline !important;
+                justify-content: center !important;
+                max-width: 100% !important;
+                font-size: 34px !important;
+                letter-spacing: -0.25px !important;
+            }
+            .value-display .amount .currency {
+                font-size: 21px !important;
+                flex-shrink: 0 !important;
+            }
+            .value-display .range {
+                font-size: 12px !important;
+            }
+            .stat-box .value {
+                font-size: 17px !important;
+                font-variant-numeric: tabular-nums !important;
+            }
+            .cost-item .value {
+                font-size: 10px !important;
+                flex-shrink: 0 !important;
             }
             .report-header {
                 background: #f5f5f5 !important;
@@ -956,10 +1025,6 @@
             }
             .stat-box .value {
                 color: #000 !important;
-                white-space: nowrap !important;
-                word-break: normal !important;
-                overflow: visible !important;
-                text-overflow: clip !important;
             }
             .stat-box .value.amber {
                 color: #b8860b !important;
@@ -986,10 +1051,6 @@
             }
             .cost-item .value {
                 color: #000 !important;
-                white-space: nowrap !important;
-                word-break: normal !important;
-                overflow: visible !important;
-                text-overflow: clip !important;
             }
             .cost-item.total {
                 background: #f5f5f5 !important;
@@ -1001,24 +1062,9 @@
             }
             .value-display .amount {
                 color: #22c55e !important;
-                font-size: 36px !important;
-                letter-spacing: -0.25px !important;
-                white-space: nowrap !important;
-                word-break: normal !important;
-                overflow: visible !important;
-                text-overflow: clip !important;
             }
             .value-display .amount .currency {
                 color: #666 !important;
-                font-size: 22px !important;
-            }
-            .value-display .range {
-                color: #666 !important;
-                font-size: 13px !important;
-                white-space: nowrap !important;
-                word-break: normal !important;
-                overflow: visible !important;
-                text-overflow: clip !important;
             }
             .value-display .range strong {
                 color: #b8860b !important;
@@ -1836,7 +1882,8 @@
                 if (val === undefined || val === null || isNaN(val)) return '0';
                 return Number(val).toLocaleString('en-KE', {
                     minimumFractionDigits: 0,
-                    maximumFractionDigits: 0
+                    maximumFractionDigits: 0,
+                    useGrouping: true
                 });
             }
 
@@ -2132,8 +2179,14 @@
                     const valueEl = item.querySelector('.value');
                     if (!labelEl || !valueEl) return;
 
-                    const key = labelEl.textContent.trim().split(' ').pop()?.toLowerCase() || '';
-                    const adjValue = adjustments[key] || adjustments[key + '_factor'] || 1.0;
+                    const labelText = labelEl.textContent.trim().toLowerCase();
+                    let key = '';
+                    if (labelText.includes('age')) key = 'age';
+                    else if (labelText.includes('mileage')) key = 'mileage';
+                    else if (labelText.includes('location')) key = 'location';
+                    else if (labelText.includes('condition')) key = 'condition';
+                    else if (labelText.includes('accident')) key = 'accident';
+                    const adjValue = adjustments[key] ?? adjustments[`${key}_factor`] ?? 1.0;
 
                     if (adjValue !== 1.0 && adjValue !== undefined) {
                         hasAdjustments = true;
@@ -2610,8 +2663,10 @@
                 });
 
                 // Export PDF
+                // Use the browser's print dialog so the user can choose
+                // "Save as PDF" while preserving the print-safe layout.
                 el.exportBtn.addEventListener('click', () => {
-                    showToast('📥 PDF export feature coming soon!', 'info');
+                    window.print();
                 });
 
                 // Download Data
