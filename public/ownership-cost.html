@@ -781,8 +781,9 @@
       }
     }
 
-    // ─── RENDER RESULTS ──────────────────────────────────────────────
+    // ─── RENDER RESULTS (aligned to API response) ──────────────────
     function renderResults(result) {
+      // Summary cards
       dom.outTotal.textContent = currency(result.total_cost);
       dom.outMonthly.textContent = currency(result.monthly_cost);
       dom.outPayment.textContent = currency(result.monthly_payment);
@@ -790,8 +791,9 @@
       dom.outCostPerKm.textContent = currency(result.cost_per_km);
       dom.outDepreciation.textContent = currency(result.total_depreciation);
       dom.outResale.textContent = currency(result.resale_value);
-      dom.outFuelType.textContent = formState.fuelType.charAt(0).toUpperCase() + formState.fuelType.slice(1);
+      dom.outFuelType.textContent = result.fuel_type || formState.fuelType;
 
+      // Components breakdown (uses the `components` array from API)
       const comps = result.components || [];
       let html = '';
       const total = comps.reduce((s,c) => s + (c.amount||0), 0);
@@ -802,7 +804,8 @@
       });
       dom.componentsList.innerHTML = html || 'No components';
 
-      const yearly = result.yearly_breakdown || result.yearly || [];
+      // Yearly projection (uses `yearly_breakdown` array)
+      const yearly = result.yearly_breakdown || [];
       if (yearly.length) {
         dom.projectionCard.style.display = 'block';
         const maxVal = Math.max(...yearly.map(y => y.total_cost||0), 1);
@@ -819,17 +822,31 @@
       } else {
         dom.projectionCard.style.display = 'none';
       }
+
+      // Update vehicle profile with API data (if present)
+      if (result.make) {
+        dom.vehicleLabel.textContent = `${result.make||''} ${result.model||''}`.trim() || dom.vehicleLabel.textContent;
+        dom.fuelPill.textContent = result.fuel_type || dom.fuelPill.textContent;
+        dom.transmissionPill.textContent = result.transmission || dom.transmissionPill.textContent;
+        dom.engineCCDisplay.textContent = result.engine_capacity_cc ? `${result.engine_capacity_cc}cc` : dom.engineCCDisplay.textContent;
+        dom.bodyTypePill.textContent = result.body_type || dom.bodyTypePill.textContent;
+        if (result.crsp_base_price) {
+          dom.basePricePill.textContent = `CRSP Base: KES ${number(result.crsp_base_price)}`;
+          dom.basePricePill.style.display = 'inline-block';
+        }
+      }
+
       dom.lastUpdated.textContent = new Date().toLocaleString('en-KE', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
     }
 
     // ─── EXPORT CSV ──────────────────────────────────────────────────
     function exportCSV() {
       if (!scenarioResult) { showToast('Calculate TCO first','warning'); return; }
-      const yearly = scenarioResult.yearly_breakdown || scenarioResult.yearly || [];
+      const yearly = scenarioResult.yearly_breakdown || [];
       if (!yearly.length) { showToast('No yearly data','warning'); return; }
-      let csv = 'Year,Total Cost,Depreciation,Running Cost,Insurance,Loan Payment\n';
+      let csv = 'Year,Total Cost,Depreciation,Running Cost,Insurance,Loan Payment,Resale Value\n';
       yearly.forEach(y => {
-        csv += `${y.year||''},${y.total_cost||0},${y.depreciation||0},${y.running_cost||0},${y.insurance||0},${y.loan_payment||0}\n`;
+        csv += `${y.year||''},${y.total_cost||0},${y.depreciation||0},${y.running_cost||0},${y.insurance||0},${y.loan_payment||0},${y.resale_value||0}\n`;
       });
       csv += '\nSummary\n';
       csv += `Total Cost,${scenarioResult.total_cost||0}\nMonthly Cost,${scenarioResult.monthly_cost||0}\nCost Per KM,${scenarioResult.cost_per_km||0}\nResale Value,${scenarioResult.resale_value||0}\n`;
@@ -919,7 +936,7 @@
         else { dom.makeSelect.disabled = true; setStatus('info','Sign in to load vehicles'); }
         dom.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year:'numeric', month:'short', day:'numeric' });
         dom.financeFields.style.display = 'none';
-        console.log('✅ Auto-D TCO initialized (Supabase-ready)');
+        console.log('✅ Auto-D TCO initialized (aligned to API response)');
       } catch(e) { setStatus('error','Init error: '+e.message); }
       dom.loadingOverlay.classList.remove('active');
     }
