@@ -1,13 +1,8 @@
-# app/modules/ownership/repository.py
 """
-Vehicle Ownership Cost Repository
 Auto-D Kenya
+Vehicle Ownership Repository
 
-This repository is ONLY responsible for calling the PostgreSQL
-calculate_vehicle_ownership_cost() function.
-
-It does NOT calculate ownership costs in Python.
-PostgreSQL remains the single source of truth.
+Database access layer for vehicle ownership cost calculations.
 """
 
 import logging
@@ -20,82 +15,75 @@ logger = logging.getLogger(__name__)
 
 
 class OwnershipRepository:
-    """Repository for vehicle ownership cost calculations."""
+
+    FUNCTION_NAME = "calculate_vehicle_ownership_cost"
 
     def __init__(self):
         self.supabase = get_supabase()
 
-    async def calculate_vehicle_ownership_cost(
+    async def calculate_ownership_cost(
         self,
         vehicle_id: int,
-        as_of_date: Optional[date] = None,
+        as_of_date: date,
     ) -> Dict[str, Any]:
-        """
-        Call PostgreSQL:
 
-            calculate_vehicle_ownership_cost(integer, date)
+        if not vehicle_id or vehicle_id <= 0:
+            raise ValueError("vehicle_id must be greater than zero")
 
-        Returns the database result as a dictionary.
-        """
-
-        if not vehicle_id:
-            raise ValueError("vehicle_id is required")
-
-        calculation_date = as_of_date or date.today()
+        if as_of_date is None:
+            as_of_date = date.today()
 
         logger.info(
-            "Calculating vehicle ownership cost: "
-            "vehicle_id=%s, as_of_date=%s",
+            "Calling PostgreSQL function %s "
+            "vehicle_id=%s as_of_date=%s",
+            self.FUNCTION_NAME,
             vehicle_id,
-            calculation_date,
+            as_of_date,
         )
 
         try:
+
             response = self.supabase.rpc(
-                "calculate_vehicle_ownership_cost",
+                self.FUNCTION_NAME,
                 {
                     "p_vehicle_id": int(vehicle_id),
-                    "p_as_of_date": calculation_date.isoformat(),
+                    "p_as_of_date": as_of_date.isoformat(),
                 },
             ).execute()
 
-            data = response.data
-
             logger.info(
-                "Ownership RPC response for vehicle_id=%s: %s",
+                "Ownership RPC returned successfully: "
+                "vehicle_id=%s data=%s",
                 vehicle_id,
-                data,
+                response.data,
             )
 
-            if data is None:
+            if not response.data:
                 raise ValueError(
-                    f"No ownership-cost result returned for vehicle {vehicle_id}"
+                    f"No ownership cost returned for "
+                    f"vehicle_id={vehicle_id}"
                 )
 
-            # PostgreSQL TABLE-returning functions normally arrive as
-            # a list containing one row.
-            if isinstance(data, list):
-                if not data:
-                    raise ValueError(
-                        f"No ownership-cost result returned for vehicle {vehicle_id}"
-                    )
+            if isinstance(response.data, list):
+                return response.data[0]
 
-                data = data[0]
+            if isinstance(response.data, dict):
+                return response.data
 
-            if not isinstance(data, dict):
-                raise TypeError(
-                    "Unexpected ownership RPC response type: "
-                    f"{type(data).__name__}"
-                )
-
-            return data
+            raise ValueError(
+                "Unexpected ownership RPC response format"
+            )
 
         except Exception as exc:
+
             logger.exception(
-                "Ownership calculation failed for vehicle_id=%s",
+                "Ownership RPC failed: "
+                "function=%s vehicle_id=%s as_of_date=%s "
+                "error=%s",
+                self.FUNCTION_NAME,
                 vehicle_id,
+                as_of_date,
+                exc,
             )
-            raise RuntimeError(
-                f"Failed to calculate ownership cost for vehicle "
-                f"{vehicle_id}: {exc}"
-            ) from exc
+
+            raise
