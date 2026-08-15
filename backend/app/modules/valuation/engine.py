@@ -14,13 +14,23 @@ Flow:
     vehicle_valuation_results
           ↓
     stable ValuationResponse
+
+NOTE ON ROBUSTNESS:
+All access to fields on `row` (a ValuationResultRow) goes through
+`_get(row, name, default)` instead of direct attribute access
+(`row.name`). Pydantic models with `extra="ignore"` raise
+AttributeError on any attribute that wasn't declared on the model
+class — so if models.py and this file ever drift out of sync again
+(e.g. a partial deploy, a reverted file, a new RPC column that
+hasn't been declared yet), this file will degrade to a default
+value instead of crashing the whole request with a 500.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from .models import CRSPRecord, ValuationResultRow
 from .repository import RepositoryError, ValuationRepository
@@ -56,6 +66,20 @@ ACCIDENT_MAP = {
     "total_loss": "TOTAL_LOSS",
     "total loss": "TOTAL_LOSS",
 }
+
+
+def _get(obj: Any, name: str, default: Any = None) -> Any:
+    """
+    Safe attribute access.
+
+    Returns `default` instead of raising if `obj` doesn't have
+    `name` declared (e.g. a Pydantic model with extra="ignore"
+    that's out of sync with what the caller expects), or if `obj`
+    is None.
+    """
+    if obj is None:
+        return default
+    return getattr(obj, name, default)
 
 
 class ValuationEngineError(Exception):
@@ -324,17 +348,49 @@ class ValuationEngine:
         crsp: CRSPRecord,
     ) -> ValuationResponse:
 
-        # The RPC returns "valuation_id", not "id". Prefer whichever
-        # is actually populated so logging reflects the real row.
-        result_id = row.valuation_id if row.valuation_id is not None else row.id
+        # Safe access throughout — see _get() docstring. This means
+        # this method cannot AttributeError even if `row` is an
+        # older/out-of-sync ValuationResultRow missing some fields.
+        row_id = _get(row, "id")
+        valuation_id = _get(row, "valuation_id")
+        result_id = valuation_id if valuation_id is not None else row_id
+
+        row_make = _get(row, "make")
+        row_model = _get(row, "model")
+        manufacture_year = _get(row, "manufacture_year")
+        mileage_km = _get(row, "mileage_km")
+
+        crsp_value = _get(row, "crsp_value")
+        depreciation_value = _get(row, "depreciation_value")
+        depreciation_rate_raw = _get(row, "depreciation_rate")
+
+        mileage_adjustment = _get(row, "mileage_adjustment")
+        condition_adjustment = _get(row, "condition_adjustment")
+        accident_adjustment = _get(row, "accident_adjustment")
+        location_adjustment = _get(row, "location_adjustment")
+        market_adjustment = _get(row, "market_adjustment")
+
+        final_market_value = _get(row, "final_market_value")
+        confidence_score = _get(row, "confidence_score")
+        recommended_selling_price = _get(row, "recommended_selling_price")
+        valuation_reference = _get(row, "valuation_reference")
+        vehicle_age_raw = _get(row, "vehicle_age")
 
         logger.info(
             "Building valuation response: result_id=%s "
             "reference=%s final_value=%s",
             result_id,
-            row.valuation_reference,
-            row.final_market_value,
+            valuation_reference,
+            final_market_value,
         )
+
+        if row_id is None and valuation_id is None:
+            logger.warning(
+                "ValuationResultRow has neither 'id' nor "
+                "'valuation_id' populated — models.py may be out "
+                "of sync with the RPC response shape. Check that "
+                "the deployed models.py declares all RPC fields."
+            )
 
         # --------------------------------------------------------------
         # Adjustment percentages
@@ -344,12 +400,12 @@ class ValuationEngine:
         # --------------------------------------------------------------
 
         base = (
-            float(row.crsp_value or 0)
-            - float(row.depreciation_value or 0)
+            float(crsp_value or 0)
+            - float(depreciation_value or 0)
         )
 
         if base <= 0:
-            base = float(row.crsp_value or 0)
+            base = float(crsp_value or 0)
 
         def adjustment_fraction(
             amount: Optional[float],
@@ -362,22 +418,22 @@ class ValuationEngine:
 
         depreciation_rate = None
 
-        if row.depreciation_rate is not None:
+        if depreciation_rate_raw is not None:
             depreciation_rate = (
-                float(row.depreciation_rate) / 100.0
+                float(depreciation_rate_raw) / 100.0
             )
 
         report_number = (
-            row.valuation_reference
+            valuation_reference
             or f"AUTO-D-{uuid.uuid4().hex[:12].upper()}"
         )
 
-        vehicle_age = row.vehicle_age
+        vehicle_age = vehicle_age_raw
 
-        if vehicle_age is None and row.manufacture_year:
+        if vehicle_age is None and manufacture_year:
             vehicle_age = max(
                 0,
-                2026 - int(row.manufacture_year),
+                2026 - int(manufacture_year),
             )
 
         return ValuationResponse(
@@ -385,19 +441,19 @@ class ValuationEngine:
             data=ValuationDataOut(
 
                 vehicle=VehicleOut(
-                    make=row.make or crsp.make or req.make,
-                    model=row.model or crsp.model or req.model,
+                    make=row_make or crsp.make or req.make,
+                    model=row_model or crsp.model or req.model,
                     trim=(
                         crsp.trim_level
                         or req.trim
                     ),
                     year=(
-                        row.manufacture_year
+                        manufacture_year
                         or req.year
                     ),
                     mileage=(
-                        float(row.mileage_km)
-                        if row.mileage_km is not None
+                        float(mileage_km)
+                        if mileage_km is not None
                         else float(req.mileage)
                     ),
                     location=req.location,
@@ -408,45 +464,37 @@ class ValuationEngine:
                 ),
 
                 valuation=ValuationOut(
-                    estimated_vehicle_value=(
-                        row.final_market_value
-                    ),
-                    recommended_selling_price=(
-                        row.recommended_selling_price
-                    ),
-                    confidence_score=(
-                        row.confidence_score
-                    ),
+                    estimated_vehicle_value=final_market_value,
+                    recommended_selling_price=recommended_selling_price,
+                    confidence_score=confidence_score,
                 ),
 
                 analysis=AnalysisOut(
                     adjustments=AdjustmentsOut(
                         mileage=adjustment_fraction(
-                            row.mileage_adjustment
+                            mileage_adjustment
                         ),
                         condition=adjustment_fraction(
-                            row.condition_adjustment
+                            condition_adjustment
                         ),
                         accident=adjustment_fraction(
-                            row.accident_adjustment
+                            accident_adjustment
                         ),
                         location=adjustment_fraction(
-                            row.location_adjustment
+                            location_adjustment
                         ),
                         market=adjustment_fraction(
-                            row.market_adjustment
+                            market_adjustment
                         ),
                     ),
 
                     depreciation_rate=depreciation_rate,
 
-                    depreciation_amount=(
-                        row.depreciation_value
-                    ),
+                    depreciation_amount=depreciation_value,
 
                     mileage_adjustment=(
                         adjustment_fraction(
-                            row.mileage_adjustment
+                            mileage_adjustment
                         )
                     ),
 
@@ -459,7 +507,7 @@ class ValuationEngine:
 
                 crsp=CrspOut(
                     crsp_id=crsp.crsp_id,
-                    crsp_value=row.crsp_value,
+                    crsp_value=crsp_value,
                     trim_level=crsp.trim_level,
                 ),
             ),
