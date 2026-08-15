@@ -19,12 +19,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class TCORequest(BaseModel):
     """
     Total Cost of Ownership calculation request.
+
+    The frontend selects the vehicle directly from the
+    `vehicle_crsp_lookup` Supabase view (same view the Instant Value
+    Check tool queries), so `vehicle_crsp_id` (the view's `crsp_id`
+    column) is the authoritative vehicle reference — there is no
+    separate variant table lookup anymore.
     """
 
-    variant_id: int = Field(
+    vehicle_crsp_id: int = Field(
         ...,
         gt=0,
-        description="Vehicle variant ID"
+        description="CRSP vehicle ID (crsp_id) from vehicle_crsp_lookup"
     )
 
     vehicle_year: int = Field(
@@ -248,7 +254,7 @@ class LoanDetails(BaseModel):
 
 class VehicleDetails(BaseModel):
 
-    variant_id: int
+    vehicle_crsp_id: int
 
     make: str
 
