@@ -108,7 +108,15 @@ class OwnershipService:
         }
     
     async def get_crsp_data(self, crsp_id: int) -> Dict[str, Any]:
-        """Get CRSP data from database"""
+        """
+        Get the vehicle's full record from vehicle_crsp_lookup.
+
+        This view already carries make/model/trim_level/engine_capacity/
+        fuel/transmission/body_type/crsp_kes — it IS the "variant" now,
+        since the frontend selects vehicles from this view directly
+        (same as the Instant Value Check tool) instead of a separate
+        variant table.
+        """
         try:
             result = self.supabase.table("vehicle_crsp_lookup")\
                 .select("*")\
@@ -121,55 +129,28 @@ class OwnershipService:
             logger.error(f"Error getting CRSP data: {str(e)}")
             return {}
     
-    async def get_variant_data(self, variant_id: int) -> Dict[str, Any]:
-        """Get variant data from database"""
-        try:
-            result = self.supabase.table("vehicle_master_specs")\
-                .select("*")\
-                .eq("variant_id", variant_id)\
-                .execute()
-            if result.data and len(result.data) > 0:
-                return result.data[0]
-            
-            result = self.supabase.table("vehicle_variants")\
-                .select("*")\
-                .eq("id", variant_id)\
-                .execute()
-            if result.data and len(result.data) > 0:
-                return result.data[0]
-            
-            return {}
-        except Exception as e:
-            logger.error(f"Error getting variant data: {str(e)}")
-            return {}
-    
     async def calculate_tco(self, request: TCORequest, user_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Calculate Total Cost of Ownership
-        
+
         Matches the HTML frontend with all options:
         - Vehicle Type (ICE, Hybrid, EV)
         - Fuel Type (Petrol, Diesel, Hybrid, LPG, Electric)
         - Vehicle Condition (New, Used)
         - Purchase Type (Cash, Financing)
+
+        The vehicle is looked up once, by `vehicle_crsp_id`, straight
+        from `vehicle_crsp_lookup` — there is no separate variant_id/
+        variant-table lookup anymore.
         """
-        # ─── Get CRSP data ──────────────────────────────────────
-        crsp_data = {}
-        if request.crsp_id:
-            crsp_data = await self.get_crsp_data(request.crsp_id)
-        elif request.variant_id:
-            variant = await self.get_variant_data(request.variant_id)
-            if variant and variant.get("crsp_id"):
-                crsp_data = await self.get_crsp_data(variant.get("crsp_id"))
-        
-        # ─── Get variant data ────────────────────────────────────
-        variant = {}
-        if request.variant_id:
-            variant = await self.get_variant_data(request.variant_id)
-        
+        # ─── Get vehicle (CRSP) data — the single source of truth ──
+        crsp_data = await self.get_crsp_data(request.vehicle_crsp_id)
+        if not crsp_data:
+            raise ValueError(f"No vehicle found for vehicle_crsp_id={request.vehicle_crsp_id}")
+
         # ─── Determine fuel type ─────────────────────────────────
-        fuel_type = request.fuel_type or variant.get("fuel_type_name", "petrol").lower()
-        engine_size = variant.get("engine_size_cc", 1800)
+        fuel_type = (request.fuel_type or crsp_data.get("fuel", "petrol") or "petrol").lower()
+        engine_size = crsp_data.get("engine_capacity") or 1800
         
         # ─── Apply vehicle condition factor ──────────────────────
         condition_factor = self.CONDITION_FACTORS.get(request.vehicle_condition, 1.00)
@@ -208,9 +189,9 @@ class OwnershipService:
         fuel_efficiency = self._calculate_fuel_efficiency(
             engine_size=engine_size / 1000,
             year=request.vehicle_year,
-            trip_type=request.trip_type or "mixed",
+            trip_type="mixed",
             fuel_type=fuel_type,
-            driving_style=request.driving_style or "normal"
+            driving_style="normal"
         )
         
         # Annual costs
@@ -219,8 +200,8 @@ class OwnershipService:
         annual_tyres = request.tyre_cost_per_km * annual_mileage
         annual_insurance = adjusted_purchase_price * (request.insurance_rate / 100)
         
-        # Apply usage type factor
-        usage_factor = self.USAGE_TYPE_FACTORS.get(request.usage_type, 1.00)
+        # Apply usage type factor (default: private)
+        usage_factor = self.USAGE_TYPE_FACTORS.get("private", 1.00)
         annual_maintenance *= usage_factor
         annual_tyres *= usage_factor
         
@@ -398,11 +379,10 @@ class OwnershipService:
             },
             
             "vehicle_details": {
-                "crsp_id": request.crsp_id,
-                "variant_id": request.variant_id,
-                "make": crsp_data.get("make", variant.get("make_name", "")),
-                "model": crsp_data.get("model", variant.get("model_name", "")),
-                "variant": crsp_data.get("trim_level", variant.get("variant_name", "")),
+                "vehicle_crsp_id": request.vehicle_crsp_id,
+                "make": crsp_data.get("make", ""),
+                "model": crsp_data.get("model", ""),
+                "variant": crsp_data.get("trim_level", ""),
                 "fuel_type": fuel_type.capitalize(),
                 "fuel_type_display": fuel_type.capitalize(),
                 "vehicle_condition": request.vehicle_condition,
@@ -410,8 +390,8 @@ class OwnershipService:
                 "vehicle_year": request.vehicle_year,
                 "vehicle_type": request.vehicle_type,
                 "engine_capacity": crsp_data.get("engine_capacity", engine_size),
-                "transmission": crsp_data.get("transmission", variant.get("transmission_type_name", "")),
-                "body_type": crsp_data.get("body_type", variant.get("body_type_name", ""))
+                "transmission": crsp_data.get("transmission", ""),
+                "body_type": crsp_data.get("body_type", "")
             },
             
             "crsp_reference": {
