@@ -1,179 +1,74 @@
-# app/modules/ownership/service.py
 """
-Vehicle Ownership Cost Service
 Auto-D Kenya
+Ownership Service
 
-PostgreSQL is the single source of truth for ownership calculations.
+Production service layer.
+
+Responsibilities:
+- Accept validated OwnershipCostRequest
+- Delegate calculation to OwnershipEngine
+- Provide a stable service interface for the router/other modules
+
+The service does NOT:
+- query user_vehicles
+- calculate fuel costs itself
+- calculate depreciation itself
+- maintain duplicate pricing tables
+- perform demo/fallback calculations
+
+The PostgreSQL function
+    public.calculate_vehicle_running_cost_v2(jsonb)
+
+remains the calculation source of truth.
 """
+
+from __future__ import annotations
 
 import logging
-from datetime import date
-from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from app.modules.ownership.repository import OwnershipRepository
+from app.modules.ownership.engine import OwnershipEngine
+from app.modules.ownership.schemas import OwnershipCostRequest
 
 logger = logging.getLogger(__name__)
 
 
 class OwnershipService:
-    """Service layer for vehicle ownership cost."""
+    """
+    Production Ownership/TCO service.
+    """
 
-    def __init__(self):
-        self.repository = OwnershipRepository()
+    def __init__(self) -> None:
+        self.engine = OwnershipEngine()
 
-    @staticmethod
-    def _number(value: Any) -> float:
+    async def calculate_tco(
+        self,
+        request: OwnershipCostRequest,
+    ) -> Dict[str, Any]:
         """
-        Convert PostgreSQL numeric/strings/None safely to float.
+        Calculate total vehicle ownership/running cost.
 
-        This prevents errors such as:
-
-            unsupported operand type(s) for /:
-            'str' and 'int'
+        Delegates the actual calculation to OwnershipEngine.
         """
-
-        if value is None:
-            return 0.0
-
-        if isinstance(value, bool):
-            return float(value)
-
-        if isinstance(value, (int, float, Decimal)):
-            return float(value)
-
-        if isinstance(value, str):
-            value = value.strip()
-
-            if not value:
-                return 0.0
-
-            try:
-                return float(value)
-            except ValueError:
-                logger.warning(
-                    "Could not convert numeric value: %r",
-                    value,
-                )
-                return 0.0
 
         try:
-            return float(value)
-        except (TypeError, ValueError):
-            return 0.0
+            return await self.engine.calculate(request)
 
-    async def calculate_ownership(
+        except Exception:
+            logger.exception(
+                "Ownership service calculation failed for CRSP ID %s",
+                request.vehicle_crsp_id,
+            )
+            raise
+
+    async def calculate_ownership_cost(
         self,
-        vehicle_id: int,
-        as_of_date: Optional[date] = None,
+        request: OwnershipCostRequest,
     ) -> Dict[str, Any]:
+        """
+        Alias for calculate_tco().
 
-        if not vehicle_id:
-            raise ValueError("vehicle_id is required")
+        Kept for compatibility with existing callers.
+        """
 
-        result = await self.repository.calculate_vehicle_ownership_cost(
-            vehicle_id=vehicle_id,
-            as_of_date=as_of_date,
-        )
-
-        # Normalize every numeric database field.
-        purchase_price = self._number(result.get("purchase_price"))
-        fuel = self._number(result.get("total_fuel_cost"))
-        maintenance = self._number(
-            result.get("total_maintenance_cost")
-        )
-        insurance = self._number(
-            result.get("total_insurance_cost")
-        )
-        tax = self._number(result.get("total_tax_cost"))
-        repair = self._number(result.get("total_repair_cost"))
-        depreciation = self._number(result.get("depreciation"))
-        ownership_days = int(
-            self._number(result.get("ownership_days"))
-        )
-
-        # Use DB TCO when available.
-        database_tco = self._number(
-            result.get("total_cost_of_ownership")
-        )
-
-        # If the database function returns zero/null TCO while the
-        # component values are populated, calculate it from components.
-        components_total = (
-            fuel
-            + maintenance
-            + insurance
-            + tax
-            + repair
-            + depreciation
-        )
-
-        total_cost_of_ownership = (
-            database_tco
-            if database_tco > 0
-            else components_total
-        )
-
-        # Calculate cost/day safely.
-        cost_per_day = (
-            total_cost_of_ownership / ownership_days
-            if ownership_days > 0
-            else 0.0
-        )
-
-        # Useful derived ownership figures.
-        monthly_cost = cost_per_day * 30.4375
-        annual_cost = cost_per_day * 365.0
-
-        return {
-            "success": True,
-
-            "vehicle_id": int(vehicle_id),
-
-            "purchase_price": round(purchase_price, 2),
-
-            "ownership_days": ownership_days,
-
-            "cost_per_day": round(cost_per_day, 2),
-
-            "monthly_cost": round(monthly_cost, 2),
-
-            "annual_cost": round(annual_cost, 2),
-
-            "total_fuel_cost": round(fuel, 2),
-
-            "total_maintenance_cost": round(
-                maintenance, 2
-            ),
-
-            "total_insurance_cost": round(
-                insurance, 2
-            ),
-
-            "total_tax_cost": round(tax, 2),
-
-            "total_repair_cost": round(repair, 2),
-
-            "depreciation": round(
-                depreciation, 2
-            ),
-
-            "total_cost_of_ownership": round(
-                total_cost_of_ownership, 2
-            ),
-
-            "breakdown": {
-                "fuel": round(fuel, 2),
-                "maintenance": round(maintenance, 2),
-                "insurance": round(insurance, 2),
-                "tax": round(tax, 2),
-                "repairs": round(repair, 2),
-                "depreciation": round(
-                    depreciation, 2
-                ),
-            },
-
-            "calculated_at": (
-                as_of_date or date.today()
-            ).isoformat(),
-        }
+        return await self.calculate_tco(request)
