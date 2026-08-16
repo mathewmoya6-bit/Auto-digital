@@ -1154,6 +1154,44 @@
             .adjustment-row { font-size: 11px !important; }
             .vehicle-tag { flex-wrap: wrap !important; }
             .photo-slot .photo-remove { display: none !important; }
+
+            /* ── FIX: report cutting off in print/PDF ──────────────────
+               .result-box and .crsp-info previously had overflow:hidden
+               (needed on screen only, to clip the decorative glow
+               gradient). At print time that same overflow:hidden was
+               ALSO clipping long text (large KES figures, CRSP rows)
+               at the box edge instead of letting it wrap — which is
+               what produced the sliced-off numbers like "88,10" on
+               page 2/3. Overriding to visible + allowing wrap fixes it,
+               and break-inside:avoid stops those blocks being split
+               across a page boundary mid-line. */
+            .result-box,
+            .crsp-info {
+                overflow: visible !important;
+            }
+            .crsp-info .row {
+                flex-wrap: wrap !important;
+            }
+            .crsp-info .row .value,
+            .selling-price-value,
+            .selling-price-value .amount {
+                white-space: normal !important;
+                overflow-wrap: break-word !important;
+            }
+            .adjustment-row,
+            .depreciation-row {
+                flex-wrap: wrap !important;
+            }
+            .valuation-value-wrapper,
+            .selling-price-wrapper,
+            .value-range,
+            .confidence-section,
+            .depreciation-section,
+            .adjustments-section,
+            .crsp-info {
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+            }
         }
     </style>
 </head>
@@ -1307,6 +1345,7 @@
                         <option value="van">🚐 Van / Minivan</option>
                         <option value="truck">🚚 Truck</option>
                         <option value="coupe">🏎️ Coupe</option>
+                        <option value="convertible">🏎️ Convertible</option>
                         <option value="motorcycle">🏍️ Motorcycle</option>
                         <option value="other">❓ Other</option>
                     </select>
@@ -1319,6 +1358,8 @@
                         <option value="diesel">🛢️ Diesel</option>
                         <option value="lpg">🔥 LPG</option>
                         <option value="electric">🔋 Electric</option>
+                        <option value="hybrid">🔋⛽ Hybrid</option>
+                        <option value="phev">🔌 Plug-in Hybrid</option>
                     </select>
                 </div>
 
@@ -2389,7 +2430,8 @@
                     const labels = {
                         sedan: '🚘 Sedan', suv: '🚙 SUV', hatchback: '🚗 Hatchback',
                         wagon: '🚐 Station Wagon', pickup: '🛻 Pickup', van: '🚐 Van / Minivan',
-                        truck: '🚚 Truck', coupe: '🏎️ Coupe', motorcycle: '🏍️ Motorcycle', other: '❓ Other'
+                        truck: '🚚 Truck', coupe: '🏎️ Coupe', convertible: '🏎️ Convertible',
+                        motorcycle: '🏍️ Motorcycle', other: '❓ Other'
                     };
                     return labels[type] || type || '—';
                 }
@@ -3183,11 +3225,12 @@
                 normalizeFuelType(name) {
                     if (!name) return null;
                     const n = String(name).toLowerCase();
+                    if (n.includes('plug-in hybrid') || n.includes('plug in hybrid') || n.includes('phev')) return 'phev';
+                    if (n.includes('hybrid')) return 'hybrid';
                     if (n.includes('petrol') || n.includes('gasoline')) return 'petrol';
                     if (n.includes('diesel')) return 'diesel';
                     if (n.includes('lpg')) return 'lpg';
                     if (n.includes('electric') || n.includes('ev')) return 'electric';
-                    if (n.includes('hybrid')) return 'petrol';
                     return null;
                 }
 
@@ -3211,6 +3254,7 @@
                     if (b.includes('van') || b.includes('minivan')) return 'van';
                     if (b.includes('truck') || b.includes('lorry')) return 'truck';
                     if (b.includes('coupe')) return 'coupe';
+                    if (b.includes('convertible') || b.includes('cabriolet') || b.includes('roadster') || b.includes('spyder') || b.includes('spider') || b.includes('targa')) return 'convertible';
                     if (b.includes('motorcycle') || b.includes('motorbike')) return 'motorcycle';
                     if (b.includes('sedan') || b.includes('saloon')) return 'sedan';
                     return null;
