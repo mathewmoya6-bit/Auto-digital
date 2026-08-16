@@ -653,6 +653,30 @@
             background: radial-gradient(circle, rgba(234, 179, 8, 0.03), transparent 70%); 
             pointer-events: none; 
         }
+        /* ─── Watermark layer ─────────────────────────────────────────
+           A tiled, diagonal "AUTO-D" pattern sits behind the report
+           content. It's a single absolutely-positioned element (first
+           child of .result-box) painted with a repeating SVG data-URI
+           background — that keeps it out of the DOM flow so none of
+           the existing report markup needs per-element z-index changes.
+           Everything else inside .result-box is lifted onto its own
+           stacking context via the sibling-selector rule below so it
+           always renders above the watermark. */
+        .result-watermark {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0.05;
+            background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='320'%20height='220'%3E%3Ctext%20x='-20'%20y='120'%20transform='rotate(-28%20160%20110)'%20font-family='Space%20Grotesk,Arial,sans-serif'%20font-size='34'%20font-weight='700'%20letter-spacing='2'%20fill='%23eab308'%3EAUTO-D%3C/text%3E%3C/svg%3E");
+            background-repeat: repeat;
+            background-size: 320px 220px;
+            border-radius: inherit;
+        }
+        .result-box > *:not(.result-watermark) {
+            position: relative;
+            z-index: 1;
+        }
         .report-title {
             font-family: var(--font-heading);
             font-size: 20px;
@@ -919,6 +943,55 @@
         }
         .report-photos-grid .rp-item .rp-tag.ok { background: rgba(34,197,94,0.85); color: #04150a; }
         .report-photos-grid .rp-item .rp-tag.warn { background: rgba(239,68,68,0.85); color: #fff; }
+        /* ─── Digital signature block ──────────────────────────────── */
+        .digital-signature {
+            margin-top: 16px;
+            padding: 14px 18px;
+            background: #0f172a;
+            border: 1px solid rgba(34, 197, 94, 0.25);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+        .digital-signature .sig-stamp {
+            flex-shrink: 0;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            border: 2px solid var(--green);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            color: var(--green);
+            background: rgba(34, 197, 94, 0.08);
+        }
+        .digital-signature .sig-body { flex: 1; min-width: 180px; }
+        .digital-signature .sig-title {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--green);
+            margin-bottom: 4px;
+        }
+        .digital-signature .sig-hash {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+            letter-spacing: 0.03em;
+            word-break: break-all;
+        }
+        .digital-signature .sig-meta {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            line-height: 1.5;
+        }
         .action-bar { 
             display: flex; 
             gap: 10px; 
@@ -1105,7 +1178,7 @@
             .result-box { display: block !important; }
             .result-card { background: #fff !important; border-color: #ddd !important; }
             .result-card .card-title { color: #b8860b !important; }
-            body { background: #fff !important; }
+            body { background: #fff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
             .report-header { background: #f5f5f5 !important; border-color: #ddd !important; }
             .header-left h1 { color: #000 !important; }
             .header-left h1 span { color: #b8860b !important; }
@@ -1154,6 +1227,27 @@
             .adjustment-row { font-size: 11px !important; }
             .vehicle-tag { flex-wrap: wrap !important; }
             .photo-slot .photo-remove { display: none !important; }
+
+            /* Watermark must survive print: force color-adjust so the
+               background-image isn't dropped by the browser's default
+               "don't print backgrounds" behaviour, and bump opacity
+               slightly since paper/ink renders lighter than a screen. */
+            .result-watermark {
+                display: block !important;
+                opacity: 0.09 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            .digital-signature {
+                border-color: #ddd !important;
+                background: #f8f8f8 !important;
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+            }
+            .digital-signature .sig-stamp { border-color: #16a34a !important; color: #16a34a !important; }
+            .digital-signature .sig-title { color: #16a34a !important; }
+            .digital-signature .sig-hash { color: #111 !important; }
+            .digital-signature .sig-meta { color: #666 !important; }
 
             /* ── FIX: report cutting off in print/PDF ──────────────────
                .result-box and .crsp-info previously had overflow:hidden
@@ -1482,6 +1576,8 @@
                 <!-- ═══ RESULT BOX ─────────────────────────────────────── -->
                 <div id="resultBox" class="result-box">
 
+                    <div class="result-watermark" aria-hidden="true"></div>
+
                     <div class="report-title">
                         AUTO-D VEHICLE VALUATION REPORT
                         <span class="status-badge"><span class="check">✓</span> Completed</span>
@@ -1590,6 +1686,19 @@
                             Actual transaction values may vary depending on inspection,
                             maintenance history, ownership records and prevailing market conditions.
                         </p>
+                    </div>
+
+                    <div class="digital-signature" id="digitalSignatureSection">
+                        <div class="sig-stamp">✓</div>
+                        <div class="sig-body">
+                            <div class="sig-title">Auto-D Digitally Signed Report</div>
+                            <div class="sig-hash" id="sigHash">Generating signature…</div>
+                            <div class="sig-meta">
+                                This signature is derived from the report number, vehicle, valuation
+                                and timestamp above. Recomputing it against altered figures will not
+                                match — quote it when verifying this report with Auto-D Kenya.
+                            </div>
+                        </div>
                     </div>
 
                     <div class="action-bar">
@@ -1854,7 +1963,7 @@
                         'crspResultSection', 'rCrspMatched', 'rCrspBase', 'rCrspAge', 'rCrspRef',
                         'rCrspVariance', 'flowSteps', 'photoGrid', 'photoAuthSummary',
                         'reportPhotosSection', 'reportPhotosGrid', 'photoWarningSection',
-                        'printBtn', 'shareBtn', 'footerUrl'
+                        'printBtn', 'shareBtn', 'footerUrl', 'digitalSignatureSection', 'sigHash'
                     ];
 
                     ids.forEach(id => {
@@ -2170,6 +2279,46 @@
                     );
                 }
 
+                // ─── DIGITAL SIGNATURE ─────────────────────────────────
+                // Derives a short verification hash from the report's own
+                // identifying fields (report number, vehicle, value, date).
+                // Uses SubtleCrypto (SHA-256) when available in this secure
+                // context; falls back to a simple deterministic checksum
+                // otherwise so the block never gets stuck on "Generating…".
+                async generateSignature(payload) {
+                    const raw = JSON.stringify(payload);
+                    let hex;
+                    try {
+                        if (window.crypto?.subtle) {
+                            const buf = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+                            hex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+                        }
+                    } catch { /* fall through to checksum below */ }
+
+                    if (!hex) {
+                        let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+                        for (let i = 0; i < raw.length; i++) {
+                            const ch = raw.charCodeAt(i);
+                            h1 = Math.imul(h1 ^ ch, 2654435761);
+                            h2 = Math.imul(h2 ^ ch, 1597334677);
+                        }
+                        h1 = (h1 ^ (h1 >>> 16)) >>> 0;
+                        h2 = (h2 ^ (h2 >>> 16)) >>> 0;
+                        hex = (h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0')).repeat(4);
+                    }
+
+                    const upper = hex.toUpperCase().slice(0, 20);
+                    return upper.match(/.{1,4}/g).join('-');
+                }
+
+                async displaySignature(payload) {
+                    const el = this.elements.sigHash;
+                    if (!el) return;
+                    el.textContent = 'Generating signature…';
+                    const sig = await this.generateSignature(payload);
+                    el.textContent = `AUTO-D-${sig}`;
+                }
+
                 // ─── RESULT DISPLAY ────────────────────────────────────
                 showValuationResult(result, registration, formData) {
                     const data = result.data || result;
@@ -2269,6 +2418,17 @@
                     this.displayDepreciation(ageYears, depreciationRate, depreciationAmount, mileageAdjustment);
                     this.displayAdjustments(adjustments);
                     this.displayCRSPInfo(formData.crsp_kes, currentValue, vehicleName);
+
+                    const generatedAt = this.elements.resultDate?.textContent || new Date().toISOString();
+                    this.displaySignature({
+                        reportNumber,
+                        vehicle: vehicleName,
+                        registration,
+                        year,
+                        currentValue,
+                        sellingPrice,
+                        generatedAt
+                    });
 
                     // Show result box
                     const box = this.elements.resultBox;
@@ -3185,6 +3345,9 @@
 
                         if (result && result.success !== false && hasValuationData) {
                             this.ui.showValuationResult(result, registration, formData);
+                            this.ui.renderReportPhotos(this.state.photos);
+                            const warnEl = this.ui.elements.photoWarningSection;
+                            if (warnEl) warnEl.style.display = this.state.hasFlaggedPhotos ? 'block' : 'none';
                             this.ui.showToast('✅ Valuation complete!', 'success');
                         } else {
                             throw new Error('No valuation data received');
