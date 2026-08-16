@@ -57,6 +57,8 @@ from .schemas import (
 # FIX: Proper logger initialization
 logger = logging.getLogger(__name__)
 
+# services.id is an INTEGER primary key. Pricing is controlled by the DB/admin dashboard.
+
 
 class AdminService:
     """Admin service for administrative operations."""
@@ -565,7 +567,7 @@ class AdminService:
             logger.exception(f"Error creating service: {str(e)}")
             raise
 
-    async def update_service(self, service_id: UUID, request: UpdateServiceRequest) -> AdminServiceItem:
+    async def update_service(self, service_id: int, request: UpdateServiceRequest) -> AdminServiceItem:
         """Update a service using administrator-managed pricing from the DB.
 
         Important: Supabase/PostgREST does not necessarily return updated
@@ -575,7 +577,7 @@ class AdminService:
         itself was valid.
         """
         try:
-            service_key = str(service_id)
+            service_key = int(service_id)
             existing = await self._run(
                 lambda: self.supabase.table("services")
                 .select("*")
@@ -587,6 +589,7 @@ class AdminService:
                 raise NotFoundException(f"Service {service_id} not found")
 
             data = request.model_dump(exclude_unset=True)
+            data.pop("reason", None)
 
             # The admin dashboard edits the service price. Keep the pricing
             # columns synchronized so every consumer sees the same fee.
@@ -616,7 +619,8 @@ class AdminService:
                     raise NotFoundException(f"Service {service_id} is no longer available")
                 raise Exception(
                     f"Service {service_id} update returned no row. "
-                    "Check the Supabase UPDATE policy for admin users."
+                    "The service exists but the UPDATE was blocked; "
+                    "check the Supabase UPDATE RLS policy for the admin role."
                 )
 
             return self._service_item(response.data[0])
@@ -626,7 +630,7 @@ class AdminService:
             logger.exception(f"Error updating service {service_id}: {str(e)}")
             raise
 
-    async def update_service_price(self, service_id: UUID, request: UpdateServicePriceRequest) -> AdminServiceItem:
+    async def update_service_price(self, service_id: int, request: UpdateServicePriceRequest) -> AdminServiceItem:
         """Update an administrator-managed service fee.
 
         The supplied price is persisted to price, base_price and service_fee
@@ -634,7 +638,7 @@ class AdminService:
         hard-coded in application code.
         """
         try:
-            service_key = str(service_id)
+            service_key = int(service_id)
             existing = await self._run(
                 lambda: self.supabase.table("services")
                 .select("*")
