@@ -73,6 +73,40 @@ class AdminService:
         """
         return await run_in_threadpool(fn)
 
+    @staticmethod
+    def _effective_service_price(service: Dict[str, Any]) -> Any:
+        """Return the administrator-managed service fee from the DB.
+
+        Pricing is never hard-coded here. The services table is the single
+        source of truth. service_fee is preferred, followed by base_price
+        and the legacy price column for backward compatibility.
+        """
+        return (
+            service.get("service_fee")
+            if service.get("service_fee") is not None
+            else service.get("base_price")
+            if service.get("base_price") is not None
+            else service.get("price", 0)
+        )
+
+    @classmethod
+    def _service_item(cls, service: Dict[str, Any]) -> AdminServiceItem:
+        """Map a services-table row to the admin response schema."""
+        return AdminServiceItem(
+            id=service.get("id"),
+            code=service.get("code", ""),
+            name=service.get("name", ""),
+            price=cls._effective_service_price(service),
+            currency=service.get("currency", "KES"),
+            description=service.get("description"),
+            icon=service.get("icon"),
+            active=service.get("active", True),
+            display_order=service.get("display_order", 0),
+            purchase_count=service.get("purchase_count", 0),
+            created_at=service.get("created_at"),
+            updated_at=service.get("updated_at"),
+        )
+
     # ─── DASHBOARD & STATS ──────────────────────────────────────────
 
     async def get_stats(self) -> AdminStatsResponse:
@@ -490,24 +524,7 @@ class AdminService:
 
             response = await self._run(_fetch)
 
-            # FIX: Use .get() for all fields and null-safety
-            services = [
-                AdminServiceItem(
-                    id=s.get("id"),
-                    code=s.get("code", ""),
-                    name=s.get("name", ""),
-                    price=s.get("price", 0),
-                    currency=s.get("currency", "KES"),
-                    description=s.get("description"),
-                    icon=s.get("icon"),
-                    active=s.get("active", True),
-                    display_order=s.get("display_order", 0),
-                    purchase_count=s.get("purchase_count", 0),
-                    created_at=s.get("created_at"),
-                    updated_at=s.get("updated_at"),
-                )
-                for s in (response.data or [])
-            ]
+            services = [self._service_item(row) for row in (response.data or [])]
 
             return AdminServicesResponse(
                 services=services,
@@ -540,21 +557,8 @@ class AdminService:
                 raise Exception("Failed to create service")
 
             service_data = response.data[0]
-            # FIX: Use .get() for all fields
-            return AdminServiceItem(
-                id=service_data.get("id"),
-                code=service_data.get("code", ""),
-                name=service_data.get("name", ""),
-                price=service_data.get("price", 0),
-                currency=service_data.get("currency", "KES"),
-                description=service_data.get("description"),
-                icon=service_data.get("icon"),
-                active=service_data.get("active", True),
-                display_order=service_data.get("display_order", 0),
-                purchase_count=service_data.get("purchase_count", 0),
-                created_at=service_data.get("created_at"),
-                updated_at=service_data.get("updated_at"),
-            )
+            return self._service_item(service_data)
+
         except ValidationException:
             raise
         except Exception as e:
@@ -562,81 +566,121 @@ class AdminService:
             raise
 
     async def update_service(self, service_id: UUID, request: UpdateServiceRequest) -> AdminServiceItem:
-        """Update a service."""
+        """Update a service using administrator-managed pricing from the DB.
+
+        Important: Supabase/PostgREST does not necessarily return updated
+        rows unless `.select()` is chained after UPDATE. The previous code
+        treated an empty response body as a failed update, producing:
+        "Update was blocked (0 rows affected)" even when the database update
+        itself was valid.
+        """
         try:
+            service_key = str(service_id)
             existing = await self._run(
-                lambda: self.supabase.table("services").select("*").eq("id", str(service_id)).execute()
+                lambda: self.supabase.table("services")
+                .select("*")
+                .eq("id", service_key)
+                .limit(1)
+                .execute()
             )
             if not existing.data:
                 raise NotFoundException(f"Service {service_id} not found")
 
             data = request.model_dump(exclude_unset=True)
+
+            # The admin dashboard edits the service price. Keep the pricing
+            # columns synchronized so every consumer sees the same fee.
+            if "price" in data:
+                data["base_price"] = data["price"]
+                data["service_fee"] = data["price"]
+
             response = await self._run(
-                lambda: self.supabase.table("services").update(data).eq("id", str(service_id)).execute()
+                lambda: self.supabase.table("services")
+                .update(data)
+                .eq("id", service_key)
+                .select("*")
+                .execute()
             )
 
             if not response.data:
-                raise Exception("Failed to update service")
+                # Verify whether the row is still readable. This gives a
+                # precise error instead of falsely reporting a blocked update.
+                verify = await self._run(
+                    lambda: self.supabase.table("services")
+                    .select("*")
+                    .eq("id", service_key)
+                    .limit(1)
+                    .execute()
+                )
+                if not verify.data:
+                    raise NotFoundException(f"Service {service_id} is no longer available")
+                raise Exception(
+                    f"Service {service_id} update returned no row. "
+                    "Check the Supabase UPDATE policy for admin users."
+                )
 
-            service_data = response.data[0]
-            # FIX: Use .get() for all fields
-            return AdminServiceItem(
-                id=service_data.get("id"),
-                code=service_data.get("code", ""),
-                name=service_data.get("name", ""),
-                price=service_data.get("price", 0),
-                currency=service_data.get("currency", "KES"),
-                description=service_data.get("description"),
-                icon=service_data.get("icon"),
-                active=service_data.get("active", True),
-                display_order=service_data.get("display_order", 0),
-                purchase_count=service_data.get("purchase_count", 0),
-                created_at=service_data.get("created_at"),
-                updated_at=service_data.get("updated_at"),
-            )
+            return self._service_item(response.data[0])
         except NotFoundException:
             raise
         except Exception as e:
-            logger.exception(f"Error updating service: {str(e)}")
+            logger.exception(f"Error updating service {service_id}: {str(e)}")
             raise
 
     async def update_service_price(self, service_id: UUID, request: UpdateServicePriceRequest) -> AdminServiceItem:
-        """Update service price."""
+        """Update an administrator-managed service fee.
+
+        The supplied price is persisted to price, base_price and service_fee
+        so legacy and current pricing consumers remain consistent. No fee is
+        hard-coded in application code.
+        """
         try:
+            service_key = str(service_id)
             existing = await self._run(
-                lambda: self.supabase.table("services").select("*").eq("id", str(service_id)).execute()
+                lambda: self.supabase.table("services")
+                .select("*")
+                .eq("id", service_key)
+                .limit(1)
+                .execute()
             )
             if not existing.data:
                 raise NotFoundException(f"Service {service_id} not found")
 
-            data = {"price": request.price, "currency": request.currency}
+            data = {
+                "price": request.price,
+                "base_price": request.price,
+                "service_fee": request.price,
+            }
+            if request.currency is not None:
+                data["currency"] = request.currency
+
             response = await self._run(
-                lambda: self.supabase.table("services").update(data).eq("id", str(service_id)).execute()
+                lambda: self.supabase.table("services")
+                .update(data)
+                .eq("id", service_key)
+                .select("*")
+                .execute()
             )
 
             if not response.data:
-                raise Exception("Failed to update service price")
+                verify = await self._run(
+                    lambda: self.supabase.table("services")
+                    .select("*")
+                    .eq("id", service_key)
+                    .limit(1)
+                    .execute()
+                )
+                if not verify.data:
+                    raise NotFoundException(f"Service {service_id} is no longer available")
+                raise Exception(
+                    f"Service {service_id} price update returned no row. "
+                    "Check the Supabase UPDATE policy for admin users."
+                )
 
-            service_data = response.data[0]
-            # FIX: Use .get() for all fields
-            return AdminServiceItem(
-                id=service_data.get("id"),
-                code=service_data.get("code", ""),
-                name=service_data.get("name", ""),
-                price=service_data.get("price", 0),
-                currency=service_data.get("currency", "KES"),
-                description=service_data.get("description"),
-                icon=service_data.get("icon"),
-                active=service_data.get("active", True),
-                display_order=service_data.get("display_order", 0),
-                purchase_count=service_data.get("purchase_count", 0),
-                created_at=service_data.get("created_at"),
-                updated_at=service_data.get("updated_at"),
-            )
+            return self._service_item(response.data[0])
         except NotFoundException:
             raise
         except Exception as e:
-            logger.exception(f"Error updating service price: {str(e)}")
+            logger.exception(f"Error updating service price {service_id}: {str(e)}")
             raise
 
     async def delete_service(self, service_id: UUID) -> DeleteServiceResponse:
@@ -969,25 +1013,12 @@ class AdminService:
             for service in (response.data or []):
                 try:
                     prices[service.get("code", "")] = ServicePriceItem(
-                        price=service.get("price", 0),
+                        price=self._effective_service_price(service),
                         currency=service.get("currency", "KES"),
                         name=service.get("name", ""),
                     )
 
-                    services.append(AdminServiceItem(
-                        id=service.get("id"),
-                        code=service.get("code", ""),
-                        name=service.get("name", ""),
-                        price=service.get("price", 0),
-                        currency=service.get("currency", "KES"),
-                        description=service.get("description"),
-                        icon=service.get("icon"),
-                        active=service.get("active", True),
-                        display_order=service.get("display_order", 0),
-                        purchase_count=service.get("purchase_count", 0),
-                        created_at=service.get("created_at"),
-                        updated_at=service.get("updated_at"),
-                    ))
+                    services.append(self._service_item(service))
                 except Exception as e:
                     logger.exception(f"Error processing service {service.get('id')}: {str(e)}")
                     continue
