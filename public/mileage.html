@@ -115,7 +115,7 @@
         .toast-info { background: #3b82f6; color: #fff; }
         .toast-warning { background: #eab308; color: #000; }
         @keyframes slideIn { from { opacity: 0; transform: translateX(80px); } to { opacity: 1; transform: translateX(0); } }
-        .results-panel { display: flex; flex-direction: column; gap: 16px; }
+        .results-panel { display: flex; flex-direction: column; gap: 16px; position: relative; }
         .result-card { background: #111827; border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; box-shadow: 0 8px 40px rgba(0,0,0,0.5); }
         .result-card .card-title { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 600; color: #eab308; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
         .result-card .card-title .badge { font-family: 'JetBrains Mono', monospace; font-size: 8px; background: rgba(234,179,8,0.12); color: #eab308; padding: 2px 10px; border-radius: 12px; font-weight: 500; }
@@ -229,6 +229,73 @@
         .crsp-info .row .value.crsp-missing { color: #ef4444; }
         .crsp-info .row .value.crsp-estimated { color: #f59e0b; }
         .crsp-info .row .match-detail { font-size: 9px; color: #64748b; font-family: var(--font-mono); }
+
+        /* ─── Payment Lock Overlay ───────────────────────────────── */
+        .payment-lock-overlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            z-index: 60;
+            background: rgba(10,12,21,0.97);
+            border-radius: 12px;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            gap: 12px;
+            padding: 32px 24px;
+        }
+        .payment-lock-overlay.show { display: flex; }
+        .payment-lock-overlay .lock-icon { font-size: 40px; }
+        .payment-lock-overlay .lock-title { font-family: var(--font-heading); font-size: 17px; font-weight: 700; color: var(--amber); }
+        .payment-lock-overlay .lock-text { font-size: 12px; color: var(--text-secondary); max-width: 280px; line-height: 1.5; }
+        .payment-lock-overlay .lock-btn { padding: 10px 24px; background: var(--amber); color: #0a0c10; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-family: var(--font-heading); font-size: 13px; }
+        .payment-lock-overlay .lock-btn:hover { background: var(--amber-dark); }
+
+        /* ─── Session-used banner ────────────────────────────────── */
+        .session-used-banner {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            background: rgba(234,179,8,0.1);
+            border: 1px solid rgba(234,179,8,0.3);
+            border-radius: 10px;
+            padding: 14px 18px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .session-used-banner strong { color: var(--amber); }
+        .session-used-banner .banner-btn { padding: 8px 16px; background: var(--amber); color: #0a0c10; border: none; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 11px; white-space: nowrap; }
+
+        /* ─── Watermark ───────────────────────────────────────────── */
+        .watermark-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 5;
+            opacity: 0.07;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .watermark-overlay .wm-row {
+            display: flex;
+            white-space: nowrap;
+            transform: rotate(-28deg);
+            margin: 34px -120px;
+        }
+        .watermark-overlay .wm-text {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--amber);
+            letter-spacing: 0.08em;
+            margin-right: 50px;
+            text-transform: uppercase;
+        }
+
         @media (max-width: 768px) {
             .wrap { padding: 16px 12px 40px; }
             .report-header { padding: 20px 18px; flex-direction: column; }
@@ -253,7 +320,7 @@
             .vehicle-specs { flex-direction: column; gap: 4px; }
         }
         @media print {
-            .calculator-panel, .action-bar, .report-footer, .dashboard-link { display: none !important; }
+            .calculator-panel, .action-bar, .report-footer, .dashboard-link, .session-used-banner { display: none !important; }
             .result-card { background: #fff !important; border-color: #ddd !important; }
             .result-card .card-title { color: #b8860b !important; }
             .trip-total { background: #f5f5f5 !important; }
@@ -283,6 +350,8 @@
             .auto-d-badge { display: none !important; }
             .header-right .auth-status { display: none !important; }
             .status-message { display: none !important; }
+            .watermark-overlay { opacity: 0.13 !important; }
+            .watermark-overlay .wm-text { color: #b8860b !important; }
         }
     </style>
 </head>
@@ -325,6 +394,14 @@
 
             <!-- Calculator Panel -->
             <section class="calculator-panel" aria-label="Vehicle cost calculator">
+
+                <!-- Payment Lock Overlay -->
+                <div class="payment-lock-overlay" id="paymentLockOverlay">
+                    <div class="lock-icon">🔒</div>
+                    <div class="lock-title" id="lockTitle">Payment Required</div>
+                    <div class="lock-text" id="lockText">Each calculation is a single paid session. Head to your dashboard to unlock this calculator.</div>
+                    <button class="lock-btn" id="btnGoToDashboard">💳 Go to Dashboard &amp; Pay</button>
+                </div>
 
                 <!-- Authentication -->
                 <div class="panel-label"><span class="num">🔐</span> Authentication</div>
@@ -506,6 +583,12 @@
             <!-- Results Panel -->
             <div class="results-panel" id="resultsPanel">
 
+                <!-- Session used banner -->
+                <div class="session-used-banner" id="sessionUsedBanner">
+                    <span>✅ <strong>Report generated.</strong> This paid session has been used. Redirecting to dashboard in <span id="redirectCountdown">10</span>s to pay for another calculation.</span>
+                    <button class="banner-btn" id="btnPayAgain">💳 Pay for Another Calculation</button>
+                </div>
+
                 <!-- Vehicle Profile -->
                 <div class="result-card">
                     <div class="card-title">📋 Vehicle Profile <span class="badge">Module 1</span></div>
@@ -613,7 +696,7 @@
             <div class="brand">🚗 Auto-D <span>Kenya</span> <span class="auto-d-badge">Auto-D</span></div>
             <div class="meta">
                 <strong>Engine:</strong> API-driven · Mileage Rate · 5-Year Running Cost · CRSP Base Price<br />
-                <span id="footerUrl">https://auto-digital.onrender.com</span> · v9.5
+                <span id="footerUrl">https://auto-digital.onrender.com</span> · v9.6-pay1
             </div>
         </footer>
     </div>
@@ -621,7 +704,7 @@
     <script>
         // ═══════════════════════════════════════════════════════════════
         // AUTO-D KENYA - MILEAGE & RUNNING COST CALCULATOR
-        // Version 9.5 - Removed Category selection, direct make → model → generation → engine
+        // Version 9.6-pay1 - Added pay-per-calculation lock + watermark
         // ═══════════════════════════════════════════════════════════════
 
         (function() {
@@ -637,7 +720,14 @@
                 RATES_TABLE: 'vehicle_running_cost_rates',
                 OWNERSHIP_TABLE: 'vehicle_running_costs',
                 API_BASE: 'https://auto-digital.onrender.com/api/v1',
-                DASHBOARD_URL: '/dashboard.html'
+                DASHBOARD_URL: '/dashboard.html',
+                // Pay-per-calculation gating. This page is only unlocked when the
+                // backend confirms an active paid session for SERVICE_KEY. Adjust
+                // these two endpoint paths if your backend uses different routes -
+                // they follow the same auth-bearer pattern as the rest of the app.
+                SERVICE_KEY: 'mileage_running_cost',
+                UNLOCK_STATUS_PATH: '/payments/unlock-status',
+                CONSUME_SESSION_PATH: '/payments/consume-session'
             };
 
             // ─── STATE ──────────────────────────────────────────────────
@@ -652,6 +742,9 @@
             let routes = [];
             let hasCRSP = false;
             let calculationAllowed = true;
+            let isUnlocked = false;
+            let sessionConsumed = false;
+            let redirectTimer = null;
 
             // ─── DOM REFS ──────────────────────────────────────────────
             const el = {
@@ -723,7 +816,15 @@
                 crspEngineCapacity: document.getElementById('crspEngineCapacity'),
                 crspFuel: document.getElementById('crspFuel'),
                 crspTransmission: document.getElementById('crspTransmission'),
-                crspMatchMethod: document.getElementById('crspMatchMethod')
+                crspMatchMethod: document.getElementById('crspMatchMethod'),
+                paymentLockOverlay: document.getElementById('paymentLockOverlay'),
+                lockTitle: document.getElementById('lockTitle'),
+                lockText: document.getElementById('lockText'),
+                btnGoToDashboard: document.getElementById('btnGoToDashboard'),
+                sessionUsedBanner: document.getElementById('sessionUsedBanner'),
+                btnPayAgain: document.getElementById('btnPayAgain'),
+                redirectCountdown: document.getElementById('redirectCountdown'),
+                resultsPanel: document.getElementById('resultsPanel')
             };
 
             // ─── UTILITY FUNCTIONS ─────────────────────────────────────
@@ -789,6 +890,115 @@
                 el.progressContainer.classList.remove('show');
             }
 
+            // ─── PAYMENT LOCK / UNLOCK ──────────────────────────────────
+            function redirectToDashboardForPayment() {
+                const returnPath = window.location.pathname + window.location.search;
+                window.location.href = `${CONFIG.DASHBOARD_URL}?service=${encodeURIComponent(CONFIG.SERVICE_KEY)}&return=${encodeURIComponent(returnPath)}`;
+            }
+
+            function showLockOverlay(title, text) {
+                el.lockTitle.textContent = title || 'Payment Required';
+                el.lockText.textContent = text || 'Each calculation is a single paid session. Head to your dashboard to unlock this calculator.';
+                el.paymentLockOverlay.classList.add('show');
+                el.calculateBtn.disabled = true;
+            }
+
+            function hideLockOverlay() {
+                el.paymentLockOverlay.classList.remove('show');
+            }
+
+            async function checkUnlockStatus() {
+                if (!isAuthenticated) {
+                    isUnlocked = false;
+                    showLockOverlay('Sign In Required', 'Sign in above, then you will be sent to the dashboard to pay and unlock this calculator.');
+                    return false;
+                }
+                try {
+                    const token = await getAccessToken();
+                    const url = `${CONFIG.API_BASE}${CONFIG.UNLOCK_STATUS_PATH}?service=${encodeURIComponent(CONFIG.SERVICE_KEY)}`;
+                    const response = await fetch(url, {
+                        headers: { 'Accept': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+                        signal: AbortSignal.timeout(10000)
+                    });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    isUnlocked = !!(data && (data.unlocked === true || data.is_unlocked === true));
+                } catch (error) {
+                    console.warn('⚠️ Unlock status check failed:', error.message);
+                    isUnlocked = false;
+                }
+
+                if (isUnlocked) {
+                    hideLockOverlay();
+                    el.makeSelect.disabled = false;
+                    await populateMakes();
+                } else {
+                    showLockOverlay('Payment Required', 'Each calculation is a single paid session. Head to your dashboard to unlock this calculator.');
+                }
+                return isUnlocked;
+            }
+
+            async function consumeSessionAndLock() {
+                try {
+                    const token = await getAccessToken();
+                    const url = `${CONFIG.API_BASE}${CONFIG.CONSUME_SESSION_PATH}`;
+                    await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+                        body: JSON.stringify({ service: CONFIG.SERVICE_KEY }),
+                        signal: AbortSignal.timeout(10000)
+                    });
+                } catch (error) {
+                    console.warn('⚠️ Could not mark session as consumed on server:', error.message);
+                }
+                isUnlocked = false;
+                sessionConsumed = true;
+                el.calculateBtn.disabled = true;
+                showLockOverlay('Session Used', 'This paid calculation has been used. Return to the dashboard to pay for another session.');
+                showSessionUsedBanner();
+            }
+
+            function showSessionUsedBanner() {
+                el.sessionUsedBanner.style.display = 'flex';
+                let seconds = 10;
+                el.redirectCountdown.textContent = seconds;
+                if (redirectTimer) clearInterval(redirectTimer);
+                redirectTimer = setInterval(() => {
+                    seconds -= 1;
+                    el.redirectCountdown.textContent = Math.max(seconds, 0);
+                    if (seconds <= 0) {
+                        clearInterval(redirectTimer);
+                        redirectToDashboardForPayment();
+                    }
+                }, 1000);
+            }
+
+            // ─── WATERMARK ──────────────────────────────────────────────
+            function injectWatermark(label) {
+                if (!el.resultsPanel) return;
+                el.resultsPanel.querySelectorAll('.watermark-overlay').forEach(n => n.remove());
+                const overlay = document.createElement('div');
+                overlay.className = 'watermark-overlay';
+                for (let i = 0; i < 16; i++) {
+                    const row = document.createElement('div');
+                    row.className = 'wm-row';
+                    for (let j = 0; j < 6; j++) {
+                        const span = document.createElement('span');
+                        span.className = 'wm-text';
+                        span.textContent = label;
+                        row.appendChild(span);
+                    }
+                    overlay.appendChild(row);
+                }
+                el.resultsPanel.prepend(overlay);
+            }
+
+            function watermarkLabel() {
+                const email = currentUser?.user?.email || 'AUTO-D KENYA';
+                const stamp = new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
+                return `AUTO-D KENYA · ${email} · ${stamp}`;
+            }
+
             // ─── SUPABASE INIT ──────────────────────────────────────────
             function initSupabase() {
                 try {
@@ -832,8 +1042,10 @@
                     currentUser = data.session;
                     isAuthenticated = true;
                     updateAuthUI();
-                    showToast('✅ Signed in successfully!', 'success');
-                    setTimeout(() => { window.location.href = CONFIG.DASHBOARD_URL; }, 1000);
+                    showToast('✅ Signed in! Redirecting to dashboard to pay...', 'success');
+                    // Login never unlocks the calculator directly - the person must
+                    // pay per-calculation on the dashboard first.
+                    setTimeout(() => { redirectToDashboardForPayment(); }, 900);
                     return true;
                 } catch (error) {
                     showToast('❌ Sign in failed: ' + error.message, 'error');
@@ -865,6 +1077,7 @@
                     if (supabaseClient) await supabaseClient.auth.signOut();
                     currentUser = null;
                     isAuthenticated = false;
+                    isUnlocked = false;
                     updateAuthUI();
                     showToast('🔓 Signed out', 'info');
                     setTimeout(() => { window.location.href = '/'; }, 500);
@@ -910,7 +1123,8 @@
                     el.btnLogin.style.display = 'none';
                     el.btnSignup.style.display = 'none';
                     el.btnSignOut.style.display = 'inline-block';
-                    el.makeSelect.disabled = false;
+                    // NOTE: makeSelect stays disabled here on purpose - it is only
+                    // re-enabled once checkUnlockStatus() confirms a paid session.
                 } else {
                     el.authStatus.textContent = '🔓 Not Authenticated';
                     el.authStatus.className = 'auth-status unauthenticated';
@@ -1197,7 +1411,7 @@
                     el.basePricePill.style.display = 'inline-block';
                     el.basePricePill.className = 'base-price-pill estimated';
 
-                    el.calculateBtn.disabled = false;
+                    if (isUnlocked) el.calculateBtn.disabled = false;
                     showToast('ℹ️ No CRSP record found. Using estimated values.', 'warning');
                     return;
                 }
@@ -1219,7 +1433,7 @@
                 el.basePricePill.style.display = 'inline-block';
                 el.basePricePill.className = 'base-price-pill';
 
-                el.calculateBtn.disabled = false;
+                if (isUnlocked) el.calculateBtn.disabled = false;
                 showToast('✅ CRSP record found!', 'success');
             }
 
@@ -1238,6 +1452,7 @@
             }
 
             async function populateMakes() {
+                if (!isUnlocked) return;
                 const select = el.makeSelect;
                 select.innerHTML = '<option value="">Select Make...</option>';
                 select.disabled = true;
@@ -1379,7 +1594,7 @@
                 });
 
                 select.disabled = false;
-                el.calculateBtn.disabled = false;
+                if (isUnlocked) el.calculateBtn.disabled = false;
                 setStatus('success', `✅ Loaded ${engineGroups.length} engine capacities`);
             }
 
@@ -1828,10 +2043,18 @@
                 `).join('');
 
                 el.lastUpdated.textContent = new Date().toLocaleString('en-KE', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+                // Stamp the report with a watermark tied to this paid session.
+                injectWatermark(watermarkLabel());
             }
 
             // ─── MAIN CALCULATE FUNCTION ───────────────────────────────
             async function calculateAndRender(variant = null) {
+                if (!isUnlocked || sessionConsumed) {
+                    showToast('This calculator is locked. Please pay on the dashboard to unlock a session.', 'error');
+                    showLockOverlay();
+                    return;
+                }
                 if (!variant) variant = currentVariantData;
                 if (!variant) {
                     showToast('Please select a vehicle first', 'error');
@@ -1891,6 +2114,9 @@
                         showProgress(100, 'Complete!');
                         setTimeout(hideProgress, 500);
                         showToast('✅ Running cost calculated!', 'success');
+                        // One payment = one calculation. Lock the calculator now
+                        // and send the person back to the dashboard to pay again.
+                        await consumeSessionAndLock();
                     } else {
                         throw new Error('No data received from API');
                     }
@@ -1898,10 +2124,9 @@
                     hideProgress();
                     console.error('❌ Calculation error:', error);
                     showToast('Error calculating costs: ' + error.message, 'error');
+                    el.calculateBtn.disabled = false;
+                    el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
                 }
-
-                el.calculateBtn.disabled = false;
-                el.calculateBtn.innerHTML = '🚀 Calculate Mileage Rate &amp; 5-Year Cost';
             }
 
             // ─── EXPORT ──────────────────────────────────────────────────
@@ -1950,6 +2175,12 @@
                 });
 
                 el.btnSignOut.addEventListener('click', signOut);
+
+                el.btnGoToDashboard.addEventListener('click', redirectToDashboardForPayment);
+                el.btnPayAgain.addEventListener('click', () => {
+                    if (redirectTimer) clearInterval(redirectTimer);
+                    redirectToDashboardForPayment();
+                });
 
                 // Vehicle selection chain
                 el.makeSelect.addEventListener('change', async function() {
@@ -2006,7 +2237,7 @@
                     if (variant) {
                         currentVariantData = variant;
                         await refreshCRSPReference(crspId, variant);
-                        if (!currentBasePrice) {
+                        if (!currentBasePrice && isUnlocked) {
                             el.calculateBtn.disabled = false;
                             setStatus('warning', 'No CRSP record found — calculations will use estimates');
                         }
@@ -2078,15 +2309,15 @@
                     }
                     el.loadingStatus.textContent = 'Checking session...';
                     await checkAuth();
-                    el.loadingStatus.textContent = 'Loading makes...';
-                    await populateMakes();
+                    el.loadingStatus.textContent = 'Checking payment status...';
+                    await checkUnlockStatus();
                     el.loadingStatus.textContent = 'Loading routes...';
                     await loadRoutes();
                     renderRouteChips();
                     el.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
-                    console.log('✅ Auto-D Kenya Mileage & Running Cost Calculator initialized (v9.5)');
+                    console.log('✅ Auto-D Kenya Mileage & Running Cost Calculator initialized (v9.6-pay1)');
                     console.log(`✅ Using view: ${CONFIG.VIEW_NAME}`);
-                    console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'}`);
+                    console.log(`🔐 Authenticated: ${isAuthenticated ? '✅ Yes' : '❌ No'} | 🔓 Unlocked: ${isUnlocked ? '✅ Yes' : '❌ No'}`);
                 } catch (error) {
                     console.error('Init error:', error);
                     setStatus('error', 'Something went wrong — please refresh');
