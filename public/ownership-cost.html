@@ -126,8 +126,45 @@
     .loading-overlay .loading-text { color: var(--amber); font-family: var(--font-heading); font-size: 16px; font-weight: 600; }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
     .auto-d-badge { display: inline-block; background: rgba(234,179,8,0.15); color: var(--amber); font-family: var(--font-mono); font-size: 8px; padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(234,179,8,0.2); margin-left: 6px; }
+
+    /* ─── Payment Lock Overlay ───────────────────────────────── */
+    .payment-lock-overlay {
+      display: none; position: absolute; inset: 0; z-index: 60;
+      background: rgba(10,12,21,0.97); border-radius: var(--radius);
+      flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; gap: 12px; padding: 32px 24px;
+    }
+    .payment-lock-overlay.show { display: flex; }
+    .payment-lock-overlay .lock-icon { font-size: 40px; }
+    .payment-lock-overlay .lock-title { font-family: var(--font-heading); font-size: 17px; font-weight: 700; color: var(--amber); }
+    .payment-lock-overlay .lock-text { font-size: 12px; color: var(--text-secondary); max-width: 280px; line-height: 1.5; }
+    .payment-lock-overlay .lock-btn { padding: 10px 24px; background: var(--amber); color: #0a0c10; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-family: var(--font-heading); font-size: 13px; }
+    .payment-lock-overlay .lock-btn:hover { background: var(--amber-dark); }
+
+    /* ─── Session-used banner ────────────────────────────────── */
+    .session-used-banner {
+      display: none; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+      background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.3); border-radius: 10px;
+      padding: 14px 18px; font-size: 12px; color: var(--text-secondary); margin-bottom: 16px;
+    }
+    .session-used-banner strong { color: var(--amber); }
+    .session-used-banner .banner-btn { padding: 8px 16px; background: var(--amber); color: #0a0c10; border: none; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 11px; white-space: nowrap; }
+
+    /* ─── Watermark ───────────────────────────────────────────── */
+    .watermark-overlay {
+      position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; opacity: 0.07;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    .watermark-overlay .wm-row { display: flex; white-space: nowrap; transform: rotate(-28deg); margin: 34px -120px; }
+    .watermark-overlay .wm-text { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--amber); letter-spacing: 0.08em; margin-right: 50px; text-transform: uppercase; }
+    #resultsPanel { position: relative; }
+
     @media (max-width:768px) { .wrap { padding: 16px 12px 40px; } .report-header { flex-direction: column; } .header-right { text-align: left; width:100%; } .stats-grid { grid-template-columns: 1fr 1fr; } .action-bar { flex-direction: column; } .action-btn { justify-content: center; } }
-    @media print { .calculator-panel, .dashboard-link, .loading-overlay, .action-bar { display: none !important; } }
+    @media print {
+      .calculator-panel, .dashboard-link, .loading-overlay, .action-bar, .session-used-banner { display: none !important; }
+      .watermark-overlay { opacity: 0.13 !important; }
+      .watermark-overlay .wm-text { color: #b8860b !important; }
+    }
   </style>
 </head>
 <body>
@@ -144,7 +181,7 @@
       <a href="/dashboard.html" class="dashboard-link"><span aria-hidden="true">←</span> Back to Dashboard</a>
     </div>
     <div class="header-right">
-      <div class="version">Version <span>10.0</span> <span class="auto-d-badge">Auto-D</span></div>
+      <div class="version">Version <span>10.1</span> <span class="auto-d-badge">Auto-D</span></div>
       <div>Last Updated: <span id="lastUpdated">—</span></div>
       <div><span class="auth-status unauthenticated" id="authStatus" aria-live="polite">🔓 Not Authenticated</span></div>
     </div>
@@ -152,6 +189,14 @@
 
   <div class="main-grid">
     <section class="calculator-panel" aria-label="TCO Calculator">
+      <!-- Payment Lock Overlay -->
+      <div class="payment-lock-overlay" id="paymentLockOverlay">
+        <div class="lock-icon" aria-hidden="true">🔒</div>
+        <div class="lock-title" id="lockTitle">Payment Required</div>
+        <div class="lock-text" id="lockText">Each TCO report is a single paid session. Head to your dashboard to unlock this calculator.</div>
+        <button class="lock-btn" id="btnGoToDashboard">💳 Go to Dashboard &amp; Pay</button>
+      </div>
+
       <!-- AUTH (same pattern as mileage file) -->
       <div class="panel-label"><span aria-hidden="true">🔐</span> Authentication</div>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
@@ -174,7 +219,7 @@
 
       <!-- Vehicle selection chain (make → model → year → trim) -->
       <div class="panel-label"><span class="num">01</span> Vehicle Selection</div>
-      <div class="form-group"><label for="makeSelect">Vehicle Make</label><select id="makeSelect" disabled><option value="">Sign in to load makes</option></select></div>
+      <div class="form-group"><label for="makeSelect">Vehicle Make</label><select id="makeSelect" disabled><option value="">Sign in and pay to load makes</option></select></div>
       <div class="form-group"><label for="modelSelect">Vehicle Model</label><select id="modelSelect" disabled><option value="">Select a make first</option></select></div>
       <div class="form-group"><label for="yearSelect">Manufacture Year</label><select id="yearSelect" disabled><option value="">Select a model first</option></select></div>
       <div class="form-group"><label for="trimSelect">Vehicle Trim / Variant</label><select id="trimSelect" disabled><option value="">Select a year first</option></select></div>
@@ -233,6 +278,13 @@
     </section>
 
     <div class="results-panel" id="resultsPanel">
+
+      <!-- Session used banner -->
+      <div class="session-used-banner" id="sessionUsedBanner">
+        <span>✅ <strong>Report generated.</strong> This paid session has been used. Redirecting to dashboard in <span id="redirectCountdown">10</span>s to pay for another calculation.</span>
+        <button class="banner-btn" id="btnPayAgain">💳 Pay for Another Calculation</button>
+      </div>
+
       <div class="result-card">
         <div class="card-title">📋 Vehicle Profile</div>
         <div id="vehicleLabel">Select a vehicle to begin</div>
@@ -307,6 +359,14 @@
       QUERY_TIMEOUT_MS: 15000,
       CRSP_PAGE_SIZE: 1000,
       INFLATION_RATE_PCT: 2.0,
+      API_BASE: 'https://auto-digital.onrender.com/api/v1',
+      DASHBOARD_URL: '/dashboard.html',
+      // Pay-per-calculation gating. Adjust these endpoint paths if the backend
+      // uses different routes - they follow the same Bearer-token pattern as
+      // the RPC call above (see M-Pesa unlock flow used on dashboard.html).
+      SERVICE_KEY: 'total_cost_ownership',
+      UNLOCK_STATUS_PATH: '/payments/unlock-status',
+      CONSUME_SESSION_PATH: '/payments/consume-session',
       DEBUG: false
     };
 
@@ -379,11 +439,19 @@
 
     // ─── AUTH ──────────────────────────────────────────────────────────
     let session = null;
+    let isUnlocked = false;
+    let sessionConsumed = false;
+    let redirectTimer = null;
+
     async function getSession() {
       if (!supabaseClient) return null;
       const { data, error } = await supabaseClient.auth.getSession();
       if (error) return null;
       return data.session;
+    }
+    async function getAccessToken() {
+      const s = session || await getSession();
+      return s?.access_token || '';
     }
     async function signIn(email, password) {
       if (!supabaseClient) throw new Error('Supabase not initialized');
@@ -412,7 +480,8 @@
         document.getElementById('btnLogin').style.display = 'none';
         document.getElementById('btnSignup').style.display = 'none';
         document.getElementById('btnSignOut').style.display = 'inline-block';
-        document.getElementById('makeSelect').disabled = false;
+        // makeSelect stays disabled here on purpose - only checkUnlockStatus()
+        // (i.e. a confirmed paid session) re-enables it.
       } else {
         status.textContent = '🔓 Not Authenticated';
         status.className = 'auth-status unauthenticated';
@@ -425,6 +494,109 @@
         document.getElementById('trimSelect').disabled = true;
         document.getElementById('calculateBtn').disabled = true;
       }
+    }
+
+    // ─── PAYMENT LOCK / UNLOCK ──────────────────────────────────────
+    function redirectToDashboardForPayment() {
+      const returnPath = window.location.pathname + window.location.search;
+      window.location.href = `${CONFIG.DASHBOARD_URL}?service=${encodeURIComponent(CONFIG.SERVICE_KEY)}&return=${encodeURIComponent(returnPath)}`;
+    }
+    function showLockOverlay(title, text) {
+      const overlay = document.getElementById('paymentLockOverlay');
+      document.getElementById('lockTitle').textContent = title || 'Payment Required';
+      document.getElementById('lockText').textContent = text || 'Each TCO report is a single paid session. Head to your dashboard to unlock this calculator.';
+      overlay.classList.add('show');
+      document.getElementById('calculateBtn').disabled = true;
+    }
+    function hideLockOverlay() {
+      document.getElementById('paymentLockOverlay').classList.remove('show');
+    }
+    async function checkUnlockStatus() {
+      if (!session) {
+        isUnlocked = false;
+        showLockOverlay('Sign In Required', 'Sign in above, then you will be sent to the dashboard to pay and unlock this calculator.');
+        return false;
+      }
+      try {
+        const token = await getAccessToken();
+        const url = `${CONFIG.API_BASE}${CONFIG.UNLOCK_STATUS_PATH}?service=${encodeURIComponent(CONFIG.SERVICE_KEY)}`;
+        const res = await fetch(url, {
+          headers: { 'Accept': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        isUnlocked = !!(data && (data.unlocked === true || data.is_unlocked === true));
+      } catch (e) {
+        console.warn('⚠️ Unlock status check failed:', e.message);
+        isUnlocked = false;
+      }
+      if (isUnlocked) {
+        hideLockOverlay();
+        document.getElementById('makeSelect').disabled = false;
+        await populateMakes();
+      } else {
+        showLockOverlay('Payment Required', 'Each TCO report is a single paid session. Head to your dashboard to unlock this calculator.');
+      }
+      return isUnlocked;
+    }
+    async function consumeSessionAndLock() {
+      try {
+        const token = await getAccessToken();
+        const url = `${CONFIG.API_BASE}${CONFIG.CONSUME_SESSION_PATH}`;
+        await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+          body: JSON.stringify({ service: CONFIG.SERVICE_KEY }),
+          signal: AbortSignal.timeout(10000)
+        });
+      } catch (e) {
+        console.warn('⚠️ Could not mark session as consumed on server:', e.message);
+      }
+      isUnlocked = false;
+      sessionConsumed = true;
+      document.getElementById('calculateBtn').disabled = true;
+      showLockOverlay('Session Used', 'This paid TCO report has been used. Return to the dashboard to pay for another session.');
+      showSessionUsedBanner();
+    }
+    function showSessionUsedBanner() {
+      const banner = document.getElementById('sessionUsedBanner');
+      banner.style.display = 'flex';
+      let seconds = 10;
+      const countEl = document.getElementById('redirectCountdown');
+      countEl.textContent = seconds;
+      if (redirectTimer) clearInterval(redirectTimer);
+      redirectTimer = setInterval(() => {
+        seconds -= 1;
+        countEl.textContent = Math.max(seconds, 0);
+        if (seconds <= 0) { clearInterval(redirectTimer); redirectToDashboardForPayment(); }
+      }, 1000);
+    }
+
+    // ─── WATERMARK ──────────────────────────────────────────────────
+    function injectWatermark(label) {
+      const panel = document.getElementById('resultsPanel');
+      if (!panel) return;
+      panel.querySelectorAll('.watermark-overlay').forEach(n => n.remove());
+      const overlay = document.createElement('div');
+      overlay.className = 'watermark-overlay';
+      for (let i = 0; i < 16; i++) {
+        const row = document.createElement('div');
+        row.className = 'wm-row';
+        for (let j = 0; j < 6; j++) {
+          const span = document.createElement('span');
+          span.className = 'wm-text';
+          span.textContent = label;
+          row.appendChild(span);
+        }
+        overlay.appendChild(row);
+      }
+      panel.prepend(overlay);
+    }
+    function watermarkLabel() {
+      const email = session?.user?.email || 'AUTO-D KENYA';
+      const stamp = new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
+      return `AUTO-D KENYA · ${email} · ${stamp}`;
     }
 
     // ─── VEHICLE DATA LOADING ──────────────────────────────────────
@@ -556,10 +728,13 @@
       exportBtn: $('exportBtn'),
       lastUpdated: $('lastUpdated'),
       loadingOverlay: $('loadingOverlay'),
+      btnGoToDashboard: $('btnGoToDashboard'),
+      btnPayAgain: $('btnPayAgain'),
     };
 
     // ─── UI POPULATION ──────────────────────────────────────────────
     async function populateMakes() {
+      if (!isUnlocked) return;
       const sel = dom.makeSelect;
       sel.innerHTML = '<option value="">Select Make…</option>';
       sel.disabled = true;
@@ -653,7 +828,7 @@
     // ─── TRIM SELECTION ──────────────────────────────────────────────
     function onTrimSelected(crspId) {
       const trim = _trimsById.get(String(crspId));
-      dom.calculateBtn.disabled = !trim;
+      dom.calculateBtn.disabled = !trim || !isUnlocked;
       if (!trim) { selectedTrim = null; dom.crspInfo.classList.remove('show'); return; }
       selectedTrim = trim;
       dom.crspInfo.classList.add('show');
@@ -705,6 +880,11 @@
     // for the response shape consumed by renderResults() below.
     async function calculateTCO() {
       if (!session) { showToast('⚠️ Please sign in','warning'); return; }
+      if (!isUnlocked || sessionConsumed) {
+        showToast('This calculator is locked. Please pay on the dashboard to unlock a session.', 'error');
+        showLockOverlay();
+        return;
+      }
       if (!selectedTrim) { showToast('Please select a trim','error'); return; }
       // validate price
       const price = num(dom.purchasePrice.value);
@@ -758,11 +938,13 @@
         showProgress(100, 'Done!');
         setTimeout(hideProgress, 500);
         showToast('✅ TCO calculated!','success');
+        // One payment = one report. Lock the calculator and route the person
+        // back to the dashboard to pay for their next session.
+        await consumeSessionAndLock();
       } catch (err) {
         hideProgress();
         showToast('❌ ' + (err.message || 'Calculation failed'), 'error');
         console.error(err);
-      } finally {
         dom.calculateBtn.disabled = false;
         dom.calculateBtn.innerHTML = '🚀 Calculate TCO';
       }
@@ -838,6 +1020,9 @@
       }
 
       dom.lastUpdated.textContent = new Date().toLocaleString('en-KE', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+
+      // Stamp the report with a watermark tied to this paid session.
+      injectWatermark(watermarkLabel());
     }
 
     // ─── EXPORT CSV ──────────────────────────────────────────────────
@@ -864,7 +1049,14 @@
         const email = document.getElementById('authEmail').value.trim();
         const pwd = document.getElementById('authPassword').value;
         if (!email || !pwd) { showToast('Enter email and password','warning'); return; }
-        try { await signIn(email, pwd); updateAuthUI(); showToast('✅ Signed in','success'); populateMakes(); } catch(e) { showToast('❌ '+e.message,'error'); }
+        try {
+          await signIn(email, pwd);
+          updateAuthUI();
+          showToast('✅ Signed in! Redirecting to dashboard to pay...','success');
+          // Login never unlocks the calculator directly - payment happens on
+          // the dashboard first, one session per calculator run.
+          setTimeout(() => { redirectToDashboardForPayment(); }, 900);
+        } catch(e) { showToast('❌ '+e.message,'error'); }
       });
       document.getElementById('btnSignup').addEventListener('click', async () => {
         const email = document.getElementById('authEmail').value.trim();
@@ -874,7 +1066,13 @@
         try { await signUp(email, pwd); showToast('✅ Account created! Check email.','success'); } catch(e) { showToast('❌ '+e.message,'error'); }
       });
       document.getElementById('btnSignOut').addEventListener('click', async () => {
-        await signOut(); updateAuthUI(); showToast('Signed out','info'); document.getElementById('makeSelect').disabled = true;
+        await signOut(); isUnlocked = false; updateAuthUI(); showToast('Signed out','info'); document.getElementById('makeSelect').disabled = true;
+      });
+
+      dom.btnGoToDashboard.addEventListener('click', redirectToDashboardForPayment);
+      dom.btnPayAgain.addEventListener('click', () => {
+        if (redirectTimer) clearInterval(redirectTimer);
+        redirectToDashboardForPayment();
       });
 
       dom.makeSelect.addEventListener('change', function() { populateModels(this.value); });
@@ -933,11 +1131,17 @@
       try {
         await getSession();
         updateAuthUI();
-        if (session) await populateMakes();
-        else { dom.makeSelect.disabled = true; setStatus('info','Sign in to load vehicles'); }
+        if (session) {
+          setStatus('info', 'Checking payment status...');
+          await checkUnlockStatus();
+        } else {
+          dom.makeSelect.disabled = true;
+          setStatus('info','Sign in to continue');
+          showLockOverlay('Sign In Required', 'Sign in above, then you will be sent to the dashboard to pay and unlock this calculator.');
+        }
         dom.lastUpdated.textContent = new Date().toLocaleDateString('en-KE', { year:'numeric', month:'short', day:'numeric' });
         dom.financeFields.style.display = 'none';
-        console.log('✅ Auto-D TCO initialized (calls calculate_vehicle_ownership via Supabase RPC)');
+        console.log('✅ Auto-D TCO initialized (calls calculate_vehicle_ownership via Supabase RPC) - pay-per-session gating active');
       } catch(e) { setStatus('error','Init error: '+e.message); }
       dom.loadingOverlay.classList.remove('active');
     }
