@@ -1466,6 +1466,23 @@
                             <button class="cancel-btn" id="btnCancelAuth">Cancel</button>
                         </div>
                     </div>
+                    <div class="credits-badge" id="creditsBadge" style="display:none;"></div>
+                </div>
+
+                <!-- ─── ACCESS GATE ─────────────────────────────────────
+                     Hidden by default. Shown (via .show) whenever the
+                     visitor is not signed in, or is signed in but has no
+                     unlocked/paid session for this calculator. Real field
+                     locking happens through lockCalculatorFields(), this
+                     is just the visible explanation + CTA. -->
+                <div class="access-gate" id="accessGate">
+                    <div class="gate-icon" id="gateIcon">🔒</div>
+                    <div class="gate-title" id="gateTitle">Sign in required</div>
+                    <div class="gate-text" id="gateText">
+                        Sign in and pay for a session to run an instant vehicle valuation.
+                    </div>
+                    <button class="gate-btn" id="gateBtn">Go to Dashboard</button>
+                    <div style="font-size:10px;color:var(--text-muted);margin-top:10px;" id="gateRedirectNote"></div>
                 </div>
 
                 <!-- ─── FLOW STEPS ─────────────────────────────────────── -->
@@ -1705,6 +1722,20 @@
 
                     <div class="result-watermark" aria-hidden="true"></div>
 
+                    <!-- Session-consumed notice: shown once this report has
+                         successfully used up the visitor's paid session. -->
+                    <div class="session-used-banner" id="sessionUsedBanner">
+                        <div class="sub-title">✅ Session Used</div>
+                        <div class="sub-text">
+                            This valuation used your paid session. You'll need to pay again for another report.
+                            Redirecting to the dashboard in <span id="redirectCountdown">10</span>s.
+                        </div>
+                        <div class="sub-actions">
+                            <button id="btnGoDashboardNow">Go to Dashboard Now</button>
+                            <button id="btnStayHere">Stay &amp; View Report</button>
+                        </div>
+                    </div>
+
                     <div class="report-title">
                         AUTO-D VEHICLE VALUATION REPORT
                         <span class="status-badge"><span class="check">✓</span> Completed</span>
@@ -1875,6 +1906,14 @@
                 MAX_PHOTOS: 4,
                 MAX_PHOTO_SIZE: 12 * 1024 * 1024,
                 REQUEST_TIMEOUT: 45000,
+                // Service key used to check/consume a paid pay-per-session
+                // unlock for THIS calculator. Must match whatever key the
+                // backend and dashboard.html use for the instant valuation
+                // service (rename here if it differs, e.g. 'valuation').
+                SERVICE_KEY: 'instant_value',
+                DASHBOARD_URL: '/dashboard.html',
+                REDIRECT_SECONDS: 10,
+                GATE_REDIRECT_SECONDS: 6,
                 ENDPOINTS: {
                     VALUATION: '/valuation/calculate',
                     VEHICLE_SEARCH: '/valuation/crsp/search',
@@ -1882,7 +1921,15 @@
                     OWNERSHIP: '/ownership/calculate',
                     OWNERSHIP_PUBLIC: '/ownership/calculate-public',
                     RUNNING_COST: '/running-cost/calculate',
-                    REPORTS: '/reports'
+                    REPORTS: '/reports',
+                    // Pay-per-session unlock endpoints. Same pattern already
+                    // used to gate the other calculators (mileage/TCO):
+                    // status = "do you have an active unlocked session?"
+                    // consume = "spend it now, atomically, right before we
+                    // generate a report" so a paid session can only ever
+                    // back a single completed valuation.
+                    ACCESS_STATUS: '/access/status',
+                    ACCESS_CONSUME: '/access/consume'
                 }
             };
 
@@ -1939,6 +1986,10 @@
                     }
                 }
 
+                async get(endpoint) {
+                    return this.request(endpoint, { method: 'GET' });
+                }
+
                 async post(endpoint, data) {
                     return this.request(endpoint, {
                         method: 'POST',
@@ -1973,6 +2024,43 @@
                         throw new Error(message);
                     }
                     return response.json();
+                }
+
+                // ── Pay-per-session access ────────────────────────────
+                // GET /access/status?service=instant_value
+                // Expected shape: { unlocked: boolean, credits: number }
+                // Adjust the field names here if the backend's actual
+                // response shape differs — this is the only place that
+                // needs to change.
+                async getAccessStatus(serviceKey) {
+                    const response = await this.get(`${CONFIG.ENDPOINTS.ACCESS_STATUS}?service=${encodeURIComponent(serviceKey)}`);
+                    if (!response.ok) {
+                        // Fail closed: any error checking access means "not
+                        // unlocked" rather than silently letting the user in.
+                        return { unlocked: false, credits: 0, error: `HTTP ${response.status}` };
+                    }
+                    const body = await response.json().catch(() => ({}));
+                    const data = body.data || body;
+                    return {
+                        unlocked: !!(data.unlocked ?? data.has_access ?? data.is_unlocked),
+                        credits: Number(data.credits ?? data.sessions_remaining ?? 0)
+                    };
+                }
+
+                // POST /access/consume { service: "instant_value" }
+                // Must be called immediately before generating the report so
+                // the paid session backs exactly one valuation. Expected to
+                // fail (non-2xx) if there's no active session to consume.
+                async consumeAccess(serviceKey) {
+                    const response = await this.post(CONFIG.ENDPOINTS.ACCESS_CONSUME, { service: serviceKey });
+                    if (!response.ok) {
+                        const body = await response.json().catch(() => ({}));
+                        const message = (typeof body.detail === 'string' && body.detail)
+                            || body.message
+                            || 'No active paid session to use';
+                        throw new Error(message);
+                    }
+                    return response.json().catch(() => ({}));
                 }
             }
 
@@ -2066,6 +2154,8 @@
                 constructor() {
                     this.elements = {};
                     this.photoProcessor = new PhotoProcessor(CONFIG.MAX_PHOTOS, CONFIG.MAX_PHOTO_SIZE);
+                    this.redirectTimer = null;
+                    this.redirectInterval = null;
                     this.initializeElements();
                     this.bindEvents();
                 }
@@ -2090,7 +2180,10 @@
                         'crspResultSection', 'rCrspMatched', 'rCrspBase', 'rCrspAge', 'rCrspRef',
                         'rCrspVariance', 'flowSteps', 'photoGrid', 'photoAuthSummary',
                         'reportPhotosSection', 'reportPhotosGrid', 'photoWarningSection',
-                        'printBtn', 'shareBtn', 'footerUrl', 'digitalSignatureSection', 'sigHash'
+                        'printBtn', 'shareBtn', 'footerUrl', 'digitalSignatureSection', 'sigHash',
+                        'creditsBadge', 'accessGate', 'gateIcon', 'gateTitle', 'gateText', 'gateBtn',
+                        'gateRedirectNote', 'sessionUsedBanner', 'redirectCountdown',
+                        'btnGoDashboardNow', 'btnStayHere'
                     ];
 
                     ids.forEach(id => {
@@ -2115,9 +2208,22 @@
                     // Report actions
                     this.elements.printBtn?.addEventListener('click', () => setTimeout(() => window.print(), 500));
                     this.elements.shareBtn?.addEventListener('click', () => this.handleShare());
+
+                    // Access gate CTA
+                    this.elements.gateBtn?.addEventListener('click', () => this.goToDashboard());
+
+                    // Post-valuation redirect banner
+                    this.elements.btnGoDashboardNow?.addEventListener('click', () => this.goToDashboard());
+                    this.elements.btnStayHere?.addEventListener('click', () => this.cancelRedirect());
                 }
 
                 // ─── UI HELPERS ──────────────────────────────────────
+                goToDashboard(params) {
+                    const url = new URL(CONFIG.DASHBOARD_URL, window.location.origin);
+                    if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+                    window.location.href = url.pathname + url.search;
+                }
+
                 setStatus(type, message) {
                     const el = this.elements.statusMessage;
                     const textEl = this.elements.statusMessageText;
@@ -2237,7 +2343,6 @@
                     const msgEl = this.elements.authMessage;
                     const signInBtn = this.elements.btnSignIn;
                     const signOutBtn = this.elements.btnSignOut;
-                    const makeSelect = this.elements.makeSelect;
 
                     if (user) {
                         const email = user.email || 'user';
@@ -2248,7 +2353,11 @@
                         if (msgEl) msgEl.textContent = `✅ Signed in as ${email}`;
                         if (signInBtn) signInBtn.style.display = 'none';
                         if (signOutBtn) signOutBtn.style.display = 'inline-block';
-                        if (makeSelect) makeSelect.disabled = false;
+                        // NOTE: makeSelect is intentionally NOT enabled here.
+                        // Field unlocking is now gated on paid access status,
+                        // handled by lockCalculatorFields()/unlockCalculatorFields()
+                        // after checkAccessStatus() resolves — being signed in
+                        // is necessary but no longer sufficient on its own.
                     } else {
                         if (statusEl) {
                             statusEl.textContent = '🔓 Not Authenticated';
@@ -2257,8 +2366,137 @@
                         if (msgEl) msgEl.textContent = 'Sign in to get your instant vehicle valuation';
                         if (signInBtn) signInBtn.style.display = 'inline-block';
                         if (signOutBtn) signOutBtn.style.display = 'none';
-                        if (makeSelect) makeSelect.disabled = true;
+                        this.lockCalculatorFields();
                         this.updateValuateButton(false, '🔒 Sign in required');
+                    }
+                }
+
+                // ─── ACCESS GATE / FIELD LOCKING ───────────────────────
+                // Disables every calculator input. Called whenever the
+                // visitor is unauthenticated, has no paid session, or right
+                // after a session is consumed by a completed valuation.
+                lockCalculatorFields() {
+                    const ids = [
+                        'registrationInput', 'makeSelect', 'modelSelect', 'yearSelect', 'trimSelect',
+                        'vehicleTypeSelect', 'fuelTypeSelect', 'transmissionSelect', 'mileageInput',
+                        'conditionSelect', 'accidentSelect', 'ownersSelect', 'locationSelect'
+                    ];
+                    ids.forEach(id => { if (this.elements[id]) this.elements[id].disabled = true; });
+                    this.updateValuateButton(false, '🔒 Locked');
+
+                    const grid = this.elements.photoGrid;
+                    if (grid) {
+                        grid.querySelectorAll('input[type="file"]').forEach(el => el.disabled = true);
+                        grid.style.opacity = '0.5';
+                        grid.style.pointerEvents = 'none';
+                    }
+                }
+
+                // Re-enables the make dropdown only — the rest of the flow
+                // (model/year/trim/details) re-enables progressively as the
+                // user makes each selection, same as the original flow.
+                unlockCalculatorFields() {
+                    if (this.elements.makeSelect) this.elements.makeSelect.disabled = false;
+                    const grid = this.elements.photoGrid;
+                    if (grid) {
+                        grid.querySelectorAll('input[type="file"]').forEach(el => el.disabled = false);
+                        grid.style.opacity = '';
+                        grid.style.pointerEvents = '';
+                    }
+                    this.updateValuateButton(false, '🔒 Select a trim');
+                }
+
+                updateCreditsBadge(credits) {
+                    const el = this.elements.creditsBadge;
+                    if (!el) return;
+                    if (credits === null || credits === undefined) {
+                        el.style.display = 'none';
+                        return;
+                    }
+                    el.style.display = 'inline-block';
+                    if (credits > 0) {
+                        el.className = 'credits-badge has-credit';
+                        el.textContent = `💳 ${credits} paid session${credits === 1 ? '' : 's'} available`;
+                    } else {
+                        el.className = 'credits-badge no-credit';
+                        el.textContent = '💳 No paid sessions — pay to unlock';
+                    }
+                }
+
+                // mode: 'signin' | 'pay'
+                showAccessGate(mode, autoRedirectSeconds) {
+                    const gate = this.elements.accessGate;
+                    if (!gate) return;
+                    this.lockCalculatorFields();
+
+                    if (mode === 'signin') {
+                        if (this.elements.gateIcon) this.elements.gateIcon.textContent = '🔑';
+                        if (this.elements.gateTitle) this.elements.gateTitle.textContent = 'Sign in required';
+                        if (this.elements.gateText) this.elements.gateText.textContent =
+                            'You need to sign in before you can run a vehicle valuation. Head to the dashboard to sign in or create an account.';
+                        if (this.elements.gateBtn) this.elements.gateBtn.textContent = 'Sign In on Dashboard';
+                    } else {
+                        if (this.elements.gateIcon) this.elements.gateIcon.textContent = '💳';
+                        if (this.elements.gateTitle) this.elements.gateTitle.textContent = 'Payment required';
+                        if (this.elements.gateText) this.elements.gateText.textContent =
+                            'Each valuation report requires one paid session (M-Pesa). You don\'t currently have an active session — pay on the dashboard to unlock this calculator.';
+                        if (this.elements.gateBtn) this.elements.gateBtn.textContent = 'Pay on Dashboard';
+                    }
+
+                    gate.classList.add('show');
+
+                    if (autoRedirectSeconds) {
+                        let remaining = autoRedirectSeconds;
+                        const noteEl = this.elements.gateRedirectNote;
+                        const tick = () => {
+                            if (noteEl) noteEl.textContent = `Redirecting to the dashboard in ${remaining}s…`;
+                            if (remaining <= 0) {
+                                clearInterval(this._gateInterval);
+                                this.goToDashboard(mode === 'signin' ? { authRequired: 1 } : { service: CONFIG.SERVICE_KEY, pay: 1 });
+                                return;
+                            }
+                            remaining -= 1;
+                        };
+                        clearInterval(this._gateInterval);
+                        tick();
+                        this._gateInterval = setInterval(tick, 1000);
+                    }
+                }
+
+                hideAccessGate() {
+                    clearInterval(this._gateInterval);
+                    const gate = this.elements.accessGate;
+                    if (gate) gate.classList.remove('show');
+                    if (this.elements.gateRedirectNote) this.elements.gateRedirectNote.textContent = '';
+                }
+
+                // ─── SESSION-USED / POST-REPORT REDIRECT ───────────────
+                showSessionUsedBanner(seconds) {
+                    const banner = this.elements.sessionUsedBanner;
+                    if (!banner) return;
+                    banner.classList.add('show');
+
+                    let remaining = seconds;
+                    const countdownEl = this.elements.redirectCountdown;
+                    if (countdownEl) countdownEl.textContent = remaining;
+
+                    clearInterval(this.redirectInterval);
+                    this.redirectInterval = setInterval(() => {
+                        remaining -= 1;
+                        if (countdownEl) countdownEl.textContent = Math.max(remaining, 0);
+                        if (remaining <= 0) {
+                            clearInterval(this.redirectInterval);
+                            this.goToDashboard();
+                        }
+                    }, 1000);
+                }
+
+                cancelRedirect() {
+                    clearInterval(this.redirectInterval);
+                    const banner = this.elements.sessionUsedBanner;
+                    if (banner) {
+                        const textEl = banner.querySelector('.sub-text');
+                        if (textEl) textEl.innerHTML = 'This valuation used your paid session. You\'ll need to pay again for another report.';
                     }
                 }
 
@@ -2321,7 +2559,6 @@
                             photos[idx] = { dataUrl: null, fileName: null, status: 'empty', reason: '' };
                             this.renderPhotoGrid(photos);
                             this.updatePhotoSummary(photos);
-                            this.updateValuateButton(true);
                         });
                     });
                 }
@@ -2790,7 +3027,13 @@
                         // populated for the current session, so the periodic
                         // background auth check (every 30s) doesn't keep
                         // wiping and rebuilding it under the user's feet.
-                        makesLoaded: false
+                        makesLoaded: false,
+                        // Pay-per-session access state. hasAccess=true means
+                        // "there is an active session available RIGHT NOW";
+                        // it's re-checked on load and re-derived to false the
+                        // instant a session is consumed by a completed report.
+                        hasAccess: false,
+                        credits: 0
                     };
                     this.init();
                 }
@@ -2812,8 +3055,14 @@
                             () => localStorage.getItem('access_token')
                         );
 
-                        // Check authentication
+                        // Check authentication, then (if signed in) paid access.
+                        // This is the hard gate: anyone landing on this page
+                        // directly without a session and an active paid
+                        // credit gets stopped here before any calculator
+                        // field is usable, and is routed back to the
+                        // dashboard to sign in / pay.
                         await this.checkAuth();
+                        await this.refreshAccessGate();
 
                         // Render photo grid
                         this.ui.renderPhotoGrid(this.state.photos);
@@ -2828,14 +3077,59 @@
                         // Override UI event handlers
                         this.overrideUIHandlers();
 
-                        console.log('✅ Auto-D Kenya Instant Value Check initialized (v6.0)');
+                        console.log('✅ Auto-D Kenya Instant Value Check initialized (v6.1)');
                         console.log(`🔐 Authenticated: ${this.state.isAuthenticated ? '✅ Yes' : '❌ No'}`);
+                        console.log(`💳 Access: ${this.state.hasAccess ? '✅ Unlocked' : '❌ Locked'} (${this.state.credits} credits)`);
                         console.log(`🔗 API: ${CONFIG.API_BASE}`);
                     } catch (error) {
                         console.error('Init error:', error);
                         this.ui.setStatus('error', 'Something went wrong — please refresh');
                     } finally {
                         this.ui.hideLoadingBar();
+                    }
+                }
+
+                // ─── ACCESS GATE ORCHESTRATION ─────────────────────────
+                // Single source of truth for "can this visitor use the
+                // calculator right now?". Called on load, after sign-in,
+                // after sign-out, and again right after a session is
+                // consumed (to flip the gate back on for the next report).
+                async refreshAccessGate() {
+                    if (!this.state.isAuthenticated) {
+                        this.state.hasAccess = false;
+                        this.state.credits = 0;
+                        this.ui.updateCreditsBadge(null);
+                        this.ui.showAccessGate('signin', CONFIG.GATE_REDIRECT_SECONDS);
+                        return false;
+                    }
+
+                    try {
+                        const status = await this.api.getAccessStatus(CONFIG.SERVICE_KEY);
+                        this.state.hasAccess = !!status.unlocked;
+                        this.state.credits = status.credits || 0;
+                        this.ui.updateCreditsBadge(this.state.credits);
+
+                        if (!this.state.hasAccess) {
+                            this.ui.showAccessGate('pay', CONFIG.GATE_REDIRECT_SECONDS);
+                            return false;
+                        }
+
+                        // Unlocked: hide the gate and let the normal
+                        // make -> model -> year -> trim flow proceed.
+                        this.ui.hideAccessGate();
+                        this.ui.unlockCalculatorFields();
+                        if (!this.state.makesLoaded) {
+                            await this.loadMakes();
+                            this.state.makesLoaded = true;
+                        }
+                        return true;
+                    } catch (error) {
+                        console.warn('Access status check failed:', error.message);
+                        // Fail closed on error — never leave the calculator
+                        // usable if we couldn't confirm a paid session.
+                        this.state.hasAccess = false;
+                        this.ui.showAccessGate('pay', CONFIG.GATE_REDIRECT_SECONDS);
+                        return false;
                     }
                 }
 
@@ -2885,7 +3179,7 @@
 
                     // Vehicle selection handlers
                     ui.handleMakeChange = async function(e) {
-                        if (!app.state.isAuthenticated) return;
+                        if (!app.state.isAuthenticated || !app.state.hasAccess) return;
                         const makeName = e.target.value;
                         if (makeName) {
                             await app.loadModels(makeName);
@@ -2906,7 +3200,7 @@
                     };
 
                     ui.handleModelChange = async function(e) {
-                        if (!app.state.isAuthenticated) return;
+                        if (!app.state.isAuthenticated || !app.state.hasAccess) return;
                         const modelName = e.target.value;
                         if (modelName) {
                             await app.loadYears(modelName);
@@ -2922,7 +3216,7 @@
                     };
 
                     ui.handleYearChange = async function(e) {
-                        if (!app.state.isAuthenticated) return;
+                        if (!app.state.isAuthenticated || !app.state.hasAccess) return;
                         const year = e.target.value;
                         const modelName = this.elements.modelSelect?.value;
                         if (year && modelName) {
@@ -2934,7 +3228,7 @@
                     };
 
                     ui.handleTrimChange = function(e) {
-                        if (!app.state.isAuthenticated) return;
+                        if (!app.state.isAuthenticated || !app.state.hasAccess) return;
                         const trim = e.target.value;
                         if (trim) {
                             const selectedTrim = app.state.allTrims.find(t => t.trim === trim);
@@ -3010,16 +3304,6 @@
                             localStorage.setItem('user_id', data.session.user.id);
                             localStorage.setItem('user_email', data.session.user.email);
                             this.ui.updateAuthUI(data.session.user);
-                            // Only populate the Make dropdown once per session.
-                            // Without this guard, the 30s background auth-check
-                            // interval calls checkAuth() -> loadMakes() on every
-                            // tick, wiping and rebuilding the <select> (and
-                            // resetting its value to "") even while the user is
-                            // mid-flow on model/year/trim selection.
-                            if (!this.state.makesLoaded) {
-                                await this.loadMakes();
-                                this.state.makesLoaded = true;
-                            }
                         } else {
                             this.state.isAuthenticated = false;
                             this.state.currentUser = null;
@@ -3049,8 +3333,7 @@
                         localStorage.setItem('user_email', data.session.user.email);
                         this.ui.updateAuthUI(data.session.user);
                         this.ui.showToast('✅ Signed in successfully!', 'success');
-                        await this.loadMakes();
-                        this.state.makesLoaded = true;
+                        await this.refreshAccessGate();
                         return true;
                     } catch (error) {
                         this.ui.showToast('❌ Sign in failed: ' + error.message, 'error');
@@ -3083,7 +3366,11 @@
                         this.state.isAuthenticated = false;
                         this.state.currentUser = null;
                         this.state.makesLoaded = false;
+                        this.state.hasAccess = false;
+                        this.state.credits = 0;
                         this.ui.updateAuthUI(null);
+                        this.ui.updateCreditsBadge(null);
+                        this.ui.showAccessGate('signin', CONFIG.GATE_REDIRECT_SECONDS);
                         this.ui.showToast('🔓 Signed out', 'info');
                         this.ui.updateValuateButton(false, '🔒 Sign in required');
                         return true;
@@ -3319,6 +3606,10 @@
 
                 // ─── PHOTO HANDLING ────────────────────────────────────
                 async handlePhotoUpload(index, file) {
+                    if (!this.state.hasAccess) {
+                        this.ui.showToast('⚠️ Please pay to unlock this calculator first', 'warning');
+                        return;
+                    }
                     if (!file.type || !file.type.startsWith('image/')) {
                         this.ui.showToast('Please choose an image file', 'warning');
                         return;
@@ -3331,7 +3622,6 @@
                     this.state.photos[index] = { dataUrl: null, fileName: file.name, status: 'checking', reason: 'Analyzing…' };
                     this.ui.renderPhotoGrid(this.state.photos);
                     this.ui.updatePhotoSummary(this.state.photos);
-                    this.ui.updateValuateButton(false, '🔍 Scanning photos...');
 
                     const result = await this.ui.photoProcessor.process(file);
                     if (result.success) {
@@ -3356,13 +3646,18 @@
 
                     this.ui.renderPhotoGrid(this.state.photos);
                     this.ui.updatePhotoSummary(this.state.photos);
-                    this.ui.updateValuateButton(true);
                 }
 
                 // ─── VALUATION ──────────────────────────────────────────
                 async calculateValuation() {
                     if (!this.state.isAuthenticated) {
                         this.ui.showToast('⚠️ Please sign in first', 'warning');
+                        await this.refreshAccessGate();
+                        return;
+                    }
+                    if (!this.state.hasAccess) {
+                        this.ui.showToast('⚠️ You need to pay to unlock this calculator', 'warning');
+                        await this.refreshAccessGate();
                         return;
                     }
                     if (this.state.isValuating) return;
@@ -3432,8 +3727,33 @@
                     };
 
                     this.state.isValuating = true;
+                    this.ui.updateValuateButton(false, '⏳ Confirming payment...');
+
+                    // ── CONSUME THE PAID SESSION FIRST ──────────────────
+                    // This must happen before we ever call the valuation
+                    // endpoint. If it fails (session already used, expired,
+                    // race with another tab, etc.) we stop here — no report
+                    // is generated and no second valuation can ride on the
+                    // same payment.
+                    try {
+                        await this.api.consumeAccess(CONFIG.SERVICE_KEY);
+                    } catch (error) {
+                        this.state.isValuating = false;
+                        this.state.hasAccess = false;
+                        this.ui.showToast('❌ ' + error.message, 'error');
+                        this.ui.setStatus('error', 'Session unavailable: ' + error.message);
+                        await this.refreshAccessGate();
+                        return;
+                    }
+
+                    // Session is now spent — lock the form immediately so a
+                    // second click (or the user editing fields) can't be
+                    // mistaken for another paid attempt while we wait on
+                    // the valuation call itself.
+                    this.state.hasAccess = false;
+                    this.ui.lockCalculatorFields();
                     this.ui.updateValuateButton(false, '⏳ Valuating...');
-                    
+
                     const stepsEl = this.ui.elements.loadingSteps;
                     if (stepsEl) stepsEl.classList.add('show');
                     this.updateLoadingStep(1);
@@ -3452,14 +3772,9 @@
 
                         // NOTE: the backend's ValuationResponse wraps the actual
                         // payload under "data" — { success: true, data: { valuation: {...}, ... } }.
-                        // Older code here checked result.valuation / result.final_value /
-                        // result.final_market_value directly on the top-level response,
-                        // which are never present in that shape, so a fully successful
-                        // 200 response was still treated as a failure ("No valuation
-                        // data received"). Unwrap result.data (falling back to result
-                        // itself in case an older/flat response shape is ever returned
-                        // by a different endpoint) before checking for the presence of
-                        // valuation data.
+                        // Unwrap result.data (falling back to result itself in
+                        // case an older/flat response shape is ever returned)
+                        // before checking for the presence of valuation data.
                         const valuationData = (result && result.data) ? result.data : result;
 
                         const hasValuationData = !!(
@@ -3476,16 +3791,26 @@
                             const warnEl = this.ui.elements.photoWarningSection;
                             if (warnEl) warnEl.style.display = this.state.hasFlaggedPhotos ? 'block' : 'none';
                             this.ui.showToast('✅ Valuation complete!', 'success');
+
+                            // One payment, one report: the session is already
+                            // consumed above, so re-lock everything and start
+                            // the countdown back to the dashboard where the
+                            // user can pay for their next valuation.
+                            this.ui.showSessionUsedBanner(CONFIG.REDIRECT_SECONDS);
                         } else {
+                            // Valuation call itself failed even though the
+                            // session was already consumed. We deliberately
+                            // do NOT attempt to auto-refund here (that must
+                            // happen server-side / support-side) — surface
+                            // it clearly instead.
                             throw new Error('No valuation data received');
                         }
                     } catch (error) {
                         if (stepsEl) stepsEl.classList.remove('show');
                         this.ui.showToast('❌ Valuation failed: ' + error.message, 'error');
-                        this.ui.setStatus('error', 'Valuation failed: ' + error.message);
+                        this.ui.setStatus('error', 'Valuation failed: ' + error.message + ' — your session was already used. Contact support if you were not refunded a session.');
                     } finally {
                         this.state.isValuating = false;
-                        this.ui.updateValuateButton(true);
                     }
                 }
 
@@ -3553,9 +3878,18 @@
 
             // ─── BOOTSTRAP ──────────────────────────────────────────────
             document.addEventListener('DOMContentLoaded', function() {
-                // Set up interval for auth check
+                // Set up interval for auth check + access re-verification.
+                // Re-checking access (not just auth) on this interval means
+                // if a session gets consumed/expired in another tab, or an
+                // admin revokes access, this tab's calculator locks itself
+                // back down within 30s instead of staying stale-unlocked.
                 setInterval(async () => { 
-                    if (window.app) await window.app.checkAuth(); 
+                    if (window.app) {
+                        await window.app.checkAuth();
+                        if (!window.app.state.isValuating) {
+                            await window.app.refreshAccessGate();
+                        }
+                    }
                 }, 30000);
 
                 window.app = new App();
