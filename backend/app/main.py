@@ -155,6 +155,9 @@ setup_exception_handlers(app)
 @app.get("/manifest.json", include_in_schema=False)
 async def manifest():
     """Serves the PWA web app manifest with the correct media type."""
+    if not os.path.isfile(MANIFEST_PATH):
+        logger.error(f"❌ manifest.json not found at {os.path.abspath(MANIFEST_PATH)}")
+        return {"error": "manifest.json not found on server"}
     return FileResponse(MANIFEST_PATH, media_type="application/manifest+json")
 
 
@@ -163,7 +166,17 @@ async def manifest():
 # with the single-segment /{page_name} catch-all regardless of
 # ordering — but this is kept up here for clarity alongside the
 # manifest route.
-app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+#
+# Guarded with an isdir check so a wrong/missing path logs a clear
+# warning instead of crashing the whole app on startup (as happened
+# when ASSETS_DIR pointed at a folder that doesn't exist on Render).
+if os.path.isdir(ASSETS_DIR):
+    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+else:
+    logger.error(
+        f"❌ ASSETS_DIR not found at {os.path.abspath(ASSETS_DIR)} — "
+        f"/assets/* will 404 until PUBLIC_DIR is corrected."
+    )
 
 
 # ─── ROUTES ──────────────────────────────────────────────────────
