@@ -47,14 +47,16 @@ except Exception as e:
     MILEAGE_ROUTER_LOADED = False
 
 # ─── STATIC FILE PATHS ───────────────────────────────────────────
-# Adjust PUBLIC_DIR if your public/ folder lives somewhere else
-# relative to this file. As written, this assumes:
-#   app/main.py
+# Confirmed repo layout (Auto-digital repo root = Render's
+# /opt/render/project/src):
+#   backend/app/main.py   <- this file
 #   public/manifest.json
 #   public/assets/icon-192.png ...
-# i.e. public/ is a sibling of app/, at the project root.
+# i.e. public/ is a SIBLING of backend/, not of app/. So from this
+# file we go up two levels (app -> backend -> repo root) then into
+# public/.
 
-PUBLIC_DIR = os.path.join(os.path.dirname(__file__), "..", "public")
+PUBLIC_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "public")
 MANIFEST_PATH = os.path.join(PUBLIC_DIR, "manifest.json")
 ASSETS_DIR = os.path.join(PUBLIC_DIR, "assets")
 
