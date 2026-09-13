@@ -3,11 +3,13 @@
 # ================================================================
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, UTC
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -44,6 +46,18 @@ except Exception as e:
     mileage_router = None
     MILEAGE_ROUTER_LOADED = False
 
+# ─── STATIC FILE PATHS ───────────────────────────────────────────
+# Adjust PUBLIC_DIR if your public/ folder lives somewhere else
+# relative to this file. As written, this assumes:
+#   app/main.py
+#   public/manifest.json
+#   public/assets/icon-192.png ...
+# i.e. public/ is a sibling of app/, at the project root.
+
+PUBLIC_DIR = os.path.join(os.path.dirname(__file__), "..", "public")
+MANIFEST_PATH = os.path.join(PUBLIC_DIR, "manifest.json")
+ASSETS_DIR = os.path.join(PUBLIC_DIR, "assets")
+
 # ─── LIFESPAN MANAGER ────────────────────────────────────────────
 
 @asynccontextmanager
@@ -56,6 +70,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"API Base URL: {settings.API_BASE_URL}")
     logger.info(f"Port: {settings.PORT}")
     logger.info(f"Mileage router loaded: {MILEAGE_ROUTER_LOADED}")
+    logger.info(f"Public dir: {os.path.abspath(PUBLIC_DIR)}")
+    logger.info(f"Manifest present: {os.path.isfile(MANIFEST_PATH)}")
     logger.info("=" * 60)
 
     # Initialize logging
@@ -124,6 +140,30 @@ app.add_middleware(
 # ─── EXCEPTION HANDLERS ──────────────────────────────────────────
 
 setup_exception_handlers(app)
+
+
+# ─── STATIC / PWA FILES ──────────────────────────────────────────
+# ⚠️ IMPORTANT: These are registered here — BEFORE the /{page_name}
+# and /{page_name}.html catch-all redirects defined further down —
+# on purpose. Starlette matches routes in registration order, and
+# /manifest.json is a single path segment, so it would otherwise be
+# caught by the /{page_name} catch-all (which falls through without
+# a return value for names not in spa_pages, producing a `null` JSON
+# body instead of your actual manifest). Registering the explicit
+# route first means it always wins the match.
+
+@app.get("/manifest.json", include_in_schema=False)
+async def manifest():
+    """Serves the PWA web app manifest with the correct media type."""
+    return FileResponse(MANIFEST_PATH, media_type="application/manifest+json")
+
+
+# Icons and other static assets. Multi-segment paths like
+# /assets/icon-192.png have two path segments, so they never collide
+# with the single-segment /{page_name} catch-all regardless of
+# ordering — but this is kept up here for clarity alongside the
+# manifest route.
+app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 
 
 # ─── ROUTES ──────────────────────────────────────────────────────
