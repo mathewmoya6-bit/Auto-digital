@@ -232,6 +232,41 @@ else:
     logger.warning("⚠️ Mileage router not registered — check import error above")
 
 
+# ─── DIGITAL ASSET LINKS (for TWA / Android app verification) ───
+# Required so the Android app (com.meipressgroup.autod) can verify
+# it's authorized to open this domain fullscreen without a browser
+# address bar. Google Play / Chrome fetches this at install time.
+#
+# IMPORTANT: replace the fingerprint below with the real SHA-256
+# value from your own signing key, obtained via:
+#   keytool -list -v -keystore android.keystore -alias android
+# Keep the colons in the fingerprint string.
+#
+# This route is defined here (before the catch-all page redirects
+# below) so it can never be shadowed by /{page_name} — though as a
+# two-segment path it wouldn't collide with that single-segment
+# catch-all anyway.
+
+ASSETLINKS_SHA256_FINGERPRINTS = [
+    "REPLACE_WITH_YOUR_KEYTOOL_SHA256_FINGERPRINT",
+]
+
+
+@app.get("/.well-known/assetlinks.json", include_in_schema=False)
+async def digital_asset_links():
+    """Digital Asset Links manifest for TWA verification."""
+    return [
+        {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": "com.meipressgroup.autod",
+                "sha256_cert_fingerprints": ASSETLINKS_SHA256_FINGERPRINTS,
+            },
+        }
+    ]
+
+
 # ─── HTML PAGE REDIRECTS ────────────────────────────────────────
 # Prevent direct access to HTML pages - redirect to SPA root
 
