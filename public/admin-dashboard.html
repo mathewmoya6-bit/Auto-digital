@@ -1348,6 +1348,7 @@
 
             function startBackgroundTimers() {
                 stopBackgroundTimers();
+                fuelPollInterval = setInterval(() => { if (isLoggedIn) window.fetchFuelPrices(); }, 60000);
                 tickClock();
                 clockInterval = setInterval(tickClock, 1000);
                 checkHealth(false);
@@ -1360,6 +1361,7 @@
             }
 
             function stopBackgroundTimers() {
+                if (fuelPollInterval) { clearInterval(fuelPollInterval); fuelPollInterval = null; }
                 if (clockInterval) { clearInterval(clockInterval);
                     clockInterval = null; }
                 if (healthCheckInterval) { clearInterval(healthCheckInterval);
@@ -1516,45 +1518,59 @@
                 healthBar.addEventListener('click', function() { checkHealth(true); });
             }
 
+            const FUEL_REGION = 'Nairobi';
+            const FUEL_DEFAULT_KEYS = ['petrol', 'diesel', 'kerosene'];
+            const FUEL_META = {
+                petrol:   { label: 'Petrol',   icon: '⛽' },
+                diesel:   { label: 'Diesel',   icon: '⛽' },
+                kerosene: { label: 'Kerosene', icon: '🛢️' },
+                electric: { label: 'Electric', icon: '⚡' },
+                lpg:      { label: 'LPG',      icon: '🔥' }
+            };
+            const FUEL_FALLBACK_PRICES = { petrol: 226.96, diesel: 227.76, kerosene: 219.87 };
+
+            let fuelTypesCache = {};
+            let fuelPollInterval = null;
+
+            const fuelNorm = s => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+            const fuelCap = s => s.charAt(0).toUpperCase() + s.slice(1);
+            const nairobiToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
+
             window.fetchFuelPrices = async function() {
                 try {
+                    const client = getSupabaseClient();
+                    if (!client) throw new Error('Supabase not initialized');
                     const typesResult = await querySupabase('fuel_types', '*', {}, { column: 'name', ascending: true });
                     if (!typesResult.success) throw new Error(typesResult.error);
-                    const fuelTypes = typesResult.data;
-                    const prices = {};
-                    for (const type of fuelTypes) {
-                        const result = await querySupabase(
-                            'fuel_prices',
-                            '*',
-                            { fuel_type_id: type.id },
-                            { column: 'effective_from', ascending: false },
-                            1
-                        );
-                        if (result.success && result.data && result.data.length > 0) {
-                            prices[type.name] = {
-                                price: result.data[0].price_per_unit,
-                                date: result.data[0].effective_from,
-                                currency: 'KES',
-                                region: result.data[0].region || 'Nairobi',
-                                source: result.data[0].source || 'api'
-                            };
-                        } else {
-                            prices[type.name] = {
-                                price: type.default_price || 0,
-                                date: new Date().toISOString().split('T')[0],
-                                currency: 'KES',
-                                region: 'Nairobi',
-                                source: 'default'
-                            };
+
+                    fuelTypesCache = {};
+                    const types = (typesResult.data || []).filter(t => fuelNorm(t.name));
+                    types.forEach(t => { fuelTypesCache[fuelNorm(t.name)] = t; });
+
+                    const rows = await Promise.all(types.map(async type => {
+                        let res = await client.from('fuel_prices').select('*')
+                            .eq('fuel_type_id', type.id).eq('region', FUEL_REGION)
+                            .order('effective_from', { ascending: false }).limit(1);
+                        if (res.error) throw res.error;
+                        if (!res.data || res.data.length === 0) {
+                            res = await client.from('fuel_prices').select('*')
+                                .eq('fuel_type_id', type.id)
+                                .order('effective_from', { ascending: false }).limit(1);
+                            if (res.error) throw res.error;
                         }
-                    }
-                    if (prices && Object.keys(prices).length > 0) {
-                        renderFuelPrices(prices);
-                        document.getElementById('fuelStatus').textContent = '● Connected';
-                        document.getElementById('fuelStatus').className = 'badge badge-success';
-                    } else {
-                        renderFallbackFuelPrices();
-                    }
+                        return { type, row: res.data && res.data[0] };
+                    }));
+
+                    const prices = {};
+                    rows.forEach(({ type, row }) => {
+                        if (row) prices[fuelNorm(type.name)] = {
+                            price: row.price_per_unit, date: row.effective_from,
+                            region: row.region || FUEL_REGION, source: row.source || 'db'
+                        };
+                    });
+                    renderFuelPrices(prices);
+                    document.getElementById('fuelStatus').textContent = '● Connected';
+                    document.getElementById('fuelStatus').className = 'badge badge-success';
                 } catch (error) {
                     console.warn('⚠️ Fuel fetch error:', error.message);
                     renderFallbackFuelPrices();
@@ -1564,119 +1580,115 @@
             };
 
             function renderFallbackFuelPrices() {
-                const fallback = {
-                    petrol: { price: 214.03, date: new Date().toISOString().split('T')[0] },
-                    diesel: { price: 222.86, date: new Date().toISOString().split('T')[0] },
-                    electric: { price: 30.00, date: new Date().toISOString().split('T')[0] },
-                    lpg: { price: 120.00, date: new Date().toISOString().split('T')[0] }
-                };
+                const today = nairobiToday();
+                const fallback = {};
+                Object.entries(FUEL_FALLBACK_PRICES).forEach(([k, p]) => { fallback[k] = { price: p, date: today, source: 'fallback' }; });
                 renderFuelPrices(fallback);
                 document.getElementById('fuelStatus').textContent = '● Fallback';
                 document.getElementById('fuelStatus').className = 'badge badge-warning';
             }
 
             function renderFuelPrices(fuels) {
-                const fuelTypes = [
-                    { key: 'petrol', label: '⛽ Petrol', icon: '⛽' },
-                    { key: 'diesel', label: '⛽ Diesel', icon: '⛽' },
-                    { key: 'electric', label: '⚡ Electric', icon: '⚡' },
-                    { key: 'lpg', label: '🔥 LPG', icon: '🔥' }
-                ];
-                fuelGrid.innerHTML = fuelTypes.map(f => {
-                    const data = fuels[f.key] || { price: 0, date: '—' };
-                    const price = data.price || 0;
-                    const date = data.date ? new Date(data.date).toLocaleDateString() : '—';
-                    const statusClass = price > 0 ? 'synced' : 'pending';
-                    const statusText = price > 0 ? '✓ Synced' : '⟳ Pending';
-                    const keyCap = f.key.charAt(0).toUpperCase() + f.key.slice(1);
+                const dirty = {};
+                fuelGrid.querySelectorAll('input[data-fuel]').forEach(i => {
+                    if (i.value !== i.dataset.synced) dirty[i.dataset.fuel] = i.value;
+                });
+                const keys = [...new Set([...FUEL_DEFAULT_KEYS, ...Object.keys(fuels)])];
+                fuelGrid.innerHTML = keys.map(key => {
+                    const meta = FUEL_META[key] || { label: fuelCap(key.replace(/_/g, ' ')), icon: '⛽' };
+                    const data = fuels[key];
+                    const price = data ? (Number(data.price) || 0) : 0;
+                    const date = data && data.date ? new Date(data.date).toLocaleDateString() : '—';
+                    const synced = !!data && data.source !== 'fallback' && price > 0;
+                    const Cap = fuelCap(key);
                     return `
-                        <div class="fuel-item" id="fuelItem${f.key}">
-                            <div class="fuel-name">
-                                ${f.icon} ${f.label}
-                                <span class="status-badge ${statusClass}" id="${f.key}Status">${statusText}</span>
+                        <div class="fuel-item" id="fuelItem${Cap}">
+                            <div class="fuel-name">${meta.icon} ${escapeHtml(meta.label)}
+                                <span class="status-badge ${synced ? 'synced' : 'pending'}" id="${key}Status">${synced ? '✓ Synced' : (data ? '⟳ Fallback' : '⟳ Not set')}</span>
                             </div>
-                            <div class="fuel-price">
-                                <span class="currency">KES</span>
-                                <span id="fuel${keyCap}">${price.toFixed(2)}</span>
-                            </div>
-                            <div class="fuel-date">Updated: <span id="fuel${keyCap}Date">${date}</span></div>
+                            <div class="fuel-price"><span class="currency">KES</span> <span id="fuel${Cap}">${price.toFixed(2)}</span></div>
+                            <div class="fuel-date">Updated: <span id="fuel${Cap}Date">${date}</span></div>
                             <div class="fuel-edit">
-                                <input type="number" id="edit${keyCap}" step="0.5" placeholder="Price" value="${price}" />
-                                <button class="update-btn" onclick="window.updateFuel('${f.key}')">Update</button>
+                                <input type="number" id="edit${Cap}" data-fuel="${key}" data-synced="${price}" step="0.01" placeholder="Price" value="${price}" />
+                                <button class="update-btn" onclick="window.updateFuel('${key}')">Update</button>
                             </div>
-                        </div>
-                    `;
+                        </div>`;
                 }).join('');
+                Object.entries(dirty).forEach(([k, v]) => {
+                    const el = document.getElementById('edit' + fuelCap(k));
+                    if (el) el.value = v;
+                });
             }
 
-            async function insertFuelPrice(data) {
+            async function resolveFuelTypeId(key) {
+                if (fuelTypesCache[key]) return fuelTypesCache[key].id;
+                const client = getSupabaseClient();
+                if (!client) throw new Error('Supabase not initialized');
+                const { data, error } = await client.from('fuel_types').select('*');
+                if (error) throw error;
+                const hit = (data || []).find(t => fuelNorm(t.name) === key);
+                if (hit) { fuelTypesCache[key] = hit; return hit.id; }
+                const name = key.toUpperCase();
+                const created = await client.from('fuel_types').insert({ name }).select();
+                if (created.error || !created.data || !created.data.length) {
+                    throw new Error(`Fuel type '${name}' does not exist and could not be created (${created.error ? created.error.message : 'blocked by permissions'}). Add it to the fuel_types table first.`);
+                }
+                fuelTypesCache[key] = created.data[0];
+                return created.data[0].id;
+            }
+
+            async function saveFuelPrice({ key, price, region = FUEL_REGION, source = 'admin' }) {
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
-                    const typeResult = await querySupabase('fuel_types', 'id', { name: data.fuel_type });
-                    if (!typeResult.success || !typeResult.data || typeResult.data.length === 0) {
-                        throw new Error(`Fuel type '${data.fuel_type}' not found`);
-                    }
-                    const fuel_type_id = typeResult.data[0].id;
-                    const today = new Date().toISOString().split('T')[0];
-                    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-                    const { error: updateError } = await client
-                        .from('fuel_prices')
-                        .update({ effective_to: yesterday })
-                        .eq('fuel_type_id', fuel_type_id)
-                        .eq('region', data.region || 'Nairobi')
-                        .is('effective_to', null);
-                    if (updateError) console.warn('⚠️ Could not close previous price:', updateError);
-                    const payload = {
-                        fuel_type_id: fuel_type_id,
-                        price_per_unit: data.price,
-                        region: data.region || 'Nairobi',
-                        effective_from: today,
-                        effective_to: null,
-                        source: data.source || 'admin',
-                        unit: data.unit || 'Litre'
-                    };
-                    const { data: result, error } = await client
-                        .from('fuel_prices')
-                        .insert(payload)
-                        .select();
-                    if (error) throw error;
-                    return { success: true, data: result };
+                    const typeId = await resolveFuelTypeId(key);
+                    const today = nairobiToday();
+
+                    const same = await client.from('fuel_prices').update({ price_per_unit: price, source })
+                        .eq('fuel_type_id', typeId).eq('region', region).eq('effective_from', today).select();
+                    if (same.error) throw same.error;
+                    if (same.data && same.data.length) return { success: true, data: same.data };
+
+                    const yesterday = new Date(new Date(today + 'T00:00:00Z').getTime() - 86400000).toISOString().split('T')[0];
+                    const closed = await client.from('fuel_prices').update({ effective_to: yesterday })
+                        .eq('fuel_type_id', typeId).eq('region', region).is('effective_to', null);
+                    if (closed.error) console.warn('⚠️ Could not close previous price:', closed.error.message);
+
+                    const ins = await client.from('fuel_prices').insert({
+                        fuel_type_id: typeId, price_per_unit: price, region,
+                        effective_from: today, effective_to: null, source, unit: 'Litre'
+                    }).select();
+                    if (ins.error) throw ins.error;
+                    if (!ins.data || !ins.data.length) throw new Error('Save was blocked (0 rows). Check the row-level-security policy on fuel_prices.');
+                    return { success: true, data: ins.data };
                 } catch (error) {
-                    console.error('❌ Insert fuel price error:', error);
+                    console.error('❌ Save fuel price error:', error);
                     return { success: false, error: error.message };
                 }
             }
 
-            window.updateFuel = async function(type) {
-                const input = document.getElementById('edit' + type.charAt(0).toUpperCase() + type.slice(1));
+            window.updateFuel = async function(key) {
+                const Cap = fuelCap(key);
+                const input = document.getElementById('edit' + Cap);
                 const price = parseFloat(input.value);
-                if (isNaN(price) || price < 0) {
-                    showToast('❌ Invalid price value', 'error');
-                    return;
-                }
-                const statusEl = document.getElementById(type + 'Status');
-                statusEl.className = 'status-badge pending';
-                statusEl.textContent = '⟳ Updating...';
+                if (isNaN(price) || price <= 0) { showToast('❌ Enter a valid price', 'error'); return; }
+                const btn = input.parentElement.querySelector('.update-btn');
+                const statusEl = document.getElementById(key + 'Status');
+                btn.disabled = true; btn.textContent = '⏳...';
+                statusEl.className = 'status-badge pending'; statusEl.textContent = '⟳ Updating...';
                 try {
-                    const result = await insertFuelPrice({
-                        fuel_type: type,
-                        price: price,
-                        region: 'Nairobi',
-                        source: 'admin'
-                    });
+                    const result = await saveFuelPrice({ key, price });
                     if (!result.success) throw new Error(result.error);
-                    statusEl.className = 'status-badge synced';
-                    statusEl.textContent = '✓ Synced';
                     await window.fetchFuelPrices();
-                    await addAdminLog(`⛽ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated to KES ${price.toFixed(2)}`,
-                        'admin');
-                    showToast(`✅ ${type.charAt(0).toUpperCase() + type.slice(1)} price updated!`, 'success');
+                    const label = (FUEL_META[key] || { label: fuelCap(key) }).label;
+                    await addAdminLog(`⛽ ${label} price updated to KES ${price.toFixed(2)}`, 'admin');
+                    showToast(`✅ ${label} price updated!`, 'success');
                 } catch (error) {
-                    statusEl.className = 'status-badge error';
-                    statusEl.textContent = '✗ Error';
-                    showToast(`❌ Failed to update ${type}: ${error.message}`, 'error');
+                    statusEl.className = 'status-badge error'; statusEl.textContent = '✗ Error';
+                    showToast(`❌ Failed to update ${key}: ${error.message}`, 'error');
                     console.error('Update fuel error:', error);
+                } finally {
+                    btn.disabled = false; btn.textContent = 'Update';
                 }
             };
 
@@ -2822,6 +2834,7 @@
                 const clientTasks = [
                     { name: 'Health Check', interval: 'Every 60s', last: healthCheckInFlight ? 'Running…' : 'Recently ran', source: 'client timer' },
                     { name: 'Scraper Status Poll', interval: 'Every 60s', last: 'Recently ran', source: 'client timer' },
+                    { name: 'Fuel Price Poll', interval: 'Every 60s', last: 'Recently ran', source: 'client timer' },
                     { name: 'Realtime Sync (Fuel/Services/Logs/Valuations/Notifications)', interval: 'Continuous (WebSocket)', last: isRealtimeConnected ? 'Connected' : 'Connecting…', source: 'Supabase Realtime' }
                 ];
                 let backendTasks = [];
@@ -3518,46 +3531,45 @@
                 }
             }
 
-            function handleFuelPriceUpdate(payload) {
-                const newData = payload.new;
-                if (!newData) return;
-                querySupabase('fuel_types', 'name', { id: newData.fuel_type_id })
-                    .then(result => {
-                        if (result.success && result.data && result.data.length > 0) {
-                            const fuelName = result.data[0].name.toLowerCase();
-                            updateFuelPriceInUI(fuelName, newData.price_per_unit, newData.effective_from);
-                            showToast(
-                                `⛽ ${fuelName.charAt(0).toUpperCase() + fuelName.slice(1)} price updated to KES ${newData.price_per_unit.toFixed(2)} (live)`,
-                                'success');
-                            addAdminLog(
-                                `⛽ ${fuelName} price updated to KES ${newData.price_per_unit.toFixed(2)} (via live sync)`,
-                                'system');
-                        }
-                    })
-                    .catch(err => console.warn('Could not get fuel type name:', err));
+            let fuelRefreshTimer = null;
+            function scheduleFuelRefresh() {
+                clearTimeout(fuelRefreshTimer);
+                fuelRefreshTimer = setTimeout(() => window.fetchFuelPrices(), 400);
             }
 
-            function updateFuelPriceInUI(fuelType, price, date) {
-                const key = fuelType.charAt(0).toUpperCase() + fuelType.slice(1);
-                const priceEl = document.getElementById('fuel' + key);
-                const dateEl = document.getElementById('fuel' + key + 'Date');
-                const inputEl = document.getElementById('edit' + key);
-                const statusEl = document.getElementById(fuelType + 'Status');
-                if (priceEl) {
-                    priceEl.textContent = price.toFixed(2);
-                    priceEl.parentElement.parentElement.classList.add('updated');
-                    setTimeout(() => { priceEl.parentElement.parentElement.classList.remove('updated'); }, 1500);
+            function handleFuelPriceUpdate(payload) {
+                const row = payload.new;
+                if (!row) return;
+                if (row.effective_to) return;
+                if (row.region && row.region !== FUEL_REGION) return;
+                const hit = Object.entries(fuelTypesCache).find(([, t]) => String(t.id) === String(row.fuel_type_id));
+                if (!hit) { scheduleFuelRefresh(); return; }
+                const key = hit[0];
+                updateFuelPriceInUI(key, Number(row.price_per_unit), row.effective_from);
+                const label = (FUEL_META[key] || { label: fuelCap(key) }).label;
+                showToast(`⛽ ${label} price is now KES ${Number(row.price_per_unit).toFixed(2)} (live)`, 'success');
+            }
+
+            function updateFuelPriceInUI(key, price, date) {
+                const Cap = fuelCap(key);
+                const priceEl = document.getElementById('fuel' + Cap);
+                const dateEl = document.getElementById('fuel' + Cap + 'Date');
+                const inputEl = document.getElementById('edit' + Cap);
+                const statusEl = document.getElementById(key + 'Status');
+                const itemEl = document.getElementById('fuelItem' + Cap);
+                if (priceEl) priceEl.textContent = price.toFixed(2);
+                if (dateEl && date) dateEl.textContent = new Date(date).toLocaleDateString();
+                if (inputEl) {
+                    inputEl.dataset.synced = String(price);
+                    if (document.activeElement !== inputEl) inputEl.value = price;
                 }
-                if (dateEl) { const dateObj = new Date(date);
-                    dateEl.textContent = dateObj.toLocaleDateString(); }
-                if (inputEl) { inputEl.value = price; }
+                if (itemEl) {
+                    itemEl.classList.add('updated');
+                    setTimeout(() => itemEl.classList.remove('updated'), 1500);
+                }
                 if (statusEl) {
-                    statusEl.className = 'status-badge live';
-                    statusEl.textContent = '⟳ Live';
-                    setTimeout(() => {
-                        statusEl.className = 'status-badge synced';
-                        statusEl.textContent = '✓ Synced';
-                    }, 3000);
+                    statusEl.className = 'status-badge live'; statusEl.textContent = '⟳ Live';
+                    setTimeout(() => { statusEl.className = 'status-badge synced'; statusEl.textContent = '✓ Synced'; }, 3000);
                 }
             }
 
@@ -3580,7 +3592,7 @@
                 if (inputEl) { inputEl.value = price; }
                 if (itemEl) {
                     itemEl.classList.add('updated');
-                    setTimeout(() => { itemEl.classList.remove('updated'); }, 1500);
+                    setTimeout(() => itemEl.classList.remove('updated'), 1500);
                 }
             }
 
