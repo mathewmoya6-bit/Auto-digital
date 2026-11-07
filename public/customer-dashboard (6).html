@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#071a2f">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="description" content="MEI One customer dashboard. Browse services and manage requests.">
+  <title>Customer Dashboard | MEI One</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <style>
+    :root{--navy:#071a2f;--navy2:#102b49;--green:#00d68f;--green-dark:#00ad73;--bg:#f4f7fa;--white:#fff;--text:#172b40;--muted:#64748b;--border:#e2e8f0;--shadow:0 8px 24px rgba(7,26,47,.08);--radius:15px;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+    *{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}button,input,textarea,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}
+    .topbar{background:var(--navy);color:#fff;padding:15px 5%;display:flex;align-items:center;justify-content:space-between;gap:15px;box-shadow:0 4px 12px #0002}.brand{font-size:22px;font-weight:800;letter-spacing:-.7px}.brand span{color:var(--green)}.top-right{display:flex;align-items:center;gap:15px}.user-label{font-size:13px;color:#d4e1ec}.logout{background:transparent;border:1px solid #ffffff45;color:#fff;padding:9px 15px;border-radius:9px;font-weight:600}
+    .container{width:min(1180px,92%);margin:30px auto 55px}.welcome{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;border-radius:var(--radius);padding:30px;display:flex;justify-content:space-between;align-items:center;margin-bottom:25px;box-shadow:var(--shadow)}.welcome h1{margin:0 0 8px;font-size:clamp(24px,4vw,32px)}.welcome p{margin:0;color:#c5d4e2;font-size:14px}.welcome-mark{font-size:45px;color:var(--green)}
+    .tabs{display:flex;gap:8px;margin-bottom:22px;overflow:auto;padding-bottom:4px}.tab{background:#fff;border:1px solid var(--border);color:var(--muted);padding:11px 18px;border-radius:10px;font-size:14px;font-weight:650;white-space:nowrap}.tab.active{background:var(--navy);color:#fff;border-color:var(--navy)}.section{display:none}.section.active{display:block;animation:fade .2s ease}@keyframes fade{from{opacity:.6;transform:translateY(4px)}to{opacity:1;transform:none}}
+    .section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:15px;margin-bottom:18px}.section-heading h2{font-size:22px;margin:0;font-weight:800}.section-heading p{font-size:13.5px;color:var(--muted);margin:5px 0 0}.service-tools{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:17px}.search{flex:1;min-width:220px;border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:#fff;outline:none}
+    .search:focus,.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--green-dark);box-shadow:0 0 0 3px #00d68f25}.service-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(235px,1fr));gap:17px}.service-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:21px;display:flex;flex-direction:column;box-shadow:0 2px 8px #071a2f08;transition:.2s}.service-card:hover{transform:translateY(-3px);box-shadow:var(--shadow)}.service-icon{width:52px;height:52px;border-radius:15px;background:#eafaf4;display:grid;place-items:center;font-size:27px;margin-bottom:14px}.service-card h3{font-size:16px;margin:0 0 8px;color:var(--navy)}.service-card p{font-size:13px;line-height:1.6;color:var(--muted);margin:0 0 15px;flex:1}.service-meta{font-size:11px;color:var(--muted);margin:14px 0}
+    .primary-btn{background:var(--green);color:var(--navy);border:0;padding:12px 17px;border-radius:10px;font-size:13.5px;font-weight:750}.primary-btn:hover:not(:disabled){background:#00ed9d}.secondary-btn{background:#fff;border:1px solid var(--border);color:var(--text);padding:10px 15px;border-radius:10px;font-size:13px;font-weight:650}.full-btn{width:100%}.panel{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:25px;box-shadow:0 2px 8px #071a2f08;margin-bottom:18px}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:17px}.field{display:flex;flex-direction:column;gap:7px;min-width:0}.field.full{grid-column:1/-1}#extraFields{display:contents}.loc-block{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:14px 17px;padding:18px;background:#f8fafc;border:1px solid var(--border);border-radius:12px}.loc-block h4{grid-column:1/-1;margin:0;font-size:14px;color:var(--navy)}.loc-gps{grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap}.field label{font-size:12.5px;font-weight:750;color:var(--navy)}.field input,.field textarea,.field select{width:100%;border:1px solid var(--border);border-radius:10px;padding:12px 13px;background:#fff;color:var(--text);outline:none;font-size:13.5px}.field textarea{min-height:105px;resize:vertical}.hint{font-size:11.5px;color:var(--muted);line-height:1.55}
+    .svc-banner{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:14px 16px;background:#eafaf4;border:1px solid #bdf0dc;border-radius:12px}.svc-banner .ic{font-size:26px}.svc-banner strong{display:block;font-size:14px;color:var(--navy)}.svc-banner span{font-size:12px;color:var(--muted);line-height:1.5}.sub-pills{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}.sub-pill{background:#fff;border:1px solid var(--border);color:#475569;padding:8px 13px;border-radius:20px;font-size:12.5px;font-weight:650}.sub-pill.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+    .message{display:none;padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.5;margin:12px 0}.message.show{display:block}.message.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.message.success{background:#ecfdf5;color:#047857;border:1px solid #a7f3d0}.message.info{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
+    .request-list{display:grid;gap:14px}.request-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:0 2px 8px #071a2f08}.request-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px}.request-card h3{margin:0 0 4px;font-size:15px;color:var(--navy)}.request-card p{font-size:13px;line-height:1.5;margin:6px 0;overflow-wrap:anywhere;white-space:pre-line}.request-card p strong{color:var(--muted)}.status{display:inline-block;padding:5px 10px;border-radius:20px;font-size:10px;font-weight:800;text-transform:uppercase;white-space:nowrap;background:#f1f5f9;color:#475569}.status.pending,.status.requested{background:#fef9c3;color:#a16207}.status.accepted{background:#eff6ff;color:#1d4ed8}.status.in_progress{background:#f3e8ff;color:#6b21a8}.status.completed{background:#ecfdf5;color:#047857}.status.cancelled{background:#fef2f2;color:#b91c1c}.status.proposed{background:#f5f3ff;color:#6b21a8}
+    .track{padding:10px 12px;border-radius:10px;font-size:12.5px;font-weight:600;margin:8px 0;background:#fffbeb;color:#92400e;border:1px solid #fde68a}.track.ok{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}.track.go{background:#f5f3ff;color:#6b21a8;border-color:#ddd6fe}.track.done{background:#ecfdf5;color:#047857;border-color:#a7f3d0}.profile-row{display:flex;justify-content:space-between;gap:15px;padding:14px 0;border-bottom:1px solid var(--border)}.profile-row:last-child{border:0}.profile-row span:first-child{font-size:13px;color:var(--muted)}.profile-row span:last-child{font-size:13px;font-weight:650;text-align:right;overflow-wrap:anywhere}.loading{text-align:center;color:var(--muted);padding:35px 15px;font-size:13px}.loading:after{content:"";display:block;width:22px;height:22px;margin:14px auto 0;border:3px solid var(--border);border-top-color:var(--green-dark);border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.empty{text-align:center;color:var(--muted);padding:30px 18px;background:#fff;border:1px dashed #cbd5e1;border-radius:var(--radius);font-size:13px;line-height:1.6}.subservice-box{background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:15px;margin-top:12px}.subservice-box h4{margin:0 0 9px;font-size:13px;color:var(--navy)}.subservice-list{display:flex;flex-wrap:wrap;gap:7px}.chip{background:#fff;border:1px solid var(--border);border-radius:20px;padding:6px 10px;font-size:11px;color:#475569}.footer{text-align:center;color:var(--muted);font-size:12px;padding:28px 10px}
+    @media(max-width:700px){.topbar{padding:13px 4%}.user-label{display:none}.container{margin-top:22px}.welcome{padding:23px;text-align:center;justify-content:center}.welcome-mark{display:none}.section-heading{align-items:flex-start;flex-direction:column}.form-grid,.loc-block{grid-template-columns:1fr}.panel{padding:18px}.profile-row{align-items:flex-start;flex-direction:column;gap:5px}.profile-row span:last-child{text-align:left}}
+    @media(max-width:480px){.service-grid{grid-template-columns:1fr}.request-top{flex-direction:column}}
+  </style>
+</head>
+<body>
+<header class="topbar"><div class="brand">MEI <span>One</span></div><div class="top-right"><span class="user-label" id="headerUser">Loading account…</span><button class="logout" id="logoutBtn" type="button">Sign out</button></div></header>
+<main class="container">
+  <section class="welcome"><div><h1>Welcome, <span id="welcomeName">Customer</span></h1><p>Explore services, submit requests and follow their progress.</p></div><div class="welcome-mark" aria-hidden="true">✦</div></section>
+  <nav class="tabs" aria-label="Customer dashboard navigation"><button class="tab active" data-tab="home" type="button">Explore Services</button><button class="tab" data-tab="requests" type="button">My Requests</button><button class="tab" data-tab="profile" type="button">My Profile</button></nav>
+  <section class="section active" id="section-home"><div class="section-heading"><div><h2>Explore MEI One Services</h2><p>Services are loaded directly from the MEI One database.</p></div><button class="secondary-btn" id="refreshServices" type="button">Refresh services</button></div><div id="serviceMessage" class="message" role="status"></div><div class="service-tools"><input class="search" id="serviceSearch" type="search" placeholder="Search services…" aria-label="Search services"></div><div id="servicesGrid" class="service-grid"><div class="loading">Loading services…</div></div></section>
+  <section class="section" id="section-request"><div class="section-heading"><div><h2>Request a Service</h2><p>Tell us what you need and where the service is required.</p></div><button class="secondary-btn" id="backToServices" type="button">← Services</button></div><div class="panel"><form id="requestForm"><div class="form-grid">
+    <div class="svc-banner" id="svcBanner" hidden></div>
+    <div class="field full"><label for="selectedService">Service</label><select id="selectedService" required></select></div>
+    <div class="field full" id="subserviceField" hidden><label for="selectedSubservice" id="subLabel">Service type</label><select id="selectedSubservice"><option value="">Choose a type</option></select><div class="sub-pills" id="subPills"></div></div>
+    <div class="field full" id="titleField"><label for="requestTitle" id="titleLabel">Request title</label><input id="requestTitle" maxlength="150" placeholder="Briefly describe what you need" required></div>
+    <div class="loc-block" id="locFrom"></div><div class="loc-block" id="locTo" hidden></div>
+    <div class="field full"><label for="requestDetails" id="detailsLabel">Description / instructions</label><textarea id="requestDetails" maxlength="5000"></textarea><span class="hint" id="detailsHint"></span></div>
+    <div id="extraFields"></div>
+    <div class="field full"><label for="requestNotes">Additional notes (optional)</label><textarea id="requestNotes" maxlength="3000" placeholder="Access instructions, landmarks, preferred contact time, etc."></textarea></div>
+    <div class="field full"><p class="hint">By submitting, you authorize MEI One to share your request and contact details with eligible service providers. Submission does not guarantee immediate provider acceptance.</p></div>
+    <div class="field full"><div id="requestMessage" class="message" role="status" aria-live="polite"></div><button class="primary-btn full-btn" id="submitRequest" type="submit">Submit Service Request</button></div>
+  </div></form></div></section>
+  <section class="section" id="section-requests"><div class="section-heading"><div><h2>My Service Requests</h2><p>Review and track requests submitted from your account.</p></div><button class="secondary-btn" id="refreshRequests" type="button">Refresh</button></div><div id="requestsMessage" class="message"></div><div id="requestsList" class="request-list"><div class="loading">Loading your requests…</div></div></section>
+  <section class="section" id="section-profile"><div class="section-heading"><div><h2>My Profile</h2><p>Your registered MEI One account details.</p></div></div><div class="panel"><div class="profile-row"><span>Full name</span><span id="profileName">—</span></div><div class="profile-row"><span>Email address</span><span id="profileEmail">—</span></div><div class="profile-row"><span>Phone number</span><span id="profilePhone">—</span></div><div class="profile-row"><span>Account status</span><span id="profileStatus">—</span></div></div><div class="panel"><h3 style="margin-top:0">Account security</h3><p class="hint">Keep your password private. Use the sign-in page to access password recovery.</p><button class="secondary-btn" id="securityBtn" type="button">Go to Sign In</button></div></section>
+  <footer class="footer">MEI One · A MEI Press Holdings platform</footer>
+</main>
+<script>
+(() => {
+  "use strict";
+  const SIGNIN_PATH="/customer-signin.html";
+  const GPS_TEXT="My current location (GPS)";
+  const EXTERNAL_SERVICES={auto:"https://auto-d.meipressgroup.com",learn:"https://www.meidriveafrica.com"};
+  const SERVICE_TEXT={accident_scene:"Help at the scene of a road vehicle accident: traffic control, scene clearing and photo documentation."};
+  SERVICE_TEXT.accident=SERVICE_TEXT.accident_scene;SERVICE_TEXT.accident_management=SERVICE_TEXT.accident_scene;
+
+  // Sub-service choices used when the database has no rows in service_subservices for that service.
+  const FALLBACK_SUBS={
+    home:["Plumbing","Electrical","Cleaning","Carpentry & furniture repair","Painting & decorating","Appliance repair","Gardening & landscaping","Pest control","Moving & relocation","CCTV & security installation","Other home service"],
+    towing:["Flatbed towing","Wheel-lift towing","Accident recovery","Off-road / ditch recovery","Motorbike towing","Heavy-duty (truck / bus) towing","Long-distance vehicle transport"],
+    garage:["Routine servicing","Engine & mechanical repair","Brakes & suspension","Tyres, wheels & alignment","Battery & electrical","Air conditioning","Body work & painting","Diagnostics & inspection","Other garage service"],
+    marketplace:["Vehicles","Spare parts & accessories","Electronics","Home & furniture","Fashion & beauty","Property (rent / sale)","Services & skills","Other"]
+  };
+  const META={
+    rides:{icon:"🚘",name:"MEI Rides",text:"Convenient transport options for your everyday journeys."},
+    delivery:{icon:"📦",name:"Delivery",text:"Move parcels, goods and essentials from one place to another."},
+    towing:{icon:"🛻",name:"Towing",text:"Request vehicle recovery and towing assistance when needed."},
+    roadside:{icon:"🧰",name:"Roadside Assistance",text:"Get help with unexpected vehicle trouble on the road."},
+    accident_scene:{icon:"🚨",name:"Accident Scene Management",text:"Immediate help at the scene of a road accident — safety, towing and coordination."},
+    garage:{icon:"🔧",name:"Garage Services",text:"Find garage services for vehicle repairs, maintenance and servicing."},
+    valuation:{icon:"🚘",name:"Vehicle Valuation",text:"Explore professional vehicle valuation and inspection services through Auto-D."},
+    home:{icon:"🏠",name:"Home Services",text:"Find practical support for tasks around your home."},
+    marketplace:{icon:"🛒",name:"Marketplace",text:"Discover products, offers and services in one place."},
+    learn:{icon:"🎓",name:"Learning & Driver Training",text:"Build safer driving skills with MEI Drive Africa."}
+  };
+  const FORM_CONFIG={
+    rides:{autoTitle:true,details:"Message to driver (optional)",detailsRequired:false,extras:[{id:"passengers",label:"Passengers",type:"number",min:1,max:8,value:1,required:true},{id:"when",label:"Pickup time",type:"select",options:["Now","Schedule for later"]},{id:"whenAt",label:"Date & time",type:"datetime-local",required:true,showIf:{id:"when",value:"Schedule for later"}}]},
+    delivery:{autoTitle:true,details:"Item description",detailsHint:"What are we delivering?",extras:[{id:"size",label:"Package size",type:"select",options:["Small (envelope/parcel)","Medium (box)","Large (bulky)"]},{id:"recipient",label:"Recipient name",required:true},{id:"recipientPhone",label:"Recipient phone",type:"tel",required:true}]},
+    towing:{autoTitle:true,subLabel:"Type of towing / recovery",subRequired:true,banner:{icon:"🚛",title:"MEI Towing",text:"Vehicle recovery and towing. Pick the type of help, tell us where the vehicle is and where it should go."},details:"What happened?",detailsHint:"Breakdown, accident, stuck, etc.",extras:[{id:"vehicle",label:"Vehicle make, model & plate",required:true},{id:"vehicleType",label:"Vehicle type",type:"select",required:true,options:["Saloon / hatchback","SUV / pickup","Matatu / van","Truck / bus","Motorbike / tuk-tuk"]},{id:"drivable",label:"Can the vehicle roll/steer?",type:"select",required:true,options:["Yes","No","Not sure"]},{id:"urgency",label:"How urgent?",type:"select",options:["Right now (emergency)","Within 1–2 hours","Scheduled for later"]},{id:"whenAt",label:"Date & time",type:"datetime-local",required:true,showIf:{id:"urgency",value:"Scheduled for later"}}]},
+    roadside:{autoTitle:true,banner:{icon:"🛠️",title:"Roadside Assistance",text:"Help when you need it on the road. If you are in danger, move to safety and call 999 / 112."},details:"Anything else we should know? (optional)",detailsRequired:false,extras:[{id:"issue",label:"Problem",type:"select",required:true,options:["Flat tyre","Dead battery","Out of fuel","Locked out","Engine won't start","Overheating","Other"]},{id:"fuel",label:"Fuel type needed",type:"select",required:true,options:["Petrol","Diesel"],showIf:{id:"issue",value:"Out of fuel"}},{id:"vehicle",label:"Vehicle make, model & plate",required:true},{id:"safe",label:"Are you in a safe place?",type:"select",options:["Yes","Not sure","No (call 999 / 112)"]}]},
+    garage:{autoTitle:true,subLabel:"What does the vehicle need?",subRequired:true,banner:{icon:"🔧",title:"Garage Services",text:"Repairs, maintenance and servicing. Choose the work needed and how you want it done."},details:"Describe the problem or work needed",detailsHint:"Symptoms, warning lights, noises, last service date, etc.",extras:[{id:"vehicle",label:"Vehicle make, model & plate",required:true},{id:"year",label:"Year of manufacture",type:"number",min:1980,max:2100},{id:"mileage",label:"Mileage (km, optional)",type:"number",min:0},{id:"mode",label:"How should the service happen?",type:"select",required:true,options:["I will bring it to the garage","Mobile mechanic to come to me","Pick up and return my vehicle"]},{id:"date",label:"Preferred date & time",type:"datetime-local"}]},
+    accident_scene:{autoTitle:true,details:"What happened?",detailsHint:"Briefly describe the road accident. If anyone is injured, call 999 or 112 first.",extras:[{id:"help",label:"Help needed",type:"select",required:true,options:["Full scene management","Traffic control","Scene clearing","Photo documentation","Other"]},{id:"injuries",label:"Injuries",type:"select",required:true,options:["No injuries","Minor injuries","Serious injuries (call 999 / 112 first)"]},{id:"vehicles",label:"Vehicles involved",type:"number",min:1,max:20,value:1,required:true},{id:"vehicleTypes",label:"Vehicle types (car, matatu, truck, motorbike…)"},{id:"blocked",label:"Is the road blocked?",type:"select",options:["No","Partly","Fully"]},{id:"police",label:"Police informed?",type:"select",options:["Yes","No","Not sure"]},{id:"vehicle",label:"Your vehicle make, model & plate (optional)"}]},
+    home:{subLabel:"What service do you need?",subRequired:true,banner:{icon:"🏠",title:"Home Services",text:"Connect with trusted service providers. Choose a service type below."},titleLabel:"What needs to be done?",titlePlaceholder:"e.g. Fix leaking kitchen tap",details:"Describe the work",detailsHint:"What needs fixing or doing? Mention sizes, quantities or any materials you already have.",extras:[{id:"urgency",label:"How urgent?",type:"select",required:true,options:["Emergency (today)","Within 2–3 days","This week","Flexible"]},{id:"property",label:"Property type",type:"select",options:["House","Apartment","Office","Shop / commercial","Other"]},{id:"date",label:"Preferred date & time",type:"datetime-local"},{id:"access",label:"Access instructions (gate, floor, contact on site)",full:true}]},
+    marketplace:{subLabel:"Category",subRequired:true,banner:{icon:"🛍️",title:"MEI Marketplace",text:"Buy and sell through MEI One. Tell us what you want to buy, sell or find."},titleLabel:"Item / listing name",titlePlaceholder:"e.g. Toyota Axio 2014 or brake pads for Probox",details:"Describe the item or what you are looking for",detailsHint:"Brand, model, size, year, condition, any important details.",extras:[{id:"intent",label:"I want to",type:"select",required:true,options:["Buy","Sell","Rent","Find / enquire"]},{id:"price",label:"Budget / asking price (KES)",type:"number",min:0},{id:"condition",label:"Condition",type:"select",options:["New","Used - like new","Used - fair","Not applicable"]},{id:"qty",label:"Quantity",type:"number",min:1,max:1000,value:1}]},
+    default:{details:"Description / instructions",detailsHint:"Describe what you need.",extras:[]}
+  };
+  FORM_CONFIG.accident=FORM_CONFIG.accident_scene;FORM_CONFIG.accident_management=FORM_CONFIG.accident_scene;
+  const LOC_CONFIG={
+    rides:{from:{title:"Pickup",mode:"place",main:"Pickup point",gps:true},to:{title:"Destination",mode:"place",main:"Where to?"}},
+    delivery:{from:{title:"Pickup (collect the item from)",mode:"place",main:"Pickup point",gps:true},to:{title:"Delivery address",mode:"address",main:"Street / road"}},
+    towing:{from:{title:"Where is the vehicle?",mode:"point",main:"Road / place",gps:true},to:{title:"Tow destination (garage or address)",mode:"place",main:"Garage / street"}},
+    roadside:{from:{title:"Where are you?",mode:"point",main:"Road / place",gps:true}},
+    accident_scene:{from:{title:"Road accident location",mode:"point",main:"Road / junction",gps:true}},
+    home:{from:{title:"Service address",mode:"address",main:"Street / road",gps:true}},
+    garage:{from:{title:"Where is the vehicle?",mode:"place",main:"Road / place",gps:true}},
+    marketplace:{from:{title:"Item location / meeting point",mode:"place",main:"Area / street",gps:true}},
+    default:{from:{title:"Service location",mode:"address",main:"Street / road",gps:true}}
+  };
+  LOC_CONFIG.accident=LOC_CONFIG.accident_scene;LOC_CONFIG.accident_management=LOC_CONFIG.accident_scene;
+  const $=id=>document.getElementById(id);
+  let sb=null,currentUser=null,currentProfile=null,services=[],subservices=[],realtimeChannel=null,authSubscription=null,pollTimer=null,reloadTimer=null,redirecting=false,submitting=false,geo={from:null},autoTitleValue="";
+  function escapeHTML(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
+  function message(id,text,type="info"){const el=$(id);if(el){el.textContent=text;el.className="message show "+type;}}
+  function clearMessage(id){const el=$(id);if(el){el.textContent="";el.className="message";}}
+  function dateText(value){if(!value)return"Date unavailable";const d=new Date(value);return Number.isNaN(d.getTime())?"Date unavailable":d.toLocaleString();}
+  function serviceCode(service){return String(service?.service_code||"").trim().toLowerCase();}
+  // Effective service key. An "auto" row that is really the garage service is treated as "garage" for forms and display.
+  function svcKey(service){const raw=serviceCode(service);if(raw==="auto"){const text=(service?.service_name||"")+" "+(service?.description||"");if(/garage|repair|maintenance|servic/i.test(text)&&!/valuat|inspect|auto-d/i.test(text))return"garage";}return raw;}
+  const ORDER=["rides","delivery","towing","roadside","accident_scene","garage","valuation","home","marketplace","learn"];
+  // Guarantees all ten MEI One services show, even if a row is missing or inactive in the database.
+  function ensureAllServices(list){const rows=list.slice();const have=new Set(rows.map(r=>cfgKey(svcKey(r))));ORDER.forEach(key=>{if(have.has(key))return;const m=META[key];rows.push({id:"builtin:"+key,service_code:key,service_name:m.name,description:m.text,icon:m.icon,is_active:true,builtin:true});});const rank=r=>{const i=ORDER.indexOf(cfgKey(svcKey(r)));return i<0?99:i;};return rows.map((r,i)=>[r,i]).sort((a,b)=>rank(a[0])-rank(b[0])||a[1]-b[1]).map(x=>x[0]);}
+  function findService(id){return services.find(s=>String(s.id)===String(id));}
+  // Maps any service_code (e.g. "home_services", "mei_towing") to a form/location config key.
+  function cfgKey(code){if(code==="auto")return"valuation";if(FORM_CONFIG[code]||META[code])return code;if(/valuat|auto-?d|inspect/.test(code))return"valuation";if(/learn|training|driving|drive.?africa/.test(code))return"learn";if(/garage|mechanic|auto.?repair/.test(code))return"garage";if(/accident/.test(code))return"accident_scene";if(/home/.test(code))return"home";if(/tow|recover/.test(code))return"towing";if(/road/.test(code))return"roadside";if(/market|shop/.test(code))return"marketplace";if(/ride|taxi/.test(code))return"rides";if(/deliver|courier|parcel/.test(code))return"delivery";return"default";}
+  function externalUrl(code){if(EXTERNAL_SERVICES[code])return EXTERNAL_SERVICES[code];const key=cfgKey(code);return key==="valuation"?EXTERNAL_SERVICES.auto:key==="learn"?EXTERNAL_SERVICES.learn:null;}
+  function displayName(service){return META[cfgKey(svcKey(service))]?.name||service?.service_name||service?.service_code||"Service";}
+  function formConfig(code){return FORM_CONFIG[cfgKey(code)];}
+  function locSpec(code){return LOC_CONFIG[cfgKey(code)]||LOC_CONFIG.default;}
+  // Database sub-services first; otherwise the built-in list for that service.
+  function serviceSubservices(service){const rows=subservices.filter(row=>String(row.service_id)===String(service?.id));if(rows.length)return rows;const list=FALLBACK_SUBS[cfgKey(svcKey(service))]||[];return list.map(name=>({id:"fb:"+name,service_id:service?.id,subservice_name:name}));}
+  function subserviceName(row){return row.subservice_name||row.subservice_code||"Service category";}
+
+  // Location input and optional GPS capture.
+  function locHTML(prefix,spec){
+    const address=spec.mode==="address",showArea=spec.mode!=="point";
+    const placeholder=spec.mode==="point"?"Road name, junction or landmark":"Street, road or place name";
+    return `<h4>${escapeHTML(spec.title)}</h4>
+      <div class="field full"><label for="${prefix}_main">${escapeHTML(spec.main)}</label><input id="${prefix}_main" maxlength="300" placeholder="${placeholder}" required></div>
+      ${showArea?`<div class="field"><label for="${prefix}_estate">Estate / area${address?"":" (optional)"}</label><input id="${prefix}_estate" maxlength="150" placeholder="e.g. Kilimani, Green Estate" ${address?"required":""}></div><div class="field"><label for="${prefix}_house">House / building / gate no. (optional)</label><input id="${prefix}_house" maxlength="100" placeholder="e.g. House 12B, Block C"></div>`:""}
+      <div class="field full"><label for="${prefix}_landmark">Nearest landmark (optional)</label><input id="${prefix}_landmark" maxlength="200" placeholder="e.g. opposite the petrol station"></div>
+      ${spec.gps?`<div class="loc-gps"><button class="secondary-btn" id="${prefix}_gps" type="button">📍 Use my current location</button><span class="hint" id="${prefix}_gpsNote">GPS is optional. You can enter your address instead.</span></div>`:""}`;
+  }
+  function bindGps(prefix,key){
+    const btn=$(prefix+"_gps");if(!btn)return;
+    $(prefix+"_main").addEventListener("input",()=>{if($(prefix+"_main").value.trim()!==GPS_TEXT&&geo[key]){geo[key]=null;$(prefix+"_gpsNote").textContent="Address entered. GPS coordinates will be refreshed if available.";}});
+    btn.addEventListener("click",()=>{
+      const note=$(prefix+"_gpsNote");if(!navigator.geolocation){note.textContent="Location is not supported on this device. Enter the address instead.";return;}
+      btn.disabled=true;note.textContent="Getting your location…";
+      navigator.geolocation.getCurrentPosition(pos=>{geo[key]={lat:Number(pos.coords.latitude.toFixed(6)),lng:Number(pos.coords.longitude.toFixed(6))};if(!$(prefix+"_main").value.trim())$(prefix+"_main").value=GPS_TEXT;note.textContent="Location captured (±"+Math.round(pos.coords.accuracy)+" m). Add a landmark if helpful.";btn.disabled=false;},err=>{note.textContent=err.code===1?"Location permission denied. Enter the address instead.":"Could not get your location. Enter the address instead.";btn.disabled=false;},{enableHighAccuracy:true,timeout:12000,maximumAge:60000});
+    });
+  }
+  function renderLocations(code){const cfg=locSpec(code);geo={from:null};$("locFrom").innerHTML=locHTML("lf",cfg.from);bindGps("lf","from");$("locTo").hidden=!cfg.to;$("locTo").innerHTML=cfg.to?locHTML("lt",cfg.to):"";}
+  function locValue(prefix,id){return($(prefix+"_"+id)?.value||"").trim();}
+  function composeLoc(prefix){const parts=[locValue(prefix,"main"),locValue(prefix,"estate"),locValue(prefix,"house")?"House/Bldg "+locValue(prefix,"house"):""].filter(Boolean);let result=parts.join(", ");const landmark=locValue(prefix,"landmark");if(landmark)result+=(result?" ":"")+"(near "+landmark+")";return result;}
+  async function nominatim(query){try{const response=await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=ke&q="+encodeURIComponent(query),{headers:{Accept:"application/json"}});if(!response.ok)return null;const rows=await response.json();if(!rows?.[0])return null;const lat=Number(rows[0].lat),lng=Number(rows[0].lon);return Number.isFinite(lat)&&Number.isFinite(lng)?{lat:Number(lat.toFixed(6)),lng:Number(lng.toFixed(6))}:null;}catch(error){console.warn("Address geocoding unavailable:",error);return null;}}
+  async function geocodeLoc(prefix){const main=locValue(prefix,"main");if(!main||main===GPS_TEXT)return null;const estate=locValue(prefix,"estate"),landmark=locValue(prefix,"landmark");const attempts=[[main,estate,landmark,"Kenya"],[main,estate,"Kenya"],[main,"Kenya"],[landmark,estate,"Kenya"],[estate,"Kenya"]];for(const parts of attempts){const query=parts.filter(Boolean).join(", ");if(!query||query==="Kenya")continue;const result=await nominatim(query);if(result)return result;}return null;}
+
+  // Dynamic fields are generated from the selected service's configuration.
+  function renderExtras(cfg){
+    $("extraFields").innerHTML=(cfg.extras||[]).map(field=>{const id="x_"+field.id,required=field.required?"required":"";let control="";if(field.type==="select"){control=`<select id="${id}" ${required}><option value="">Choose an option</option>${(field.options||[]).map(option=>`<option value="${escapeHTML(option)}">${escapeHTML(option)}</option>`).join("")}</select>`;}else{control=`<input id="${id}" type="${escapeHTML(field.type||"text")}" ${required} ${field.min!=null?`min="${field.min}"`:""} ${field.max!=null?`max="${field.max}"`:""} ${field.value!=null?`value="${field.value}"`:""} maxlength="200">`;}return `<div class="field ${field.full?"full":""}" data-extra="${escapeHTML(field.id)}" ${field.showIf?"hidden":""}><label for="${id}">${escapeHTML(field.label)}</label>${control}</div>`;}).join("");
+    (cfg.extras||[]).filter(field=>field.showIf).forEach(field=>{const wrapper=document.querySelector(`[data-extra="${field.id}"]`),driver=$("x_"+field.showIf.id);if(!wrapper||!driver)return;const sync=()=>{wrapper.hidden=driver.value!==field.showIf.value;$("x_"+field.id).required=!wrapper.hidden&&!!field.required;};driver.addEventListener("change",sync);sync();});
+  }
+  function showTab(name){document.querySelectorAll(".tab").forEach(button=>button.classList.toggle("active",button.dataset.tab===name));document.querySelectorAll(".section").forEach(section=>section.classList.toggle("active",section.id==="section-"+name));window.scrollTo({top:0,behavior:"smooth"});if(name==="requests")loadRequests();}
+  function requestsTabActive(){return $("section-requests").classList.contains("active");}
+  function externalLink(code){const url=externalUrl(code);if(!url)return false;const win=window.open(url,"_blank","noopener,noreferrer");if(!win)window.location.href=url;return true;}
+
+  // Authentication and customer profile.
+  async function getVerifiedUser(){const {data,error}=await sb.auth.getUser();if(error)throw error;if(!data?.user?.id)throw new Error("Your sign-in session is no longer valid. Please sign in again.");return data.user;}
+  async function initialize(){
+    if(!window.supabase||!window.MEI_SUPABASE||typeof window.MEI_SUPABASE.from!=="function"){document.body.innerHTML='<main style="max-width:700px;margin:60px auto;padding:25px;font-family:Arial"><h2>MEI One configuration error</h2><p>Supabase did not initialize. Check the Supabase CDN and /js/config.js.</p></main>';return;}
+    sb=window.MEI_SUPABASE;const {data:sessionData,error:sessionError}=await sb.auth.getSession();if(sessionError)throw sessionError;if(!sessionData?.session){window.location.replace(SIGNIN_PATH);return;}
+    currentUser=await getVerifiedUser();
+    const {data:profile,error:profileError}=await sb.from("profiles").select("id,full_name,phone,email,account_status").eq("id",currentUser.id).maybeSingle();
+    if(profileError){console.error("Customer profile query failed:",profileError);throw new Error("Could not load your customer profile: "+profileError.message);}
+    currentProfile=profile||{};
+    const accountStatus=String(currentProfile.account_status||"active").trim().toLowerCase();
+    if(accountStatus!=="active"){alert("Your account is not active. Please contact MEI One support.");await sb.auth.signOut();window.location.replace(SIGNIN_PATH);return;}
+    renderProfile();await loadServices();await loadRequests(true);startRealtime();
+    const {data:authData}=sb.auth.onAuthStateChange(event=>{if(event==="SIGNED_OUT"&&!redirecting){redirecting=true;window.location.replace(SIGNIN_PATH);}});authSubscription=authData?.subscription||null;
+  }
+  function renderProfile(){const name=currentProfile?.full_name||currentUser?.user_metadata?.full_name||currentUser?.user_metadata?.name||"Customer";$("welcomeName").textContent=name;$("headerUser").textContent="Hi, "+name.split(/\s+/)[0];$("profileName").textContent=name;$("profileEmail").textContent=currentProfile?.email||currentUser?.email||"—";$("profilePhone").textContent=currentProfile?.phone||currentUser?.phone||"Not provided";$("profileStatus").textContent=currentProfile?.account_status||"Active";}
+
+  // Load active services and optional subservice categories.
+  async function loadServices(){
+    $("servicesGrid").innerHTML='<div class="loading">Loading services from database…</div>';clearMessage("serviceMessage");
+    const {data,error}=await sb.from("services").select("id,service_code,service_name,description,icon,route,is_active,display_order,base_price,price_per_km,commission_pct").eq("is_active",true).order("display_order",{ascending:true});
+    if(error){console.error("Services query failed:",error);$("servicesGrid").innerHTML='<div class="empty">Unable to load services: '+escapeHTML(error.message)+'</div>';return;}
+    services=ensureAllServices(Array.isArray(data)?data:[]);await loadSubservices();populateServiceSelect();renderServices();
+  }
+  async function loadSubservices(){subservices=[];if(!services.length)return;const {data,error}=await sb.from("service_subservices").select("id,service_id,subservice_code,subservice_name,description,icon,is_active,display_order").eq("is_active",true).order("display_order",{ascending:true});if(error){console.warn("Subservice query failed:",error);message("serviceMessage","Main services loaded. Some service categories are temporarily unavailable.","info");return;}subservices=Array.isArray(data)?data:[];}
+  function renderServices(){const query=$("serviceSearch").value.trim().toLowerCase();const visible=services.filter(service=>[displayName(service),service.service_name,service.service_code,service.description].join(" ").toLowerCase().includes(query));if(!visible.length){$("servicesGrid").innerHTML='<div class="empty">No services match your search.</div>';return;}
+    $("servicesGrid").innerHTML=visible.map(service=>{const code=svcKey(service),meta=META[cfgKey(code)]||{},isExternal=!!externalUrl(code);return `<article class="service-card"><div class="service-icon">${escapeHTML(meta.icon||service.icon||"✦")}</div><h3>${escapeHTML(displayName(service))}</h3><p>${escapeHTML(meta.text||SERVICE_TEXT[code]||service.description||"Explore this MEI One service and submit a request.")}</p><div class="service-meta">${escapeHTML(code.toUpperCase())}</div><button class="primary-btn full-btn service-action" type="button" data-id="${escapeHTML(service.id)}">${isExternal?"Open service":"Request service"}</button></article>`;}).join("");
+    document.querySelectorAll(".service-action").forEach(button=>button.addEventListener("click",()=>{const service=findService(button.dataset.id);if(!service)return;if(!externalLink(svcKey(service)))openRequestForm(service);}));
+  }
+  function populateServiceSelect(){const select=$("selectedService");const previous=select.value;select.innerHTML=services.filter(service=>!externalUrl(svcKey(service))).map(service=>`<option value="${escapeHTML(service.id)}">${escapeHTML(displayName(service))}</option>`).join("");if(services.some(service=>String(service.id)===previous))select.value=previous;select.disabled=!services.length;}
+  // Reset first, then set the service selected on the service card.
+  function openRequestForm(service){$("requestForm").reset();populateServiceSelect();$("selectedService").value=String(service.id);clearMessage("requestMessage");updateRequestFields();showTab("request");}
+
+  // Keeps the title in sync with the chosen service type until the customer types their own.
+  function syncTitle(service,cfg){
+    const sub=$("subserviceField").hidden?"":($("selectedSubservice").value?$("selectedSubservice").selectedOptions[0].textContent.trim():"");
+    const name=displayName(service);
+    const next=cfg.autoTitle?(sub?name+" – "+sub:name+" request"):(sub&&!cfg.titlePlaceholder?sub+" – "+name:"");
+    const input=$("requestTitle");
+    if(cfg.autoTitle||input.value===""||input.value===autoTitleValue){input.value=next;autoTitleValue=next;}
+  }
+  function updateRequestFields(){
+    const service=findService($("selectedService").value);
+    if(!service){$("locFrom").innerHTML="";$("locTo").hidden=true;$("extraFields").innerHTML="";$("svcBanner").hidden=true;return;}
+    const code=svcKey(service),cfg=formConfig(code);autoTitleValue="";
+    renderLocations(code);
+    $("svcBanner").hidden=!cfg.banner;if(cfg.banner)$("svcBanner").innerHTML=`<div class="ic">${escapeHTML(cfg.banner.icon)}</div><div><strong>${escapeHTML(cfg.banner.title)}</strong><span>${escapeHTML(cfg.banner.text)}</span></div>`;
+    $("detailsLabel").textContent=cfg.details||"Description / instructions";$("detailsHint").textContent=cfg.detailsHint||"";$("requestDetails").placeholder=cfg.detailsHint||"";$("requestDetails").required=cfg.detailsRequired!==false;
+    $("titleField").hidden=!!cfg.autoTitle;$("requestTitle").required=!cfg.autoTitle;$("titleLabel").textContent=cfg.titleLabel||"Request title";$("requestTitle").placeholder=cfg.titlePlaceholder||"Briefly describe what you need";
+    renderExtras(cfg);
+    const children=serviceSubservices(service),hasSubs=children.length>0;
+    $("subserviceField").hidden=!hasSubs;$("subLabel").textContent=(cfg.subLabel||"Service category")+(cfg.subRequired?"":" (optional)");
+    $("selectedSubservice").required=hasSubs&&!!cfg.subRequired;
+    $("selectedSubservice").innerHTML=`<option value="">${cfg.subRequired?"Choose an option":"Choose a category (optional)"}</option>`+children.map(row=>`<option value="${escapeHTML(row.id)}">${escapeHTML(subserviceName(row))}</option>`).join("");
+    $("subPills").hidden=!(hasSubs&&cfg.pills);
+    $("subPills").innerHTML=cfg.pills?children.map(row=>`<button type="button" class="sub-pill" data-sub="${escapeHTML(row.id)}">${escapeHTML(subserviceName(row))}</button>`).join(""):"";
+    $("subPills").querySelectorAll(".sub-pill").forEach(pill=>pill.addEventListener("click",()=>{$("selectedSubservice").value=pill.dataset.sub;onSubChange();}));
+    syncTitle(service,cfg);
+  }
+  function onSubChange(){const service=findService($("selectedService").value);if(!service)return;const chosen=$("selectedSubservice").value;document.querySelectorAll(".sub-pill").forEach(pill=>pill.classList.toggle("on",pill.dataset.sub===chosen));syncTitle(service,formConfig(svcKey(service)));}
+
+  // Submit one request using the authenticated user's UUID as user_id.
+  async function submitRequest(event){
+    event.preventDefault();if(submitting)return;clearMessage("requestMessage");
+    const service=findService($("selectedService").value);if(!service){message("requestMessage","Please choose a valid service.","error");return;}
+    const code=svcKey(service);if(externalUrl(code)){message("requestMessage","This service opens in its dedicated MEI platform.","info");return;}
+    const cfg=formConfig(code),locCfg=locSpec(code),title=$("requestTitle").value.trim()||((service.service_name||"Service")+" request"),description=$("requestDetails").value.trim(),pickup=composeLoc("lf"),dropoff=locCfg.to?composeLoc("lt"):"",notes=$("requestNotes").value.trim();
+    if(!$("subserviceField").hidden&&cfg.subRequired&&!$("selectedSubservice").value){message("requestMessage","Please choose "+(cfg.subLabel||"a service category").toLowerCase()+".","error");$("selectedSubservice").focus();return;}
+    if(!pickup){message("requestMessage","Please enter the service location or pickup point.","error");$("lf_main").focus();return;}if(locCfg.to&&!dropoff){message("requestMessage","Please enter the destination.","error");$("lt_main").focus();return;}if(cfg.detailsRequired!==false&&!description){message("requestMessage","Please provide the required description.","error");$("requestDetails").focus();return;}
+    const detailLines=[];if(!$("subserviceField").hidden&&$("selectedSubservice").value)detailLines.push((cfg.subLabel||"Category").replace(/\?$/,"")+": "+$("selectedSubservice").selectedOptions[0].textContent.trim());
+    for(const field of cfg.extras||[]){const wrapper=document.querySelector(`[data-extra="${field.id}"]`);if(!wrapper||wrapper.hidden)continue;const control=$("x_"+field.id),value=String(control?.value||"").trim();if(field.required&&!value){message("requestMessage",field.label+" is required.","error");control?.focus();return;}if(value)detailLines.push(field.label+": "+value);}
+    const contactPhone=currentProfile?.phone||currentUser?.phone||"";if(contactPhone)detailLines.push("Customer contact phone: "+contactPhone);if(description){if(detailLines.length)detailLines.push("");detailLines.push(description);}const details=detailLines.join("\n");
+    const btn=$("submitRequest");submitting=true;btn.disabled=true;
+    try{
+      let from=geo.from;if(!from){btn.textContent="Checking location…";from=await geocodeLoc("lf");}let to=null;if(locCfg.to){btn.textContent="Checking destination…";to=await geocodeLoc("lt");}
+      btn.textContent="Verifying account…";const authenticatedUser=await getVerifiedUser();currentUser=authenticatedUser;
+      const customerName=currentProfile?.full_name||authenticatedUser.user_metadata?.full_name||authenticatedUser.user_metadata?.name||"Customer";
+      const payload={user_id:authenticatedUser.id,service_id:service.builtin?null:service.id,request_type:code,service:code,status:"pending",provider_id:null,title,details:details||null,notes:notes||null,pickup,dropoff:dropoff||null,pickup_address:pickup,destination_address:dropoff||null,customer_name:customerName,latitude:from?.lat??null,longitude:from?.lng??null,dropoff_latitude:to?.lat??null,dropoff_longitude:to?.lng??null};
+      btn.textContent="Submitting request…";const {data,error}=await sb.from("service_requests").insert(payload).select("id").single();
+      if(error){console.error("Customer request INSERT rejected:",{code:error.code,message:error.message,details:error.details,hint:error.hint,userId:authenticatedUser.id,payload});throw error;}
+      message("requestMessage","Your request has been submitted successfully. MEI One will now look for an eligible provider.","success");
+      $("requestForm").reset();updateRequestFields();await loadRequests(true);setTimeout(()=>showTab("requests"),900);
+    }catch(error){console.error("Customer request submission failed:",error);let explanation=error?.message||"Unknown error";if(error?.code==="42501"||/row-level security/i.test(explanation))explanation+=" Check the INSERT policies on public.service_requests and confirm that user_id equals auth.uid().";if(service.builtin&&(error?.code==="23502"||error?.code==="23503"))explanation+=" The \""+displayName(service)+"\" service is not in the services table yet. Add it there (see the SQL provided).";if(error?.code==="42703"||/column .* does not exist/i.test(explanation))explanation+=" The submitted column names do not match the current database schema.";message("requestMessage","Could not submit your request: "+explanation,"error");}
+    finally{submitting=false;btn.disabled=false;btn.textContent="Submit Service Request";}
+  }
+
+  // Customer request history. created_at is the stable sort field for all rows.
+  async function loadRequests(silent=false){if(!currentUser||!sb)return;if(!silent)$("requestsList").innerHTML='<div class="loading">Loading your requests…</div>';clearMessage("requestsMessage");const {data,error}=await sb.from("service_requests").select("id,service_id,request_type,status,pickup_address,destination_address,notes,requested_at,accepted_at,started_at,completed_at,cancelled_at,service,title,details,pickup,dropoff,price,customer_name,created_at").eq("user_id",currentUser.id).order("created_at",{ascending:false}).limit(50);if(error){console.error("Customer request history query failed:",error);$("requestsList").innerHTML='<div class="empty">Unable to load your requests: '+escapeHTML(error.message)+'</div>';return;}renderRequests(data||[]);}
+  function normalizedStatus(value){return String(value||"pending").trim().toLowerCase().replace(/\s+/g,"_");}
+  function trackBanner(status){switch(status){case"pending":case"requested":return'<div class="track">⏳ Your request has been received and is awaiting provider assignment.</div>';case"accepted":return'<div class="track ok">✓ A provider has accepted your request.</div>';case"in_progress":return'<div class="track go">● Your service is in progress.</div>';case"completed":return'<div class="track done">✓ Your service has been completed.</div>';case"cancelled":return'<div class="track">This request has been cancelled.</div>';case"proposed":return'<div class="track">A provider has proposed a service arrangement. Check for updates.</div>';default:return"";}}
+  function renderRequests(rows){if(!rows.length){$("requestsList").innerHTML='<div class="empty"><strong>You have not submitted any requests yet.</strong><br>Explore the MEI One service catalogue to get started.</div>';return;}$("requestsList").innerHTML=rows.map(request=>{const service=findService(request.service_id),name=(service?displayName(service):"")||request.title||request.service||request.request_type||"Service request",status=normalizedStatus(request.status),pickup=request.pickup||request.pickup_address,dropoff=request.dropoff||request.destination_address,submitted=request.requested_at||request.created_at,price=request.price==null?"":`<p><strong>Price:</strong> KES ${Number(request.price).toLocaleString("en-KE")}</p>`;return `<article class="request-card"><div class="request-top"><div><h3>${escapeHTML(name)}</h3><p style="margin:0;color:var(--muted)">${escapeHTML(request.title||"Service request")}</p></div><span class="status ${escapeHTML(status)}">${escapeHTML(status.replace(/_/g," "))}</span></div>${trackBanner(status)}${request.details?`<p><strong>Details:</strong> ${escapeHTML(request.details)}</p>`:""}${pickup?`<p><strong>Service location / pickup:</strong> ${escapeHTML(pickup)}</p>`:""}${dropoff?`<p><strong>Destination:</strong> ${escapeHTML(dropoff)}</p>`:""}${request.notes?`<p><strong>Additional notes:</strong> ${escapeHTML(request.notes)}</p>`:""}${price}<p style="font-size:11px;color:var(--muted);margin-top:13px">Submitted: ${escapeHTML(dateText(submitted))} · Reference: ${escapeHTML(String(request.id).split("-")[0])}</p></article>`;}).join("");}
+  function scheduleReload(){clearTimeout(reloadTimer);reloadTimer=setTimeout(()=>{if(requestsTabActive())loadRequests(true);},500);}
+  function startRealtime(){try{realtimeChannel=sb.channel("customer-requests-"+currentUser.id).on("postgres_changes",{event:"*",schema:"public",table:"service_requests",filter:"user_id=eq."+currentUser.id},scheduleReload).subscribe(status=>{if(status==="CHANNEL_ERROR"||status==="TIMED_OUT")console.warn("Customer request realtime unavailable; polling remains enabled.");});}catch(error){console.warn("Realtime unavailable; polling will be used:",error);}pollTimer=setInterval(()=>{if(!document.hidden&&requestsTabActive())loadRequests(true);},20000);}
+  async function signOut(){const btn=$("logoutBtn");btn.disabled=true;btn.textContent="Signing out…";const {error}=await sb.auth.signOut();if(error){console.error("Sign-out failed:",error);btn.disabled=false;btn.textContent="Sign out";alert("Unable to sign out: "+error.message);return;}redirecting=true;window.location.replace(SIGNIN_PATH);}
+
+  // Page events.
+  document.querySelectorAll(".tab").forEach(button=>button.addEventListener("click",()=>showTab(button.dataset.tab)));
+  $("requestForm").addEventListener("submit",submitRequest);
+  $("selectedService").addEventListener("change",()=>{clearMessage("requestMessage");updateRequestFields();});
+  $("selectedSubservice").addEventListener("change",onSubChange);
+  $("backToServices").addEventListener("click",()=>showTab("home"));
+  $("refreshRequests").addEventListener("click",()=>loadRequests());
+  $("refreshServices").addEventListener("click",()=>loadServices().catch(error=>{console.error(error);message("serviceMessage","Could not refresh services: "+(error.message||"Unknown error"),"error");}));
+  $("serviceSearch").addEventListener("input",renderServices);
+  $("logoutBtn").addEventListener("click",signOut);
+  $("securityBtn").addEventListener("click",()=>window.location.href=SIGNIN_PATH);
+  window.addEventListener("pagehide",()=>{if(authSubscription)authSubscription.unsubscribe();if(realtimeChannel&&sb)sb.removeChannel(realtimeChannel);clearInterval(pollTimer);clearTimeout(reloadTimer);});
+  initialize().catch(error=>{console.error("Customer dashboard initialization failed:",error);alert("MEI One could not initialize your dashboard: "+(error?.message||"Unknown error"));});
+})();
+</script>
+</body>
+</html>
