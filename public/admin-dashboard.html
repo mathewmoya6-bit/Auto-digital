@@ -3732,6 +3732,14 @@
     </table></div>
     <div class="pager"><span id="osPager">Page 1</span><button data-act="pg" data-id="-1">‹ Prev</button><button data-act="pg" data-id="1">Next ›</button></div>
     <div class="action-bar"><button class="action-btn" id="osCsv">📊 Export CSV</button></div>
+  </div>
+  <div class="card" style="margin-bottom:28px;">
+    <div class="card-header"><h3>Onsite pricing by purpose</h3><span class="badge badge-info" id="osPriceBadge">Loading</span></div>
+    <p class="sub" style="margin-bottom:12px;font-size:12px;color:var(--text-muted);">Fee per onsite valuation. A change applies to new valuations only: each valuation records the fee when it starts. Deactivating a purpose hides it from officers.</p>
+    <div class="data-table-wrap"><table class="data-table">
+      <thead><tr><th>Purpose</th><th>Basis of value</th><th>Fee (KES)</th><th>Active</th><th>Updated</th><th></th></tr></thead>
+      <tbody id="osPriceBody"><tr class="row-empty"><td colspan="6">Loading...</td></tr></tbody>
+    </table></div>
   </div>`;
 
   const MODAL = `
@@ -3769,17 +3777,30 @@
   async function load() {
     const c = db(); if (!c) return;
     const { data: { session } } = await c.auth.getSession(); meId = session?.user?.id;
-    const [o, v] = await Promise.all([
+    const [o, v, pr] = await Promise.all([
       c.from('valuation_officers').select('*').order('created_at', { ascending: false }),
-      c.from('onsite_valuations').select('*').order('updated_at', { ascending: false }).limit(500)
+      c.from('onsite_valuations').select('*').order('updated_at', { ascending: false }).limit(500),
+      c.from('onsite_pricing').select('*')
     ]);
     const err = o.error || v.error;
-    officers = o.data || []; vals = v.data || [];
+    officers = o.data || []; vals = v.data || []; prices = pr.data || []; renderPrices(pr.error);
     const b = $('osBadge');
     b.textContent = err ? 'Setup needed: ' + err.message : '● Connected';
     b.className = 'badge ' + (err ? 'badge-danger' : 'badge-success');
     $('osOfficer').innerHTML = '<option value="">All officers</option>' + officers.map(x => `<option value="${x.id}">${esc(x.full_name)}</option>`).join('');
     renderOfficers(); renderVals();
+  }
+
+  const BS = { DUTY: 'KRA CRSP reference (not market value)', INS: 'Insurable / agreed value', CLAIM: 'Pre-accident market value', BANK: 'Market and forced-sale value', SALE: 'Market value', LEGAL: 'As specified in the instruction', FLEET: 'Market or depreciated value', AUCT: 'Forced-sale / reserve price' };
+  let prices = [];
+  function renderPrices(err) {
+    const b = $('osPriceBadge');
+    b.textContent = err ? 'Setup needed: run 04_pricing.sql' : '● Connected';
+    b.className = 'badge ' + (err ? 'badge-danger' : 'badge-success');
+    $('osPriceBody').innerHTML = Object.keys(PN).map(k => {
+      const p = prices.find(x => x.purpose === k) || {};
+      return `<tr><td>${PN[k]}</td><td>${BS[k]}</td><td><input class="mini-input os-price" type="number" min="0" step="50" value="${p.price ?? ''}"></td><td><input class="os-active" type="checkbox" ${p.active === false ? '' : 'checked'}></td><td>${when(p.updated_at)}</td><td><button class="mini-btn approve" data-act="saveprice" data-id="${k}">Save</button></td></tr>`;
+    }).join('');
   }
 
   function renderOfficers() {
@@ -3863,6 +3884,14 @@
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act, id = b.dataset.id, c = db();
     if (act === 'view') return openModal(id);
+    if (act === 'saveprice') {
+      const row = b.closest('tr'), price = Number(row.querySelector('.os-price').value), active = row.querySelector('.os-active').checked;
+      if (!(price >= 0) || row.querySelector('.os-price').value === '') return toast('Enter a valid fee', 'error');
+      const { error } = await c.rpc('admin_set_pricing', { p_purpose: id, p_price: price, p_active: active });
+      if (error) return toast(error.message, 'error');
+      log(`Onsite pricing ${id}: KES ${price}, ${active ? 'active' : 'inactive'}`);
+      toast('Pricing saved'); return load();
+    }
     if (act === 'tab') { ofFilter = id; return renderOfficers(); }
     if (act === 'pg') { page = Math.max(1, page + Number(id)); return renderVals(); }
     if (act === 'reject') {
