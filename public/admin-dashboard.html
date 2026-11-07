@@ -262,6 +262,8 @@
         .status-pill.failed { background: rgba(239,68,68,0.15); color: var(--danger); }
         .status-pill.active { background: rgba(34,197,94,0.15); color: var(--success); }
         .status-pill.inactive { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .status-pill.assigned, .status-pill.inspection_scheduled { background: rgba(59,130,246,0.15); color: var(--blue); }
+        .status-pill.inspected, .status-pill.under_review { background: rgba(245,158,11,0.15); color: var(--warning); }
         .status-pill.refunded { background: rgba(59,130,246,0.15); color: var(--blue); }
         .kv-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
         .kv-list .kv-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border); }
@@ -410,6 +412,7 @@
                 <a href="#runningCostSection">🛣️ Running Costs</a>
                 <a href="#fuelServiceSection">⛽ Fuel & Services</a>
                 <a href="#usersSection">👥 Users</a>
+                <a href="#officesSection">🏢 Offices</a>
                 <a href="#paymentsSection">💵 Payments</a>
                 <a href="#analyticsSection">📈 Analytics</a>
                 <a href="#notificationsSection">🔔 Notifications</a>
@@ -462,6 +465,10 @@
                     <select id="valFilterStatus" onchange="window.applyValuationFilters()">
                         <option value="">All statuses</option>
                         <option value="pending">Pending</option>
+                        <option value="assigned">Assigned</option>
+                        <option value="inspection_scheduled">Inspection scheduled</option>
+                        <option value="inspected">Inspected</option>
+                        <option value="under_review">Under review</option>
                         <option value="approved">Approved</option>
                         <option value="rejected">Rejected</option>
                     </select>
@@ -511,6 +518,15 @@
                     <div class="form-group">
                         <label>Admin Note (optional)</label>
                         <textarea id="valAdjustNote" rows="2" placeholder="Reason for adjustment / decision..."></textarea>
+                    </div>
+                    <div class="form-group" id="valAssignBlock">
+                        <label>Assign for Physical Inspection</label>
+                        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;">
+                            <select id="valAssignOffice" onchange="window.loadOfficeValuers()"></select>
+                            <select id="valAssignOfficer"><option value="">Select valuer…</option></select>
+                            <button type="button" class="action-btn success" id="valAssignBtn" onclick="window.assignValuation()">📌 Assign</button>
+                        </div>
+                        <div id="valAssignInfo" style="font-size:11px;color:var(--text-muted);margin-top:4px;"></div>
                     </div>
                     <div class="tab-bar">
                         <button class="tab-btn active" onclick="window.showValHistoryTab(this)">📜 Valuation History</button>
@@ -683,6 +699,45 @@
                 <div class="action-bar">
                     <button class="action-btn success" onclick="window.fetchUsers()">🔄 Refresh Users</button>
                     <button class="action-btn" onclick="window.exportUsersCSV()">📊 Export CSV</button>
+                </div>
+            </div>
+
+            <div id="officesSection" class="section-title">🏢 Valuation Offices
+                <span class="count-pill" id="officesCountPill">0 total</span>
+                <span class="count-pill" id="officesPendingPill" style="color:var(--warning);border-color:var(--warning);">0 pending</span>
+            </div>
+            <div class="card" style="margin-bottom:28px;">
+                <div class="card-header">
+                    <h3>Offices &amp; Applications</h3>
+                    <span class="badge badge-success" id="officesStatus">● Connected</span>
+                </div>
+                <div class="filter-bar">
+                    <input type="text" id="officeFilterSearch" placeholder="Search office, county or applicant..." oninput="window.applyOfficeFilters()" />
+                    <select id="officeFilterStatus" onchange="window.applyOfficeFilters()">
+                        <option value="">All statuses</option>
+                        <option value="pending">Pending approval</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="suspended">Suspended</option>
+                    </select>
+                    <button class="filter-reset" onclick="window.resetOfficeFilters()">Reset filters</button>
+                </div>
+                <div class="data-table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Office</th><th>Location</th><th>Applicant</th><th>Contact</th>
+                                <th>Licence / Reg.</th><th>Status</th><th>Valuers</th><th>Applied</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="officesTableBody">
+                            <tr class="row-empty"><td colspan="9">Loading offices...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="action-bar">
+                    <button class="action-btn success" onclick="window.fetchOffices()">🔄 Refresh Offices</button>
+                    <button class="action-btn" onclick="window.exportOfficesCSV()">📊 Export CSV</button>
                 </div>
             </div>
 
@@ -2286,6 +2341,7 @@
                 document.getElementById('valAdjustPrice').value = adjustedValue;
                 document.getElementById('valAdjustNote').value = '';
                 await loadValuationHistory(id, v.vehicle_variant_id || v.variant_id);
+                await window.prepareAssignment(v);
                 document.getElementById('valuationModal').classList.add('open');
             };
 
@@ -3353,6 +3409,7 @@
                         loadRunningCostRates(),
                         window.fetchValuations(),
                         window.fetchUsers(),
+                    window.fetchOffices(),
                         window.fetchPayments(),
                         window.fetchNotifications(),
                         fetchLogs(),
@@ -3583,6 +3640,226 @@
                 }
             }
 
+            // ===== Valuation offices, approvals and assignment =====
+            let allOffices = [];
+            let filteredOffices = [];
+            let officeValuerCounts = {};
+            
+            window.fetchOffices = async function() {
+                const result = await querySupabase('valuation_offices', '*', {}, { column: 'applied_at', ascending: false }, 500);
+                const statusEl = document.getElementById('officesStatus');
+                if (!result.success) {
+                    allOffices = [];
+                    statusEl.textContent = '● Offline / No table';
+                    statusEl.className = 'badge badge-danger';
+                } else {
+                    allOffices = result.data || [];
+                    statusEl.textContent = '● Connected';
+                    statusEl.className = 'badge badge-success';
+                    const mem = await querySupabase('office_members', 'office_id, office_role, is_active');
+                    officeValuerCounts = {};
+                    if (mem.success) {
+                        (mem.data || []).forEach(m => {
+                            if (m.office_role === 'valuer' && m.is_active) {
+                                officeValuerCounts[m.office_id] = (officeValuerCounts[m.office_id] || 0) + 1;
+                            }
+                        });
+                    }
+                }
+                window.applyOfficeFilters();
+            };
+            
+            window.applyOfficeFilters = function() {
+                const q = (document.getElementById('officeFilterSearch').value || '').toLowerCase().trim();
+                const st = document.getElementById('officeFilterStatus').value;
+                filteredOffices = allOffices.filter(o => {
+                    const hay = [o.name, o.county, o.town, o.applicant_name, o.email].join(' ').toLowerCase();
+                    if (q && !hay.includes(q)) return false;
+                    if (st && o.approval_status !== st) return false;
+                    return true;
+                });
+                renderOfficesTable();
+            };
+            
+            window.resetOfficeFilters = function() {
+                document.getElementById('officeFilterSearch').value = '';
+                document.getElementById('officeFilterStatus').value = '';
+                window.applyOfficeFilters();
+            };
+            
+            function officeStatusPill(s) {
+                const cls = { pending: 'pending', approved: 'approved', rejected: 'rejected', suspended: 'inactive' }[s] || 'pending';
+                return `<span class="status-pill ${cls}">${escapeHtml(s || 'pending')}</span>`;
+            }
+            
+            function officeActions(o) {
+                const id = escapeHtml(o.id);
+                if (o.approval_status === 'pending') {
+                    return `<button class="mini-btn approve" onclick="window.officeAction('${id}','approve')">✅ Approve</button>
+                            <button class="mini-btn reject" onclick="window.officeAction('${id}','reject')">❌ Reject</button>`;
+                }
+                if (o.approval_status === 'approved') {
+                    return `<button class="mini-btn reject" onclick="window.officeAction('${id}','suspend')">⏸ Suspend</button>`;
+                }
+                if (o.approval_status === 'suspended') {
+                    return `<button class="mini-btn approve" onclick="window.officeAction('${id}','reactivate')">▶ Reactivate</button>`;
+                }
+                if (o.approval_status === 'rejected') {
+                    return `<button class="mini-btn approve" onclick="window.officeAction('${id}','approve')">✅ Approve anyway</button>`;
+                }
+                return '';
+            }
+            
+            function renderOfficesTable() {
+                const tbody = document.getElementById('officesTableBody');
+                document.getElementById('officesCountPill').textContent = `${filteredOffices.length} total`;
+                const pending = allOffices.filter(o => o.approval_status === 'pending').length;
+                document.getElementById('officesPendingPill').textContent = `${pending} pending`;
+                if (filteredOffices.length === 0) {
+                    tbody.innerHTML = `<tr class="row-empty"><td colspan="9">No offices match these filters.</td></tr>`;
+                    return;
+                }
+                tbody.innerHTML = filteredOffices.map(o => `
+                    <tr>
+                        <td><strong>${escapeHtml(o.name)}</strong><br><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(o.code || '')}</span></td>
+                        <td>${escapeHtml([o.town, o.county].filter(Boolean).join(', ') || '—')}</td>
+                        <td>${escapeHtml(o.applicant_name || '—')}</td>
+                        <td>${escapeHtml(o.email || '—')}<br><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(o.phone || '')}</span></td>
+                        <td>${escapeHtml(o.licence_number || '—')}<br><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(o.registration_number || '')}</span></td>
+                        <td>${officeStatusPill(o.approval_status)}${o.rejection_reason ? `<br><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(o.rejection_reason)}</span>` : ''}</td>
+                        <td>${officeValuerCounts[o.id] || 0}</td>
+                        <td>${fmtDate(o.applied_at || o.created_at)}</td>
+                        <td>${officeActions(o)}</td>
+                    </tr>
+                `).join('');
+            }
+            
+            window.officeAction = async function(id, action) {
+                const office = allOffices.find(o => String(o.id) === String(id));
+                if (!office) return;
+                let reason = null;
+                if (action === 'reject' || action === 'suspend') {
+                    reason = prompt(`Reason to ${action} "${office.name}" (shown to the applicant):`);
+                    if (action === 'reject' && !reason) { showToast('❌ A reason is required to reject', 'error'); return; }
+                    if (reason === null) return;
+                } else if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} "${office.name}"?`)) {
+                    return;
+                }
+                try {
+                    const response = await apiRequest(`/admin/offices/${id}/${action}`, {
+                        method: 'POST',
+                        body: JSON.stringify({ reason })
+                    });
+                    if (!response.success) throw new Error(response.error);
+                    showToast(`✅ ${office.name}: ${action} done`, action === 'reject' || action === 'suspend' ? 'warning' : 'success');
+                    await window.fetchOffices();
+                } catch (error) {
+                    showToast(`❌ Failed to ${action}: ${error.message}`, 'error');
+                }
+            };
+            
+            window.exportOfficesCSV = function() {
+                try {
+                    const headers = ['Name', 'Code', 'County', 'Town', 'Applicant', 'Email', 'Phone', 'Licence', 'Registration', 'Status', 'Valuers', 'AppliedAt'];
+                    const rows = filteredOffices.map(o => [
+                        o.name, o.code, o.county || '', o.town || '', o.applicant_name || '', o.email || '', o.phone || '',
+                        o.licence_number || '', o.registration_number || '', o.approval_status, officeValuerCounts[o.id] || 0,
+                        o.applied_at || o.created_at || ''
+                    ]);
+                    downloadCSV(headers, rows, 'auto-d-offices');
+                    showToast('✅ Offices exported!', 'success');
+                } catch (error) {
+                    showToast('❌ Export failed: ' + error.message, 'error');
+                }
+            };
+            
+            /* ---------- Assign a valuation to an office + valuer (creates the inspection) ---------- */
+            
+            window.prepareAssignment = async function(v) {
+                const officeSel = document.getElementById('valAssignOffice');
+                const approved = allOffices.filter(o => o.approval_status === 'approved' && o.is_active !== false);
+                officeSel.innerHTML = `<option value="">Select office…</option>` +
+                    approved.map(o => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.name)}</option>`).join('');
+                document.getElementById('valAssignOfficer').innerHTML = `<option value="">Select valuer…</option>`;
+                const info = document.getElementById('valAssignInfo');
+                if (v.office_id) {
+                    officeSel.value = v.office_id;
+                    await window.loadOfficeValuers();
+                    if (v.assigned_to) document.getElementById('valAssignOfficer').value = v.assigned_to;
+                    info.textContent = v.assigned_at ? `Currently assigned ${fmtDate(v.assigned_at)}. Assigning again reassigns it.` : '';
+                } else {
+                    info.textContent = approved.length ? '' : 'No approved offices yet.';
+                }
+            };
+            
+            window.loadOfficeValuers = async function() {
+                const officeId = document.getElementById('valAssignOffice').value;
+                const sel = document.getElementById('valAssignOfficer');
+                sel.innerHTML = `<option value="">Select valuer…</option>`;
+                if (!officeId) return;
+                const mem = await querySupabase('office_members', 'user_id', { office_id: officeId, office_role: 'valuer', is_active: true });
+                if (!mem.success || !(mem.data || []).length) {
+                    document.getElementById('valAssignInfo').textContent = 'This office has no active valuers yet.';
+                    return;
+                }
+                document.getElementById('valAssignInfo').textContent = '';
+                const ids = mem.data.map(m => m.user_id);
+                // Assumes users.id matches the auth user id; falls back to showing the id if not.
+                const users = await querySupabase('users', 'id, full_name, name, email', { id: ids });
+                const byId = {};
+                if (users.success) (users.data || []).forEach(u => { byId[u.id] = u; });
+                sel.innerHTML += ids.map(id => {
+                    const u = byId[id] || {};
+                    const label = u.full_name || u.name || u.email || id.slice(0, 8);
+                    return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
+                }).join('');
+            };
+            
+            window.assignValuation = async function() {
+                if (!currentValuationId) return;
+                const officeId = document.getElementById('valAssignOffice').value;
+                const officerId = document.getElementById('valAssignOfficer').value;
+                if (!officeId || !officerId) { showToast('❌ Choose an office and a valuer', 'error'); return; }
+                const btn = document.getElementById('valAssignBtn');
+                btn.disabled = true;
+                try {
+                    const client = getSupabaseClient();
+                    if (!client) throw new Error('Supabase not initialized');
+            
+                    const { error: vErr } = await client.from('valuation_reports').update({
+                        office_id: officeId,
+                        assigned_to: officerId,
+                        assigned_at: new Date().toISOString(),
+                        assigned_by: currentUser?.id || null
+                    }).eq('id', currentValuationId);
+                    if (vErr) throw vErr;
+            
+                    // Reassignment: replace any open inspection that has not been submitted yet
+                    await client.from('vehicle_inspections').delete()
+                        .eq('valuation_id', currentValuationId).in('status', ['scheduled', 'in_progress', 'returned']);
+            
+                    // The database trigger sets valuation status to "assigned"
+                    const { error: iErr } = await client.from('vehicle_inspections').insert({
+                        valuation_id: currentValuationId,
+                        office_id: officeId,
+                        officer_id: officerId,
+                        status: 'scheduled'
+                    });
+                    if (iErr) throw iErr;
+            
+                    const officeName = (allOffices.find(o => o.id === officeId) || {}).name || officeId;
+                    await addAdminLog(`🏢 Valuation ${currentValuationId} assigned to ${officeName} (officer ${officerId})`, 'admin');
+                    showToast('✅ Valuation assigned for inspection', 'success');
+                    await window.fetchValuations();
+                    window.closeValuationModal();
+                } catch (error) {
+                    console.error('Assign valuation error:', error);
+                    showToast(`❌ Failed to assign: ${error.message}`, 'error');
+                } finally {
+                    btn.disabled = false;
+                }
+            };
+
             async function loadDashboardData() {
                 await Promise.all([
                     fetchStats(),
@@ -3592,6 +3869,7 @@
                     loadRunningCostRates(),
                     window.fetchValuations(),
                     window.fetchUsers(),
+                    window.fetchOffices(),
                     window.fetchPayments(),
                     window.fetchNotifications(),
                     fetchLogs(),
