@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
@@ -262,8 +263,6 @@
         .status-pill.failed { background: rgba(239,68,68,0.15); color: var(--danger); }
         .status-pill.active { background: rgba(34,197,94,0.15); color: var(--success); }
         .status-pill.inactive { background: rgba(239,68,68,0.15); color: var(--danger); }
-        .status-pill.assigned, .status-pill.inspection_scheduled { background: rgba(59,130,246,0.15); color: var(--blue); }
-        .status-pill.inspected, .status-pill.under_review { background: rgba(245,158,11,0.15); color: var(--warning); }
         .status-pill.refunded { background: rgba(59,130,246,0.15); color: var(--blue); }
         .kv-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
         .kv-list .kv-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border); }
@@ -412,7 +411,6 @@
                 <a href="#runningCostSection">🛣️ Running Costs</a>
                 <a href="#fuelServiceSection">⛽ Fuel & Services</a>
                 <a href="#usersSection">👥 Users</a>
-                <a href="#officesSection">🏢 Offices</a>
                 <a href="#paymentsSection">💵 Payments</a>
                 <a href="#analyticsSection">📈 Analytics</a>
                 <a href="#notificationsSection">🔔 Notifications</a>
@@ -465,10 +463,6 @@
                     <select id="valFilterStatus" onchange="window.applyValuationFilters()">
                         <option value="">All statuses</option>
                         <option value="pending">Pending</option>
-                        <option value="assigned">Assigned</option>
-                        <option value="inspection_scheduled">Inspection scheduled</option>
-                        <option value="inspected">Inspected</option>
-                        <option value="under_review">Under review</option>
                         <option value="approved">Approved</option>
                         <option value="rejected">Rejected</option>
                     </select>
@@ -518,15 +512,6 @@
                     <div class="form-group">
                         <label>Admin Note (optional)</label>
                         <textarea id="valAdjustNote" rows="2" placeholder="Reason for adjustment / decision..."></textarea>
-                    </div>
-                    <div class="form-group" id="valAssignBlock">
-                        <label>Assign for Physical Inspection</label>
-                        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;">
-                            <select id="valAssignOffice" onchange="window.loadOfficeValuers()"></select>
-                            <select id="valAssignOfficer"><option value="">Select valuer…</option></select>
-                            <button type="button" class="action-btn success" id="valAssignBtn" onclick="window.assignValuation()">📌 Assign</button>
-                        </div>
-                        <div id="valAssignInfo" style="font-size:11px;color:var(--text-muted);margin-top:4px;"></div>
                     </div>
                     <div class="tab-bar">
                         <button class="tab-btn active" onclick="window.showValHistoryTab(this)">📜 Valuation History</button>
@@ -699,45 +684,6 @@
                 <div class="action-bar">
                     <button class="action-btn success" onclick="window.fetchUsers()">🔄 Refresh Users</button>
                     <button class="action-btn" onclick="window.exportUsersCSV()">📊 Export CSV</button>
-                </div>
-            </div>
-
-            <div id="officesSection" class="section-title">🏢 Valuation Offices
-                <span class="count-pill" id="officesCountPill">0 total</span>
-                <span class="count-pill" id="officesPendingPill" style="color:var(--warning);border-color:var(--warning);">0 pending</span>
-            </div>
-            <div class="card" style="margin-bottom:28px;">
-                <div class="card-header">
-                    <h3>Offices &amp; Applications</h3>
-                    <span class="badge badge-success" id="officesStatus">● Connected</span>
-                </div>
-                <div class="filter-bar">
-                    <input type="text" id="officeFilterSearch" placeholder="Search office, county or applicant..." oninput="window.applyOfficeFilters()" />
-                    <select id="officeFilterStatus" onchange="window.applyOfficeFilters()">
-                        <option value="">All statuses</option>
-                        <option value="pending">Pending approval</option>
-                        <option value="approved">Approved</option>
-                        <option value="rejected">Rejected</option>
-                        <option value="suspended">Suspended</option>
-                    </select>
-                    <button class="filter-reset" onclick="window.resetOfficeFilters()">Reset filters</button>
-                </div>
-                <div class="data-table-wrap">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Office</th><th>Location</th><th>Applicant</th><th>Contact</th>
-                                <th>Licence / Reg.</th><th>Status</th><th>Valuers</th><th>Applied</th><th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="officesTableBody">
-                            <tr class="row-empty"><td colspan="9">Loading offices...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="action-bar">
-                    <button class="action-btn success" onclick="window.fetchOffices()">🔄 Refresh Offices</button>
-                    <button class="action-btn" onclick="window.exportOfficesCSV()">📊 Export CSV</button>
                 </div>
             </div>
 
@@ -2341,7 +2287,6 @@
                 document.getElementById('valAdjustPrice').value = adjustedValue;
                 document.getElementById('valAdjustNote').value = '';
                 await loadValuationHistory(id, v.vehicle_variant_id || v.variant_id);
-                await window.prepareAssignment(v);
                 document.getElementById('valuationModal').classList.add('open');
             };
 
@@ -3409,7 +3354,6 @@
                         loadRunningCostRates(),
                         window.fetchValuations(),
                         window.fetchUsers(),
-                    window.fetchOffices(),
                         window.fetchPayments(),
                         window.fetchNotifications(),
                         fetchLogs(),
@@ -3640,226 +3584,6 @@
                 }
             }
 
-            // ===== Valuation offices, approvals and assignment =====
-            let allOffices = [];
-            let filteredOffices = [];
-            let officeValuerCounts = {};
-            
-            window.fetchOffices = async function() {
-                const result = await querySupabase('valuation_offices', '*', {}, { column: 'applied_at', ascending: false }, 500);
-                const statusEl = document.getElementById('officesStatus');
-                if (!result.success) {
-                    allOffices = [];
-                    statusEl.textContent = '● Offline / No table';
-                    statusEl.className = 'badge badge-danger';
-                } else {
-                    allOffices = result.data || [];
-                    statusEl.textContent = '● Connected';
-                    statusEl.className = 'badge badge-success';
-                    const mem = await querySupabase('office_members', 'office_id, office_role, is_active');
-                    officeValuerCounts = {};
-                    if (mem.success) {
-                        (mem.data || []).forEach(m => {
-                            if (m.office_role === 'valuer' && m.is_active) {
-                                officeValuerCounts[m.office_id] = (officeValuerCounts[m.office_id] || 0) + 1;
-                            }
-                        });
-                    }
-                }
-                window.applyOfficeFilters();
-            };
-            
-            window.applyOfficeFilters = function() {
-                const q = (document.getElementById('officeFilterSearch').value || '').toLowerCase().trim();
-                const st = document.getElementById('officeFilterStatus').value;
-                filteredOffices = allOffices.filter(o => {
-                    const hay = [o.name, o.county, o.town, o.applicant_name, o.email].join(' ').toLowerCase();
-                    if (q && !hay.includes(q)) return false;
-                    if (st && o.approval_status !== st) return false;
-                    return true;
-                });
-                renderOfficesTable();
-            };
-            
-            window.resetOfficeFilters = function() {
-                document.getElementById('officeFilterSearch').value = '';
-                document.getElementById('officeFilterStatus').value = '';
-                window.applyOfficeFilters();
-            };
-            
-            function officeStatusPill(s) {
-                const cls = { pending: 'pending', approved: 'approved', rejected: 'rejected', suspended: 'inactive' }[s] || 'pending';
-                return `<span class="status-pill ${cls}">${escapeHtml(s || 'pending')}</span>`;
-            }
-            
-            function officeActions(o) {
-                const id = escapeHtml(o.id);
-                if (o.approval_status === 'pending') {
-                    return `<button class="mini-btn approve" onclick="window.officeAction('${id}','approve')">✅ Approve</button>
-                            <button class="mini-btn reject" onclick="window.officeAction('${id}','reject')">❌ Reject</button>`;
-                }
-                if (o.approval_status === 'approved') {
-                    return `<button class="mini-btn reject" onclick="window.officeAction('${id}','suspend')">⏸ Suspend</button>`;
-                }
-                if (o.approval_status === 'suspended') {
-                    return `<button class="mini-btn approve" onclick="window.officeAction('${id}','reactivate')">▶ Reactivate</button>`;
-                }
-                if (o.approval_status === 'rejected') {
-                    return `<button class="mini-btn approve" onclick="window.officeAction('${id}','approve')">✅ Approve anyway</button>`;
-                }
-                return '';
-            }
-            
-            function renderOfficesTable() {
-                const tbody = document.getElementById('officesTableBody');
-                document.getElementById('officesCountPill').textContent = `${filteredOffices.length} total`;
-                const pending = allOffices.filter(o => o.approval_status === 'pending').length;
-                document.getElementById('officesPendingPill').textContent = `${pending} pending`;
-                if (filteredOffices.length === 0) {
-                    tbody.innerHTML = `<tr class="row-empty"><td colspan="9">No offices match these filters.</td></tr>`;
-                    return;
-                }
-                tbody.innerHTML = filteredOffices.map(o => `
-                    <tr>
-                        <td><strong>${escapeHtml(o.name)}</strong><br><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(o.code || '')}</span></td>
-                        <td>${escapeHtml([o.town, o.county].filter(Boolean).join(', ') || '—')}</td>
-                        <td>${escapeHtml(o.applicant_name || '—')}</td>
-                        <td>${escapeHtml(o.email || '—')}<br><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(o.phone || '')}</span></td>
-                        <td>${escapeHtml(o.licence_number || '—')}<br><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(o.registration_number || '')}</span></td>
-                        <td>${officeStatusPill(o.approval_status)}${o.rejection_reason ? `<br><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(o.rejection_reason)}</span>` : ''}</td>
-                        <td>${officeValuerCounts[o.id] || 0}</td>
-                        <td>${fmtDate(o.applied_at || o.created_at)}</td>
-                        <td>${officeActions(o)}</td>
-                    </tr>
-                `).join('');
-            }
-            
-            window.officeAction = async function(id, action) {
-                const office = allOffices.find(o => String(o.id) === String(id));
-                if (!office) return;
-                let reason = null;
-                if (action === 'reject' || action === 'suspend') {
-                    reason = prompt(`Reason to ${action} "${office.name}" (shown to the applicant):`);
-                    if (action === 'reject' && !reason) { showToast('❌ A reason is required to reject', 'error'); return; }
-                    if (reason === null) return;
-                } else if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} "${office.name}"?`)) {
-                    return;
-                }
-                try {
-                    const response = await apiRequest(`/admin/offices/${id}/${action}`, {
-                        method: 'POST',
-                        body: JSON.stringify({ reason })
-                    });
-                    if (!response.success) throw new Error(response.error);
-                    showToast(`✅ ${office.name}: ${action} done`, action === 'reject' || action === 'suspend' ? 'warning' : 'success');
-                    await window.fetchOffices();
-                } catch (error) {
-                    showToast(`❌ Failed to ${action}: ${error.message}`, 'error');
-                }
-            };
-            
-            window.exportOfficesCSV = function() {
-                try {
-                    const headers = ['Name', 'Code', 'County', 'Town', 'Applicant', 'Email', 'Phone', 'Licence', 'Registration', 'Status', 'Valuers', 'AppliedAt'];
-                    const rows = filteredOffices.map(o => [
-                        o.name, o.code, o.county || '', o.town || '', o.applicant_name || '', o.email || '', o.phone || '',
-                        o.licence_number || '', o.registration_number || '', o.approval_status, officeValuerCounts[o.id] || 0,
-                        o.applied_at || o.created_at || ''
-                    ]);
-                    downloadCSV(headers, rows, 'auto-d-offices');
-                    showToast('✅ Offices exported!', 'success');
-                } catch (error) {
-                    showToast('❌ Export failed: ' + error.message, 'error');
-                }
-            };
-            
-            /* ---------- Assign a valuation to an office + valuer (creates the inspection) ---------- */
-            
-            window.prepareAssignment = async function(v) {
-                const officeSel = document.getElementById('valAssignOffice');
-                const approved = allOffices.filter(o => o.approval_status === 'approved' && o.is_active !== false);
-                officeSel.innerHTML = `<option value="">Select office…</option>` +
-                    approved.map(o => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.name)}</option>`).join('');
-                document.getElementById('valAssignOfficer').innerHTML = `<option value="">Select valuer…</option>`;
-                const info = document.getElementById('valAssignInfo');
-                if (v.office_id) {
-                    officeSel.value = v.office_id;
-                    await window.loadOfficeValuers();
-                    if (v.assigned_to) document.getElementById('valAssignOfficer').value = v.assigned_to;
-                    info.textContent = v.assigned_at ? `Currently assigned ${fmtDate(v.assigned_at)}. Assigning again reassigns it.` : '';
-                } else {
-                    info.textContent = approved.length ? '' : 'No approved offices yet.';
-                }
-            };
-            
-            window.loadOfficeValuers = async function() {
-                const officeId = document.getElementById('valAssignOffice').value;
-                const sel = document.getElementById('valAssignOfficer');
-                sel.innerHTML = `<option value="">Select valuer…</option>`;
-                if (!officeId) return;
-                const mem = await querySupabase('office_members', 'user_id', { office_id: officeId, office_role: 'valuer', is_active: true });
-                if (!mem.success || !(mem.data || []).length) {
-                    document.getElementById('valAssignInfo').textContent = 'This office has no active valuers yet.';
-                    return;
-                }
-                document.getElementById('valAssignInfo').textContent = '';
-                const ids = mem.data.map(m => m.user_id);
-                // Assumes users.id matches the auth user id; falls back to showing the id if not.
-                const users = await querySupabase('users', 'id, full_name, name, email', { id: ids });
-                const byId = {};
-                if (users.success) (users.data || []).forEach(u => { byId[u.id] = u; });
-                sel.innerHTML += ids.map(id => {
-                    const u = byId[id] || {};
-                    const label = u.full_name || u.name || u.email || id.slice(0, 8);
-                    return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
-                }).join('');
-            };
-            
-            window.assignValuation = async function() {
-                if (!currentValuationId) return;
-                const officeId = document.getElementById('valAssignOffice').value;
-                const officerId = document.getElementById('valAssignOfficer').value;
-                if (!officeId || !officerId) { showToast('❌ Choose an office and a valuer', 'error'); return; }
-                const btn = document.getElementById('valAssignBtn');
-                btn.disabled = true;
-                try {
-                    const client = getSupabaseClient();
-                    if (!client) throw new Error('Supabase not initialized');
-            
-                    const { error: vErr } = await client.from('valuation_reports').update({
-                        office_id: officeId,
-                        assigned_to: officerId,
-                        assigned_at: new Date().toISOString(),
-                        assigned_by: currentUser?.id || null
-                    }).eq('id', currentValuationId);
-                    if (vErr) throw vErr;
-            
-                    // Reassignment: replace any open inspection that has not been submitted yet
-                    await client.from('vehicle_inspections').delete()
-                        .eq('valuation_id', currentValuationId).in('status', ['scheduled', 'in_progress', 'returned']);
-            
-                    // The database trigger sets valuation status to "assigned"
-                    const { error: iErr } = await client.from('vehicle_inspections').insert({
-                        valuation_id: currentValuationId,
-                        office_id: officeId,
-                        officer_id: officerId,
-                        status: 'scheduled'
-                    });
-                    if (iErr) throw iErr;
-            
-                    const officeName = (allOffices.find(o => o.id === officeId) || {}).name || officeId;
-                    await addAdminLog(`🏢 Valuation ${currentValuationId} assigned to ${officeName} (officer ${officerId})`, 'admin');
-                    showToast('✅ Valuation assigned for inspection', 'success');
-                    await window.fetchValuations();
-                    window.closeValuationModal();
-                } catch (error) {
-                    console.error('Assign valuation error:', error);
-                    showToast(`❌ Failed to assign: ${error.message}`, 'error');
-                } finally {
-                    btn.disabled = false;
-                }
-            };
-
             async function loadDashboardData() {
                 await Promise.all([
                     fetchStats(),
@@ -3869,7 +3593,6 @@
                     loadRunningCostRates(),
                     window.fetchValuations(),
                     window.fetchUsers(),
-                    window.fetchOffices(),
                     window.fetchPayments(),
                     window.fetchNotifications(),
                     fetchLogs(),
@@ -3953,5 +3676,209 @@
         })();
     </script>
 
+<script>
+/* Auto-D Admin: Onsite Valuations + Valuation Officer management.
+   Load with <script src="admin-onsite.js"></script> just before </body> in admin.html.
+   Uses the dashboard's own Supabase client (window.supabase) and styles. */
+(function () {
+  'use strict';
+  const PN = { DUTY: 'Import duty', INS: 'Insurance', CLAIM: 'Claim / total loss', BANK: 'Bank collateral', SALE: 'Buy / sell', LEGAL: 'Legal', FLEET: 'Fleet', AUCT: 'Auction' };
+  let officers = [], vals = [], meId = null, injected = false;
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const kes = n => 'KES ' + Math.round(Number(n) || 0).toLocaleString();
+  const when = d => d ? new Date(d).toLocaleString() : '-';
+  const db = () => (window.supabase && window.supabase.from ? window.supabase : null);
+  const toast = (m, t = 'success') => {
+    const c = $('toastContainer'); if (!c) return;
+    const d = document.createElement('div'); d.className = 'toast toast-' + t; d.textContent = m;
+    c.appendChild(d); setTimeout(() => d.remove(), 4000);
+  };
+  const log = a => db() && db().from('admin_logs').insert({ action: a, username: 'admin', created_at: new Date().toISOString() });
+
+  const HTML = `
+  <div id="onsiteSection" class="section-title">📋 Onsite Valuations <span class="count-pill" id="osCount">0 total</span></div>
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-value" id="osOfficers">0</div><div class="stat-label">Active officers</div></div>
+    <div class="stat-card"><div class="stat-value" id="osPending">0</div><div class="stat-label">Awaiting approval</div></div>
+    <div class="stat-card"><div class="stat-value" id="osDrafts">0</div><div class="stat-label">Drafts in progress</div></div>
+    <div class="stat-card"><div class="stat-value" id="osFinal">0</div><div class="stat-label">Final valuations</div></div>
+  </div>
+  <div class="card" style="margin-bottom:28px;">
+    <div class="card-header"><h3>Valuation officers</h3><span class="badge badge-info" id="osBadge">Loading</span></div>
+    <div class="data-table-wrap"><table class="data-table">
+      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Licence</th><th>Role</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+      <tbody id="osOfficerBody"><tr class="row-empty"><td colspan="8">Loading officers...</td></tr></tbody>
+    </table></div>
+    <div class="action-bar">
+      <button class="action-btn success" id="osReload">🔄 Refresh</button>
+      <a class="action-btn" href="onsite-valuation-engine.html" target="_blank" rel="noopener">↗ Open onsite app</a>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:28px;">
+    <div class="card-header"><h3>Onsite valuation records</h3></div>
+    <div class="filter-bar">
+      <input type="text" id="osSearch" placeholder="Search ref, plate, chassis, make...">
+      <select id="osPurpose"><option value="">All purposes</option>${Object.entries(PN).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+      <select id="osStatus"><option value="">All statuses</option><option value="draft">Draft</option><option value="final">Final</option></select>
+      <select id="osOfficer"><option value="">All officers</option></select>
+    </div>
+    <div class="data-table-wrap"><table class="data-table">
+      <thead><tr><th>Ref</th><th>Vehicle</th><th>Purpose</th><th>Officer</th><th>Value</th><th>Conf.</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+      <tbody id="osValBody"><tr class="row-empty"><td colspan="9">Loading...</td></tr></tbody>
+    </table></div>
+    <div class="action-bar"><button class="action-btn" id="osCsv">📊 Export CSV</button></div>
+  </div>`;
+
+  const MODAL = `
+  <div class="modal-overlay" id="osModal"><div class="modal-content wide">
+    <button class="close-modal" data-act="close">✕</button>
+    <h2 id="osMTitle">Valuation</h2><p class="sub" id="osMSub"></p>
+    <div class="kv-list" id="osMKv"></div>
+    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Calculation</h4><div class="kv-list" id="osMCalc"></div>
+    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Issues found</h4><div class="kv-list" id="osMIssues"></div>
+    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Photos</h4><div id="osMPhotos" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="osReopen" data-act="reopen">↩️ Reopen as draft</button>
+      <button class="btn btn-secondary" data-act="close">Close</button>
+    </div>
+  </div></div>`;
+
+  function inject() {
+    const anchor = $('auditSection'); if (!anchor) return false;
+    anchor.insertAdjacentHTML('beforebegin', HTML);
+    document.body.insertAdjacentHTML('beforeend', MODAL);
+    const nav = document.querySelector('.section-nav');
+    if (nav) nav.insertAdjacentHTML('beforeend', '<a href="#onsiteSection">📋 Onsite Valuations</a>');
+    ['osSearch', 'osPurpose', 'osStatus', 'osOfficer'].forEach(id => $(id).addEventListener('input', renderVals));
+    $('osReload').onclick = load; $('osCsv').onclick = exportCsv;
+    $('onsiteSection').parentElement.addEventListener('click', onClick);
+    $('osModal').addEventListener('click', e => { if (e.target === $('osModal') || e.target.dataset.act === 'close') closeModal(); else onClick(e); });
+    return true;
+  }
+
+  async function load() {
+    const c = db(); if (!c) return;
+    const { data: { session } } = await c.auth.getSession(); meId = session?.user?.id;
+    const [o, v] = await Promise.all([
+      c.from('valuation_officers').select('*').order('created_at', { ascending: false }),
+      c.from('onsite_valuations').select('*').order('updated_at', { ascending: false }).limit(500)
+    ]);
+    const err = o.error || v.error;
+    officers = o.data || []; vals = v.data || [];
+    const b = $('osBadge');
+    b.textContent = err ? 'Setup needed: ' + err.message : '● Connected';
+    b.className = 'badge ' + (err ? 'badge-danger' : 'badge-success');
+    $('osOfficer').innerHTML = '<option value="">All officers</option>' + officers.map(x => `<option value="${x.id}">${esc(x.full_name)}</option>`).join('');
+    renderOfficers(); renderVals();
+  }
+
+  function renderOfficers() {
+    $('osOfficers').textContent = officers.filter(o => o.active).length;
+    $('osPending').textContent = officers.filter(o => !o.active).length;
+    $('osOfficerBody').innerHTML = officers.length ? officers.map(o => `
+      <tr><td>${esc(o.full_name)}</td><td>${esc(o.email || '-')}</td><td>${esc(o.phone || '-')}</td><td>${esc(o.licence_no || '-')}</td>
+      <td>${esc(o.role)}</td><td><span class="status-pill ${o.active ? 'active' : 'pending'}">${o.active ? 'active' : 'pending'}</span></td>
+      <td>${when(o.created_at)}</td>
+      <td>${o.id === meId ? '<span class="sub">you</span>' : `
+        <button class="mini-btn ${o.active ? 'reject' : 'approve'}" data-act="toggle" data-id="${o.id}">${o.active ? 'Deactivate' : 'Approve'}</button>
+        ${o.active ? '' : `<button class="mini-btn reject" data-act="reject" data-id="${o.id}">Reject</button>`}
+        <button class="mini-btn" data-act="role" data-id="${o.id}">${o.role === 'admin' ? 'Make officer' : 'Make admin'}</button>`}</td></tr>`).join('')
+      : '<tr class="row-empty"><td colspan="8">No officers yet. They appear after signing up on the onsite page.</td></tr>';
+  }
+
+  function renderVals() {
+    $('osDrafts').textContent = vals.filter(v => v.status === 'draft').length;
+    $('osFinal').textContent = vals.filter(v => v.status === 'final').length;
+    $('osCount').textContent = vals.length + ' total';
+    const q = $('osSearch').value.toLowerCase().trim(), p = $('osPurpose').value, s = $('osStatus').value, of = $('osOfficer').value;
+    const name = id => (officers.find(o => o.id === id) || {}).full_name || '-';
+    const rows = vals.filter(v => {
+      const ve = v.vehicle || {};
+      const hay = [v.ref, ve.plate, ve.chassis, ve.make, ve.model].join(' ').toLowerCase();
+      return (!q || hay.includes(q)) && (!p || v.purpose === p) && (!s || v.status === s) && (!of || v.officer_id === of);
+    });
+    $('osValBody').innerHTML = rows.length ? rows.slice(0, 200).map(v => {
+      const ve = v.vehicle || {};
+      return `<tr><td>${esc(v.ref)}</td><td>${esc([ve.make, ve.model, ve.plate].filter(Boolean).join(' ') || '-')}</td><td>${PN[v.purpose] || v.purpose}</td>
+      <td>${esc(name(v.officer_id))}</td><td>${v.final_value ? kes(v.final_value) : '-'}</td><td>${v.confidence ?? '-'}%</td>
+      <td><span class="status-pill ${v.status === 'final' ? 'completed' : 'pending'}">${v.status}</span></td><td>${when(v.updated_at)}</td>
+      <td><button class="mini-btn" data-act="view" data-id="${v.id}">🔍 View</button></td></tr>`;
+    }).join('') : '<tr class="row-empty"><td colspan="9">No onsite valuations match.</td></tr>';
+  }
+
+  let curId = null;
+  async function openModal(id) {
+    const v = vals.find(x => x.id === id); if (!v) return;
+    curId = id;
+    const ve = v.vehicle || {}, r = v.result || {}, inp = v.inputs || {};
+    const kv = (k, val) => `<div class="kv-row"><span class="k">${k}</span><span class="v">${esc(val ?? '-')}</span></div>`;
+    const off = (officers.find(o => o.id === v.officer_id) || {}).full_name || '-';
+    $('osMTitle').textContent = [ve.make, ve.model, ve.plate].filter(Boolean).join(' ') || v.ref;
+    $('osMSub').textContent = `${v.ref} · ${PN[v.purpose] || v.purpose} · ${v.status} · officer ${off}`;
+    $('osMKv').innerHTML = kv('Chassis', ve.chassis) + kv('Engine no.', ve.engine_no) + kv('Year', ve.yom) + kv('Odometer', ve.mileage ? ve.mileage + ' km' : '-') +
+      kv('Origin', ve.origin) + kv('Owner / requester', ve.owner) + kv('Valuation date', inp.date) + kv('Location', inp.location) +
+      kv('Final value', v.final_value ? kes(v.final_value) : '-') + kv('Range', v.range_low ? kes(v.range_low) + ' to ' + kes(v.range_high) : '-') + kv('Confidence', (v.confidence ?? '-') + '%');
+    $('osMCalc').innerHTML = kv('Base', kes(r.base)) + (r.lines || []).map(l => kv(l[0], (l[1] < 0 ? '-' : '+') + kes(Math.abs(l[1])))).join('');
+    const issues = Object.entries(v.answers || {}).filter(([, a]) => a === 'issue');
+    $('osMIssues').innerHTML = issues.length ? issues.map(([k]) => kv(k, (v.notes || {})[k] || 'Issue')).join('') : kv('None recorded', '');
+    $('osReopen').style.display = v.status === 'final' ? '' : 'none';
+    const ph = $('osMPhotos'); ph.innerHTML = '';
+    $('osModal').classList.add('open');
+    const paths = inp.photos || [];
+    if (paths.length) {
+      const { data } = await db().storage.from('valuation-photos').createSignedUrls(paths, 3600);
+      (data || []).forEach(x => { if (x.signedUrl) ph.insertAdjacentHTML('beforeend', `<a href="${x.signedUrl}" target="_blank" rel="noopener"><img src="${x.signedUrl}" alt="Inspection photo" style="width:110px;height:84px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"></a>`); });
+    } else ph.innerHTML = '<span class="sub">No photos uploaded.</span>';
+  }
+  const closeModal = () => { $('osModal').classList.remove('open'); curId = null; };
+
+  async function onClick(e) {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const act = b.dataset.act, id = b.dataset.id, c = db();
+    if (act === 'view') return openModal(id);
+    if (act === 'reject') {
+      const o = officers.find(x => x.id === id); if (!o) return;
+      if (!confirm(`Reject ${o.full_name}? Their officer registration is deleted and they cannot log in to the onsite app.`)) return;
+      const { error } = await c.from('valuation_officers').delete().eq('id', id);
+      if (error) return toast(error.message, 'error');
+      log(`Officer ${o.full_name} (${o.email || id}) rejected`);
+      toast('Officer rejected'); return load();
+    }
+    if (act === 'toggle' || act === 'role') {
+      const o = officers.find(x => x.id === id); if (!o) return;
+      const patch = act === 'toggle' ? { active: !o.active } : { role: o.role === 'admin' ? 'officer' : 'admin' };
+      if (patch.role === 'admin' && !confirm(`Make ${o.full_name} an admin? Admins can see all valuations and approve officers.`)) return;
+      const { error } = await c.from('valuation_officers').update(patch).eq('id', id);
+      if (error) return toast(error.message, 'error');
+      log(`Officer ${o.full_name}: ${act === 'toggle' ? (patch.active ? 'approved' : 'deactivated') : 'role set to ' + patch.role}`);
+      toast('Officer updated'); return load();
+    }
+    if (act === 'reopen' && curId) {
+      if (!confirm('Reopen this valuation as a draft? The officer can edit and finalise it again.')) return;
+      const { data, error } = await c.from('onsite_valuations').update({ status: 'draft' }).eq('id', curId).select();
+      if (error || !data || !data.length) return toast(error ? error.message : 'Blocked (run onsite_admin_migration.sql)', 'error');
+      log(`Onsite valuation ${data[0].ref} reopened as draft`);
+      toast('Valuation reopened'); closeModal(); load();
+    }
+  }
+
+  function exportCsv() {
+    const rows = [['Ref', 'Purpose', 'Status', 'Make', 'Model', 'Plate', 'Chassis', 'Value', 'Confidence', 'Officer', 'Updated']];
+    vals.forEach(v => { const ve = v.vehicle || {}; rows.push([v.ref, v.purpose, v.status, ve.make, ve.model, ve.plate, ve.chassis, v.final_value, v.confidence, (officers.find(o => o.id === v.officer_id) || {}).full_name, v.updated_at]); });
+    const csv = rows.map(r => r.map(x => `"${String(x ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'onsite-valuations-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
+  }
+
+  // Wait until the admin has logged in and the dashboard is visible
+  const t = setInterval(() => {
+    const dash = $('dashboardScreen');
+    if (injected || !dash || dash.classList.contains('hidden') || !db()) return;
+    if (inject()) { injected = true; clearInterval(t); load(); }
+  }, 600);
+})();
+
+</script>
 </body>
 </html>
