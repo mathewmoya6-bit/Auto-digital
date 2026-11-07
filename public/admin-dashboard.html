@@ -252,6 +252,7 @@
         .mini-btn.approve { border-color: var(--success); color: var(--success); }
         .mini-btn.reject { border-color: var(--danger); color: var(--danger); }
         .mini-btn.approve:hover, .mini-btn.reject:hover { opacity: 0.8; }
+        .mini-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 12px; font-size: 12px; color: var(--text-muted); }
         .pager button { padding: 5px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-secondary); cursor: pointer; font-size: 12px; }
         .pager button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -298,6 +299,11 @@
         .tab-bar { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
         .tab-btn { padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted); font-size: 12px; font-weight: 600; cursor: pointer; }
         .tab-btn.active { border-color: var(--primary); color: var(--primary); background: rgba(234,179,8,0.08); }
+        .calc-editor { display: none; border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }
+        .calc-editor .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+        .calc-editor .grid label { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+        .calc-editor .grid input, .calc-editor .grid select, .calc-editor .grid textarea { width: 100%; margin-top: 4px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: var(--font-body); font-size: 13px; }
+        .calc-editor .grid input:focus, .calc-editor .grid select:focus, .calc-editor .grid textarea:focus { outline: none; border-color: var(--primary); }
         @media (max-width: 768px) {
             .container { padding: 16px; }
             .login-card { padding: 32px 24px; }
@@ -964,7 +970,7 @@
             </div>
 
             <div style="border-top:1px solid var(--border);padding-top:20px;margin-top:10px;text-align:center;color:var(--text-muted);font-size:12px;">
-                Auto-D Kenya Admin Dashboard v7.0 · © 2026 Auto-D Kenya
+                Auto-D Kenya Admin Dashboard v7.1 · © 2026 Auto-D Kenya
                 <span style="display:block;font-size:10px;color:var(--text-muted);" id="connectionStatus">● Connecting...</span>
             </div>
         </div>
@@ -1137,6 +1143,7 @@
                     setTimeout(() => toast.remove(), 300);
                 }, 4000);
             }
+            window.__adminToast = showToast;
 
             function initSupabase() {
                 try {
@@ -1161,6 +1168,7 @@
                 if (!supabaseClient) return initSupabase();
                 return supabaseClient;
             }
+            window.__getSupabaseClient = getSupabaseClient;
 
             async function querySupabase(table, select = '*', filters = {}, order = null, limit = null) {
                 try {
@@ -1518,8 +1526,6 @@
 
             window.fetchFuelPrices = async function() {
                 try {
-                    // Auto-D schema: fuel_prices.fuel_type, price, price_date,
-                    // effective_from/effective_to, region, is_active.
                     const result = await querySupabase(
                         'fuel_prices', '*', { is_active: true },
                         { column: 'effective_from', ascending: false }
@@ -1553,8 +1559,6 @@
             };
 
             function renderFallbackFuelPrices() {
-                // EPRA Nairobi maximum pump prices, effective 15 Oct–14 Nov 2026.
-                // Electric and LPG are separate markets and are not EPRA petrol/diesel prices.
                 const fallback = {
                     petrol: { price: 226.96, date: '2026-10-15', currency: 'KES', region: 'Nairobi', source: 'EPRA' },
                     diesel: { price: 227.76, date: '2026-10-15', currency: 'KES', region: 'Nairobi', source: 'EPRA' },
@@ -1610,8 +1614,6 @@
                     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
                     const region = data.region || 'Nairobi';
 
-                    // Close the previous active row for this fuel/region using columns
-                    // that actually exist in this project's fuel_prices table.
                     const { error: closeError } = await client
                         .from('fuel_prices')
                         .update({ is_active: false, effective_to: yesterday, updated_at: new Date().toISOString() })
@@ -3619,7 +3621,7 @@
             });
 
             async function init() {
-                console.log('🚗 Auto-D Kenya Admin Dashboard v7.0 (Live Sync + Extended Admin Features)');
+                console.log('🚗 Auto-D Kenya Admin Dashboard v7.1 (Live Sync + Onsite Admin Review)');
                 console.log('📡 Backend API:', API_BASE);
                 console.log('🏥 Health Check:', HEALTH_CHECK_URL);
                 console.log('🔄 Fallback API:', FALLBACK_API_BASE);
@@ -3677,16 +3679,57 @@
     </script>
 
 <script>
-/* Auto-D Admin: Onsite Valuations + Valuation Officer management.
-   Uses the dashboard's own Supabase client (window.supabase) and styles. */
+/* =========================================================================
+   Auto-D Admin: Onsite Valuations + Valuation Officer management
+   -------------------------------------------------------------------------
+   - View submitted onsite valuations
+   - EDIT the calculation (base, comparables, depreciation, condition,
+     demand, accessories, accident deduction, forced-sale haircut)
+   - APPROVE (issues certificate via review_valuation RPC)
+   - DECLINE / reject
+   - RETURN for correction
+   - WITHDRAW a final report
+   ========================================================================= */
 (function () {
   'use strict';
-  const PN = { PRE_INSURANCE:'Pre-insurance', TECHNICAL_BRIEF:'Technical brief', FULL_MECHANICAL:'Full mechanical', ACCIDENT:'Accident', PRE_LOSS:'Pre-loss', COMPONENT:'Component', NON_STANDARD:'Non-standard', BANK:'Bank collateral', SALE:'Buy / sell', AUCTION:'Auction', COURT:'Court', DISPUTE:'Dispute', FLEET:'Fleet', DUTY:'Import duty (legacy)', INS:'Insurance (legacy)', CLAIM:'Claim (legacy)', LEGAL:'Legal (legacy)', AUCT:'Auction (legacy)' };
-  let officers = [], vals = [], meId = null, myOfficer = null, injected = false, ofFilter = 'all', page = 1;
+
+  /* ---------- Constants mirrored from the officer app ---------- */
+  const PK = ['PRE_INSURANCE','TECHNICAL_BRIEF','FULL_MECHANICAL','ACCIDENT','PRE_LOSS','COMPONENT',
+              'NON_STANDARD','BANK','SALE','AUCTION','COURT','DISPUTE','FLEET'];
+  const PN = {
+    PRE_INSURANCE:'Pre-insurance', TECHNICAL_BRIEF:'Technical brief', FULL_MECHANICAL:'Full mechanical',
+    ACCIDENT:'Accident', PRE_LOSS:'Pre-loss', COMPONENT:'Component', NON_STANDARD:'Non-standard',
+    BANK:'Bank collateral', SALE:'Buy / sell', AUCTION:'Auction', COURT:'Court', DISPUTE:'Dispute',
+    FLEET:'Fleet', DUTY:'Import duty (legacy)', INS:'Insurance (legacy)', CLAIM:'Claim (legacy)',
+    LEGAL:'Legal (legacy)', AUCT:'Auction (legacy)'
+  };
+  const NOVAL = ['TECHNICAL_BRIEF','FULL_MECHANICAL','COMPONENT','NON_STANDARD'];
+  const P = {
+    PRE_INSURANCE:{adj:'mil cond acc use acd', hc:0},
+    TECHNICAL_BRIEF:{adj:'mil cond acc use acd dem', hc:0},
+    FULL_MECHANICAL:{adj:'mil cond acc use acd dem', hc:0},
+    PRE_LOSS:{adj:'mil cond acc use acd', hc:0},
+    ACCIDENT:{adj:'mil', hc:0},
+    COMPONENT:{adj:'', hc:0},
+    NON_STANDARD:{adj:'', hc:0},
+    BANK:{adj:'mil cond use acd dem', hc:25},
+    SALE:{adj:'mil cond acc use acd dem', hc:0},
+    AUCTION:{adj:'mil cond acd dem', hc:25},
+    COURT:{adj:'mil cond acc use acd', hc:0, hcopt:1},
+    DISPUTE:{adj:'mil cond acc use acd', hc:0, hcopt:1},
+    FLEET:{adj:'dep cond use', hc:0}
+  };
+
+  /* ---------- State ---------- */
+  let officers = [], vals = [], prices = [], meId = null, myOfficer = null,
+      myProfile = null, injected = false, ofFilter = 'all', page = 1, curId = null;
+
+  /* ---------- Helpers ---------- */
   const $ = id => document.getElementById(id);
-  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const kes = n => 'KES ' + Math.round(Number(n) || 0).toLocaleString();
   const when = d => d ? new Date(d).toLocaleString() : '-';
+  const num = x => { const n = parseFloat(x); return Number.isFinite(n) ? n : 0; };
   const db = () => (window.supabase && window.supabase.from ? window.supabase : null);
   const toast = (m, t = 'success') => {
     const c = $('toastContainer'); if (!c) return;
@@ -3695,6 +3738,63 @@
   };
   const log = a => db() && db().from('admin_logs').insert({ action: a, username: 'admin', created_at: new Date().toISOString() });
 
+  /* =========================================================================
+     CALCULATION ENGINE (mirror of officer app)
+     ========================================================================= */
+  function recalcOnAdmin(v) {
+    const p = P[v.purpose] || { adj: '', hc: 0 };
+    const i = v.inputs || {};
+    const r = { lines: [], stops: [], warns: [], missing: [] };
+    const has = k => (p.adj || '').split(/\s+/).includes(k);
+
+    if (NOVAL.includes(v.purpose)) { r.base = 0; r.final = 0; return r; }
+
+    const comps = (i.comps || '').split(/[\n;]+/)
+                   .map(x => parseFloat(String(x).replace(/[^\d.]/g,'')))
+                   .filter(x => Number.isFinite(x) && x > 0)
+                   .sort((a,b) => a - b);
+    const c = comps.length >= 5 ? comps.slice(1,-1) : comps;
+    let base = 0, src = '';
+    if (c.length) { base = c[Math.floor((c.length-1)/2)]/2 + c[Math.floor(c.length/2)]/2; src = 'comps'; }
+    else if (num(i.manual)) { base = num(i.manual); src = 'manual'; }
+    else if (num(i.crsp))   { base = num(i.crsp);   src = 'crsp'; }
+    r.base = base; r.src = src; r.n = comps.length;
+
+    let sub = base;
+    const add = (l, amt) => { if (Number.isFinite(amt) && amt) { r.lines.push([l, amt]); sub += amt; } };
+    if (has('dep') && String(i.dep ?? '') !== '') add('Depreciation ' + num(i.dep) + '%', -base*num(i.dep)/100);
+    if (has('cond') && i.cond) {
+      const cmap = { Excellent: 5, Good: 0, Fair: -8, Poor: -20 };
+      if (i.cond in cmap) add('Condition: ' + i.cond, base*cmap[i.cond]/100);
+    }
+    if (has('use') && v.vehicle && v.vehicle.usage) {
+      const umap = { Private: 0, Commercial: -8, Taxi: -15, Rental: -10, Fleet: -8 };
+      if (v.vehicle.usage in umap) add('Usage: ' + v.vehicle.usage, base*umap[v.vehicle.usage]/100);
+    }
+    if (has('dem') && i.dem) {
+      const dmap = { High: 4, Normal: 0, Low: -6 };
+      if (i.dem in dmap) add('Market demand: ' + i.dem, base*dmap[i.dem]/100);
+    }
+    if (has('acc')) add('Accessories', num(i.acc));
+    if (has('acd') && String(i.acd ?? '') !== '') add('Accident/repair ' + num(i.acd) + '%', -base*num(i.acd)/100);
+
+    const hc = (p.hc || p.hcopt) ? num(i.hc) : 0;
+    r.sub = sub;
+    r.market = Math.max(0, sub);
+    r.final = hc ? Math.max(0, sub * (1 - hc/100)) : Math.max(0, sub);
+    if (hc) r.forced = r.final;
+
+    if (v.purpose === 'ACCIDENT') {
+      const rep = num(i.repair), sal = num(i.salvage);
+      r.preAccidentValue = base; r.repairEstimate = rep; r.salvageValue = sal;
+      r.final = base; r.market = base; r.forced = null; r.net = base - sal;
+    }
+    return r;
+  }
+
+  /* =========================================================================
+     HTML: section + modal (with calculation editor)
+     ========================================================================= */
   const HTML = `
   <div id="onsiteSection" class="section-title">📋 Onsite Valuations <span class="count-pill" id="osCount">0 total</span></div>
   <div class="stats-grid">
@@ -3707,11 +3807,15 @@
   <div class="card" style="margin-bottom:28px;">
     <div class="card-header"><h3>Valuation officers</h3><span class="badge badge-info" id="osBadge">Loading</span></div>
     <div id="osBanner" class="welcome-banner" style="display:none;margin-bottom:14px"></div>
-    <div class="tab-bar" id="osTabs"><button class="tab-btn active" data-act="tab" data-id="all">All</button><button class="tab-btn" data-act="tab" data-id="pending">Pending</button><button class="tab-btn" data-act="tab" data-id="active">Active</button></div>
+    <div class="tab-bar" id="osTabs">
+      <button class="tab-btn active" data-act="tab" data-id="all">All</button>
+      <button class="tab-btn" data-act="tab" data-id="pending">Pending</button>
+      <button class="tab-btn" data-act="tab" data-id="active">Active</button>
+    </div>
     <div class="filter-bar"><input type="text" id="osOfSearch" placeholder="Search officer name, email, licence..."></div>
     <div class="data-table-wrap"><table class="data-table">
       <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Licence</th><th>Role</th><th>Signing</th><th>Valuations</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
-      <tbody id="osOfficerBody"><tr class="row-empty"><td colspan="9">Loading officers...</td></tr></tbody>
+      <tbody id="osOfficerBody"><tr class="row-empty"><td colspan="10">Loading officers...</td></tr></tbody>
     </table></div>
     <div class="action-bar">
       <button class="action-btn success" id="osReload">🔄 Refresh</button>
@@ -3722,23 +3826,34 @@
     <div class="card-header"><h3>Onsite valuation records</h3></div>
     <div class="filter-bar">
       <input type="text" id="osSearch" placeholder="Search ref, plate, chassis, make...">
-      <select id="osPurpose"><option value="">All purposes</option>${Object.entries(PN).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
-      <select id="osStatus"><option value="">All statuses</option><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="correction_required">Correction required</option><option value="rejected">Rejected</option><option value="final">Final</option><option value="withdrawn">Withdrawn</option></select>
+      <select id="osPurpose"><option value="">All purposes</option>${PK.map(k=>`<option value="${k}">${PN[k]}</option>`).join('')}</select>
+      <select id="osStatus">
+        <option value="">All statuses</option>
+        <option value="draft">Draft</option>
+        <option value="submitted">Submitted</option>
+        <option value="correction_required">Correction required</option>
+        <option value="rejected">Rejected</option>
+        <option value="final">Final</option>
+        <option value="withdrawn">Withdrawn</option>
+      </select>
       <select id="osOfficer"><option value="">All officers</option></select>
     </div>
     <div class="data-table-wrap"><table class="data-table">
       <thead><tr><th>Ref</th><th>Vehicle</th><th>Purpose</th><th>Officer</th><th>Recommended</th><th>Approved</th><th>Status</th><th>Updated</th><th></th></tr></thead>
       <tbody id="osValBody"><tr class="row-empty"><td colspan="9">Loading...</td></tr></tbody>
     </table></div>
-    <div class="pager"><span id="osPager">Page 1</span><button data-act="pg" data-id="-1">‹ Prev</button><button data-act="pg" data-id="1">Next ›</button></div>
+    <div class="pager"><span id="osPager">Page 1</span>
+      <button data-act="pg" data-id="-1">‹ Prev</button>
+      <button data-act="pg" data-id="1">Next ›</button>
+    </div>
     <div class="action-bar"><button class="action-btn" id="osCsv">📊 Export CSV</button></div>
   </div>
   <div class="card" style="margin-bottom:28px;">
     <div class="card-header"><h3>Onsite pricing by purpose</h3><span class="badge badge-info" id="osPriceBadge">Loading</span></div>
-    <p class="sub" style="margin-bottom:12px;font-size:12px;color:var(--text-muted);">Fee per onsite valuation. A change applies to new valuations only: each valuation records the fee when it starts. Deactivating a purpose hides it from officers.</p>
+    <p class="sub" style="margin-bottom:12px;font-size:12px;color:var(--text-muted);">Fee per onsite valuation. Changes apply to new valuations only.</p>
     <div class="data-table-wrap"><table class="data-table">
-      <thead><tr><th>Purpose</th><th>Basis of value</th><th>Fee (KES)</th><th>Active</th><th>Updated</th><th></th></tr></thead>
-      <tbody id="osPriceBody"><tr class="row-empty"><td colspan="6">Loading...</td></tr></tbody>
+      <thead><tr><th>Purpose</th><th>Fee (KES)</th><th>Active</th><th>Updated</th><th></th></tr></thead>
+      <tbody id="osPriceBody"><tr class="row-empty"><td colspan="5">Loading...</td></tr></tbody>
     </table></div>
   </div>`;
 
@@ -3747,77 +3862,206 @@
     <button class="close-modal" data-act="close">✕</button>
     <h2 id="osMTitle">Valuation</h2><p class="sub" id="osMSub"></p>
     <div class="kv-list" id="osMKv"></div>
-    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Calculation and valuation reasoning</h4><div class="kv-list" id="osMCalc"></div><div class="kv-list" id="osMWarnings"></div>
-    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Issues found</h4><div class="kv-list" id="osMIssues"></div>
-    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Review history</h4><div class="kv-list" id="osMRev"></div>
-    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Photos</h4><div id="osMPhotos" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
-    <div id="osReviewPanel" style="display:none;border-top:1px solid var(--border);margin-top:18px;padding-top:16px;"><h3 style="margin:0 0 8px">Independent review decision</h3><p class="sub">Check the vehicle details, evidence, calculation, adjustments and warnings before deciding. Your decision is recorded in the valuation review audit trail.</p><div class="form-group" id="osApprovedValueWrap" style="display:none"><label>Revised approved value (KES)</label><input type="number" id="osApprovedValue" min="1" step="1"><small class="sub">This records the reviewer-approved amount. It does not overwrite the officer's original calculation or evidence.</small></div><div class="form-group"><label>Review notes (required)</label><textarea id="osReviewNotes" rows="4" placeholder="Explain your review, findings, requested corrections or rejection reason. If changing the recommended value, explain why in at least 20 characters."></textarea></div><div class="modal-actions"><button class="btn btn-secondary" data-act="editvalue">✎ Edit approved value</button><button class="btn btn-success" data-act="review" data-id="approve">✓ Approve and issue certificate</button><button class="btn btn-primary" data-act="review" data-id="correction">↩ Return for editing</button><button class="btn btn-danger" data-act="review" data-id="reject">✕ Decline report</button></div></div>
+
+    <!-- Calculation editor -->
+    <div id="osCalcEditor" class="calc-editor">
+      <h4 style="font-size:13px;color:var(--text-muted);margin:0 0 8px;">✎ Edit calculation (admin override)</h4>
+      <div class="grid">
+        <label>Comparables (one per line)
+          <textarea id="osEdComps" rows="3"></textarea>
+        </label>
+        <label>Manual base (KES)<input id="osEdManual" type="number" step="1"></label>
+        <label>CRSP base (KES)<input id="osEdCrsp" type="number" step="1"></label>
+        <label>Depreciation %<input id="osEdDep" type="number" step="0.1"></label>
+        <label>Condition
+          <select id="osEdCond"><option value=""></option><option>Excellent</option><option>Good</option><option>Fair</option><option>Poor</option></select>
+        </label>
+        <label>Market demand
+          <select id="osEdDem"><option value=""></option><option>High</option><option>Normal</option><option>Low</option></select>
+        </label>
+        <label>Accessories (KES)<input id="osEdAcc" type="number" step="1"></label>
+        <label>Accident/repair %<input id="osEdAcd" type="number" step="0.1"></label>
+        <label>Forced-sale haircut %<input id="osEdHc" type="number" step="0.1"></label>
+        <label>Haircut basis<input id="osEdHcBasis" type="text"></label>
+      </div>
+      <p class="sub" style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">
+        Preview: <b id="osEdPreview">—</b>
+      </p>
+      <div class="modal-actions" style="margin-top:12px;">
+        <button class="btn btn-primary" data-act="savecalc">💾 Save calculation</button>
+        <button class="btn btn-secondary" data-act="closecalc">Cancel</button>
+      </div>
+    </div>
+
+    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Calculation and valuation reasoning</h4>
+    <div class="kv-list" id="osMCalc"></div>
+    <div class="kv-list" id="osMWarnings"></div>
+
+    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Issues found</h4>
+    <div class="kv-list" id="osMIssues"></div>
+
+    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Review history</h4>
+    <div class="kv-list" id="osMRev"></div>
+
+    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Photos</h4>
+    <div id="osMPhotos" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+
+    <!-- Review panel -->
+    <div id="osReviewPanel" style="display:none;border-top:1px solid var(--border);margin-top:18px;padding-top:16px;">
+      <h3 style="margin:0 0 8px">Independent review decision</h3>
+      <p class="sub">Your decision is recorded in the valuation review audit trail.</p>
+      <div class="form-group" id="osApprovedValueWrap" style="display:none">
+        <label>Approved value (KES)</label>
+        <input type="number" id="osApprovedValue" min="1" step="1">
+        <small class="sub">Reviewer-approved amount. Does not overwrite the officer's original calculation unless you saved an edited calculation above.</small>
+      </div>
+      <div class="form-group">
+        <label>Review notes (required)</label>
+        <textarea id="osReviewNotes" rows="4" placeholder="Explain your review, findings, requested corrections or rejection reason."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" data-act="editcalc">✎ Edit calculation</button>
+        <button class="btn btn-secondary" data-act="editvalue">✎ Edit approved value</button>
+        <button class="btn btn-success" data-act="review" data-id="approve">✓ Approve and issue certificate</button>
+        <button class="btn btn-primary" data-act="review" data-id="correction">↩ Return for editing</button>
+        <button class="btn btn-danger" data-act="review" data-id="reject">✕ Decline report</button>
+      </div>
+    </div>
+
     <div class="modal-actions">
       <button class="btn btn-danger" id="osReopen" data-act="withdraw">🚫 Withdraw report</button>
       <button class="btn btn-secondary" data-act="close">Close</button>
     </div>
   </div></div>`;
 
+  /* =========================================================================
+     IDENTITY
+     ========================================================================= */
+  async function resolveIdentity(c) {
+    const { data: { session } } = await c.auth.getSession();
+    meId = session?.user?.id || null;
+    if (!meId) return;
+
+    // Officer row (if the admin also happens to be a valuation officer)
+    const { data: off } = await c.from('valuation_officers').select('*').eq('id', meId).maybeSingle();
+    myOfficer = off || null;
+
+    // Dashboard profile / role
+    const { data: prof } = await c.from('user_profiles').select('role, role_id').eq('user_id', meId).maybeSingle();
+    myProfile = prof || null;
+
+    let roleCode = (myProfile?.role || '').toLowerCase();
+    if (!roleCode && myProfile?.role_id) {
+      const { data: roleRow } = await c.from('roles').select('code').eq('id', myProfile.role_id).maybeSingle();
+      roleCode = (roleRow?.code || '').toLowerCase();
+    }
+    const isDashboardAdmin = ['admin','administrator','super admin','super_admin'].includes(roleCode);
+
+    window.__osCanReview = async (v) => {
+      if (!v || v.status !== 'submitted' || v.officer_id === meId) return false;
+      if (isDashboardAdmin) return true;
+      if (!myOfficer || !myOfficer.active || !myOfficer.can_sign) return false;
+      if (!['admin','senior_valuer'].includes(myOfficer.role)) return false;
+      if (myOfficer.authorisation_expires && myOfficer.authorisation_expires < new Date().toISOString().slice(0,10)) return false;
+      return true;
+    };
+    window.__osCanEditCalc = async (v) => {
+      if (isDashboardAdmin) return true;
+      return !!(myOfficer && myOfficer.active && myOfficer.can_sign && ['admin','senior_valuer'].includes(myOfficer.role));
+    };
+  }
+
+  /* =========================================================================
+     INJECT & WIRE
+     ========================================================================= */
   function inject() {
     const anchor = $('auditSection'); if (!anchor) return false;
     anchor.insertAdjacentHTML('beforebegin', HTML);
     document.body.insertAdjacentHTML('beforeend', MODAL);
     const nav = document.querySelector('.section-nav');
     if (nav) nav.insertAdjacentHTML('beforeend', '<a href="#onsiteSection">📋 Onsite Valuations</a>');
-    ['osSearch', 'osPurpose', 'osStatus', 'osOfficer'].forEach(id => $(id).addEventListener('input', () => { page = 1; renderVals(); }));
+    ['osSearch','osPurpose','osStatus','osOfficer'].forEach(id => $(id).addEventListener('input', () => { page = 1; renderVals(); }));
     $('osOfSearch').addEventListener('input', renderOfficers);
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-    db().channel('os_officers').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'valuation_officers' },
-      p => { toast('New officer awaiting approval: ' + ((p.new && p.new.full_name) || ''), 'warning'); load(); }).subscribe();
-    $('osReload').onclick = load; $('osCsv').onclick = exportCsv;
+    db().channel('os_officers')
+        .on('postgres_changes', { event:'INSERT', schema:'public', table:'valuation_officers' },
+            p => { toast('New officer awaiting approval: ' + ((p.new && p.new.full_name) || ''), 'warning'); load(); })
+        .subscribe();
+    $('osReload').onclick = load;
+    $('osCsv').onclick = exportCsv;
     $('onsiteSection').parentElement.addEventListener('click', onClick);
-    $('osModal').addEventListener('click', e => { if (e.target === $('osModal') || e.target.dataset.act === 'close') closeModal(); else onClick(e); });
+    $('osModal').addEventListener('click', e => {
+      if (e.target === $('osModal') || e.target.dataset.act === 'close') closeModal(); else onClick(e);
+    });
+    // live preview of edited calculation
+    ['osEdComps','osEdManual','osEdCrsp','osEdDep','osEdCond','osEdDem','osEdAcc','osEdAcd','osEdHc']
+      .forEach(id => $(id).addEventListener('input', previewCalc));
     return true;
   }
 
+  /* =========================================================================
+     LOAD
+     ========================================================================= */
   async function load() {
     const c = db(); if (!c) return;
-    const { data: { session } } = await c.auth.getSession(); meId = session?.user?.id;
+    await resolveIdentity(c);
     const [o, v, pr] = await Promise.all([
       c.from('valuation_officers').select('*').order('created_at', { ascending: false }),
       c.from('onsite_valuations').select('*').order('updated_at', { ascending: false }).limit(500),
       c.from('onsite_pricing').select('*')
     ]);
     const err = o.error || v.error;
-    officers = o.data || []; vals = v.data || []; prices = pr.data || []; myOfficer = officers.find(x => x.id === meId) || null; renderPrices(pr.error);
+    officers = o.data || []; vals = v.data || []; prices = pr.data || [];
+    renderPrices(pr.error);
     const b = $('osBadge');
     b.textContent = err ? 'Setup needed: ' + err.message : '● Connected';
     b.className = 'badge ' + (err ? 'badge-danger' : 'badge-success');
-    $('osOfficer').innerHTML = '<option value="">All officers</option>' + officers.map(x => `<option value="${x.id}">${esc(x.full_name)}</option>`).join('');
+    $('osOfficer').innerHTML = '<option value="">All officers</option>' +
+      officers.map(x => `<option value="${x.id}">${esc(x.full_name)}</option>`).join('');
     renderOfficers(); renderVals();
   }
 
-  const BS = { DUTY: 'KRA CRSP reference (not market value)', INS: 'Insurable / agreed value', CLAIM: 'Pre-accident market value', BANK: 'Market and forced-sale value', SALE: 'Market value', LEGAL: 'As specified in the instruction', FLEET: 'Market or depreciated value', AUCT: 'Forced-sale / reserve price' };
-  let prices = [];
+  /* =========================================================================
+     PRICES
+     ========================================================================= */
   function renderPrices(err) {
     const b = $('osPriceBadge');
     b.textContent = err ? 'Setup needed: run 04_pricing.sql' : '● Connected';
     b.className = 'badge ' + (err ? 'badge-danger' : 'badge-success');
-    $('osPriceBody').innerHTML = Object.keys(PN).map(k => {
+    $('osPriceBody').innerHTML = PK.map(k => {
       const p = prices.find(x => x.purpose === k) || {};
-      return `<tr><td>${PN[k]}</td><td>${BS[k]}</td><td><input class="mini-input os-price" type="number" min="0" step="50" value="${p.price ?? ''}"></td><td><input class="os-active" type="checkbox" ${p.active === false ? '' : 'checked'}></td><td>${when(p.updated_at)}</td><td><button class="mini-btn approve" data-act="saveprice" data-id="${k}">Save</button></td></tr>`;
+      return `<tr><td>${PN[k]}</td>
+        <td><input class="mini-input os-price" type="number" min="0" step="50" value="${p.price ?? ''}"></td>
+        <td><input class="os-active" type="checkbox" ${p.active === false ? '' : 'checked'}></td>
+        <td>${when(p.updated_at)}</td>
+        <td><button class="mini-btn approve" data-act="saveprice" data-id="${k}">Save</button></td></tr>`;
     }).join('');
   }
 
+  /* =========================================================================
+     OFFICERS
+     ========================================================================= */
   function renderOfficers() {
     const pend = officers.filter(o => !o.active);
     $('osOfficers').textContent = officers.length - pend.length;
     $('osPending').textContent = pend.length;
     const bn = $('osBanner');
     bn.style.display = pend.length ? '' : 'none';
-    bn.innerHTML = `<div><h2 style="font-size:16px">⏳ ${pend.length} officer${pend.length > 1 ? 's' : ''} awaiting approval</h2><p>Check licence details before approving.</p></div><button class="mini-btn" data-act="tab" data-id="pending">Show pending</button>`;
+    bn.innerHTML = `<div><h2 style="font-size:16px">⏳ ${pend.length} officer${pend.length>1?'s':''} awaiting approval</h2>
+      <p>Check licence details before approving.</p></div>
+      <button class="mini-btn" data-act="tab" data-id="pending">Show pending</button>`;
     document.querySelectorAll('#osTabs .tab-btn').forEach(t => t.classList.toggle('active', t.dataset.id === ofFilter));
     const q = ($('osOfSearch').value || '').toLowerCase().trim();
     const cnt = id => vals.filter(v => v.officer_id === id).length;
-    const list = officers.filter(o => (ofFilter === 'all' || (ofFilter === 'pending' ? !o.active : o.active)) && (!q || [o.full_name, o.email, o.licence_no, o.phone].join(' ').toLowerCase().includes(q)));
+    const list = officers.filter(o =>
+      (ofFilter === 'all' || (ofFilter === 'pending' ? !o.active : o.active)) &&
+      (!q || [o.full_name, o.email, o.licence_no, o.phone].join(' ').toLowerCase().includes(q)));
     $('osOfficerBody').innerHTML = list.length ? list.map(o => `
-      <tr><td>${esc(o.full_name)}</td><td>${esc(o.email || '-')}</td><td>${esc(o.phone || '-')}</td><td>${esc(o.licence_no || '-')}</td>
-      <td>${esc(o.role)}</td><td>${o.can_sign ? '✔ ' + (o.authorisation_expires ? 'until ' + esc(o.authorisation_expires) : 'no expiry') : '-'}</td><td>${cnt(o.id)}</td><td><span class="status-pill ${o.active ? 'active' : 'pending'}">${o.active ? 'active' : 'pending'}</span></td>
+      <tr><td>${esc(o.full_name)}</td><td>${esc(o.email || '-')}</td><td>${esc(o.phone || '-')}</td>
+      <td>${esc(o.licence_no || '-')}</td><td>${esc(o.role)}</td>
+      <td>${o.can_sign ? '✔ ' + (o.authorisation_expires ? 'until ' + esc(o.authorisation_expires) : 'no expiry') : '-'}</td>
+      <td>${cnt(o.id)}</td>
+      <td><span class="status-pill ${o.active ? 'active' : 'pending'}">${o.active ? 'active' : 'pending'}</span></td>
       <td>${when(o.created_at)}</td>
       <td>${o.id === meId ? '<span class="sub">you</span>' : `
         <button class="mini-btn ${o.active ? 'reject' : 'approve'}" data-act="toggle" data-id="${o.id}">${o.active ? 'Deactivate' : 'Approve'}</button>
@@ -3825,15 +4069,20 @@
         <button class="mini-btn" data-act="role" data-id="${o.id}">Role</button>
         <button class="mini-btn" data-act="sign" data-id="${o.id}">${o.can_sign ? 'Revoke signing' : 'Allow signing'}</button>
         <button class="mini-btn" data-act="expiry" data-id="${o.id}">Expiry</button>`}</td></tr>`).join('')
-      : '<tr class="row-empty"><td colspan="9">No officers match. New officers appear after signing up on the onsite page.</td></tr>';
+      : '<tr class="row-empty"><td colspan="10">No officers match.</td></tr>';
   }
 
+  /* =========================================================================
+     VALUATIONS LIST
+     ========================================================================= */
   function renderVals() {
     $('osDrafts').textContent = vals.filter(v => v.status === 'draft' || v.status === 'correction_required').length;
     $('osReview').textContent = vals.filter(v => v.status === 'submitted').length;
     $('osFinal').textContent = vals.filter(v => v.status === 'final').length;
-    $('osCount').textContent = vals.length + ' total · ' + kes(vals.filter(v => v.status === 'final').reduce((a, v) => a + (Number(v.approved_value || v.final_value) || 0), 0)) + ' finalised';
-    const q = $('osSearch').value.toLowerCase().trim(), p = $('osPurpose').value, s = $('osStatus').value, of = $('osOfficer').value;
+    $('osCount').textContent = vals.length + ' total · ' +
+      kes(vals.filter(v => v.status === 'final').reduce((a, v) => a + (Number(v.approved_value || v.final_value) || 0), 0)) + ' finalised';
+    const q = $('osSearch').value.toLowerCase().trim(),
+          p = $('osPurpose').value, s = $('osStatus').value, of = $('osOfficer').value;
     const name = id => (officers.find(o => o.id === id) || {}).full_name || '-';
     const rows = vals.filter(v => {
       const ve = v.vehicle || {};
@@ -3842,16 +4091,24 @@
     });
     const pages = Math.max(1, Math.ceil(rows.length / 15)); page = Math.min(page, pages);
     $('osPager').textContent = `Page ${page} of ${pages} · ${rows.length} records`;
-    $('osValBody').innerHTML = rows.length ? rows.slice((page - 1) * 15, page * 15).map(v => {
+    $('osValBody').innerHTML = rows.length ? rows.slice((page-1)*15, page*15).map(v => {
       const ve = v.vehicle || {};
-      return `<tr><td>${esc(v.ref)}</td><td>${esc([ve.make, ve.model, ve.plate].filter(Boolean).join(' ') || '-')}</td><td>${PN[v.purpose] || v.purpose}</td>
-      <td>${esc(name(v.officer_id))}</td><td>${v.final_value ? kes(v.final_value) : '-'}</td><td>${v.approved_value ? kes(v.approved_value) : '-'}</td>
-      <td><span class="status-pill ${({ final: 'completed', rejected: 'rejected', withdrawn: 'failed', correction_required: 'failed' })[v.status] || 'pending'}">${String(v.status).replace('_', ' ')}</span>${v.certificate_number ? '<br><span class="sub">' + esc(v.certificate_number) + '</span>' : ''}</td><td>${when(v.updated_at)}</td>
-      <td><button class="mini-btn" data-act="view" data-id="${v.id}">🔍 View</button></td></tr>`;
+      return `<tr><td>${esc(v.ref)}</td>
+        <td>${esc([ve.make, ve.model, ve.plate].filter(Boolean).join(' ') || '-')}</td>
+        <td>${PN[v.purpose] || v.purpose}</td>
+        <td>${esc(name(v.officer_id))}</td>
+        <td>${v.final_value ? kes(v.final_value) : '-'}</td>
+        <td>${v.approved_value ? kes(v.approved_value) : '-'}</td>
+        <td><span class="status-pill ${({final:'completed',rejected:'rejected',withdrawn:'failed',correction_required:'failed'})[v.status] || 'pending'}">${String(v.status).replace('_',' ')}</span>
+          ${v.certificate_number ? '<br><span class="sub">' + esc(v.certificate_number) + '</span>' : ''}</td>
+        <td>${when(v.updated_at)}</td>
+        <td><button class="mini-btn" data-act="view" data-id="${v.id}">🔍 View</button></td></tr>`;
     }).join('') : '<tr class="row-empty"><td colspan="9">No onsite valuations match.</td></tr>';
   }
 
-  let curId = null;
+  /* =========================================================================
+     MODAL
+     ========================================================================= */
   async function openModal(id) {
     const v = vals.find(x => x.id === id); if (!v) return;
     curId = id;
@@ -3860,123 +4117,294 @@
     const off = (officers.find(o => o.id === v.officer_id) || {}).full_name || '-';
     $('osMTitle').textContent = [ve.make, ve.model, ve.plate].filter(Boolean).join(' ') || v.ref;
     $('osMSub').textContent = `${v.ref} · ${PN[v.purpose] || v.purpose} · ${v.status} · officer ${off}`;
-    $('osMKv').innerHTML = kv('Chassis', ve.chassis) + kv('Engine no.', ve.engine_no) + kv('Year', ve.yom) + kv('Odometer', ve.mileage ? ve.mileage + ' km' : '-') +
-      kv('Origin', ve.origin) + kv('Owner / requester', ve.owner) + kv('Valuation date', inp.date) + kv('Location', inp.location) +
-      kv('Recommended value', v.final_value ? kes(v.final_value) : '-') + kv('Approved value', v.approved_value ? kes(v.approved_value) : '-') + kv('Certificate', v.certificate_number) + kv('Reviewer', (officers.find(o => o.id === v.reviewer_id) || {}).full_name) + kv('Approved at', v.approved_at ? when(v.approved_at) : '-') + kv('Reviewer note', v.review_note) + kv('Evidence index', (v.confidence ?? '-') + '%');
-    const noval = ['TECHNICAL_BRIEF','FULL_MECHANICAL','COMPONENT','NON_STANDARD'].includes(v.purpose);
-    $('osMCalc').innerHTML = kv('Calculation source', r.src === 'crsp' ? 'KRA CRSP reference (not market value)' : r.src === 'manual' ? 'Manual base value' : (r.n ? 'Comparable evidence (' + r.n + ' comparables)' : 'Recorded calculation')) + kv('Base value', r.base == null ? '-' : kes(r.base)) + (r.lines || []).map(l => kv(l[0], (Number(l[1]) < 0 ? '-' : '+') + kes(Math.abs(Number(l[1]) || 0)))).join('') + kv('Market value before forced-sale adjustment', r.market == null ? '-' : kes(r.market)) + kv('Recommended final value', v.final_value == null ? '-' : kes(v.final_value)) + kv('Approved value', v.approved_value == null ? '-' : kes(v.approved_value)) + kv('Evidence/completeness index', (r.evidenceIndex ?? r.conf ?? v.confidence ?? '-') + (r.evidenceIndex != null || r.conf != null || v.confidence != null ? '%' : '')) + kv('Inspection completeness', r.q?.complete == null ? '-' : r.q.complete + '%') + kv('Evidence quality', r.q?.evidence == null ? '-' : r.q.evidence + '%') + kv('Data quality', r.q?.data == null ? '-' : r.q.data + '%') + (r.forced ? kv('Forced-sale basis', (v.inputs || {}).hc_basis || 'Recorded in report') : '') + (noval ? kv('Service scope','Inspection/findings only; no monetary opinion') : '');
-    const warns = r.warns || r.warnings || []; $('osMWarnings').innerHTML = warns.length ? '<div class="kv-row"><span class="k">Calculation warnings</span><span class="v">' + warns.map(x => esc(x)).join('<br>') + '</span></div>' : kv('Calculation warnings','None recorded');
+
+    $('osMKv').innerHTML =
+      kv('Chassis', ve.chassis) + kv('Engine no.', ve.engine_no) + kv('Year', ve.yom) +
+      kv('Odometer', ve.mileage ? ve.mileage + ' km' : '-') + kv('Origin', ve.origin) +
+      kv('Owner / requester', ve.owner) + kv('Valuation date', inp.date) + kv('Location', inp.location) +
+      kv('Recommended value', v.final_value ? kes(v.final_value) : '-') +
+      kv('Approved value', v.approved_value ? kes(v.approved_value) : '-') +
+      kv('Certificate', v.certificate_number) +
+      kv('Reviewer', (officers.find(o => o.id === v.reviewer_id) || {}).full_name) +
+      kv('Approved at', v.approved_at ? when(v.approved_at) : '-') +
+      kv('Reviewer note', v.review_note) +
+      kv('Evidence index', (v.confidence ?? '-') + '%');
+
+    const noval = NOVAL.includes(v.purpose);
+    $('osMCalc').innerHTML =
+      kv('Calculation source', r.src === 'crsp' ? 'KRA CRSP reference' : r.src === 'manual' ? 'Manual base value'
+        : (r.n ? 'Comparable evidence (' + r.n + ' comparables)' : 'Recorded calculation')) +
+      kv('Base value', r.base == null ? '-' : kes(r.base)) +
+      (r.lines || []).map(l => kv(l[0], (Number(l[1]) < 0 ? '-' : '+') + kes(Math.abs(Number(l[1]) || 0)))).join('') +
+      kv('Market value', r.market == null ? '-' : kes(r.market)) +
+      kv('Recommended final', v.final_value == null ? '-' : kes(v.final_value)) +
+      kv('Approved value', v.approved_value == null ? '-' : kes(v.approved_value)) +
+      kv('Evidence index', (r.evidenceIndex ?? r.conf ?? v.confidence ?? '-') + (r.evidenceIndex != null || r.conf != null || v.confidence != null ? '%' : '')) +
+      (noval ? kv('Service scope', 'Inspection/findings only; no monetary opinion') : '');
+
+    const warns = r.warns || r.warnings || [];
+    $('osMWarnings').innerHTML = warns.length
+      ? '<div class="kv-row"><span class="k">Warnings</span><span class="v">' + warns.map(x => esc(x)).join('<br>') + '</span></div>'
+      : kv('Warnings', 'None recorded');
+
     const issues = Object.entries(v.answers || {}).filter(([, a]) => a === 'issue' || a === 'major');
-    $('osMIssues').innerHTML = issues.length ? issues.map(([k]) => kv(k, (v.notes || {})[k] || 'Issue')).join('') : kv('None recorded', '');
+    $('osMIssues').innerHTML = issues.length
+      ? issues.map(([k]) => kv(k, (v.notes || {})[k] || 'Issue')).join('')
+      : kv('None recorded', '');
+
     $('osReopen').style.display = v.status === 'final' ? '' : 'none';
-    const canReview = !!(myOfficer && myOfficer.active && myOfficer.can_sign && ['admin','senior_valuer'].includes(myOfficer.role) && (!myOfficer.authorisation_expires || myOfficer.authorisation_expires >= new Date().toISOString().slice(0,10)) && v.status === 'submitted' && v.officer_id !== meId);
-    $('osReviewPanel').style.display = canReview ? '' : 'none';
-    const noMonetaryOpinion = ['TECHNICAL_BRIEF','FULL_MECHANICAL','COMPONENT','NON_STANDARD'].includes(v.purpose);
+
+    // Permission gates
+    const canReview = await window.__osCanReview(v);
+    const canEdit   = await window.__osCanEditCalc(v);
+    $('osReviewPanel').style.display = (canReview || canEdit) ? '' : 'none';
     $('osApprovedValueWrap').style.display = 'none';
     $('osApprovedValue').value = Math.round(Number(v.final_value) || 0) || '';
-    $('osReviewPanel').dataset.noMonetaryOpinion = noMonetaryOpinion ? 'true' : 'false';
     $('osReviewNotes').value = '';
-    if (v.status === 'submitted' && !canReview) { $('osMRev').innerHTML = '<div class="kv-row"><span class="k">Review permission</span><span class="v">This account is not an authorised signer, or this is your own report. Admin signing requires active=true, can_sign=true and an unexpired authorisation.</span></div>'; }
-    const ph = $('osMPhotos'); ph.innerHTML = '';
-    $('osModal').classList.add('open');
+    $('osCalcEditor').style.display = 'none';
+    $('osReviewPanel').dataset.noval = noval ? 'true' : 'false';
+
+    $('osReviewPanel').querySelectorAll('[data-act="review"]').forEach(b => b.disabled = !canReview);
+    const editCalcBtn = $('osReviewPanel').querySelector('[data-act="editcalc"]');
+    const editValBtn  = $('osReviewPanel').querySelector('[data-act="editvalue"]');
+    if (editCalcBtn) editCalcBtn.disabled = !canEdit;
+    if (editValBtn)  editValBtn.disabled  = !canReview || noval;
+
+    // History + photos
     $('osMRev').innerHTML = '';
     db().from('valuation_reviews').select('*').eq('valuation_id', id).order('created_at').then(({ data: rv }) => {
-      $('osMRev').innerHTML = (rv || []).length ? rv.map(x => kv(when(x.created_at) + ' · ' + x.decision, ((officers.find(o => o.id === x.reviewer_id) || {}).full_name || '-') + (x.notes ? ': ' + x.notes : ''))).join('') : kv('No reviews yet', '');
+      $('osMRev').innerHTML = (rv || []).length
+        ? rv.map(x => kv(when(x.created_at) + ' · ' + x.decision,
+            ((officers.find(o => o.id === x.reviewer_id) || {}).full_name || '-') + (x.notes ? ': ' + x.notes : ''))).join('')
+        : kv('No reviews yet', '');
     });
+
+    const ph = $('osMPhotos'); ph.innerHTML = '';
     const paths = inp.photos || [];
     if (paths.length) {
       const { data } = await db().storage.from('valuation-photos').createSignedUrls(paths, 3600);
-      (data || []).forEach(x => { if (x.signedUrl) ph.insertAdjacentHTML('beforeend', `<a href="${x.signedUrl}" target="_blank" rel="noopener"><img src="${x.signedUrl}" alt="Inspection photo" style="width:110px;height:84px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"></a>`); });
+      (data || []).forEach(x => { if (x.signedUrl) ph.insertAdjacentHTML('beforeend',
+        `<a href="${x.signedUrl}" target="_blank" rel="noopener"><img src="${x.signedUrl}" alt="Inspection photo" style="width:110px;height:84px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"></a>`); });
     } else ph.innerHTML = '<span class="sub">No photos uploaded.</span>';
+
+    $('osModal').classList.add('open');
   }
   const closeModal = () => { $('osModal').classList.remove('open'); curId = null; };
 
+  /* =========================================================================
+     CALCULATION EDITOR
+     ========================================================================= */
+  function openCalcEditor() {
+    const v = vals.find(x => x.id === curId); if (!v) return;
+    const i = v.inputs || {};
+    $('osEdComps').value   = i.comps || '';
+    $('osEdManual').value  = i.manual || '';
+    $('osEdCrsp').value    = i.crsp || '';
+    $('osEdDep').value     = i.dep ?? '';
+    $('osEdCond').value    = i.cond || '';
+    $('osEdDem').value     = i.dem || '';
+    $('osEdAcc').value     = i.acc || '';
+    $('osEdAcd').value     = i.acd || '';
+    $('osEdHc').value      = i.hc ?? '';
+    $('osEdHcBasis').value = i.hc_basis || '';
+    $('osCalcEditor').style.display = 'block';
+    previewCalc();
+  }
+
+  function readCalcEditor() {
+    const v = vals.find(x => x.id === curId); if (!v) return null;
+    const inputs = Object.assign({}, v.inputs || {}, {
+      comps:  $('osEdComps').value,
+      manual: $('osEdManual').value,
+      crsp:   $('osEdCrsp').value,
+      dep:    $('osEdDep').value,
+      cond:   $('osEdCond').value,
+      dem:    $('osEdDem').value,
+      acc:    $('osEdAcc').value,
+      acd:    $('osEdAcd').value,
+      hc:     $('osEdHc').value,
+      hc_basis: $('osEdHcBasis').value
+    });
+    return { v: Object.assign({}, v, { inputs }), inputs };
+  }
+
+  function previewCalc() {
+    const r = readCalcEditor(); if (!r) return;
+    const res = recalcOnAdmin(r.v);
+    const base = res.base != null ? kes(res.base) : '—';
+    const fin  = res.final != null ? kes(res.final) : '—';
+    $('osEdPreview').textContent = `Base ${base} → Final ${fin}${res.forced ? ' (forced-sale ' + kes(res.forced) + ')' : ''}`;
+  }
+
+  async function saveCalc() {
+    const r = readCalcEditor(); if (!r) return;
+    const v = r.v;
+    const res = recalcOnAdmin(v);
+    if (!res.base) return toast('Base value is required', 'error');
+    if (res.stops && res.stops.length) return toast(res.stops[0], 'error');
+    const c = db();
+    const payload = {
+      inputs: r.inputs,
+      result: res,
+      final_value: Math.round(res.final),
+      range_low: null, range_high: null, confidence: null,
+      updated_at: new Date().toISOString()
+    };
+    const { error } = await c.from('onsite_valuations').update(payload).eq('id', curId);
+    if (error) return toast('Save failed: ' + error.message, 'error');
+    // Record the override in the review trail (best effort)
+    try {
+      await c.from('valuation_reviews').insert({
+        valuation_id: curId,
+        reviewer_id: meId,
+        decision: 'calculation_edited',
+        notes: 'Admin overrode calculation: base ' + kes(res.base) + ' → final ' + kes(res.final),
+        created_at: new Date().toISOString()
+      });
+    } catch (e) { /* non-fatal */ }
+    log('Onsite valuation ' + v.ref + ': calculation edited by admin');
+    toast('Calculation saved');
+    $('osCalcEditor').style.display = 'none';
+    await load();
+    await openModal(curId);
+  }
+
+  /* =========================================================================
+     ACTIONS
+     ========================================================================= */
   async function onClick(e) {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act, id = b.dataset.id, c = db();
     if (act === 'view') return openModal(id);
-    if (act === 'editvalue' && curId) {
-      if ($('osReviewPanel').dataset.noMonetaryOpinion === 'true') return toast('This purpose does not produce a monetary valuation.', 'error');
+
+    if (act === 'editcalc') { return openCalcEditor(); }
+    if (act === 'closecalc') { $('osCalcEditor').style.display = 'none'; return; }
+    if (act === 'savecalc') { return saveCalc(); }
+
+    if (act === 'editvalue') {
+      if ($('osReviewPanel').dataset.noval === 'true') return toast('This purpose does not produce a monetary valuation.', 'error');
       $('osApprovedValueWrap').style.display = '';
       $('osApprovedValue').focus();
       return;
     }
+
     if (act === 'review' && curId) {
       const v = vals.find(x => x.id === curId); if (!v) return;
       const decision = id, notes = ($('osReviewNotes').value || '').trim();
-      if (!myOfficer || !myOfficer.active || !myOfficer.can_sign || !['admin','senior_valuer'].includes(myOfficer.role)) return toast('Your account is not authorised to sign valuations.', 'error');
-      if (v.status !== 'submitted' || v.officer_id === meId) return toast("Only another officer's submitted report can be reviewed.", 'error');
+      if (!(await window.__osCanReview(v))) return toast('Your account is not authorised to review this report.', 'error');
       if (!notes) return toast('Review notes are required.', 'error');
-      const noval = ['TECHNICAL_BRIEF','FULL_MECHANICAL','COMPONENT','NON_STANDARD'].includes(v.purpose);
-      const valueEdited = !noval && $('osApprovedValueWrap').style.display !== 'none';
-      const approved = noval ? null : (valueEdited ? Number($('osApprovedValue').value) : Number(v.final_value));
-      if (decision === 'approve' && !noval && (!Number.isFinite(approved) || approved <= 0)) return toast('Enter a positive approved value.', 'error');
-      if (decision === 'approve' && !noval && approved !== Number(v.final_value) && notes.length < 20) return toast('Explain the change from the recommended value in at least 20 characters.', 'error');
-      const label = decision === 'approve' ? 'approve and issue a certificate for' : decision === 'correction' ? 'return for correction' : 'reject';
+      const noval = NOVAL.includes(v.purpose);
+      const approved = noval ? 0 : Number($('osApprovedValue').value || v.final_value || 0);
+      if (decision === 'approve' && !noval && (!Number.isFinite(approved) || approved <= 0))
+        return toast('Enter a positive approved value.', 'error');
+      if (decision === 'approve' && !noval && approved !== Number(v.final_value) && notes.length < 20)
+        return toast('Explain the change from the recommended value in at least 20 characters.', 'error');
+      const label = decision === 'approve' ? 'approve and issue a certificate for'
+                   : decision === 'correction' ? 'return for correction'
+                   : 'decline';
       if (!confirm(`Are you sure you want to ${label} valuation ${v.ref || v.id}?`)) return;
-      const { error } = await c.rpc('review_valuation', { p_id: curId, p_decision: decision, p_notes: notes, p_approved_value: decision === 'approve' ? approved : null });
-      if (error) return toast(error.message, 'error');
-      log(`Onsite valuation ${v.ref || curId}: ${decision} by ${myOfficer.full_name}`);
-      toast(decision === 'approve' ? 'Valuation approved; certificate issued.' : decision === 'correction' ? 'Valuation returned for correction.' : 'Valuation rejected.');
+
+      // Preferred: RPC
+      const rpc = await c.rpc('review_valuation', {
+        p_id: curId, p_decision: decision, p_notes: notes,
+        p_approved_value: decision === 'approve' ? approved : null
+      });
+      if (rpc.error) {
+        // Fallback if RPC missing: direct update
+        if (/function .* does not exist/i.test(rpc.error.message || '')) {
+          const patch = { status: decision === 'approve' ? 'final' : decision === 'correction' ? 'correction_required' : 'rejected',
+                          review_note: notes, reviewer_id: meId, reviewed_at: new Date().toISOString() };
+          if (decision === 'approve') { patch.approved_value = approved; patch.approved_at = new Date().toISOString(); }
+          const { error: upErr } = await c.from('onsite_valuations').update(patch).eq('id', curId);
+          if (upErr) return toast(upErr.message, 'error');
+          try {
+            await c.from('valuation_reviews').insert({ valuation_id: curId, reviewer_id: meId, decision, notes, created_at: new Date().toISOString() });
+          } catch (e) { /* non-fatal */ }
+        } else {
+          return toast(rpc.error.message, 'error');
+        }
+      }
+      log(`Onsite valuation ${v.ref || curId}: ${decision} by admin`);
+      toast(decision === 'approve' ? 'Valuation approved; certificate issued.'
+           : decision === 'correction' ? 'Valuation returned for correction.'
+           : 'Valuation declined.');
       closeModal(); await load(); return;
     }
+
     if (act === 'saveprice') {
-      const row = b.closest('tr'), price = Number(row.querySelector('.os-price').value), active = row.querySelector('.os-active').checked;
+      const row = b.closest('tr'), price = Number(row.querySelector('.os-price').value),
+            active = row.querySelector('.os-active').checked;
       if (!(price >= 0) || row.querySelector('.os-price').value === '') return toast('Enter a valid fee', 'error');
       const { error } = await c.rpc('admin_set_pricing', { p_purpose: id, p_price: price, p_active: active });
       if (error) return toast(error.message, 'error');
       log(`Onsite pricing ${id}: KES ${price}, ${active ? 'active' : 'inactive'}`);
       toast('Pricing saved'); return load();
     }
+
     if (act === 'tab') { ofFilter = id; return renderOfficers(); }
-    if (act === 'pg') { page = Math.max(1, page + Number(id)); return renderVals(); }
+    if (act === 'pg')  { page = Math.max(1, page + Number(id)); return renderVals(); }
+
     if (act === 'reject') {
       const o = officers.find(x => x.id === id); if (!o) return;
-      if (!confirm(`Reject ${o.full_name}? Their officer registration is deleted and they cannot log in to the onsite app.`)) return;
+      if (!confirm(`Reject ${o.full_name}? Their officer registration is deleted and they cannot log in.`)) return;
       const { error } = await c.rpc('admin_reject_officer', { p_id: id });
       if (error) return toast(error.message, 'error');
       log(`Officer ${o.full_name} (${o.email || id}) rejected`);
       toast('Officer rejected'); return load();
     }
-    if (['toggle', 'role', 'sign', 'expiry'].includes(act)) {
+
+    if (['toggle','role','sign','expiry'].includes(act)) {
       const o = officers.find(x => x.id === id); if (!o) return;
       const patch = { p_id: id };
       if (act === 'toggle') patch.p_active = !o.active;
       else if (act === 'role') { const r = prompt('Role: trainee, inspector, senior_valuer or admin', o.role); if (!r) return; patch.p_role = r.trim(); }
       else if (act === 'sign') patch.p_can_sign = !o.can_sign;
-      else { const d = prompt('Authorisation expiry (YYYY-MM-DD). Leave blank for none.', o.authorisation_expires || ''); if (d === null) return; if (d.trim()) patch.p_expires = d.trim(); else patch.p_clear_expiry = true; }
-      if (patch.p_role === 'admin' && !confirm(`Make ${o.full_name} an admin? Admins can see all valuations and approve officers.`)) return;
+      else {
+        const d = prompt('Authorisation expiry (YYYY-MM-DD). Leave blank for none.', o.authorisation_expires || '');
+        if (d === null) return;
+        if (d.trim()) patch.p_expires = d.trim(); else patch.p_clear_expiry = true;
+      }
+      if (patch.p_role === 'admin' && !confirm(`Make ${o.full_name} an admin?`)) return;
       const { error } = await c.rpc('admin_update_officer', patch);
       if (error) return toast(error.message, 'error');
-      log(`Officer ${o.full_name}: ${act === 'toggle' ? (patch.p_active ? 'approved' : 'deactivated') : act + ' updated' }`);
+      log(`Officer ${o.full_name}: ${act === 'toggle' ? (patch.p_active ? 'approved' : 'deactivated') : act + ' updated'}`);
       toast('Officer updated'); return load();
     }
+
     if (act === 'withdraw' && curId) {
-      const reason = prompt('Reason for withdrawing this final report (recorded in the audit log):'); if (!reason || !reason.trim()) return;
+      const reason = prompt('Reason for withdrawing this final report (recorded in the audit log):');
+      if (!reason || !reason.trim()) return;
       const { error } = await c.rpc('admin_withdraw_valuation', { p_id: curId, p_reason: reason.trim() });
-      const data = [vals.find(x => x.id === curId)];
       if (error) return toast(error.message, 'error');
-      log(`Onsite valuation ${data[0].ref} withdrawn: ${reason.trim()}`);
+      log(`Onsite valuation ${curId} withdrawn: ${reason.trim()}`);
       toast('Report withdrawn'); closeModal(); load();
     }
   }
 
+  /* =========================================================================
+     CSV
+     ========================================================================= */
   function exportCsv() {
-    const rows = [['Ref', 'Purpose', 'Status', 'Make', 'Model', 'Plate', 'Chassis', 'Value', 'Confidence', 'Officer', 'Updated']];
-    vals.forEach(v => { const ve = v.vehicle || {}; rows.push([v.ref, v.purpose, v.status, ve.make, ve.model, ve.plate, ve.chassis, v.final_value, v.confidence, (officers.find(o => o.id === v.officer_id) || {}).full_name, v.updated_at]); });
-    const csv = rows.map(r => r.map(x => `"${String(x ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = 'onsite-valuations-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
+    const rows = [['Ref','Purpose','Status','Make','Model','Plate','Chassis','Value','Confidence','Officer','Updated']];
+    vals.forEach(v => { const ve = v.vehicle || {};
+      rows.push([v.ref, v.purpose, v.status, ve.make, ve.model, ve.plate, ve.chassis,
+        v.final_value, v.confidence, (officers.find(o => o.id === v.officer_id) || {}).full_name, v.updated_at]); });
+    const csv = rows.map(r => r.map(x => `"${String(x ?? '').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'onsite-valuations-' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click();
   }
 
-  // Wait until the admin has logged in and the dashboard is visible
+  /* =========================================================================
+     BOOT
+     ========================================================================= */
   const t = setInterval(() => {
     const dash = $('dashboardScreen');
     if (injected || !dash || dash.classList.contains('hidden') || !db()) return;
     if (inject()) { injected = true; clearInterval(t); load(); }
   }, 600);
 })();
-
 </script>
 </body>
 </html>
