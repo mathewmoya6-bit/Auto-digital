@@ -3700,6 +3700,7 @@
   <div class="stats-grid">
     <div class="stat-card"><div class="stat-value" id="osOfficers">0</div><div class="stat-label">Active officers</div></div>
     <div class="stat-card"><div class="stat-value" id="osPending">0</div><div class="stat-label">Awaiting approval</div></div>
+    <div class="stat-card"><div class="stat-value" id="osReview">0</div><div class="stat-label">Awaiting senior review</div></div>
     <div class="stat-card"><div class="stat-value" id="osDrafts">0</div><div class="stat-label">Drafts in progress</div></div>
     <div class="stat-card"><div class="stat-value" id="osFinal">0</div><div class="stat-label">Final valuations</div></div>
   </div>
@@ -3709,7 +3710,7 @@
     <div class="tab-bar" id="osTabs"><button class="tab-btn active" data-act="tab" data-id="all">All</button><button class="tab-btn" data-act="tab" data-id="pending">Pending</button><button class="tab-btn" data-act="tab" data-id="active">Active</button></div>
     <div class="filter-bar"><input type="text" id="osOfSearch" placeholder="Search officer name, email, licence..."></div>
     <div class="data-table-wrap"><table class="data-table">
-      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Licence</th><th>Role</th><th>Valuations</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Licence</th><th>Role</th><th>Signing</th><th>Valuations</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
       <tbody id="osOfficerBody"><tr class="row-empty"><td colspan="9">Loading officers...</td></tr></tbody>
     </table></div>
     <div class="action-bar">
@@ -3722,11 +3723,11 @@
     <div class="filter-bar">
       <input type="text" id="osSearch" placeholder="Search ref, plate, chassis, make...">
       <select id="osPurpose"><option value="">All purposes</option>${Object.entries(PN).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
-      <select id="osStatus"><option value="">All statuses</option><option value="draft">Draft</option><option value="final">Final</option></select>
+      <select id="osStatus"><option value="">All statuses</option><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="correction_required">Correction required</option><option value="rejected">Rejected</option><option value="final">Final</option><option value="withdrawn">Withdrawn</option></select>
       <select id="osOfficer"><option value="">All officers</option></select>
     </div>
     <div class="data-table-wrap"><table class="data-table">
-      <thead><tr><th>Ref</th><th>Vehicle</th><th>Purpose</th><th>Officer</th><th>Value</th><th>Conf.</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+      <thead><tr><th>Ref</th><th>Vehicle</th><th>Purpose</th><th>Officer</th><th>Recommended</th><th>Approved</th><th>Status</th><th>Updated</th><th></th></tr></thead>
       <tbody id="osValBody"><tr class="row-empty"><td colspan="9">Loading...</td></tr></tbody>
     </table></div>
     <div class="pager"><span id="osPager">Page 1</span><button data-act="pg" data-id="-1">‹ Prev</button><button data-act="pg" data-id="1">Next ›</button></div>
@@ -3740,9 +3741,10 @@
     <div class="kv-list" id="osMKv"></div>
     <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Calculation</h4><div class="kv-list" id="osMCalc"></div>
     <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Issues found</h4><div class="kv-list" id="osMIssues"></div>
+    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Review history</h4><div class="kv-list" id="osMRev"></div>
     <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Photos</h4><div id="osMPhotos" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
     <div class="modal-actions">
-      <button class="btn btn-danger" id="osReopen" data-act="reopen">↩️ Reopen as draft</button>
+      <button class="btn btn-danger" id="osReopen" data-act="withdraw">🚫 Withdraw report</button>
       <button class="btn btn-secondary" data-act="close">Close</button>
     </div>
   </div></div>`;
@@ -3793,19 +3795,22 @@
     const list = officers.filter(o => (ofFilter === 'all' || (ofFilter === 'pending' ? !o.active : o.active)) && (!q || [o.full_name, o.email, o.licence_no, o.phone].join(' ').toLowerCase().includes(q)));
     $('osOfficerBody').innerHTML = list.length ? list.map(o => `
       <tr><td>${esc(o.full_name)}</td><td>${esc(o.email || '-')}</td><td>${esc(o.phone || '-')}</td><td>${esc(o.licence_no || '-')}</td>
-      <td>${esc(o.role)}</td><td>${cnt(o.id)}</td><td><span class="status-pill ${o.active ? 'active' : 'pending'}">${o.active ? 'active' : 'pending'}</span></td>
+      <td>${esc(o.role)}</td><td>${o.can_sign ? '✔ ' + (o.authorisation_expires ? 'until ' + esc(o.authorisation_expires) : 'no expiry') : '-'}</td><td>${cnt(o.id)}</td><td><span class="status-pill ${o.active ? 'active' : 'pending'}">${o.active ? 'active' : 'pending'}</span></td>
       <td>${when(o.created_at)}</td>
       <td>${o.id === meId ? '<span class="sub">you</span>' : `
         <button class="mini-btn ${o.active ? 'reject' : 'approve'}" data-act="toggle" data-id="${o.id}">${o.active ? 'Deactivate' : 'Approve'}</button>
         ${o.active ? '' : `<button class="mini-btn reject" data-act="reject" data-id="${o.id}">Reject</button>`}
-        <button class="mini-btn" data-act="role" data-id="${o.id}">${o.role === 'admin' ? 'Make officer' : 'Make admin'}</button>`}</td></tr>`).join('')
+        <button class="mini-btn" data-act="role" data-id="${o.id}">Role</button>
+        <button class="mini-btn" data-act="sign" data-id="${o.id}">${o.can_sign ? 'Revoke signing' : 'Allow signing'}</button>
+        <button class="mini-btn" data-act="expiry" data-id="${o.id}">Expiry</button>`}</td></tr>`).join('')
       : '<tr class="row-empty"><td colspan="9">No officers match. New officers appear after signing up on the onsite page.</td></tr>';
   }
 
   function renderVals() {
-    $('osDrafts').textContent = vals.filter(v => v.status === 'draft').length;
+    $('osDrafts').textContent = vals.filter(v => v.status === 'draft' || v.status === 'correction_required').length;
+    $('osReview').textContent = vals.filter(v => v.status === 'submitted').length;
     $('osFinal').textContent = vals.filter(v => v.status === 'final').length;
-    $('osCount').textContent = vals.length + ' total · ' + kes(vals.filter(v => v.status === 'final').reduce((a, v) => a + (Number(v.final_value) || 0), 0)) + ' finalised';
+    $('osCount').textContent = vals.length + ' total · ' + kes(vals.filter(v => v.status === 'final').reduce((a, v) => a + (Number(v.approved_value || v.final_value) || 0), 0)) + ' finalised';
     const q = $('osSearch').value.toLowerCase().trim(), p = $('osPurpose').value, s = $('osStatus').value, of = $('osOfficer').value;
     const name = id => (officers.find(o => o.id === id) || {}).full_name || '-';
     const rows = vals.filter(v => {
@@ -3818,8 +3823,8 @@
     $('osValBody').innerHTML = rows.length ? rows.slice((page - 1) * 15, page * 15).map(v => {
       const ve = v.vehicle || {};
       return `<tr><td>${esc(v.ref)}</td><td>${esc([ve.make, ve.model, ve.plate].filter(Boolean).join(' ') || '-')}</td><td>${PN[v.purpose] || v.purpose}</td>
-      <td>${esc(name(v.officer_id))}</td><td>${v.final_value ? kes(v.final_value) : '-'}</td><td>${v.confidence ?? '-'}%</td>
-      <td><span class="status-pill ${v.status === 'final' ? 'completed' : 'pending'}">${v.status}</span></td><td>${when(v.updated_at)}</td>
+      <td>${esc(name(v.officer_id))}</td><td>${v.final_value ? kes(v.final_value) : '-'}</td><td>${v.approved_value ? kes(v.approved_value) : '-'}</td>
+      <td><span class="status-pill ${({ final: 'completed', rejected: 'rejected', withdrawn: 'failed', correction_required: 'failed' })[v.status] || 'pending'}">${String(v.status).replace('_', ' ')}</span>${v.certificate_number ? '<br><span class="sub">' + esc(v.certificate_number) + '</span>' : ''}</td><td>${when(v.updated_at)}</td>
       <td><button class="mini-btn" data-act="view" data-id="${v.id}">🔍 View</button></td></tr>`;
     }).join('') : '<tr class="row-empty"><td colspan="9">No onsite valuations match.</td></tr>';
   }
@@ -3835,13 +3840,17 @@
     $('osMSub').textContent = `${v.ref} · ${PN[v.purpose] || v.purpose} · ${v.status} · officer ${off}`;
     $('osMKv').innerHTML = kv('Chassis', ve.chassis) + kv('Engine no.', ve.engine_no) + kv('Year', ve.yom) + kv('Odometer', ve.mileage ? ve.mileage + ' km' : '-') +
       kv('Origin', ve.origin) + kv('Owner / requester', ve.owner) + kv('Valuation date', inp.date) + kv('Location', inp.location) +
-      kv('Final value', v.final_value ? kes(v.final_value) : '-') + kv('Range', v.range_low ? kes(v.range_low) + ' to ' + kes(v.range_high) : '-') + kv('Confidence', (v.confidence ?? '-') + '%');
+      kv('Recommended value', v.final_value ? kes(v.final_value) : '-') + kv('Approved value', v.approved_value ? kes(v.approved_value) : '-') + kv('Certificate', v.certificate_number) + kv('Reviewer', (officers.find(o => o.id === v.reviewer_id) || {}).full_name) + kv('Approved at', v.approved_at ? when(v.approved_at) : '-') + kv('Reviewer note', v.review_note) + kv('Evidence index', (v.confidence ?? '-') + '%');
     $('osMCalc').innerHTML = kv('Base', kes(r.base)) + (r.lines || []).map(l => kv(l[0], (l[1] < 0 ? '-' : '+') + kes(Math.abs(l[1])))).join('');
     const issues = Object.entries(v.answers || {}).filter(([, a]) => a === 'issue' || a === 'major');
     $('osMIssues').innerHTML = issues.length ? issues.map(([k]) => kv(k, (v.notes || {})[k] || 'Issue')).join('') : kv('None recorded', '');
     $('osReopen').style.display = v.status === 'final' ? '' : 'none';
     const ph = $('osMPhotos'); ph.innerHTML = '';
     $('osModal').classList.add('open');
+    $('osMRev').innerHTML = '';
+    db().from('valuation_reviews').select('*').eq('valuation_id', id).order('created_at').then(({ data: rv }) => {
+      $('osMRev').innerHTML = (rv || []).length ? rv.map(x => kv(when(x.created_at) + ' · ' + x.decision, ((officers.find(o => o.id === x.reviewer_id) || {}).full_name || '-') + (x.notes ? ': ' + x.notes : ''))).join('') : kv('No reviews yet', '');
+    });
     const paths = inp.photos || [];
     if (paths.length) {
       const { data } = await db().storage.from('valuation-photos').createSignedUrls(paths, 3600);
@@ -3859,26 +3868,31 @@
     if (act === 'reject') {
       const o = officers.find(x => x.id === id); if (!o) return;
       if (!confirm(`Reject ${o.full_name}? Their officer registration is deleted and they cannot log in to the onsite app.`)) return;
-      const { error } = await c.from('valuation_officers').delete().eq('id', id);
+      const { error } = await c.rpc('admin_reject_officer', { p_id: id });
       if (error) return toast(error.message, 'error');
       log(`Officer ${o.full_name} (${o.email || id}) rejected`);
       toast('Officer rejected'); return load();
     }
-    if (act === 'toggle' || act === 'role') {
+    if (['toggle', 'role', 'sign', 'expiry'].includes(act)) {
       const o = officers.find(x => x.id === id); if (!o) return;
-      const patch = act === 'toggle' ? { active: !o.active } : { role: o.role === 'admin' ? 'officer' : 'admin' };
-      if (patch.role === 'admin' && !confirm(`Make ${o.full_name} an admin? Admins can see all valuations and approve officers.`)) return;
-      const { error } = await c.from('valuation_officers').update(patch).eq('id', id);
+      const patch = { p_id: id };
+      if (act === 'toggle') patch.p_active = !o.active;
+      else if (act === 'role') { const r = prompt('Role: trainee, inspector, senior_valuer or admin', o.role); if (!r) return; patch.p_role = r.trim(); }
+      else if (act === 'sign') patch.p_can_sign = !o.can_sign;
+      else { const d = prompt('Authorisation expiry (YYYY-MM-DD). Leave blank for none.', o.authorisation_expires || ''); if (d === null) return; if (d.trim()) patch.p_expires = d.trim(); else patch.p_clear_expiry = true; }
+      if (patch.p_role === 'admin' && !confirm(`Make ${o.full_name} an admin? Admins can see all valuations and approve officers.`)) return;
+      const { error } = await c.rpc('admin_update_officer', patch);
       if (error) return toast(error.message, 'error');
-      log(`Officer ${o.full_name}: ${act === 'toggle' ? (patch.active ? 'approved' : 'deactivated') : 'role set to ' + patch.role}`);
+      log(`Officer ${o.full_name}: ${act === 'toggle' ? (patch.p_active ? 'approved' : 'deactivated') : act + ' updated' }`);
       toast('Officer updated'); return load();
     }
-    if (act === 'reopen' && curId) {
-      if (!confirm('Reopen this valuation as a draft? The officer can edit and finalise it again.')) return;
-      const { data, error } = await c.from('onsite_valuations').update({ status: 'draft' }).eq('id', curId).select();
-      if (error || !data || !data.length) return toast(error ? error.message : 'Blocked (run onsite_admin_migration.sql)', 'error');
-      log(`Onsite valuation ${data[0].ref} reopened as draft`);
-      toast('Valuation reopened'); closeModal(); load();
+    if (act === 'withdraw' && curId) {
+      const reason = prompt('Reason for withdrawing this final report (recorded in the audit log):'); if (!reason || !reason.trim()) return;
+      const { error } = await c.rpc('admin_withdraw_valuation', { p_id: curId, p_reason: reason.trim() });
+      const data = [vals.find(x => x.id === curId)];
+      if (error) return toast(error.message, 'error');
+      log(`Onsite valuation ${data[0].ref} withdrawn: ${reason.trim()}`);
+      toast('Report withdrawn'); closeModal(); load();
     }
   }
 
