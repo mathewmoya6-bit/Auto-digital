@@ -28,7 +28,7 @@ button.lnk{border:0;padding:4px;color:var(--amb);text-decoration:underline}
 .it{display:grid;grid-template-columns:1fr 110px;gap:6px 8px;padding:10px 0;border-top:1px solid var(--line)}
 .it input{grid-column:1/3;margin:0}
 .it select{margin:0}
-.st.ok{border-color:var(--ok)}.st.issue{border-color:var(--bad);background:#2a1c1c}
+.st.ok{border-color:var(--ok)}.st.issue,.st.major{border-color:var(--bad);background:#2a1c1c}
 .rq{color:var(--amb);font-size:11px;font-weight:600}
 #bar{position:fixed;left:0;right:0;bottom:0;background:#0f1a30;border-top:2px solid var(--amb);padding:10px 16px;z-index:5}
 #bar .in{max-width:860px;margin:auto;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between}
@@ -129,6 +129,10 @@ const SECS=[
 const INSP=['Mileage','Exterior','Interior and electronics','Engine and mechanical','Structure and accident'];
 const lvl=(row,pu)=>(row.lv||row[2])[PK.indexOf(pu)];
 const ITEMS=SECS.flatMap(s=>s[1].map(r=>({sec:s[0],code:r[0],label:r[1],lv:r[2]})));
+const CATS={struct:'Structure',fire:'Structure',engine:'Engine',leaks:'Engine',batt:'Engine',hybrid:'Engine',gearbox:'Transmission',susp:'Suspension and brakes',brakes:'Suspension and brakes',warn:'Electrical and safety',airbag:'Electrical and safety',elec:'Electrical and safety',lights:'Electrical and safety',paint:'Exterior',dents:'Exterior',rust:'Exterior',gaps:'Exterior',glass:'Exterior',seats:'Interior',dashwear:'Interior',flood:'Interior',tyres:'Tyres'};
+const W={'Structure':20,'Engine':20,'Transmission':15,'Suspension and brakes':15,'Electrical and safety':10,'Exterior':10,'Interior':5,'Tyres':5}; /* proposed internal weights, not published coefficients */
+const CRITICAL=['Structure','Engine','Transmission','Suspension and brakes','Electrical and safety'];
+const BASIS={DUTY:'KRA CRSP reference for customs valuation. Not a market value.',INS:'Insurable value as instructed by the insurer (agreed or market value).',CLAIM:'Pre-accident market value for indemnity, with repair and salvage assessment.',BANK:'Market value and, separately, forced-sale value for collateral.',SALE:'Market value.',LEGAL:'Value on the date and basis specified in the instruction.',FLEET:'Market value or depreciated value as instructed.',AUCT:'Estimated forced-sale proceeds and reserve price recommendation.'};
 const M={v:'vehicle',i:'inputs',a:'answers',n:'notes'};
 const S={user:null,prof:null,val:null,r:null,list:[]};
 const get=k=>{const[a,b]=k.split('.');return S.val[M[a]][b]??''};
@@ -137,6 +141,8 @@ const get=k=>{const[a,b]=k.split('.');return S.val[M[a]][b]??''};
 function calc(v){
  const p=P[v.purpose],i=v.inputs,A=v.answers,r={lines:[],stops:[],warns:[],missing:[]};
  const has=k=>p.adj.split(' ').includes(k);
+ const chk=(l,x,lo,hi)=>{if(x===undefined||x==='')return;const n=num(x);if(n<lo||n>hi)r.stops.push(`${l} must be between ${lo} and ${hi}.`)};
+ chk('Depreciation %',i.dep,0,90);chk('Accident / repair deduction %',i.acd,0,90);chk('Forced-sale haircut %',i.hc,0,60);chk('Accessories value',i.acc,0,1e8);chk('Odometer (km)',v.vehicle.mileage,0,1500000);chk('Year of manufacture',v.vehicle.yom,1950,new Date().getFullYear()+1);
  const comps=(i.comps||'').split(/[\s,;]+/).map(num).filter(x=>x>0).sort((a,b)=>a-b);
  r.n=comps.length;
  let base=0;
@@ -161,7 +167,9 @@ function calc(v){
  if(has('acc'))add('Accessories',num(i.acc));
  if(has('acd'))add(`Accident / repair deduction ${num(i.acd)}%`,-base*num(i.acd)/100);
  const hc=num(i.hc);r.sub=sub;
- r.final=hc?sub*(1-hc/100):sub;if(hc)r.lines.push([`Forced-sale haircut ${hc}%`,r.final-sub]);
+ r.market=Math.max(0,sub);r.final=Math.max(0,hc?sub*(1-hc/100):sub);r.forced=null;
+ if(sub<0)r.stops.push('Adjustments exceed the base value: the result would be negative. Review the inputs.');
+ if(hc){r.forced=r.final;r.lines.push([`Forced-sale haircut ${hc}%`,r.final-r.market]);if(!String(i.hc_basis||'').trim())r.stops.push('State the basis for the forced-sale haircut (marketing period, sale conditions, buyer pool).')}
  if(v.purpose==='CLAIM'){
   const rep=num(i.repair),sal=num(i.salvage);r.ratio=r.final?rep/r.final:0;
   r.net=r.final-sal;
@@ -174,24 +182,31 @@ function calc(v){
  }
  /* hard stops and missing items */
  if(A.chassis!=='ok')r.stops.push('Chassis/VIN is not confirmed against the logbook or export certificate.');
- if(['BANK','SALE','LEGAL','AUCT'].includes(v.purpose)&&A.search==='issue')r.stops.push('Caveat, lien or police stop found on official search.');
- if(A.odo_ok==='issue')r.warns.push('Odometer tampering suspected: valuer sign-off required, confidence lowered.');
+ if(['BANK','SALE','LEGAL','AUCT'].includes(v.purpose)&&['issue','major'].includes(A.search))r.stops.push('Caveat, lien or police stop found on official search.');
+ if(['issue','major'].includes(A.odo_ok))r.warns.push('Odometer tampering suspected: valuer sign-off required, confidence lowered.');
  let req=0;
  ITEMS.forEach(t=>{if(lvl(t,v.purpose)==='R'){req++;if(!A[t.code])r.missing.push(t.label)}});
- r.conf=Math.max(5,Math.round(100-40*r.missing.length/Math.max(req,1)-(p.base!=='CRSP'&&r.n<3?20:0)-(A.odo_ok==='issue'?15:0)-(r.stops.length?30:0)));
+ const comp=Math.round(100*(Math.max(req,1)-r.missing.length)/Math.max(req,1)),ph=(i.photos||[]).length;
+ const evid=Math.min(100,(ph>=4?40:ph*10)+(A.geo==='ok'?20:0)+(A.scans==='ok'?20:0)+(A.odo==='ok'?20:0));
+ const data=p.base==='CRSP'?(i.crsp_id&&num(i.crsp)===num(i.crsp_db)?100:40):(r.n>=5?100:r.n>=3?75:r.n>0?40:20);
+ r.q={complete:comp,evidence:evid,data};
+ r.conf=Math.max(5,Math.round(comp*.4+evid*.3+data*.3-(['issue','major'].includes(A.odo_ok)?15:0)-(r.stops.length?30:0)));
  const sp=(4+(100-r.conf)*0.12)/100;r.lo=r.final*(1-sp);r.hi=r.final*(1+sp);
- const ins=ITEMS.filter(t=>INSP.includes(t.sec)&&A[t.code]&&A[t.code]!=='na'&&!['odo'].includes(t.code));
- const bad=ins.filter(t=>A[t.code]==='issue').length;
- r.hint=ins.length>=6?(bad/ins.length<=.05?'Excellent':bad/ins.length<=.15?'Good':bad/ins.length<=.35?'Fair':'Poor'):'';
+ const cat={},crit=[];
+ Object.keys(CATS).forEach(c=>{const a=A[c];if(!a||a==='na')return;const k=CATS[c];cat[k]=cat[k]||{n:0,d:0};cat[k].n++;cat[k].d+=a==='major'?1:a==='issue'?0.4:0;if(a==='major'&&CRITICAL.includes(k))crit.push(c)});
+ let score=100,cov=0;Object.entries(W).forEach(([k,w])=>{if(cat[k]){cov+=w;score-=w*Math.min(1,cat[k].d/cat[k].n)}});
+ r.score=cov>=40?Math.round(score):null;
+ r.hint=r.score===null?'':(r.score>=92?'Excellent':r.score>=80?'Good':r.score>=60?'Fair':'Poor');
+ if(crit.length){r.warns.push('Critical defect recorded ('+crit.map(c=>ITEMS.find(t=>t.code===c).label).join('; ')+'): independent valuer review required.');if(r.hint==='Excellent'||r.hint==='Good')r.hint='Fair'}
  r.days=p.days;
  return r;
 }
 function recalc(){
  const v=S.val,r=S.r=calc(v);
- $('#bar').innerHTML=`<div class="in"><div><div class="sm">${esc(P[v.purpose].n)}</div><div class="big">${KES(r.final)}</div><div class="sm">Range ${KES(r.lo)} to ${KES(r.hi)} · Confidence ${r.conf}%</div></div>
+ $('#bar').innerHTML=`<div class="in"><div><div class="sm">${esc(P[v.purpose].n)}</div><div class="big">${KES(r.final)}</div>${r.forced?`<div class="sm">Market value ${KES(r.market)}</div>`:''}<div class="sm">Range ${KES(r.lo)} to ${KES(r.hi)} · Confidence ${r.conf}%</div></div>
  <div class="sm" style="max-width:300px">${r.stops.length?`<span class="neg">${r.stops.length} blocking: ${esc(r.stops[0])}</span>`:r.missing.length?`${r.missing.length} required checks unanswered`:'<span class="pos">Ready to finalise</span>'}</div>
  <div><button onclick="save(false)">Save draft</button> <button class="pri" onclick="save(true)">Finalise and report</button></div></div>`;
- const h=$('#hint');if(h)h.textContent=r.hint?`Checklist suggests: ${r.hint}`:'';
+ const h=$('#hint');if(h)h.textContent=r.hint?`Checklist suggests: ${r.hint} (score ${r.score}/100, proposed internal weights)`:'';
 }
 
 /* ---------- Auth ---------- */
@@ -271,10 +286,11 @@ function F(k,l,o){
 function formView(){
  const v=S.val,p=P[v.purpose],has=k=>p.adj.split(' ').includes(k);
  const row=t=>{const a=v.answers[t.code]||'',L=lvl(t,v.purpose);
-  return`<div class="it"><div>${esc(t.label)} ${L==='R'?'<span class="rq">required</span>':''}</div><select class="st ${a}" data-k="a.${t.code}"><option value="">Not checked</option><option value="ok"${a==='ok'?' selected':''}>OK</option><option value="issue"${a==='issue'?' selected':''}>Issue</option><option value="na"${a==='na'?' selected':''}>N/A</option></select><input data-k="n.${t.code}" placeholder="Note" value="${esc(v.notes[t.code]||'')}"></div>`};
+  return`<div class="it"><div>${esc(t.label)} ${L==='R'?'<span class="rq">required</span>':''}</div><select class="st ${a}" data-k="a.${t.code}"><option value="">Not checked</option><option value="ok"${a==='ok'?' selected':''}>OK</option><option value="issue"${a==='issue'?' selected':''}>Minor issue</option><option value="major"${a==='major'?' selected':''}>Major defect</option><option value="na"${a==='na'?' selected':''}>N/A</option></select><input data-k="n.${t.code}" placeholder="Note" value="${esc(v.notes[t.code]||'')}"></div>`};
  $('#app').innerHTML=topbar()+`<div class="wrap">
  <button class="lnk noprint" onclick="home()">Back to list</button>
  <h1>${esc(p.n)}</h1><div class="sm">${v.ref?esc(v.ref):'New valuation'} · ${p.base==='CRSP'?'Reference: KRA CRSP':'Reference: market comparables'}</div>
+ <div class="card"><h2>Assignment</h2><div class="grid">${F('i.client','Client / instructing party')}${F('i.use','Intended use and users')}${F('i.instr_ref','Instruction reference')}${F('i.conflict','Independence declaration',['No conflict of interest','Conflict declared (see notes)'])}</div></div>
  <div class="card"><h2>Vehicle</h2><div class="grid">
  <label>Make<input data-k="v.make" list="dl-make" autocomplete="off" value="${esc(get('v.make'))}"></label><label>Model<input data-k="v.model" list="dl-model" autocomplete="off" value="${esc(get('v.model'))}"></label><datalist id="dl-make"></datalist><datalist id="dl-model"></datalist>${F('v.variant','Variant / trim')}${F('v.chassis','Chassis / VIN')}${F('v.engine_no','Engine number')}${F('v.plate','Plate number')}
  ${F('v.yom','Year of manufacture','number')}${F('v.reg_year','Year of first registration','number')}${F('v.cc','Engine cc','number')}
@@ -291,14 +307,14 @@ function formView(){
  ${has('acc')?F('i.acc','Accessories value (KES)','number'):''}
  ${has('acd')?F('i.acd','Accident / repair deduction %','number'):''}
  ${v.purpose==='CLAIM'?F('i.repair','Repair estimate (KES)','number')+F('i.salvage','Salvage value (KES)','number'):''}
- ${p.hc||v.purpose==='LEGAL'?F('i.hc','Forced-sale haircut %','number'):''}
+ ${p.hc||v.purpose==='LEGAL'?F('i.hc','Forced-sale haircut %','number')+F('i.hc_basis','Basis for haircut (marketing period, conditions)'):''}
  </div>
  ${p.base==='CRSP'?'<p class="sm">Verify the CRSP value and depreciation rate against the current KRA schedule before finalising.</p>':`<label style="margin-top:10px">Market comparables (KES, one per line, same make, model and year range)<textarea data-k="i.comps" rows="4">${esc(v.inputs.comps||'')}</textarea></label><p class="sm">Median is used. With 5 or more, the highest and lowest are dropped.</p>`}
  <p class="sm" id="hint"></p></div>
  ${SECS.map(([s,items])=>{const rows=items.filter(t=>lvl({2:t[2]},v.purpose)!=='-').map(t=>row({code:t[0],label:t[1],lv:t[2]}));return rows.length?`<div class="card"><h2>${s}</h2>${rows.join('')}</div>`:''}).join('')}
  <div class="card"><h2>Photos and notes</h2><input id="ph" type="file" accept="image/*" capture="environment" multiple>
  <p><button onclick="upl()">Upload photos</button> <span class="sm" id="pc">${(v.inputs.photos||[]).length} uploaded</span></p>
- <label>Valuer notes and assumptions<textarea data-k="i.remarks" rows="3">${esc(v.inputs.remarks||'')}</textarea></label></div></div><div id="bar"></div>`;
+ <label>Valuer notes, assumptions and limiting conditions<textarea data-k="i.remarks" rows="3">${esc(v.inputs.remarks||'')}</textarea></label></div></div><div id="bar"></div>`;
  recalc();initCrsp();
 }
 document.addEventListener('input',e=>{
@@ -322,18 +338,19 @@ async function loadModels(){
  if(!S.val||!S.makes)return;
  const name=clean(get('v.make')).toLowerCase(),mk=S.makes.find(m=>String(m.make).toLowerCase()===name);
  if(!mk)return dl('dl-model',[]);
- S.models=S.models||{};
+ S.models=S.models||{};S.mkey=mk.id;
  if(!S.models[mk.id]){const{data}=await sb.from('vehicle_models').select('name').eq('make_id',mk.id).or('active.is.null,active.eq.true').order('name');S.models[mk.id]=(data||[]).map(x=>x.name)}
+ if(S.mkey!==mk.id||!S.val)return;
  dl('dl-model',S.models[mk.id]);
 }
 function loadCrsp(){clearTimeout(crspT);crspT=setTimeout(doCrsp,350)}
 async function doCrsp(){
  const sel=document.getElementById('crspSel'),msg=document.getElementById('crspMsg');if(!sel||!S.val)return;
  const mk=clean(get('v.make')),md=clean(get('v.model'));
- if(!mk||!md){sel.innerHTML='<option value="">Enter make and model first</option>';crspRows=[];msg.textContent='';return}
- msg.textContent='Searching CRSP…';
+ if(!mk||!md){sel.innerHTML='<option value="">Enter make and model first</option>';crspRows=[];msg.textContent='';S.cseq=(S.cseq||0)+1;return}
+ const seq=S.cseq=(S.cseq||0)+1;msg.textContent='Searching CRSP…';
  const{data,error}=await sb.from('vehicle_crsp').select('crsp_id,make,model,trim_level,manufacture_year,engine_capacity_cc,fuel,transmission,drive_config,crsp_kes,crsp_reference_year,crsp_status').ilike('make',mk).ilike('model',md).order('manufacture_year',{ascending:false}).limit(300);
- if(!S.val||!document.getElementById('crspSel'))return;
+ if(seq!==S.cseq||!S.val||!document.getElementById('crspSel'))return;
  if(error){msg.textContent='Could not read CRSP data: '+error.message;return}
  const yom=num(get('v.yom')),rows=data||[],yr=yom?rows.filter(r=>r.manufacture_year===yom):rows;
  crspRows=yr.length?yr:rows;
@@ -349,20 +366,28 @@ function applyCrsp(r){
  i.crsp=String(r.crsp_kes);i.crsp_db=String(r.crsp_kes);i.crsp_id=r.crsp_id;i.crsp_ref=r.crsp_reference_year;
  const y=scrollY;formView();scrollTo(0,y);toast('CRSP value applied');
 }
-function geo(){navigator.geolocation.getCurrentPosition(p=>{const l=`${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)}`;S.val.inputs.location=l;$('#geo').textContent=l;S.val.answers.geo='ok';formView()},()=>toast('Location not available'))}
+function geo(){navigator.geolocation.getCurrentPosition(pos=>{const c=pos.coords,l=`${c.latitude.toFixed(5)}, ${c.longitude.toFixed(5)} (±${Math.round(c.accuracy)} m)`;
+ S.val.inputs.location=l;S.val.inputs.geo={lat:c.latitude,lng:c.longitude,acc:Math.round(c.accuracy),ts:new Date(pos.timestamp).toISOString()};
+ if(c.accuracy>100){toast('GPS accuracy is poor (±'+Math.round(c.accuracy)+' m). Move to open sky and retry.');delete S.val.answers.geo}else S.val.answers.geo='ok';
+ const y=scrollY;formView();scrollTo(0,y)},()=>toast('Location not available'),{enableHighAccuracy:true,timeout:15000})}
 async function ensureSaved(){if(!S.val.id)await save(false,true);return S.val.id}
+function shrink(f){return new Promise(res=>{const im=new Image();im.onload=()=>{const k=Math.min(1,1600/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);c.toBlob(b=>res(b||f),'image/jpeg',.82)};im.onerror=()=>res(f);im.src=URL.createObjectURL(f)})}
 async function upl(){
  const fs=[...$('#ph').files];if(!fs.length)return toast('Choose photos first');
+ if(fs.some(f=>!/^image\//.test(f.type)))return toast('Only image files are allowed');
+ if(fs.some(f=>f.size>15e6))return toast('Each photo must be under 15 MB');
+ if(((S.val.inputs.photos||[]).length)+fs.length>40)return toast('Maximum 40 photos per valuation');
  if(!await ensureSaved())return;
  const v=S.val;v.inputs.photos=v.inputs.photos||[];
- for(const f of fs){const path=`${S.user.id}/${v.id}/${Date.now()}_${f.name.replace(/[^\w.]/g,'_')}`;
-  const{error}=await sb.storage.from('valuation-photos').upload(path,f);
+ for(const f of fs){const path=`${S.user.id}/${v.id}/${Date.now()}_${f.name.replace(/[^\w.]/g,'_').replace(/\.\w+$/,'')}.jpg`;
+  const{error}=await sb.storage.from('valuation-photos').upload(path,await shrink(f),{contentType:'image/jpeg'});
   if(error)return toast(error.message);v.inputs.photos.push(path)}
  $('#pc').textContent=v.inputs.photos.length+' uploaded';await save(false,true);toast('Photos uploaded');
 }
 async function save(fin,quiet){
  const v=S.val,r=S.r=calc(v);
  if(fin&&(r.stops.length||r.missing.length))return alert(r.stops.length?r.stops.join('\n'):`Answer all required checks first (${r.missing.length} left).`);
+ if(fin){const need=[['client','client / instructing party'],['use','intended use'],['conflict','independence declaration']].filter(([k])=>!String(v.inputs[k]||'').trim()).map(x=>x[1]);if(need.length)return alert('Complete before finalising: '+need.join(', ')+'.')}
  if(fin&&!confirm('Finalise? A final valuation is locked and cannot be edited.'))return;
  const row={officer_id:S.user.id,purpose:v.purpose,status:fin?'final':'draft',vehicle:v.vehicle,inputs:v.inputs,answers:v.answers,notes:v.notes,result:r,final_value:Math.round(r.final),range_low:Math.round(r.lo),range_high:Math.round(r.hi),confidence:r.conf};
  if(v.id)row.id=v.id;
@@ -375,21 +400,23 @@ async function save(fin,quiet){
 /* ---------- Report ---------- */
 function reportView(){
  const v=S.val,p=P[v.purpose],r=S.r=calc(v),i=v.inputs,ve=v.vehicle;
- const issues=ITEMS.filter(t=>v.answers[t.code]==='issue');
+ const issues=ITEMS.filter(t=>['issue','major'].includes(v.answers[t.code]));
  const kv=(a,b)=>`<div class="row"><span>${a}</span><b>${esc(b||'-')}</b></div>`;
  const valid=p.days?new Date(new Date(i.date||Date.now()).getTime()+p.days*864e5).toLocaleDateString('en-KE'):'Date-specific';
  $('#app').innerHTML=topbar()+`<div class="wrap"><div class="noprint"><button onclick="home()">Back to list</button> <button class="pri" onclick="print()">Print or save as PDF</button></div>
  <div class="rep card"><div style="display:flex;justify-content:space-between"><div><h2>Vehicle Valuation Report</h2><div class="sm">${esc(p.n)} · Ref ${esc(v.ref||'')}</div></div><div class="brand">Auto-D</div></div>
- <h3 style="margin-top:14px">Result</h3><div class="big">${KES(r.final)}</div>
+ <h3 style="margin-top:14px">Assignment</h3>${kv('Client / instructing party',i.client)}${kv('Intended use and users',i.use)}${kv('Instruction reference',i.instr_ref)}${kv('Basis of value',BASIS[v.purpose])}${kv('Valuation date',i.date)}${kv('Report date',new Date().toISOString().slice(0,10))}${kv('Currency','KES')}
+ <h3 style="margin-top:14px">Result</h3>${r.forced?kv('Market value',KES(r.market)):''}<div class="big">${KES(r.final)}</div>${r.forced?`<div class="sm">${v.purpose==='AUCT'?'Estimated forced-sale proceeds':'Forced-sale value'}. Basis: ${esc(i.hc_basis)}</div>`:''}
  <div class="sm">Range ${KES(r.lo)} to ${KES(r.hi)} · Confidence ${r.conf}% · Valid until ${valid}${v.purpose==='CLAIM'&&i.salvage?` · Net of salvage ${KES(r.net)}`:''}</div>
+ <div class="sm">Inspection completeness ${r.q.complete}% · Evidence quality ${r.q.evidence}% · Data quality ${r.q.data}%${r.score!=null?' · Condition score '+r.score+'/100 (proposed internal weights)':''}</div>
  <h3 style="margin-top:14px">Vehicle</h3>${kv('Make / model / variant',[ve.make,ve.model,ve.variant].filter(Boolean).join(' '))}${kv('Plate',ve.plate)}${kv('Chassis / VIN',ve.chassis)}${kv('Engine no.',ve.engine_no)}${kv('Year / registered',[ve.yom,ve.reg_year].filter(Boolean).join(' / '))}${kv('Engine, fuel, transmission',[ve.cc&&ve.cc+'cc',ve.fuel,ve.trans,ve.drive].filter(Boolean).join(', '))}${kv('Origin',ve.origin)}${kv('Odometer',ve.mileage&&Number(ve.mileage).toLocaleString()+' km')}${kv('Usage',ve.usage)}${kv('Owner / requester',ve.owner)}
  <h3 style="margin-top:14px">Calculation</h3>
  <div class="row"><span>${p.base==='CRSP'?'KRA CRSP base'+(i.crsp_id?` (record ${i.crsp_id}${i.crsp_ref?', ref. year '+i.crsp_ref:''})`:' (manual entry)'):`Market base (${r.n} comparables)`}</span><b>${KES(r.base)}</b></div>
  ${r.lines.map(l=>`<div class="row"><span>${esc(l[0])}</span><b class="${l[1]<0?'neg':'pos'}">${l[1]<0?'-':'+'}${KES(Math.abs(l[1]))}</b></div>`).join('')}
- ${issues.length?`<h3 style="margin-top:14px">Issues found</h3>${issues.map(t=>kv(esc(t.label),v.notes[t.code]||'Issue')).join('')}`:''}
+ ${issues.length?`<h3 style="margin-top:14px">Issues found</h3>${issues.map(t=>kv(esc(t.label)+(v.answers[t.code]==='major'?' [MAJOR]':''),v.notes[t.code]||'Issue')).join('')}`:''}
  ${r.warns.length?`<h3 style="margin-top:14px">Warnings</h3>${r.warns.map(w=>`<div class="row"><span>${esc(w)}</span></div>`).join('')}`:''}
  ${i.remarks?`<h3 style="margin-top:14px">Notes and assumptions</h3><p>${esc(i.remarks)}</p>`:''}
- <p class="sm" style="margin-top:14px">Inspected ${esc(i.date||'')}${i.location?' at '+esc(i.location):''} by ${esc(S.prof.full_name)}${S.prof.licence_no?' (licence '+esc(S.prof.licence_no)+')':''}. ${(i.photos||[]).length} photos on file. This is a professional opinion of value as at the valuation date, based on the inspection and data above. It is not a guarantee of sale price.${v.purpose==='DUTY'?' Duty values are indicative: KRA assessment prevails.':''} Engine onsite-1.0.</p>
+ ${kv('Independence declaration',i.conflict)}<p class="sm" style="margin-top:14px">Inspected ${esc(i.date||'')}${i.location?' at '+esc(i.location):''} by ${esc(S.prof.full_name)}${S.prof.licence_no?' (licence '+esc(S.prof.licence_no)+')':''}. ${(i.photos||[]).length} photos on file. This is a professional opinion of value as at the valuation date, based on the inspection and data above. It is not a guarantee of sale price. Mileage, history and ownership rely on the documents and information supplied unless verified as stated. No dismantling or specialist diagnostics were performed unless stated in the notes.${v.purpose==='DUTY'?' Duty values are indicative: KRA assessment prevails.':''} Engine onsite-1.0.</p>
  <p style="margin-top:30px">Valuer signature: ______________________ Date: ____________</p></div></div>`;
 }
 boot();
