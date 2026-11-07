@@ -127,7 +127,7 @@ const SECS=[
   ['scans','Document scans (logbook, ID, KRA PIN)','RRRRORRR'],
   ['geo','Geo-tagged location captured','-ORR-ROO']]]];
 const INSP=['Mileage','Exterior','Interior and electronics','Engine and mechanical','Structure and accident'];
-const lvl=(row,pu)=>row[2][PK.indexOf(pu)];
+const lvl=(row,pu)=>(row.lv||row[2])[PK.indexOf(pu)];
 const ITEMS=SECS.flatMap(s=>s[1].map(r=>({sec:s[0],code:r[0],label:r[1],lv:r[2]})));
 const M={v:'vehicle',i:'inputs',a:'answers',n:'notes'};
 const S={user:null,prof:null,val:null,r:null,list:[]};
@@ -198,7 +198,7 @@ function authView(mode='login',msg='',good=false){
  <form id="af">${su?`<label>Full name<input name="full_name" required autocomplete="name"></label><br><label>Phone<input name="phone" type="tel" required autocomplete="tel"></label><br><label>Valuer licence number<input name="licence_no" placeholder="Optional for trainees"></label><br>`:''}
  <label>Email<input name="email" type="email" required autocomplete="email"></label><br>
  <label>Password<input name="password" type="password" minlength="8" required autocomplete="${su?'new':'current'}-password"></label><br>
- <button class="pri" style="width:100%">${su?'Create account':'Log in'}</button></form>
+ <button class="pri" style="width:100%">${su?'Create account':'Log in'}</button>${su?'':'<p class="sm"><button type="button" class="lnk" onclick="forgotView()">Forgot password?</button></p>'}</form>
  <p class="sm">${su?'Already registered?':'New officer?'} <button class="lnk" onclick="authView('${su?'login':'signup'}')">${su?'Log in':'Create an account'}</button></p></div></div>`;
  $('#af').onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
   if(su){const{data,error}=await sb.auth.signUp({email:f.email,password:f.password,options:{data:{app:'onsite_officer',full_name:f.full_name,phone:f.phone,licence_no:f.licence_no}}});
@@ -206,7 +206,33 @@ function authView(mode='login',msg='',good=false){
    return authView('login',data.session?'Account created. An admin must approve it before you can log in.':'Account created. Confirm your email, then wait for admin approval.',true)}
   const{error}=await sb.auth.signInWithPassword(f);if(error)return authView('login',error.message);boot()};
 }
+/* Password reset: email link -> this page -> set new password */
+S.recovery=/type=recovery/.test(location.hash);
+sb.auth.onAuthStateChange(ev=>{if(ev==='PASSWORD_RECOVERY'){S.recovery=true;resetView()}});
+function forgotView(msg='',good=false){
+ $('#app').innerHTML=`<div class="auth wrap"><div class="brand">Auto-<span>D</span> Onsite Valuation</div>
+ <div class="card"><h2>Reset password</h2><p class="sm">Enter your officer email and we will send a reset link.</p>${msg?`<div class="msg ${good?'good':''}">${esc(msg)}</div>`:''}
+ <form id="ff"><label>Email<input name="email" type="email" required autocomplete="email"></label><br><button class="pri" style="width:100%">Send reset link</button></form>
+ <p class="sm"><button class="lnk" onclick="authView()">Back to login</button></p></div></div>`;
+ $('#ff').onsubmit=async e=>{e.preventDefault();const email=new FormData(e.target).get('email');
+  const{error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+  forgotView(error?error.message:'If that email is registered, a reset link is on its way. Check spam too.',!error)};
+}
+function resetView(msg=''){
+ $('#app').innerHTML=`<div class="auth wrap"><div class="brand">Auto-<span>D</span> Onsite Valuation</div>
+ <div class="card"><h2>Set a new password</h2>${msg?`<div class="msg">${esc(msg)}</div>`:''}
+ <form id="rf"><label>New password<input name="p1" type="password" minlength="8" required autocomplete="new-password"></label><br>
+ <label>Confirm password<input name="p2" type="password" minlength="8" required autocomplete="new-password"></label><br>
+ <button class="pri" style="width:100%">Update password</button></form></div></div>`;
+ $('#rf').onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
+  if(f.p1!==f.p2)return resetView('Passwords do not match.');
+  const{error}=await sb.auth.updateUser({password:f.p1});
+  if(error)return resetView(error.message);
+  S.recovery=false;await sb.auth.signOut();history.replaceState(null,'',location.pathname);
+  authView('login','Password updated. Log in with your new password.',true)};
+}
 async function boot(){
+ if(S.recovery)return resetView();
  const{data:{session}}=await sb.auth.getSession();
  if(!session)return authView();
  S.user=session.user;
