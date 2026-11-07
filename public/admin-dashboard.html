@@ -3678,12 +3678,11 @@
 
 <script>
 /* Auto-D Admin: Onsite Valuations + Valuation Officer management.
-   Load with <script src="admin-onsite.js"></script> just before </body> in admin.html.
    Uses the dashboard's own Supabase client (window.supabase) and styles. */
 (function () {
   'use strict';
   const PN = { DUTY: 'Import duty', INS: 'Insurance', CLAIM: 'Claim / total loss', BANK: 'Bank collateral', SALE: 'Buy / sell', LEGAL: 'Legal', FLEET: 'Fleet', AUCT: 'Auction' };
-  let officers = [], vals = [], meId = null, injected = false;
+  let officers = [], vals = [], meId = null, injected = false, ofFilter = 'all', page = 1;
   const $ = id => document.getElementById(id);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const kes = n => 'KES ' + Math.round(Number(n) || 0).toLocaleString();
@@ -3706,9 +3705,12 @@
   </div>
   <div class="card" style="margin-bottom:28px;">
     <div class="card-header"><h3>Valuation officers</h3><span class="badge badge-info" id="osBadge">Loading</span></div>
+    <div id="osBanner" class="welcome-banner" style="display:none;margin-bottom:14px"></div>
+    <div class="tab-bar" id="osTabs"><button class="tab-btn active" data-act="tab" data-id="all">All</button><button class="tab-btn" data-act="tab" data-id="pending">Pending</button><button class="tab-btn" data-act="tab" data-id="active">Active</button></div>
+    <div class="filter-bar"><input type="text" id="osOfSearch" placeholder="Search officer name, email, licence..."></div>
     <div class="data-table-wrap"><table class="data-table">
-      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Licence</th><th>Role</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
-      <tbody id="osOfficerBody"><tr class="row-empty"><td colspan="8">Loading officers...</td></tr></tbody>
+      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Licence</th><th>Role</th><th>Valuations</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+      <tbody id="osOfficerBody"><tr class="row-empty"><td colspan="9">Loading officers...</td></tr></tbody>
     </table></div>
     <div class="action-bar">
       <button class="action-btn success" id="osReload">🔄 Refresh</button>
@@ -3727,6 +3729,7 @@
       <thead><tr><th>Ref</th><th>Vehicle</th><th>Purpose</th><th>Officer</th><th>Value</th><th>Conf.</th><th>Status</th><th>Updated</th><th></th></tr></thead>
       <tbody id="osValBody"><tr class="row-empty"><td colspan="9">Loading...</td></tr></tbody>
     </table></div>
+    <div class="pager"><span id="osPager">Page 1</span><button data-act="pg" data-id="-1">‹ Prev</button><button data-act="pg" data-id="1">Next ›</button></div>
     <div class="action-bar"><button class="action-btn" id="osCsv">📊 Export CSV</button></div>
   </div>`;
 
@@ -3750,7 +3753,11 @@
     document.body.insertAdjacentHTML('beforeend', MODAL);
     const nav = document.querySelector('.section-nav');
     if (nav) nav.insertAdjacentHTML('beforeend', '<a href="#onsiteSection">📋 Onsite Valuations</a>');
-    ['osSearch', 'osPurpose', 'osStatus', 'osOfficer'].forEach(id => $(id).addEventListener('input', renderVals));
+    ['osSearch', 'osPurpose', 'osStatus', 'osOfficer'].forEach(id => $(id).addEventListener('input', () => { page = 1; renderVals(); }));
+    $('osOfSearch').addEventListener('input', renderOfficers);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+    db().channel('os_officers').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'valuation_officers' },
+      p => { toast('New officer awaiting approval: ' + ((p.new && p.new.full_name) || ''), 'warning'); load(); }).subscribe();
     $('osReload').onclick = load; $('osCsv').onclick = exportCsv;
     $('onsiteSection').parentElement.addEventListener('click', onClick);
     $('osModal').addEventListener('click', e => { if (e.target === $('osModal') || e.target.dataset.act === 'close') closeModal(); else onClick(e); });
@@ -3774,23 +3781,31 @@
   }
 
   function renderOfficers() {
-    $('osOfficers').textContent = officers.filter(o => o.active).length;
-    $('osPending').textContent = officers.filter(o => !o.active).length;
-    $('osOfficerBody').innerHTML = officers.length ? officers.map(o => `
+    const pend = officers.filter(o => !o.active);
+    $('osOfficers').textContent = officers.length - pend.length;
+    $('osPending').textContent = pend.length;
+    const bn = $('osBanner');
+    bn.style.display = pend.length ? '' : 'none';
+    bn.innerHTML = `<div><h2 style="font-size:16px">⏳ ${pend.length} officer${pend.length > 1 ? 's' : ''} awaiting approval</h2><p>Check licence details before approving.</p></div><button class="mini-btn" data-act="tab" data-id="pending">Show pending</button>`;
+    document.querySelectorAll('#osTabs .tab-btn').forEach(t => t.classList.toggle('active', t.dataset.id === ofFilter));
+    const q = ($('osOfSearch').value || '').toLowerCase().trim();
+    const cnt = id => vals.filter(v => v.officer_id === id).length;
+    const list = officers.filter(o => (ofFilter === 'all' || (ofFilter === 'pending' ? !o.active : o.active)) && (!q || [o.full_name, o.email, o.licence_no, o.phone].join(' ').toLowerCase().includes(q)));
+    $('osOfficerBody').innerHTML = list.length ? list.map(o => `
       <tr><td>${esc(o.full_name)}</td><td>${esc(o.email || '-')}</td><td>${esc(o.phone || '-')}</td><td>${esc(o.licence_no || '-')}</td>
-      <td>${esc(o.role)}</td><td><span class="status-pill ${o.active ? 'active' : 'pending'}">${o.active ? 'active' : 'pending'}</span></td>
+      <td>${esc(o.role)}</td><td>${cnt(o.id)}</td><td><span class="status-pill ${o.active ? 'active' : 'pending'}">${o.active ? 'active' : 'pending'}</span></td>
       <td>${when(o.created_at)}</td>
       <td>${o.id === meId ? '<span class="sub">you</span>' : `
         <button class="mini-btn ${o.active ? 'reject' : 'approve'}" data-act="toggle" data-id="${o.id}">${o.active ? 'Deactivate' : 'Approve'}</button>
         ${o.active ? '' : `<button class="mini-btn reject" data-act="reject" data-id="${o.id}">Reject</button>`}
         <button class="mini-btn" data-act="role" data-id="${o.id}">${o.role === 'admin' ? 'Make officer' : 'Make admin'}</button>`}</td></tr>`).join('')
-      : '<tr class="row-empty"><td colspan="8">No officers yet. They appear after signing up on the onsite page.</td></tr>';
+      : '<tr class="row-empty"><td colspan="9">No officers match. New officers appear after signing up on the onsite page.</td></tr>';
   }
 
   function renderVals() {
     $('osDrafts').textContent = vals.filter(v => v.status === 'draft').length;
     $('osFinal').textContent = vals.filter(v => v.status === 'final').length;
-    $('osCount').textContent = vals.length + ' total';
+    $('osCount').textContent = vals.length + ' total · ' + kes(vals.filter(v => v.status === 'final').reduce((a, v) => a + (Number(v.final_value) || 0), 0)) + ' finalised';
     const q = $('osSearch').value.toLowerCase().trim(), p = $('osPurpose').value, s = $('osStatus').value, of = $('osOfficer').value;
     const name = id => (officers.find(o => o.id === id) || {}).full_name || '-';
     const rows = vals.filter(v => {
@@ -3798,7 +3813,9 @@
       const hay = [v.ref, ve.plate, ve.chassis, ve.make, ve.model].join(' ').toLowerCase();
       return (!q || hay.includes(q)) && (!p || v.purpose === p) && (!s || v.status === s) && (!of || v.officer_id === of);
     });
-    $('osValBody').innerHTML = rows.length ? rows.slice(0, 200).map(v => {
+    const pages = Math.max(1, Math.ceil(rows.length / 15)); page = Math.min(page, pages);
+    $('osPager').textContent = `Page ${page} of ${pages} · ${rows.length} records`;
+    $('osValBody').innerHTML = rows.length ? rows.slice((page - 1) * 15, page * 15).map(v => {
       const ve = v.vehicle || {};
       return `<tr><td>${esc(v.ref)}</td><td>${esc([ve.make, ve.model, ve.plate].filter(Boolean).join(' ') || '-')}</td><td>${PN[v.purpose] || v.purpose}</td>
       <td>${esc(name(v.officer_id))}</td><td>${v.final_value ? kes(v.final_value) : '-'}</td><td>${v.confidence ?? '-'}%</td>
@@ -3837,6 +3854,8 @@
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act, id = b.dataset.id, c = db();
     if (act === 'view') return openModal(id);
+    if (act === 'tab') { ofFilter = id; return renderOfficers(); }
+    if (act === 'pg') { page = Math.max(1, page + Number(id)); return renderVals(); }
     if (act === 'reject') {
       const o = officers.find(x => x.id === id); if (!o) return;
       if (!confirm(`Reject ${o.full_name}? Their officer registration is deleted and they cannot log in to the onsite app.`)) return;
