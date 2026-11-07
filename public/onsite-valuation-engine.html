@@ -167,6 +167,11 @@ function calc(v){
   r.net=r.final-sal;
   if(rep&&r.ratio>0.7)r.warns.push(`Repair is ${(r.ratio*100).toFixed(0)}% of value: likely total loss.`);
  }
+
+ if(v.purpose==='DUTY'&&base){
+  if(!i.crsp_id)r.warns.push('CRSP value was typed manually, not taken from the CRSP database.');
+  else if(num(i.crsp)!==num(i.crsp_db))r.warns.push(`CRSP value was changed from the database value (KES ${num(i.crsp_db).toLocaleString()}).`);
+ }
  /* hard stops and missing items */
  if(A.chassis!=='ok')r.stops.push('Chassis/VIN is not confirmed against the logbook or export certificate.');
  if(['BANK','SALE','LEGAL','AUCT'].includes(v.purpose)&&A.search==='issue')r.stops.push('Caveat, lien or police stop found on official search.');
@@ -260,7 +265,7 @@ function openRow(n){const d=S.list[n];S.val={id:d.id,ref:d.ref,purpose:d.purpose
 /* ---------- Form ---------- */
 function F(k,l,o){
  const val=get(k);
- if(Array.isArray(o))return`<label>${l}<select data-k="${k}"><option value=""></option>${o.map(x=>`<option${x===val?' selected':''}>${x}</option>`).join('')}</select></label>`;
+ if(Array.isArray(o))return`<label>${l}<select data-k="${k}"><option value=""></option>${(val&&!o.includes(val)?[...o,val]:o).map(x=>`<option${x===val?' selected':''}>${esc(x)}</option>`).join('')}</select></label>`;
  return`<label>${l}<input data-k="${k}" type="${o||'text'}" ${o==='number'?'step="any" inputmode="decimal"':''} value="${esc(val)}"></label>`;
 }
 function formView(){
@@ -271,13 +276,14 @@ function formView(){
  <button class="lnk noprint" onclick="home()">Back to list</button>
  <h1>${esc(p.n)}</h1><div class="sm">${v.ref?esc(v.ref):'New valuation'} · ${p.base==='CRSP'?'Reference: KRA CRSP':'Reference: market comparables'}</div>
  <div class="card"><h2>Vehicle</h2><div class="grid">
- ${F('v.make','Make')}${F('v.model','Model')}${F('v.variant','Variant / trim')}${F('v.chassis','Chassis / VIN')}${F('v.engine_no','Engine number')}${F('v.plate','Plate number')}
+ <label>Make<input data-k="v.make" list="dl-make" autocomplete="off" value="${esc(get('v.make'))}"></label><label>Model<input data-k="v.model" list="dl-model" autocomplete="off" value="${esc(get('v.model'))}"></label><datalist id="dl-make"></datalist><datalist id="dl-model"></datalist>${F('v.variant','Variant / trim')}${F('v.chassis','Chassis / VIN')}${F('v.engine_no','Engine number')}${F('v.plate','Plate number')}
  ${F('v.yom','Year of manufacture','number')}${F('v.reg_year','Year of first registration','number')}${F('v.cc','Engine cc','number')}
  ${F('v.fuel','Fuel',['Petrol','Diesel','Hybrid','Electric'])}${F('v.trans','Transmission',['Manual','Automatic','CVT'])}${F('v.drive','Drivetrain',['2WD','4WD','AWD'])}
  ${F('v.origin','Import status',['Japan import','UK used','Locally assembled','Other'])}${F('v.colour','Colour')}${F('v.owner','Owner / requester')}
  ${F('v.mileage','Odometer (km)','number')}${F('v.usage','Usage type',['Private','Commercial','Taxi','Rental','Fleet'])}${F('i.date','Valuation date','date')}
  </div><p><button class="noprint" onclick="geo()">Capture location</button> <span class="sm" id="geo">${esc(v.inputs.location||'')}</span></p></div>
- <div class="card"><h2>Pricing inputs</h2><div class="grid">
+ <div class="card"><h2>Pricing inputs</h2>
+ <label>KRA CRSP match (from the database)<select id="crspSel"><option value="">Enter make and model first</option></select></label><p class="sm" id="crspMsg"></p><div class="grid">
  ${p.base==='CRSP'?F('i.crsp','CRSP value (KES), from the current KRA list','number'):F('i.manual','Base value if no comparables (KES)','number')}
  ${has('dep')?F('i.dep','Depreciation % (KRA schedule or book)','number'):''}
  ${has('cond')?F('i.cond','Condition grade',['Excellent','Good','Fair','Poor']):''}
@@ -293,14 +299,56 @@ function formView(){
  <div class="card"><h2>Photos and notes</h2><input id="ph" type="file" accept="image/*" capture="environment" multiple>
  <p><button onclick="upl()">Upload photos</button> <span class="sm" id="pc">${(v.inputs.photos||[]).length} uploaded</span></p>
  <label>Valuer notes and assumptions<textarea data-k="i.remarks" rows="3">${esc(v.inputs.remarks||'')}</textarea></label></div></div><div id="bar"></div>`;
- recalc();
+ recalc();initCrsp();
 }
 document.addEventListener('input',e=>{
  const k=e.target.dataset&&e.target.dataset.k;if(!k||!S.val)return;
  const[a,b]=k.split('.');S.val[M[a]][b]=e.target.value;
  if(a==='a')e.target.className='st '+e.target.value;
+ if(k==='v.make')loadModels();
+ if(k==='v.model'||k==='v.make'||k==='v.yom')loadCrsp();
  recalc();
 });
+/* ---------- CRSP lookup: vehicle_makes, vehicle_models, vehicle_crsp ---------- */
+const clean=x=>String(x||'').trim().replace(/[%_,()]/g,'');
+let crspT=null,crspRows=[];
+const dl=(id,arr)=>{const e=document.getElementById(id);if(e)e.innerHTML=arr.map(x=>`<option value="${esc(x)}">`).join('')};
+async function initCrsp(){
+ if(!S.makes){const{data}=await sb.from('vehicle_makes').select('id,make').or('active.is.null,active.eq.true').order('make');S.makes=data||[]}
+ if(!S.val)return;
+ dl('dl-make',S.makes.map(m=>m.make));loadModels();doCrsp();
+}
+async function loadModels(){
+ if(!S.val||!S.makes)return;
+ const name=clean(get('v.make')).toLowerCase(),mk=S.makes.find(m=>String(m.make).toLowerCase()===name);
+ if(!mk)return dl('dl-model',[]);
+ S.models=S.models||{};
+ if(!S.models[mk.id]){const{data}=await sb.from('vehicle_models').select('name').eq('make_id',mk.id).or('active.is.null,active.eq.true').order('name');S.models[mk.id]=(data||[]).map(x=>x.name)}
+ dl('dl-model',S.models[mk.id]);
+}
+function loadCrsp(){clearTimeout(crspT);crspT=setTimeout(doCrsp,350)}
+async function doCrsp(){
+ const sel=document.getElementById('crspSel'),msg=document.getElementById('crspMsg');if(!sel||!S.val)return;
+ const mk=clean(get('v.make')),md=clean(get('v.model'));
+ if(!mk||!md){sel.innerHTML='<option value="">Enter make and model first</option>';crspRows=[];msg.textContent='';return}
+ msg.textContent='Searching CRSP…';
+ const{data,error}=await sb.from('vehicle_crsp').select('crsp_id,make,model,trim_level,manufacture_year,engine_capacity_cc,fuel,transmission,drive_config,crsp_kes,crsp_reference_year,crsp_status').ilike('make',mk).ilike('model',md).order('manufacture_year',{ascending:false}).limit(300);
+ if(!S.val||!document.getElementById('crspSel'))return;
+ if(error){msg.textContent='Could not read CRSP data: '+error.message;return}
+ const yom=num(get('v.yom')),rows=data||[],yr=yom?rows.filter(r=>r.manufacture_year===yom):rows;
+ crspRows=yr.length?yr:rows;
+ msg.textContent=!rows.length?'No CRSP record for this make and model. Check the spelling, or type the value manually below.':(yom&&!yr.length?`No CRSP record for ${yom}; showing all years.`:`${crspRows.length} CRSP record(s) found.`);
+ const cur=String(get('i.crsp_id'));
+ sel.innerHTML='<option value="">Choose the matching variant…</option>'+crspRows.map((r,n)=>`<option value="${n}"${String(r.crsp_id)===cur?' selected':''}>${esc([r.manufacture_year,r.trim_level,r.engine_capacity_cc&&r.engine_capacity_cc+'cc',r.fuel,r.transmission,r.drive_config].filter(Boolean).join(' · '))} — ${KES(r.crsp_kes)}</option>`).join('');
+}
+document.addEventListener('change',e=>{if(e.target.id==='crspSel'&&e.target.value!=='')applyCrsp(crspRows[+e.target.value])});
+function applyCrsp(r){
+ if(!r)return;
+ const v=S.val.vehicle,i=S.val.inputs;
+ v.variant=r.trim_level||v.variant;v.cc=r.engine_capacity_cc||v.cc;v.fuel=r.fuel||v.fuel;v.trans=r.transmission||v.trans;v.drive=r.drive_config||v.drive;v.yom=v.yom||r.manufacture_year;
+ i.crsp=String(r.crsp_kes);i.crsp_db=String(r.crsp_kes);i.crsp_id=r.crsp_id;i.crsp_ref=r.crsp_reference_year;
+ const y=scrollY;formView();scrollTo(0,y);toast('CRSP value applied');
+}
 function geo(){navigator.geolocation.getCurrentPosition(p=>{const l=`${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)}`;S.val.inputs.location=l;$('#geo').textContent=l;S.val.answers.geo='ok';formView()},()=>toast('Location not available'))}
 async function ensureSaved(){if(!S.val.id)await save(false,true);return S.val.id}
 async function upl(){
@@ -336,7 +384,7 @@ function reportView(){
  <div class="sm">Range ${KES(r.lo)} to ${KES(r.hi)} · Confidence ${r.conf}% · Valid until ${valid}${v.purpose==='CLAIM'&&i.salvage?` · Net of salvage ${KES(r.net)}`:''}</div>
  <h3 style="margin-top:14px">Vehicle</h3>${kv('Make / model / variant',[ve.make,ve.model,ve.variant].filter(Boolean).join(' '))}${kv('Plate',ve.plate)}${kv('Chassis / VIN',ve.chassis)}${kv('Engine no.',ve.engine_no)}${kv('Year / registered',[ve.yom,ve.reg_year].filter(Boolean).join(' / '))}${kv('Engine, fuel, transmission',[ve.cc&&ve.cc+'cc',ve.fuel,ve.trans,ve.drive].filter(Boolean).join(', '))}${kv('Origin',ve.origin)}${kv('Odometer',ve.mileage&&Number(ve.mileage).toLocaleString()+' km')}${kv('Usage',ve.usage)}${kv('Owner / requester',ve.owner)}
  <h3 style="margin-top:14px">Calculation</h3>
- <div class="row"><span>${p.base==='CRSP'?'KRA CRSP base':`Market base (${r.n} comparables)`}</span><b>${KES(r.base)}</b></div>
+ <div class="row"><span>${p.base==='CRSP'?'KRA CRSP base'+(i.crsp_id?` (record ${i.crsp_id}${i.crsp_ref?', ref. year '+i.crsp_ref:''})`:' (manual entry)'):`Market base (${r.n} comparables)`}</span><b>${KES(r.base)}</b></div>
  ${r.lines.map(l=>`<div class="row"><span>${esc(l[0])}</span><b class="${l[1]<0?'neg':'pos'}">${l[1]<0?'-':'+'}${KES(Math.abs(l[1]))}</b></div>`).join('')}
  ${issues.length?`<h3 style="margin-top:14px">Issues found</h3>${issues.map(t=>kv(esc(t.label),v.notes[t.code]||'Issue')).join('')}`:''}
  ${r.warns.length?`<h3 style="margin-top:14px">Warnings</h3>${r.warns.map(w=>`<div class="row"><span>${esc(w)}</span></div>`).join('')}`:''}
