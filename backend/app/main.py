@@ -22,6 +22,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.vehicles.router import router as vehicles_router
 from app.modules.valuation.router import router as valuation_router
 from app.modules.mpesa.router import router as mpesa_router
+from app.modules.mpesa.onsite import router as mpesa_onsite_router
 from app.modules.reports.router import router as reports_router
 from app.modules.scraper.router import router as scraper_router
 from app.modules.market.router import router as market_router
@@ -209,6 +210,13 @@ app.include_router(
     mpesa_router,
     prefix=settings.API_V1_PREFIX,
     tags=["M-Pesa"]
+)
+
+# M-Pesa Onsite Valuation Routes (/mpesa/onsite/stkpush, /mpesa/onsite/callback)
+app.include_router(
+    mpesa_onsite_router,
+    prefix=settings.API_V1_PREFIX,
+    tags=["M-Pesa Onsite"]
 )
 
 # Reports Routes
