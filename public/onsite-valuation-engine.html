@@ -672,16 +672,23 @@ const clientOf=v=>(S.clients||[]).find(c=>c.id===v.client_id);
 const cashUnpaid=v=>{const c=clientOf(v);return !!c&&c.client_type==='cash'&&(v.pay||{}).status!=='paid'};
 const releaseLocked=v=>v.status==='final'&&!!v.cert&&cashUnpaid(v);
 const isBilling=()=>!!S.prof&&!!S.prof.can_sign&&S.prof.role==='senior_valuer';
-const clientOpts=()=>'<option value="">Select client…</option>'+(S.clients||[]).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} (${c.client_type==='credit'?'credit':'cash'})</option>`).join('');
+const clientOpts=()=>'<option value="">Select client…</option>'+(S.clients||[]).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} (${c.client_category==='corporate'?'corporate':'individual'}${c.client_type==='credit'?', credit':''})</option>`).join('');
 const payTag=d=>d.client_id?`<br><span class="sm">${esc(PAYL[d.payment_status]||'')}</span>`:'';
 function clientCardHTML(){return`<div class="card"><details class="sgc"><summary>Add a client</summary><div class="grid" style="margin-top:8px">
- <label>Client name<input id="cn_name"></label><label>Phone<input id="cn_phone" type="tel"></label><label>KRA PIN (optional)<input id="cn_pin"></label>
- <label>Type<select id="cn_type" onchange="cnType()"><option value="cash">Cash (pays per valuation)</option>${isBilling()?'<option value="credit">Credit (invoiced at month end)</option>':''}</select></label>
+ <label>Client category<select id="cn_cat" onchange="cnType()"><option value="individual">Individual</option><option value="corporate">Corporate</option></select></label>
+ <label><span id="cn_namel">Full name</span><input id="cn_name"></label><label>Phone<input id="cn_phone" type="tel"></label><label>Email (optional)<input id="cn_email" type="email"></label><label>KRA PIN (optional)<input id="cn_pin"></label>
+ <label class="cnco" style="display:none">Contact person<input id="cn_contact"></label>
+ <label class="cnco" style="display:none">Payment type<select id="cn_type" onchange="cnType()"><option value="cash">Cash (pays per valuation)</option>${isBilling()?'<option value="credit">Credit (invoiced at month end)</option>':''}</select></label>
  <label class="cnc" style="display:none">Credit limit (KES)<input id="cn_lim" type="number"></label><label class="cnc" style="display:none">Payment terms (days)<input id="cn_terms" type="number" value="30"></label></div>
+ <p class="sm">Individuals always pay per valuation. Corporate clients can pay per valuation or be put on credit by a senior valuer.</p>
  <p><button class="pri" onclick="addClient()">Save client</button></p></details></div>`}
-function cnType(){const t=$('#cn_type').value;document.querySelectorAll('.cnc').forEach(e=>e.style.display=t==='credit'?'':'none')}
-async function addClient(){const name=$('#cn_name').value.trim(),type=$('#cn_type').value;if(!name)return alert('Enter the client name.');
- const row={name,client_type:type,phone:$('#cn_phone').value.trim()||null,kra_pin:$('#cn_pin').value.trim()||null};
+function cnType(){const corp=$('#cn_cat').value==='corporate',t=corp?$('#cn_type').value:'cash';
+ document.querySelectorAll('.cnco').forEach(e=>e.style.display=corp?'':'none');
+ document.querySelectorAll('.cnc').forEach(e=>e.style.display=t==='credit'?'':'none');
+ $('#cn_namel').textContent=corp?'Company name':'Full name'}
+async function addClient(){const cat=$('#cn_cat').value,corp=cat==='corporate',name=$('#cn_name').value.trim(),type=corp?$('#cn_type').value:'cash';
+ if(!name)return alert(corp?'Enter the company name.':'Enter the client name.');
+ const row={name,client_category:cat,client_type:type,phone:$('#cn_phone').value.trim()||null,email:$('#cn_email').value.trim()||null,kra_pin:$('#cn_pin').value.trim()||null,contact_person:corp?($('#cn_contact').value.trim()||null):null};
  if(type==='credit'){row.credit_limit=num($('#cn_lim').value);row.terms_days=parseInt($('#cn_terms').value)||30}
  const{error}=await sb.from('onsite_clients').insert(row);if(error)return alert(error.message);toast('Client saved');await loadClients();home()}
 async function newVal(){const pu=$('#np').value,cid=$('#nc').value;if(!cid)return alert('Select the client first, or add one below.');
