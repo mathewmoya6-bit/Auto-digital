@@ -74,8 +74,11 @@ def _get_stk() -> StkPushService:
 
 
 def _one(query) -> Dict[str, Any] | None:
-    res = query.maybe_single().execute()
-    return res.data if res else None
+    """First matching row or None. Uses limit(1) instead of maybe_single(), whose
+    return value varies between supabase-py / postgrest-py versions."""
+    res = query.limit(1).execute()
+    rows = (res.data if res else None) or []
+    return rows[0] if rows else None
 
 
 def _rows(query) -> list:
@@ -131,8 +134,15 @@ async def onsite_stk_push(
         .eq("id", body.valuation_id)
     )
     is_billing = officer.get("role") == "senior_valuer" and bool(officer.get("can_sign"))
-    if not val or (str(val.get("officer_id")) != uid and not is_billing):
+    if not val:
+        logger.warning("Onsite STK: valuation not found | id=%s caller=%s", body.valuation_id, uid)
         raise HTTPException(status_code=404, detail="Valuation not found.")
+    if str(val.get("officer_id")) != uid and not is_billing:
+        logger.warning(
+            "Onsite STK: valuation belongs to another officer | valuation=%s owner=%s caller=%s",
+            val.get("id"), val.get("officer_id"), uid,
+        )
+        raise HTTPException(status_code=403, detail="This valuation belongs to another officer.")
 
     client = _one(sb.table("onsite_clients").select("client_type").eq("id", val.get("client_id"))) if val.get("client_id") else None
     if not client or client.get("client_type") != "cash":
