@@ -3836,7 +3836,7 @@
   const toast = (m, t = 'success') => {
     const c = $('toastContainer'); if (!c) return;
     const d = document.createElement('div'); d.className = 'toast toast-' + t; d.textContent = m;
-    c.appendChild(d); setTimeout(() => d.remove(), 4000);
+    c.appendChild(d); setTimeout(() => d.remove(), t === 'error' ? 10000 : 4000);
   };
   const log = a => db() && db().from('admin_logs').insert({ action: a, username: 'admin', created_at: new Date().toISOString() });
 
@@ -4012,6 +4012,7 @@
     <div id="osReviewPanel" style="display:none;border-top:1px solid var(--border);margin-top:18px;padding-top:16px;">
       <h3 style="margin:0 0 8px">Independent review decision</h3>
       <p class="sub">Your decision is recorded in the valuation review audit trail.</p>
+      <div id="osReviewWhy" class="sub" style="color:var(--warning);margin-bottom:8px"></div>
       <div class="form-group" id="osApprovedValueWrap" style="display:none">
         <label>Approved value (KES)</label>
         <input type="number" id="osApprovedValue" min="1" step="1">
@@ -4061,7 +4062,8 @@
     window.__osIsAdmin = isDashboardAdmin;
 
     window.__osCanReview = async (v) => {
-      if (!v || v.status !== 'submitted' || v.officer_id === meId) return false;
+      if (!v || v.status !== 'submitted') return false;
+      if (v.officer_id === meId && !isDashboardAdmin) return false;
       if (isDashboardAdmin) return true;
       if (!myOfficer || !myOfficer.active || !myOfficer.can_sign) return false;
       if (!['admin','senior_valuer'].includes(myOfficer.role)) return false;
@@ -4263,7 +4265,7 @@
     const canEdit   = await window.__osCanEditCalc(v);
     const EDITABLE = ['submitted','draft','correction_required'];
     $('osReviewPanel').style.display = (canReview || (canEdit && EDITABLE.includes(v.status))) ? '' : 'none';
-    $('osApprovedValueWrap').style.display = 'none';
+    $('osApprovedValueWrap').style.display = noval ? 'none' : '';
     $('osApprovedValue').value = Math.round(Number(v.final_value) || 0) || '';
     $('osReviewNotes').value = '';
     $('osCalcEditor').style.display = 'none';
@@ -4274,6 +4276,10 @@
     const editValBtn  = $('osReviewPanel').querySelector('[data-act="editvalue"]');
     if (editCalcBtn) editCalcBtn.disabled = !canEdit || !EDITABLE.includes(v.status);
     if (editValBtn)  editValBtn.disabled  = !canReview || noval;
+    let why = '';
+    if (v.status !== 'submitted') why = 'Only reports with status "submitted" can be reviewed (this one is "' + v.status + '").';
+    else if (!canReview) why = 'Your account is not authorised to review this report (needs a dashboard admin role, or an active senior valuer/admin officer with signing rights).';
+    $('osReviewWhy').textContent = why;
 
     // History + photos
     $('osMRev').innerHTML = '';
@@ -4403,7 +4409,7 @@
       const approved = noval ? 0 : Number($('osApprovedValue').value || v.final_value || 0);
       if (decision === 'approve' && !noval && (!Number.isFinite(approved) || approved <= 0))
         return toast('Enter a positive approved value.', 'error');
-      if (decision === 'approve' && !noval && approved !== Number(v.final_value) && notes.length < 20)
+      if (decision === 'approve' && !noval && Math.round(approved) !== Math.round(Number(v.final_value) || 0) && notes.length < 20)
         return toast('Explain the change from the recommended value in at least 20 characters.', 'error');
       const label = decision === 'approve' ? 'approve and issue a certificate for'
                    : decision === 'correction' ? 'return for correction'
