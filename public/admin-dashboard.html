@@ -4037,6 +4037,7 @@
     </div>
 
     <div class="modal-actions">
+      <button class="btn btn-primary" id="osReopenBtn" data-act="reopen" style="display:none" title="Unlock this approved report so the officer can correct it">🔓 Reopen for editing</button>
       <button class="btn btn-danger" id="osReopen" data-act="withdraw">🚫 Withdraw report</button>
       <button class="btn btn-danger" id="osDelete" data-act="delete" style="display:none" title="Permanently remove this report (admin only)">🗑 Delete report</button>
       <button class="btn btn-secondary" data-act="close">Close</button>
@@ -4294,6 +4295,7 @@
       : kv('None recorded', '');
 
     $('osReopen').style.display = v.status === 'final' ? '' : 'none';
+    $('osReopenBtn').style.display = (v.status === 'final' && window.__osIsAdmin) ? '' : 'none';
 
     // Permission gates
     const canReview = await window.__osCanReview(v);
@@ -4515,6 +4517,10 @@
   async function submitReport(v) {
     const c = db();
     let { error } = await c.rpc('submit_valuation', { p_id: v.id });
+    if (error && window.__osIsAdmin) {
+      const a = await c.rpc('admin_submit_valuation', { p_id: v.id });
+      if (!a.error) error = null;
+    }
     if (error) {
       const u = await c.from('onsite_valuations').update({ status: 'submitted', updated_at: new Date().toISOString() })
         .eq('id', v.id).in('status', ['draft', 'correction_required']).select('id');
@@ -4625,6 +4631,23 @@
     }
 
     if (act === 'review' && curId) return doReview(id);
+
+    if (act === 'reopen' && curId) {
+      const v = vals.find(x => x.id === curId); if (!v) return;
+      if (!window.__osIsAdmin) return fail('Only an admin can reopen an approved report.');
+      if (v.status !== 'final') return fail('Only approved (final) reports can be reopened. This one is "' + v.status + '".');
+      const reason = prompt(`Reopen ${v.ref || v.id} for editing?\n\nThe certificate stops being valid until the report is corrected, resubmitted and approved again.\n\nReason (recorded in the audit trail):`);
+      if (!reason || !reason.trim()) return;
+      const { error } = await c.rpc('admin_reopen_valuation', { p_id: curId, p_reason: reason.trim() });
+      if (error) {
+        if (/does not exist|could not find the function|schema cache/i.test(error.message || ''))
+          return fail('The reopen function is not installed on the database yet. Run the admin_reopen_valuation SQL, then try again.');
+        return fail('Could not reopen: ' + error.message);
+      }
+      log(`Onsite valuation ${v.ref || curId} reopened by admin: ${reason.trim()}`);
+      toast('Report reopened. The officer can now edit and resubmit it.');
+      await load(); return openModal(curId);
+    }
 
     if (act === 'saveprice') {
       const row = b.closest('tr'), price = Number(row.querySelector('.os-price').value),
