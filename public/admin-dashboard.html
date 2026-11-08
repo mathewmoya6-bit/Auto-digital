@@ -4016,6 +4016,7 @@
       <h3 style="margin:0 0 8px">Independent review decision</h3>
       <p class="sub">Your decision is recorded in the valuation review audit trail.</p>
       <div id="osReviewWhy" class="sub" style="color:var(--warning);margin-bottom:8px"></div>
+      <div id="osReviewMsg" style="display:none;margin:0 0 10px;padding:10px 12px;border-radius:8px;border:1px solid currentColor;font-size:13px;font-weight:600;white-space:pre-wrap"></div>
       <div class="form-group" id="osApprovedValueWrap" style="display:none">
         <label>Approved value (KES)</label>
         <input type="number" id="osApprovedValue" min="1" step="1">
@@ -4318,25 +4319,25 @@
 
     const isDraftLike = ['draft', 'correction_required'].includes(v.status);
     const canSubmit = isDraftLike && (window.__osIsAdmin || canEdit);
+    const canAct = canReview || canSubmit;   // admins / signing seniors can act on a draft: it is submitted first
     const reviewBtns = [...$('osReviewPanel').querySelectorAll('[data-act="review"]')];
-    reviewBtns.forEach(b => {
-      const isApprove = b.dataset.id === 'approve';
-      b.disabled = !canReview || (isApprove && curCashUnpaid);
-      b.title = b.disabled
-        ? (v.status !== 'submitted' ? 'Report must be submitted before it can be reviewed'
-           : !canReview ? 'You are not authorised to review this report'
-           : 'The cash client has not paid yet')
-        : '';
-    });
-    const subBtn = $('osSubmitRev');
-    if (subBtn) subBtn.style.display = canSubmit ? '' : 'none';
     const editCalcBtn = $('osReviewPanel').querySelector('[data-act="editcalc"]');
     const editValBtn  = $('osReviewPanel').querySelector('[data-act="editvalue"]');
-    if (editCalcBtn) { editCalcBtn.disabled = !canEdit || !EDITABLE.includes(v.status); editCalcBtn.title = editCalcBtn.disabled ? 'Not editable in this status' : ''; }
-    if (editValBtn)  { editValBtn.disabled  = !canReview || noval; editValBtn.title = editValBtn.disabled ? 'Available once the report is submitted' : ''; }
+    const setBlock = (btn, reason) => { if (!btn) return; btn.disabled = false; btn.dataset.block = reason || ''; btn.style.opacity = reason ? '.55' : ''; btn.title = reason || ''; };
+    $('osReviewMsg').style.display = 'none';
+    reviewBtns.forEach(b => {
+      let reason = '';
+      if (!canAct) reason = v.status === 'submitted' ? 'You are not authorised to review this report.' : 'This report is "' + v.status + '" and can no longer be reviewed.';
+      else if (b.dataset.id === 'approve' && curCashUnpaid) reason = 'Cannot approve: the cash client has not paid yet.';
+      setBlock(b, reason);
+    });
+    setBlock(editCalcBtn, (!canEdit || !EDITABLE.includes(v.status)) ? 'The calculation can only be edited while the report is draft, submitted or returned, and only by an admin or signing senior valuer.' : '');
+    setBlock(editValBtn, noval ? 'This service does not produce a monetary value.' : (!canAct ? 'You are not authorised to change the approved value.' : ''));
+    const subBtn = $('osSubmitRev');
+    if (subBtn) subBtn.style.display = canSubmit ? '' : 'none';
     let why = '';
-    if (v.status === 'draft') why = 'This report is still a draft: the officer has not submitted it. Use "Submit for review" to move it into the review queue (you can edit the calculation first). The decision buttons unlock once it is submitted.';
-    else if (v.status === 'correction_required') why = 'This report was returned to the officer for correction. Submit it for review once it is corrected, or edit it here.';
+    if (v.status === 'draft') why = 'This report is still a draft (the officer has not submitted it). Approve, Return or Decline will submit it for review first and then record your decision. You can also edit the calculation or press "Submit for review".';
+    else if (v.status === 'correction_required') why = 'This report was returned to the officer for correction. You can edit it here, or press a decision button to submit it for review and decide in one step.';
     else if (['final', 'rejected', 'withdrawn'].includes(v.status)) why = 'This report is "' + v.status + '" and can no longer be reviewed.';
     else if (v.status !== 'submitted') why = 'Only reports with status "submitted" can be reviewed (this one is "' + v.status + '").';
     else if (!canReview) why = 'Your account is not authorised to review this report (needs a dashboard admin role, or an active senior valuer/admin officer with signing rights).';
@@ -4503,9 +4504,93 @@
   /* =========================================================================
      ACTIONS
      ========================================================================= */
+  function showReviewMsg(m, ok) {
+    const el = $('osReviewMsg'); if (!el) return;
+    el.textContent = m; el.style.display = '';
+    el.style.color = ok ? 'var(--success, #22c55e)' : 'var(--danger, #ef4444)';
+    try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {}
+  }
+  const fail = m => { showReviewMsg(m); toast(m, 'error'); };
+
+  async function submitReport(v) {
+    const c = db();
+    let { error } = await c.rpc('submit_valuation', { p_id: v.id });
+    if (error) {
+      const u = await c.from('onsite_valuations').update({ status: 'submitted', updated_at: new Date().toISOString() })
+        .eq('id', v.id).in('status', ['draft', 'correction_required']).select('id');
+      error = u.error || ((!u.data || !u.data.length) ? { message: 'blocked by database rules (' + error.message + ')' } : null);
+    }
+    if (!error) log(`Onsite valuation ${v.ref || v.id}: submitted for review by admin`);
+    return error;
+  }
+
+  let reviewBusy = false;
+  async function doReview(decision) {
+    if (reviewBusy) return;
+    const c = db(), v = vals.find(x => x.id === curId); if (!c || !v) return;
+    const notes = ($('osReviewNotes').value || '').trim();
+    const preSubmit = ['draft', 'correction_required'].includes(v.status);
+    const allowed = preSubmit ? await window.__osCanEditCalc(v) : await window.__osCanReview(v);
+    if (!allowed) return fail('Your account is not authorised to review this report.');
+    if (!notes) { $('osReviewNotes').focus(); return fail('Review notes are required. Write your findings or reason in the notes box, then press the button again.'); }
+    if (decision === 'approve' && curCashUnpaid) return fail('Cannot approve: the cash client has not paid.');
+    const noval = NOVAL.includes(v.purpose);
+    const approved = noval ? 0 : Number($('osApprovedValue').value || v.final_value || 0);
+    if (decision === 'approve' && !noval && (!Number.isFinite(approved) || approved <= 0)) return fail('Enter a positive approved value.');
+    if (decision === 'approve' && !noval && Math.round(approved) !== Math.round(Number(v.final_value) || 0) && notes.length < 20)
+      return fail('You changed the value. Explain the change from the recommended value in at least 20 characters in the notes.');
+    const label = decision === 'approve' ? 'approve and issue a certificate for' : decision === 'correction' ? 'return for correction' : 'decline';
+    if (!confirm(`Are you sure you want to ${label} valuation ${v.ref || v.id}?` +
+        (preSubmit ? '\n\nThis report is still "' + v.status + '", so it will be submitted for review first.' : ''))) return;
+
+    reviewBusy = true;
+    const btns = [...document.querySelectorAll('#osReviewPanel .btn')]; btns.forEach(b => b.disabled = true);
+    showReviewMsg('Working…', true);
+    try {
+      if (preSubmit) {
+        const e0 = await submitReport(v);
+        if (e0) return fail('Could not submit the report before review: ' + e0.message);
+      }
+      const rpc = await c.rpc('review_valuation', {
+        p_id: curId, p_decision: decision, p_notes: notes,
+        p_approved_value: decision === 'approve' ? approved : null
+      });
+      if (rpc.error) {
+        if (/does not exist|could not find the function|schema cache/i.test(rpc.error.message || '') || window.__osIsAdmin) {
+          const patch = { status: decision === 'approve' ? 'final' : decision === 'correction' ? 'correction_required' : 'rejected',
+                          review_note: notes, reviewer_id: meId, reviewed_at: new Date().toISOString() };
+          if (decision === 'approve') {
+            patch.approved_value = approved; patch.approved_at = new Date().toISOString();
+            patch.certificate_number = 'CERT-' + new Date().getFullYear() + '-' + Date.now().toString(36).toUpperCase();
+          }
+          let up = await c.from('onsite_valuations').update(patch).eq('id', curId).select('id');
+          if (up.error && /certificate_number|approved_at|reviewed_at|column/i.test(up.error.message || '')) {
+            delete patch.certificate_number; delete patch.approved_at; delete patch.reviewed_at;
+            up = await c.from('onsite_valuations').update(patch).eq('id', curId).select('id');
+          }
+          const upErr = up.error || ((!up.data || !up.data.length)
+            ? { message: 'Update blocked (0 rows). Check the RLS UPDATE policy on onsite_valuations for admins.' } : null);
+          if (upErr) return fail('Review RPC: ' + rpc.error.message + '\nDirect update: ' + upErr.message);
+          try { await c.from('valuation_reviews').insert({ valuation_id: curId, reviewer_id: meId, decision, notes, created_at: new Date().toISOString() }); } catch (e) {}
+        } else {
+          return fail(rpc.error.message);
+        }
+      }
+      log(`Onsite valuation ${v.ref || curId}: ${decision} by admin`);
+      toast(decision === 'approve' ? 'Valuation approved; certificate issued.'
+           : decision === 'correction' ? 'Valuation returned for correction.' : 'Valuation declined.');
+      closeModal(); await load();
+    } catch (e) {
+      fail('Unexpected error: ' + (e && e.message ? e.message : e));
+    } finally {
+      reviewBusy = false; btns.forEach(b => b.disabled = false);
+    }
+  }
+
   async function onClick(e) {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act, id = b.dataset.id, c = db();
+    if (b.dataset.block) return fail(b.dataset.block);
     if (act === 'view') return openModal(id);
     if (act === 'sel') { if (b.checked) selected.add(id); else selected.delete(id); return syncBulk(); }
     if (act === 'selall') { pageIds.forEach(i => b.checked ? selected.add(i) : selected.delete(i)); renderVals(); return; }
@@ -4525,71 +4610,16 @@
 
     if (act === 'submitrev' && curId) {
       const v = vals.find(x => x.id === curId); if (!v) return;
-      if (!['draft', 'correction_required'].includes(v.status)) return toast('Only draft or returned reports can be submitted.', 'error');
+      if (!['draft', 'correction_required'].includes(v.status)) return fail('Only draft or returned reports can be submitted.');
       const hasLog = ((mediaOf(v.inputs || {}).logbook) || []).length > 0;
       if (!confirm(`Submit ${v.ref || v.id} for review?` + (hasLog ? '' : '\n\n⚠ No logbook is attached to this report.'))) return;
-      let { error } = await c.rpc('submit_valuation', { p_id: curId });
-      if (error) {
-        const u = await c.from('onsite_valuations').update({ status: 'submitted', updated_at: new Date().toISOString() })
-          .eq('id', curId).in('status', ['draft', 'correction_required']).select('id');
-        error = u.error || ((!u.data || !u.data.length) ? { message: 'Submit blocked: ' + error.message } : null);
-      }
-      if (error) return toast(error.message, 'error');
-      log(`Onsite valuation ${v.ref || curId}: submitted for review by admin`);
+      const err = await submitReport(v);
+      if (err) return fail('Could not submit: ' + err.message);
       toast('Submitted for review');
       await load(); return openModal(curId);
     }
 
-    if (act === 'review' && curId) {
-      const v = vals.find(x => x.id === curId); if (!v) return;
-      const decision = id, notes = ($('osReviewNotes').value || '').trim();
-      if (!(await window.__osCanReview(v))) return toast('Your account is not authorised to review this report.', 'error');
-      if (!notes) return toast('Review notes are required.', 'error');
-      if (decision === 'approve' && curCashUnpaid) return toast('Cannot approve: the cash client has not paid.', 'error');
-      const noval = NOVAL.includes(v.purpose);
-      const approved = noval ? 0 : Number($('osApprovedValue').value || v.final_value || 0);
-      if (decision === 'approve' && !noval && (!Number.isFinite(approved) || approved <= 0))
-        return toast('Enter a positive approved value.', 'error');
-      if (decision === 'approve' && !noval && Math.round(approved) !== Math.round(Number(v.final_value) || 0) && notes.length < 20)
-        return toast('Explain the change from the recommended value in at least 20 characters.', 'error');
-      const label = decision === 'approve' ? 'approve and issue a certificate for'
-                   : decision === 'correction' ? 'return for correction'
-                   : 'decline';
-      if (!confirm(`Are you sure you want to ${label} valuation ${v.ref || v.id}?`)) return;
-
-      // Preferred: RPC
-      const rpc = await c.rpc('review_valuation', {
-        p_id: curId, p_decision: decision, p_notes: notes,
-        p_approved_value: decision === 'approve' ? approved : null
-      });
-      if (rpc.error) {
-        // Fallback if RPC missing: direct update
-        if (/does not exist|could not find the function|schema cache/i.test(rpc.error.message || '') || window.__osIsAdmin) {
-          const patch = { status: decision === 'approve' ? 'final' : decision === 'correction' ? 'correction_required' : 'rejected',
-                          review_note: notes, reviewer_id: meId, reviewed_at: new Date().toISOString() };
-          if (decision === 'approve') { patch.approved_value = approved; patch.approved_at = new Date().toISOString(); }
-          if (decision === 'approve') patch.certificate_number = 'CERT-' + new Date().getFullYear() + '-' + Date.now().toString(36).toUpperCase();
-          let up = await c.from('onsite_valuations').update(patch).eq('id', curId).select('id');
-          if (up.error && /certificate_number|approved_at|reviewed_at|column/i.test(up.error.message || '')) {
-            delete patch.certificate_number; delete patch.approved_at; delete patch.reviewed_at;
-            up = await c.from('onsite_valuations').update(patch).eq('id', curId).select('id');
-          }
-          const upErr = up.error || ((!up.data || !up.data.length)
-            ? { message: 'Update blocked (0 rows). RPC said: ' + rpc.error.message + '. Check RLS UPDATE policy on onsite_valuations for admins.' } : null);
-          if (upErr) return toast('Review RPC: ' + rpc.error.message + ' | Direct update: ' + upErr.message, 'error');
-          try {
-            await c.from('valuation_reviews').insert({ valuation_id: curId, reviewer_id: meId, decision, notes, created_at: new Date().toISOString() });
-          } catch (e) { /* non-fatal */ }
-        } else {
-          return toast(rpc.error.message, 'error');
-        }
-      }
-      log(`Onsite valuation ${v.ref || curId}: ${decision} by admin`);
-      toast(decision === 'approve' ? 'Valuation approved; certificate issued.'
-           : decision === 'correction' ? 'Valuation returned for correction.'
-           : 'Valuation declined.');
-      closeModal(); await load(); return;
-    }
+    if (act === 'review' && curId) return doReview(id);
 
     if (act === 'saveprice') {
       const row = b.closest('tr'), price = Number(row.querySelector('.os-price').value),
