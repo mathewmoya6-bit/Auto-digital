@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Auto-D Onsite Valuation</title>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;800&family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b1426;--panel:#121e36;--line:#26365a;--tx:#e8ecf4;--mut:#8d9bb8;--amb:#f5a623;--ok:#3fb58a;--bad:#e5604d;--r:10px}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 'Public Sans',system-ui,sans-serif;padding-bottom:120px}
+h1,h2,h3{margin:0;font-weight:800}
+.wrap{max-width:860px;margin:0 auto;padding:16px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.brand{font-weight:800;font-size:18px}.brand span{color:var(--amb)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin:14px 0}
+.card h2{font-size:16px;margin-bottom:10px;color:var(--amb)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+label{display:block;font-size:12px;color:var(--mut);font-weight:600}
+input,select,textarea{width:100%;margin-top:4px;padding:10px;background:#0b1426;border:1px solid var(--line);border-radius:8px;color:var(--tx);font:inherit}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--amb);outline-offset:1px}
+button{font:inherit;font-weight:700;padding:10px 16px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--tx);cursor:pointer}
+button.pri{background:var(--amb);border-color:var(--amb);color:#1a1200}
+button.lnk{border:0;padding:4px;color:var(--amb);text-decoration:underline}
+.auth{max-width:400px;margin:8vh auto}
+.msg{padding:10px;border-radius:8px;margin:10px 0;background:#2a1c1c;border:1px solid var(--bad);color:#ffb4a8}
+.msg.good{background:#12281f;border-color:var(--ok);color:#a6ecd0}
+.msg.info{background:#16233f;border-color:var(--amb);color:#f3d9a4}
+.it{display:grid;grid-template-columns:1fr 110px;gap:6px 8px;padding:10px 0;border-top:1px solid var(--line)}
+.it input{grid-column:1/3;margin:0}
+.it select{margin:0}
+.st.ok{border-color:var(--ok)}.st.issue,.st.major{border-color:var(--bad);background:#2a1c1c}
+.rq{color:var(--amb);font-size:11px;font-weight:600}
+#bar{position:fixed;left:0;right:0;bottom:0;background:#0f1a30;border-top:2px solid var(--amb);padding:10px 16px;z-index:5}
+#bar .in{max-width:860px;margin:auto;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between}
+.big{font-size:22px;font-weight:800;color:var(--amb)}
+.sm{font-size:12px;color:var(--mut)}
+.row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line)}
+.row b{white-space:nowrap}
+.neg{color:var(--bad)}.pos{color:var(--ok)}
+.list .row{cursor:pointer}
+.tag{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line)}
+.tag.final{border-color:var(--ok);color:var(--ok)}.tag.submitted{border-color:var(--amb);color:var(--amb)}.tag.correction_required,.tag.rejected{border-color:var(--bad);color:var(--bad)}
+#toast{position:fixed;top:14px;right:14px;background:var(--ok);color:#04150e;padding:10px 14px;border-radius:8px;font-weight:700;z-index:9;display:none}
+.rep{background:#fff;color:#111;padding:24px;border-radius:var(--r)}
+.rep .row{border-color:#ddd}.rep h2,.rep h3{color:#111}.rep .sm{color:#555}.rep .big{color:#111}
+.cert{background:#fff;color:#1f2937;border:2px solid #0f172a;outline:1px solid #c9a227;outline-offset:-6px;border-radius:4px;margin:14px 0;font-family:'Public Sans',system-ui,sans-serif;overflow:hidden}
+.cert,.cert *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.cert .hd{background:#0f172a;color:#fff;display:flex;justify-content:space-between;align-items:center;padding:20px 28px;border-bottom:4px solid #eab308}
+.cert .bn{display:flex;align-items:center;gap:14px}
+.cert .nm{font-size:28px;font-weight:800;line-height:1}
+.cert .tg{font-size:9px;letter-spacing:.18em;color:#eab308;margin-top:6px}
+.cert .cn{text-align:right}.cert .cn small{display:block;font-size:9px;letter-spacing:.14em;color:#94a3b8}
+.cert .cn b{font-size:18px;color:#eab308;display:block}.cert .cn span{font-size:10px;color:#cbd5e1}
+.cert .bd{padding:22px 32px 18px}
+.cert h1{font-family:Georgia,'Times New Roman',serif;text-align:center;font-size:30px;letter-spacing:.08em;color:#0f172a;margin:6px 0 6px}
+.cert .orn{width:140px;height:1px;background:#c9a227;margin:0 auto 10px}
+.cert .stmt{text-align:center;font-family:Georgia,serif;font-style:italic;color:#64748b;font-size:13px;margin:0 20px 14px}
+.cert .val{background:#fbf6e4;border:1px solid #c9a227;border-radius:10px;text-align:center;padding:14px 10px;margin-bottom:14px}
+.cert .val .l{font-size:10px;letter-spacing:.2em;font-weight:700;color:#64748b}
+.cert .val .a{font-family:Georgia,serif;font-size:44px;font-weight:700;color:#0f172a;line-height:1.15}
+.cert .val .w{font-family:Georgia,serif;font-style:italic;font-size:13px;color:#1f2937}
+.cert .val .m{font-size:10px;color:#64748b;margin-top:4px}
+.cert .sh{font-size:11px;font-weight:800;letter-spacing:.14em;color:#0f172a;border-left:4px solid #0f172a;padding-left:8px;margin:12px 0 6px;display:flex;align-items:center;gap:10px}
+.cert .sh:after{content:'';flex:1;height:1px;background:#d9dee7}
+.cert .g{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}
+.cert .g>div{border-bottom:1px solid #d9dee7;padding:5px 0}
+.cert .g small{display:block;font-size:8.5px;letter-spacing:.1em;color:#64748b;text-transform:uppercase}
+.cert .g b{font-size:13px;color:#1f2937}
+.cert .g .full{grid-column:1/3}
+.cert .sg{display:grid;grid-template-columns:1fr 110px 1fr;gap:12px;align-items:end;border-top:1px solid #d9dee7;margin-top:16px;padding-top:12px}
+.cert .sig{height:56px;display:flex;align-items:flex-end}
+.cert .sigtxt{font-family:'Dancing Script',cursive;font-size:34px;line-height:1;color:#1e2f7a}
+.cert .ln{border-top:1px solid #0f172a;padding-top:4px;font-size:12px;font-weight:800;color:#0f172a}
+.cert .sg .sm2{font-size:10px;color:#64748b;font-weight:400}
+.cert .qr{display:flex;justify-content:flex-end;align-items:flex-end;gap:8px;text-align:right;font-size:10px;color:#64748b}
+.cert .qr svg{width:74px;height:74px}
+.cert .fine{text-align:center;font-size:9px;color:#64748b;margin-top:10px}
+.cert .isig .sigimg{max-height:34px;margin:2px 0}
+.rep .cksec{margin-top:8px}
+.rep .ckh{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;background:#eef1f6;color:#0f172a;padding:4px 8px;border-left:4px solid #0f172a;break-after:avoid}
+.rep .ckr{display:grid;grid-template-columns:1.2fr 90px 1fr;gap:8px;padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:12px;align-items:start;break-inside:avoid}
+.rep .cks{font-weight:700;font-size:11px;white-space:nowrap}
+.rep .cks.ok{color:#15803d}.rep .cks.issue{color:#b45309}.rep .cks.major{color:#b91c1c}.rep .cks.na,.rep .cks.nc{color:#64748b}
+.rep .ckn{color:#374151}.rep .ckl i{color:#b45309;font-style:normal;font-weight:700}
+.s2{display:grid;grid-template-columns:1fr 90px 1fr;gap:14px;align-items:end;border-top:2px solid #0f172a;margin-top:26px;padding-top:12px;break-inside:avoid;color:#111}
+.s2 .s2t{font-size:10px;letter-spacing:.12em;font-weight:800;color:#64748b;text-transform:uppercase}
+.s2 .s2s{height:58px;display:flex;align-items:flex-end}
+.s2 .s2l{border-top:1px solid #0f172a;padding-top:4px;font-size:12px;font-weight:800}
+.s2 .s2l .sm{font-weight:400;font-size:10px;color:#555}
+.s2 .sigtxt{font-family:'Dancing Script',cursive;font-size:34px;line-height:1;color:#1e2f7a}
+.s2 svg{width:80px;height:80px;display:block;margin:auto}
+.fine2{text-align:center;font-size:9px;color:#64748b;margin-top:8px}
+@media print{.rep .ckr,.s2{break-inside:avoid}}
+.sigimg{max-height:54px;max-width:170px;display:block;object-fit:contain}
+.pdfmode{color:#111}.pdfmode .cert{margin:0}.pdfmode .rep{border-radius:0;padding:14px;margin:0}
+.sigprev{background:#fff;border-radius:8px;padding:6px 10px;display:inline-block;margin:6px 0}
+.sigprev img{max-height:60px;max-width:220px;display:block}
+canvas.sigpad{background:#fff;border:1px dashed #8d9bb8;border-radius:8px;width:100%;height:150px;touch-action:none;display:block;margin:8px 0;cursor:crosshair}
+details.sgc summary{cursor:pointer;color:var(--amb);font-weight:700}
+@media print{@page{size:A4;margin:8mm}body{background:#fff;padding:0}.noprint,.top,#bar{display:none!important}.rep{padding:0}.cert{margin:0;page-break-after:always;break-after:page}.cert .bd{padding:14px 24px 10px}.cert .val .a{font-size:38px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+<div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" integrity="sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js" integrity="sha384-aBc0BOllaGWrQx51DYt978St/L7B+21jzNGc4N/jnGD0NxGwj8S/ftRgW0AkXIak" crossorigin="anonymous"></script>
+<script>
+const SB_URL='https://xgkdbithhlvoqjnqvfmj.supabase.co', SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhna2RiaXRoaGx2b3FqbnF2Zm1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTE4NzQsImV4cCI6MjA5ODIyNzg3NH0.-4P2aQAlDl_4oW0C18gh7cEBzoIKeiLUmMnITz-Nt9Y';
+const sb=supabase.createClient(SB_URL,SB_KEY);
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const KES=x=>'KES '+Math.round(x||0).toLocaleString('en-KE');
+const num=x=>parseFloat(x)||0;
+const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Nairobi',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2200)};
+
+/* Service types. Level strings below follow the order of PK (13 characters): R required, O optional, - hidden.
+   noval: inspection or assessment with no monetary value. lean: show required checks only. hcopt: optional forced-sale haircut. */
+const PK=['PRE_INSURANCE','TECHNICAL_BRIEF','FULL_MECHANICAL','ACCIDENT','PRE_LOSS','COMPONENT','NON_STANDARD','BANK','SALE','AUCTION','COURT','DISPUTE','FLEET'];
+const P={
+ PRE_INSURANCE:{n:'Pre-insurance valuation',g:'Core valuations',d:'Value of a vehicle before insurance cover is issued or renewed.',adj:'mil cond acc use acd',hc:0,days:90},
+ TECHNICAL_BRIEF:{n:'Technical brief valuation',g:'Core valuations',d:'A technical opinion on the vehicle\'s value and condition.',adj:'mil cond acc use acd dem',hc:0,days:30},
+ FULL_MECHANICAL:{n:'Full mechanical valuation',g:'Core valuations',d:'Comprehensive valuation combined with a mechanical inspection, for commercial and small vehicles.',adj:'mil cond acc use acd dem',hc:0,days:30},
+ PRE_LOSS:{n:'Pre-loss assessment',g:'Core valuations',d:'Value immediately before an event such as theft or fire.',adj:'mil cond acc use acd',hc:0,days:30},
+ ACCIDENT:{n:'Accident assessment',g:'Assessments and inspections',d:'Assessment of vehicle damage following an accident, with pre-accident value, repair estimate and salvage.',adj:'mil',hc:0,days:30},
+ COMPONENT:{n:'Component inspection',g:'Assessments and inspections',d:'Examination of specified vehicle components. No monetary value is produced.',adj:'',hc:0,days:0,noval:1,lean:1},
+ NON_STANDARD:{n:'Non-standard inspection',g:'Assessments and inspections',d:'Specialised inspection outside the standard valuation process. No monetary value is produced.',adj:'',hc:0,days:0,noval:1,lean:1},
+ BANK:{n:'Bank / asset finance valuation',g:'Finance, sale and disposal',d:'Market and forced-sale value for lending and collateral decisions.',adj:'mil cond use acd dem',hc:25,days:90},
+ SALE:{n:'Sale / disposal valuation',g:'Finance, sale and disposal',d:'Expected market value when selling or disposing of a vehicle.',adj:'mil cond acc use acd dem',hc:0,days:14},
+ AUCTION:{n:'Auction valuation',g:'Finance, sale and disposal',d:'Expected auction realisation and reserve price recommendation.',adj:'mil cond acd dem',hc:25,days:30},
+ COURT:{n:'Court / bond valuation',g:'Specialised and bulk',d:'Value required for court proceedings, bonds or succession.',adj:'mil cond acc use acd',hc:0,hcopt:1,days:0},
+ DISPUTE:{n:'Dispute resolution valuation',g:'Specialised and bulk',d:'Independent opinion on a disputed vehicle value.',adj:'mil cond acc use acd',hc:0,hcopt:1,days:0},
+ FLEET:{n:'Fleet valuation',g:'Specialised and bulk',d:'Value of vehicles held by an organisation (one inspection per vehicle).',adj:'dep cond use',hc:0,days:180}};
+/* Codes from the earlier eight-purpose version, mapped when old records are opened */
+const MAP={DUTY:'SALE',INS:'PRE_INSURANCE',CLAIM:'ACCIDENT',LEGAL:'COURT',AUCT:'AUCTION'};
+const pc=c=>MAP[c]||c;
+const pn=c=>(P[pc(c)]||{n:c}).n;
+const SECS=[
+ ['Admin and consent',[['consent','Data Protection Act consent recorded','RRRRRRRRRRRRR']]],
+ ['Identity and documents',[
+  ['chassis','Chassis/VIN matches logbook or export certificate','RRRRRRRRRRRRR'],
+  ['engno','Engine number matches documents','OORROOORRORRR'],
+  ['plate','Plate number and type verified','RRRRRRORRRRRR'],
+  ['acc_list','Optional equipment and accessories listed','ROORR--OROOOO'],
+  ['logbook','Logbook name matches seller ID','RRRRROORRRRRR'],
+  ['search','Official search clear (no caveat, lien, police stop)','OOOOO--RRRRRO'],
+  ['export','Import / customs documents seen (export certificate, entry)','-------OOOOO-'],
+  ['dutypd','Proof of duty paid (KRA)','OOOOO--ROROOO'],
+  ['ntsa','Valid NTSA inspection','OORO-O-OOO--R'],
+  ['insur','Insurance history / current cover','ROORR--ROOOOR'],
+  ['service','Service records','ORROOOOOROOOR'],
+  ['acc_hist','Accident / repair history declared','RRRROOORRRRRO'],
+  ['police','Police abstract / fire brigade report','---RR-----OO-'],
+  ['preloss_ev','Pre-loss evidence (earlier photos, service or sale records, insurer file)','----R--------'],
+  ['lender','Financier consent / settlement figure','---O---ROOOOO'],
+  ['court','Court order / letters of administration','----------RR-'],
+  ['asset','Asset register entry and acquisition cost','------------R']]],
+ ['Mileage',[
+  ['odo','Odometer reading photographed','RRRROOORRRRRR'],
+  ['odo_ok','Odometer genuine (no rollback signs)','RRRROOORRRRRO']]],
+ ['Exterior',[
+  ['paint','Paint, repaints, mismatched panels','RRRROOORRRRRO'],
+  ['dents','Dents and scratches','RRRROOORRRRRO'],
+  ['rust','Rust / corrosion (sills, arches, underbody)','RRRROOORRRRRO'],
+  ['gaps','Panel gaps (accident repair sign)','RRRROOORRRRRO'],
+  ['glass','Glass: chips, cracks, replaced','RROROOOORORRO'],
+  ['lights','Lights, mirrors, bumpers','RROROOOORORRO'],
+  ['tyres','Tyres: tread, wear, spare','RRRROOORRORRR']]],
+ ['Interior and electronics',[
+  ['seats','Seats, upholstery, headliner','RROROOOORORRO'],
+  ['dashwear','Dash, steering, pedal wear vs mileage','RRRROOORRRRRO'],
+  ['elec','AC, windows, locks, infotainment','ORROOOOORORRO'],
+  ['warn','Dashboard warning lights','RRRROOORRRRRR'],
+  ['flood','Odour / flood signs','RRRROOORRRRRO'],
+  ['airbag','Airbags / SRS status','RRRROOORRRRRR']]],
+ ['Engine and mechanical',[
+  ['leaks','Fluid leaks (oil, coolant, transmission)','ORRROOORRRRRR'],
+  ['engine','Engine noise, smoke, cold start','ORRROOORRRRRR'],
+  ['gearbox','Gearbox / clutch','ORRROOORRRRRR'],
+  ['susp','Suspension and steering play','ORRROOORRORRR'],
+  ['brakes','Brakes','ORRROOORRORRR'],
+  ['batt','Battery, belts, hoses','OOROOOOOROOOR'],
+  ['hybrid','Hybrid / EV battery health (if fitted)','ORROOOORRROOR']]],
+ ['Structure and accident',[
+  ['struct','Chassis alignment, welds, repairs','RRRROOORRRRRO'],
+  ['fire','Flood or fire damage signs','RRRROOORRRRRO'],
+  ['dmg_est','Damage extent and repair estimate','---R-----OOO-']]],
+ ['Road test and evidence',[
+  ['road','Road test: acceleration, braking, steering pull','ORRO-OORRORRR'],
+  ['photos','Photos: 4 corners, chassis plate, engine bay, odometer','RRRRORRRRRRRR'],
+  ['scans','Document scans (logbook, ID, KRA PIN)','RRRRROORORRRR'],
+  ['geo','Geo-tagged location captured','OOOR-OOR-ORRO']]]];
+const lvl=(row,pu)=>(row.lv||row[2])[PK.indexOf(pu)];
+const ITEMS=SECS.flatMap(s=>s[1].map(r=>({sec:s[0],code:r[0],label:r[1],lv:r[2]})));
+/* Startup check: every level string must have one character per service type */
+SECS.forEach(s=>s[1].forEach(r=>{if(r[2].length!==PK.length)console.error('SECS level string wrong length ('+r[2].length+', expected '+PK.length+'): '+r[0])}));
+const CATS={struct:'Structure',fire:'Structure',engine:'Engine',leaks:'Engine',batt:'Engine',hybrid:'Engine',gearbox:'Transmission',susp:'Suspension and brakes',brakes:'Suspension and brakes',warn:'Electrical and safety',airbag:'Electrical and safety',elec:'Electrical and safety',lights:'Electrical and safety',paint:'Exterior',dents:'Exterior',rust:'Exterior',gaps:'Exterior',glass:'Exterior',seats:'Interior',dashwear:'Interior',flood:'Interior',tyres:'Tyres'};
+const W={'Structure':20,'Engine':20,'Transmission':15,'Suspension and brakes':15,'Electrical and safety':10,'Exterior':10,'Interior':5,'Tyres':5}; /* proposed internal weights, not published coefficients */
+const CRITICAL=['Structure','Engine','Transmission','Suspension and brakes','Electrical and safety'];
+const BASIS={PRE_INSURANCE:'Insurable value before cover is issued or renewed, as instructed by the insurer (agreed, market or replacement value).',TECHNICAL_BRIEF:'Technical opinion of condition and market value, as set out in the brief.',FULL_MECHANICAL:'Market value supported by a full mechanical inspection and repair findings.',ACCIDENT:'Pre-accident market value for indemnity, with damage, repair and salvage assessment.',PRE_LOSS:'Market value immediately before the loss event (theft or fire), assessed from records and available evidence.',COMPONENT:'Not applicable: condition findings on the specified components only.',NON_STANDARD:'Not applicable: findings of a specialised inspection within the agreed scope.',BANK:'Market value and, separately, forced-sale value for collateral.',SALE:'Market value.',AUCTION:'Estimated forced-sale proceeds and reserve price recommendation.',COURT:'Value on the date and basis specified by the court, bond or instruction.',DISPUTE:'Independent opinion of value on the date and basis agreed by the parties or directed by the forum.',FLEET:'Market value or depreciated value as instructed.'};
+const M={v:'vehicle',i:'inputs',a:'answers',n:'notes'};
+const S={user:null,prof:null,val:null,r:null,list:[]};
+const get=k=>{const[a,b]=k.split('.');return S.val[M[a]][b]??''};
+const popts=(cur,all)=>{const ks=PK.filter(k=>k===cur||all||!S.prices[k]||S.prices[k].active);const gs=[...new Set(ks.map(k=>P[k].g))];
+ return gs.map(g=>`<optgroup label="${esc(g)}">${ks.filter(k=>P[k].g===g).map(k=>`<option value="${k}"${k===cur?' selected':''}>${esc(P[k].n)}${S.prices[k]?' · '+KES(S.prices[k].price):''}</option>`).join('')}</optgroup>`).join('')};
+
+/* ---------- Engine ---------- */
+function calc(v){
+ const p=P[v.purpose],i=v.inputs,A=v.answers,r={lines:[],stops:[],warns:[],missing:[]};
+ const has=k=>(p.adj||'').split(/\s+/).includes(k);
+ const chk=(l,x,lo,hi)=>{if(x===undefined||x===null||String(x).trim()==='')return;const n=Number(x);if(!Number.isFinite(n)||n<lo||n>hi)r.stops.push(`${l} must be between ${lo} and ${hi}.`)};
+ chk('Depreciation %',has('dep')?i.dep:'',0,90);
+ chk('Accident / repair deduction %',has('acd')?i.acd:'',0,90);
+ chk('Forced-sale haircut %',(p.hc||p.hcopt)?i.hc:'',0,60);
+ chk('Accessories value',has('acc')?i.acc:'',0,1e8);
+ chk('Odometer (km)',v.vehicle.mileage,0,1500000);
+ chk('Year of manufacture',v.vehicle.yom,1950,new Date().getFullYear()+1);
+ const parseKES=s=>{const n=parseFloat(String(s).replace(/kes|ksh/gi,'').replace(/[,\s]/g,''));return Number.isFinite(n)&&n>0?n:0};
+ const comps=(i.comps||'').split(/[\n;]+/).map(parseKES).filter(x=>x>0).sort((a,b)=>a-b);
+ r.n=comps.length;
+ let base=0,src='';
+ if(!p.noval){
+  const c=comps.length>=5?comps.slice(1,-1):comps;
+  if(c.length){base=c[Math.floor((c.length-1)/2)]/2+c[Math.floor(c.length/2)]/2;src='comps'}
+  else if(num(i.manual)){base=num(i.manual);src='manual'}
+  else if(v.purpose==='FLEET'&&num(i.fl_book)){base=num(i.fl_book);src='book'}
+  else if(v.purpose==='FLEET'&&num(i.fl_acqprice)&&num(i.fl_accdep)){base=num(i.fl_acqprice)-num(i.fl_accdep);src='book'}
+  else if(num(i.crsp)){base=num(i.crsp);src='crsp'}
+  if(!base)r.stops.push('Enter market comparables or a base value.');
+  if(r.n<3)r.warns.push('Fewer than 3 comparables: independent valuer review and documented alternative evidence are required.');
+  if(src==='crsp'){
+   r.warns.push('CRSP is a reference source, not a substitute for market evidence. Identify the CRSP reference year and exact vehicle variant.');
+   if(!i.crsp_id)r.warns.push('CRSP value was typed manually, not selected from the CRSP database.');
+   else if(num(i.crsp)!==num(i.crsp_db))r.warns.push(`CRSP value differs from the selected database value (KES ${num(i.crsp_db).toLocaleString()}).`);
+  }
+ }
+ if(src==='book'&&String(i.dep??'').trim()!=='')r.warns.push('Base is a fleet register book value, usually already net of depreciation. Check the depreciation % is not applied twice.');
+ r.base=base;r.src=src;let sub=base;
+ const add=(l,amt)=>{if(Number.isFinite(amt)&&amt){r.lines.push([l,amt]);sub+=amt}};
+ if(has('dep')&&String(i.dep??'').trim()!=='')add(`Depreciation ${num(i.dep)}%`,-base*num(i.dep)/100);
+ if(has('mil')){
+  const age=Math.max(0,new Date().getFullYear()-num(v.vehicle.yom)),km=num(v.vehicle.mileage);
+  if(v.vehicle.yom&&String(v.vehicle.mileage??'').trim()!==''){
+   const pct=Math.max(-15,Math.min(15,(age*15000-km)/10000*0.5));
+   add(`Indicative mileage adjustment (${pct.toFixed(1)}%; requires valuer verification)`,base*pct/100);
+   r.warns.push('Mileage adjustment uses a provisional generic benchmark; verify against vehicle-specific evidence before approval.');
+  }else r.stops.push('Enter year of manufacture and odometer reading; do not calculate a mileage adjustment from missing data.');
+ }
+ if(has('cond')&&String(i.cond??'').trim()!==''){
+  const c={Excellent:5,Good:0,Fair:-8,Poor:-20}[i.cond];
+  if(c===undefined)r.stops.push('Select a valid condition grade.');else add(`Condition: ${i.cond} (provisional ${c}%)`,base*c/100);
+ }
+ if(has('use')){
+  const usage={Private:0,Commercial:-8,Taxi:-15,Rental:-10,Fleet:-8};
+  if(!v.vehicle.usage)r.stops.push('Select the vehicle usage type; unknown usage must not default to private use.');
+  else add(`Usage: ${v.vehicle.usage} (provisional ${usage[v.vehicle.usage]}%)`,base*usage[v.vehicle.usage]/100);
+ }
+ if(has('dem')&&i.dem){const d={High:4,Normal:0,Low:-6}[i.dem];if(d===undefined)r.stops.push('Select a valid market-demand category.');else add(`Market demand: ${i.dem} (provisional ${d}%)`,base*d/100)}
+ if(has('acc'))add('Accessories (subject to evidence)',num(i.acc));
+ if(has('acd')&&String(i.acd??'').trim()!=='')add(`Accident / repair deduction ${num(i.acd)}%`,-base*num(i.acd)/100);
+ const hc=(p.hc||p.hcopt)?num(i.hc):0;
+ r.sub=sub;r.market=Math.max(0,sub);r.final=Math.max(0,hc?sub*(1-hc/100):sub);r.forced=null;
+ if(sub<0)r.stops.push('Adjustments exceed the base value: review the inputs.');
+ if(hc&&!p.noval){
+  r.forced=r.final;r.lines.push([`Forced-sale haircut ${hc}%`,r.final-r.market]);
+  if(!String(i.hc_basis||'').trim())r.stops.push('State the basis for the forced-sale haircut (marketing period, sale conditions and buyer pool).');
+ }
+ if(v.purpose==='ACCIDENT'){
+  const rep=num(i.repair),sal=num(i.salvage);
+  const pav=r.market;r.preAccidentValue=pav;
+  r.repairEstimate=rep;r.salvageValue=sal;
+  r.ratio=pav?rep/pav:0;
+  r.final=pav; r.forced=null;
+  if(!String(i.repair??'').trim())r.stops.push('Enter a repair estimate or document why it cannot be established.');
+  if(!String(i.salvage??'').trim())r.stops.push('Enter a salvage estimate or document why it cannot be established.');
+  if(rep&&pav&&r.ratio>0.7)r.warns.push(`Repair estimate is ${(r.ratio*100).toFixed(0)}% of pre-accident value. This is a review trigger, not an automatic total-loss decision.`);
+  if(sal>pav)r.stops.push('Salvage value cannot exceed the pre-accident value without a documented explanation.');
+  r.net=pav-sal;
+  r.warns.push('Accident report separates pre-accident value, repair estimate and salvage. The net figure is not an automatic indemnity or total-loss determination.');
+ }
+ if(v.purpose==='PRE_LOSS'&&get2(v,'pl_inspect_basis')==='Vehicle not available: records only')r.warns.push('Vehicle was not inspected: value rests on records and earlier evidence. State the limitations clearly.');
+ if(A.chassis!=='ok')r.stops.push('Chassis/VIN is not confirmed against the logbook or export certificate.');
+ if(['BANK','SALE','AUCTION','COURT','DISPUTE'].includes(v.purpose)&&['issue','major'].includes(A.search))r.stops.push('Caveat, lien or police stop found on official search.');
+ if(['issue','major'].includes(A.odo_ok))r.stops.push('Odometer tampering is suspected: stop valuation pending documented investigation and senior valuer review.');
+ let req=0;
+ ITEMS.forEach(t=>{if(lvl(t,v.purpose)==='R'){req++;if(!A[t.code])r.missing.push(t.label);if(A[t.code]==='na'&&!String(v.notes[t.code]||'').trim())r.stops.push(`${t.label}: provide a reason for marking a required check N/A.`)}});
+ r.pfMissing=pfMissing(v);
+ const comp=Math.round(100*(Math.max(req,1)-r.missing.length)/Math.max(req,1)),ph=(i.photos||[]).length;
+ const evid=Math.min(100,(ph>=4?40:ph*10)+(A.geo==='ok'?20:0)+(A.scans==='ok'?20:0)+(A.odo==='ok'?20:0));
+ const data=p.noval?100:(r.n>=5?100:r.n>=3?75:r.n>0?40:src==='book'?50:src==='crsp'?(i.crsp_id&&num(i.crsp)===num(i.crsp_db)?50:30):20);
+ r.q={complete:comp,evidence:evid,data};
+ /* This is a completeness/evidence index, not statistical confidence. */
+ r.evidenceIndex=Math.max(0,Math.min(100,Math.round(comp*.4+evid*.3+data*.3)));
+ r.conf=null;r.lo=null;r.hi=null;
+ const cat={},crit=[];
+ Object.keys(CATS).forEach(c=>{const a=A[c];if(!a||a==='na')return;const k=CATS[c];cat[k]=cat[k]||{n:0,d:0};cat[k].n++;cat[k].d+=a==='major'?1:a==='issue'?0.4:0;if(a==='major'&&CRITICAL.includes(k))crit.push(c)});
+ let score=100,cov=0;Object.entries(W).forEach(([k,w])=>{if(cat[k]){cov+=w;score-=w*Math.min(1,cat[k].d/cat[k].n)}});
+ r.score=cov>=40?Math.round(score):null;r.hint=r.score===null?'':(r.score>=92?'Excellent':r.score>=80?'Good':r.score>=60?'Fair':'Poor');
+ if(crit.length){r.stops.push('Critical major defect(s) recorded ('+crit.map(c=>ITEMS.find(t=>t.code===c).label).join('; ')+'): senior valuer review is mandatory before submission.');if(r.hint==='Excellent'||r.hint==='Good')r.hint='Fair'}
+ r.days=p.days;
+ return r;
+}
+const get2=(v,k)=>v.inputs[k]||'';
+function recalc(){
+ const v=S.val,r=S.r=calc(v),p=P[v.purpose];
+ $('#bar').innerHTML=`<div class="in"><div><div class="sm">${esc(p.n)}</div><div class="big">${p.noval?'Inspection report':KES(r.final)}</div>${r.forced?`<div class="sm">Market value ${KES(r.market)}</div>`:''}<div class="sm">${p.noval?'':'No statistical valuation range is calculated. · '}Evidence and completeness index ${r.evidenceIndex??r.conf??'not recorded'}%</div></div>
+ <div class="sm" style="max-width:300px">${r.stops.length?`<span class="neg">${r.stops.length} blocking: ${esc(r.stops[0])}</span>`:(r.missing.length+r.pfMissing.length)?`${r.missing.length+r.pfMissing.length} required items unanswered`:'<span class="pos">Ready to submit</span>'}</div>
+ <div><button onclick="save(false)">Save draft</button> <button class="pri" onclick="save(true)">Submit for review</button></div></div>`;
+ const h=$('#hint');if(h)h.textContent=r.hint?`Checklist suggests: ${r.hint} (score ${r.score}/100, proposed internal weights)`:'';
+}
+
+/* ---------- Auth ---------- */
+function authView(mode='login',msg='',good=false){
+ const su=mode==='signup';
+ $('#app').innerHTML=`<div class="auth wrap"><div class="brand">Auto-<span>D</span> Onsite Valuation</div>
+ <p class="sm">Sign in as a valuation officer to start an on-site inspection.</p>
+ <div class="card"><h2>${su?'Create officer account':'Officer login'}</h2>${msg?`<div class="msg ${good?'good':''}">${esc(msg)}</div>`:''}
+ <form id="af">${su?`<label>Full name<input name="full_name" required autocomplete="name"></label><br><label>Phone<input name="phone" type="tel" required autocomplete="tel"></label><br><label>Valuer licence number<input name="licence_no" placeholder="Optional for trainees"></label><br>`:''}
+ <label>Email<input name="email" type="email" required autocomplete="email"></label><br>
+ <label>Password<input name="password" type="password" minlength="8" required autocomplete="${su?'new':'current'}-password"></label><br>
+ <button class="pri" style="width:100%">${su?'Create account':'Log in'}</button>${su?'':'<p class="sm"><button type="button" class="lnk" onclick="forgotView()">Forgot password?</button></p>'}</form>
+ <p class="sm">${su?'Already registered?':'New officer?'} <button class="lnk" onclick="authView('${su?'login':'signup'}')">${su?'Log in':'Create an account'}</button></p></div></div>`;
+ $('#af').onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
+  if(su){const{data,error}=await sb.auth.signUp({email:f.email,password:f.password,options:{data:{app:'onsite_officer',full_name:f.full_name,phone:f.phone,licence_no:f.licence_no}}});
+   if(error)return authView('signup',error.message);
+   if(data.session)await sb.auth.signOut();return authView('login',data.session?'Account created. An admin must approve it before you can log in.':'Account created. Confirm your email, then wait for admin approval.',true)}
+  const{error}=await sb.auth.signInWithPassword(f);if(error)return authView('login',error.message);boot()};
+}
+/* Password reset: email link -> this page -> set new password */
+S.recovery=/type=recovery/.test(location.hash);
+sb.auth.onAuthStateChange(ev=>{S.authLog=(S.authLog||[]).concat(ev+'@'+new Date().toISOString().slice(11,19)).slice(-8);if(ev==='PASSWORD_RECOVERY'){S.recovery=true;resetView()}});
+function forgotView(msg='',good=false){
+ $('#app').innerHTML=`<div class="auth wrap"><div class="brand">Auto-<span>D</span> Onsite Valuation</div>
+ <div class="card"><h2>Reset password</h2><p class="sm">Enter your officer email and we will send a reset link.</p>${msg?`<div class="msg ${good?'good':''}">${esc(msg)}</div>`:''}
+ <form id="ff"><label>Email<input name="email" type="email" required autocomplete="email"></label><br><button class="pri" style="width:100%">Send reset link</button></form>
+ <p class="sm"><button class="lnk" onclick="authView()">Back to login</button></p></div></div>`;
+ $('#ff').onsubmit=async e=>{e.preventDefault();const email=new FormData(e.target).get('email');
+  const{error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+  forgotView(error?error.message:'If that email is registered, a reset link is on its way. Check spam too.',!error)};
+}
+function resetView(msg=''){
+ $('#app').innerHTML=`<div class="auth wrap"><div class="brand">Auto-<span>D</span> Onsite Valuation</div>
+ <div class="card"><h2>Set a new password</h2>${msg?`<div class="msg">${esc(msg)}</div>`:''}
+ <form id="rf"><label>New password<input name="p1" type="password" minlength="8" required autocomplete="new-password"></label><br>
+ <label>Confirm password<input name="p2" type="password" minlength="8" required autocomplete="new-password"></label><br>
+ <button class="pri" style="width:100%">Update password</button></form></div></div>`;
+ $('#rf').onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
+  if(f.p1!==f.p2)return resetView('Passwords do not match.');
+  const{error}=await sb.auth.updateUser({password:f.p1});
+  if(error)return resetView(error.message);
+  S.recovery=false;await sb.auth.signOut();history.replaceState(null,'',location.pathname);
+  authView('login','Password updated. Log in with your new password.',true)};
+}
+async function boot(){
+ if(S.recovery)return resetView();
+ const{data:{session}}=await sb.auth.getSession();
+ if(!session)return authView();
+ S.user=session.user;
+ const{data}=await sb.from('valuation_officers').select('*').eq('id',S.user.id).maybeSingle();
+ if(!data){await sb.auth.signOut();return authView('login','This account is not registered as a valuation officer.')}
+ if(!data.active){await sb.auth.signOut();return authView('login','Your account is waiting for admin approval.')}
+ S.prof=data;if(!S.prof.signature){try{S.prof.signature=localStorage.getItem('sig_'+S.user.id)||''}catch(e){}}home();
+}
+const logout=async()=>{await sb.auth.signOut();S.val=null;authView()};
+const topbar=()=>`<div class="top noprint"><div class="brand">Auto-<span>D</span> Onsite</div><div class="sm">${esc(S.prof.full_name)}${S.prof.licence_no?' · '+esc(S.prof.licence_no):''} <button class="lnk" onclick="logout()">Log out</button></div></div>`;
+
+async function loadPrices(){const{data}=await sb.from('onsite_pricing').select('purpose,price,active');S.prices={};(data||[]).forEach(r=>S.prices[r.purpose]=r)}
+/* ---------- Home ---------- */
+async function home(){
+ await Promise.all([loadPrices(),loadForms(),loadClients()]);
+ S.val=null;
+ const first=PK.find(k=>!S.prices[k]||S.prices[k].active)||PK[0];
+ $('#app').innerHTML=topbar()+`<div class="wrap"><div class="card"><h2>New valuation</h2><div class="grid"><label>Client<select id="nc">${clientOpts()}</select>${clientHint()}</label><label>Service type<select id="np" onchange="npDesc()">${popts(first)}</select></label><div style="align-self:end"><button class="pri" onclick="newVal()">Start inspection</button></div></div><p class="sm" id="npd"></p></div>
+ ${clientCardHTML()}${billCardHTML()}${sigCardHTML()}<div class="card list"><h2>My valuations</h2><div id="lst" class="sm">Loading…</div></div></div><div id="bar" style="display:none"></div>`;
+ npDesc();sigInit();loadInvoices();
+ const{data,error}=await sb.from('onsite_valuations').select('*').eq('officer_id',S.user.id).order('updated_at',{ascending:false}).limit(50);
+ if(error)return $('#lst').textContent=error.message;
+ S.list=data.slice();
+ if(S.prof.can_sign&&S.prof.role==='senior_valuer'){const{data:q}=await sb.from('onsite_valuations').select('*').eq('status','submitted').neq('officer_id',S.user.id).order('updated_at');if(q&&q.length)S.list=[...q,...data]}
+ $('#lst').innerHTML=S.list.length?S.list.map((d,n)=>`<div class="row" onclick="openRow(${n})"><span>${esc(d.vehicle.make||'')} ${esc(d.vehicle.model||'')} ${esc(d.vehicle.plate||d.vehicle.chassis||'')}<br><span class="sm">${esc(d.ref)} · ${esc(pn(d.purpose))} · ${new Date(d.updated_at).toLocaleDateString('en-KE')}</span></span><span><span class="tag ${d.status}">${d.status}</span><br><b>${d.final_value?KES(d.final_value):''}</b>${payTag(d)}</span></div>`).join(''):'No valuations yet. Start one above.';
+}
+function npDesc(){const e=$('#np'),d=$('#npd');if(e&&d&&P[e.value])d.textContent=P[e.value].d}
+
+async function openRow(n){const d=S.list[n],lp=pc(d.purpose),inp=lp!==d.purpose?{...d.inputs,legacy_purpose:d.purpose}:d.inputs;
+ S.val={id:d.id,ref:d.ref,purpose:lp,status:d.status,vehicle:d.vehicle,inputs:inp,answers:d.answers,notes:d.notes,result:d.result,officer_id:d.officer_id,approved:d.approved_value,cert:d.certificate_number,review_note:d.review_note,approved_at:d.approved_at,reviewer_id:d.reviewer_id,client_id:d.client_id,pay:{status:d.payment_status,receipt:d.mpesa_receipt,fee:d.fee,invoice:d.invoice_id}};
+ if(d.invoice_id){try{const{data:iv}=await sb.from('onsite_invoices').select('number').eq('id',d.invoice_id).maybeSingle();if(iv)S.val.pay.invoice_no=iv.number}catch(e){}}
+ const ldo=async id=>{try{const{data:o}=await sb.from('valuation_officers').select('*').eq('id',id).maybeSingle();return o}catch(e){return null}};
+ if(d.status==='final'&&d.reviewer_id){const rv=d.reviewer_id===S.user.id?S.prof:await ldo(d.reviewer_id);if(rv){S.val.reviewer_name=rv.full_name;S.val.reviewer_sig=okSig(rv.signature)}}
+ if(d.officer_id){const of=d.officer_id===S.user.id?S.prof:await ldo(d.officer_id);if(of)S.val.officer_sig=okSig(of.signature)}
+ ['final','submitted','rejected'].includes(d.status)?reviewView():formView()}
+
+/* ---------- Service-specific forms (same config can be seeded in valuation_form_configs) ---------- */
+let PF_VER='pf-2.0';const ENGINE='onsite-2.2';
+const PFT={t:'text',n:'number',d:'date',x:'textarea',s:'select'};
+const PFD={
+"PRE_INSURANCE":["in_insurer|Insurance company|t|R","in_holder|Proposer / policyholder|t|R","in_status|Cover status|s|R|New cover,Renewal","in_policy|Policy number (renewals)|t|O","in_type|Insurance type|s|R|Comprehensive,Third party fire and theft,Third party only","in_basis|Value basis|s|R|Agreed value,Market value,Replacement cost","in_prev|Previous insurer and claims history|x|O","in_mods|Accessories and modifications|x|O","in_evidence|Replacement-cost evidence|x|O"],
+"TECHNICAL_BRIEF":["tb_requester|Requested by|t|R","tb_question|Question put in the brief|x|R","tb_scope|Scope of inspection and limits|x|R","tb_docs|Documents supplied|x|O","tb_opinion|Technical opinion and reasoning|x|R"],
+"FULL_MECHANICAL":["fm_class|Vehicle class|s|R|Commercial vehicle (truck, bus, PSV),Light commercial (van, pickup),Small private vehicle,Motorcycle or three-wheeler,Other","fm_hours|Hour meter reading (if fitted)|n|O","fm_body|Body, hydraulics or special equipment|x|O","fm_tests|Mechanical tests performed (scan tool, compression, lift, road test)|x|R","fm_findings|Mechanical findings|x|R","fm_repairs|Recommended repairs|x|O","fm_cost|Estimated repair cost (KES)|n|O","fm_road|Roadworthiness opinion|s|R|Roadworthy,Roadworthy after repairs,Not roadworthy"],
+"ACCIDENT":["cl_insurer|Insurer (if any)|t|O","cl_policy|Policy number|t|O","cl_claim|Claim number|t|O","cl_date|Accident date|d|R","cl_place|Accident location|t|R","cl_desc|Accident description|x|R","cl_precond|Pre-accident vehicle condition|x|R","cl_damage|Damage description|x|R","cl_prev|Previous repairs|x|O","cl_instr|Relevant policy instructions|x|O"],
+"PRE_LOSS":["pl_event|Loss event|s|R|Theft,Fire,Theft and fire,Other","pl_date|Date of loss|d|R","pl_place|Location of loss|t|R","pl_report|Police abstract or fire report number|t|R","pl_insurer|Insurer (if any)|t|O","pl_policy|Policy number|t|O","pl_inspect_basis|Basis of assessment|s|R|Vehicle inspected after loss,Remains inspected,Vehicle not available: records only","pl_precond|Last known pre-loss condition and evidence|x|R","pl_mods|Accessories and modifications|x|O"],
+"COMPONENT":["co_requester|Requested by|t|R","co_reason|Reason for inspection|x|R","co_list|Components inspected|x|R","co_standard|Standard or specification applied|x|O","co_findings|Findings per component|x|R","co_verdict|Overall verdict|s|R|Serviceable,Repairable,Replace,Inconclusive","co_recommend|Recommendation|x|R","co_cost|Estimated repair or replacement cost (KES)|n|O"],
+"NON_STANDARD":["ns_requester|Requested by|t|R","ns_type|Type of inspection|t|R","ns_scope|Scope agreed with the client|x|R","ns_method|Methods, tools and standards used|x|R","ns_findings|Findings|x|R","ns_limits|Limitations|x|R","ns_conclusion|Conclusion|x|R"],
+"BANK":["bk_bank|Bank or financial institution|t|R","bk_branch|Branch|t|O","bk_applicant|Loan applicant|t|R","bk_ref|Account or loan reference|t|R","bk_facility|Facility type|s|R|Asset finance,Logbook loan,Overdraft security,Other","bk_amount|Requested loan amount (KES)|n|O","bk_encumb|Existing encumbrances|x|R","bk_liquidity|Liquidity and resale considerations|x|R"],
+"SALE":["sa_seller|Seller name|t|R","sa_buyer|Buyer name (if known)|t|O","sa_place|Intended selling location|t|O","sa_time|Intended selling timeframe|s|O|Under 2 weeks,2 to 4 weeks,1 to 3 months,Over 3 months","sa_dealer|Dealer or retail evidence|x|O","sa_terms|Negotiable selling conditions|x|O"],
+"AUCTION":["au_house|Auction house|t|R","au_ref|Auction reference|t|R","au_seller|Seller|t|R","au_date|Auction date|d|R","au_place|Sale location|t|O","au_format|Sale format|s|R|Physical,Online,Hybrid,Sealed bid","au_reserve|Reserve price (KES)|n|O","au_defects|Known defects|x|O","au_limits|Inspection limitations|x|O","au_costs|Estimated sale costs (KES)|n|O","au_time|Time constraints|x|O"],
+"COURT":["lg_type|Matter type|s|R|Court proceedings,Court bond,Succession,Other","lg_firm|Instructing law firm|t|O","lg_advocate|Advocate or instructing party|t|R","lg_case|Case or bond number|t|R","lg_court|Court or tribunal|t|O","lg_matter|Matter description|x|R","lg_valdate|Relevant valuation date|d|R","lg_question|Question requiring expert opinion|x|R","lg_docs|Documents supplied|x|R","lg_assume|Assumptions and limitations|x|R","lg_opinion|Expert opinion and supporting reasoning|x|R"],
+"DISPUTE":["ds_party|Party instructing|t|R","ds_other|Other party|t|O","ds_ref|Dispute reference|t|R","ds_forum|Forum|s|R|Negotiation,Mediation,Arbitration,Tribunal,Court,Other","ds_positions|Values or positions claimed by each party|x|R","ds_valdate|Valuation date|d|R","ds_docs|Documents supplied by each party|x|R","ds_assume|Assumptions and limitations|x|R","ds_opinion|Independent opinion and reasoning|x|R"],
+"FLEET":["fl_org|Organisation|t|R","fl_ref|Fleet reference|t|R","fl_dept|Department|t|O","fl_asset|Asset number|t|R","fl_acqdate|Vehicle acquisition date|d|R","fl_acqprice|Acquisition price (KES)|n|R","fl_book|Book value (KES), if supplied|n|O","fl_accdep|Accumulated depreciation (KES), if supplied|n|O","fl_maint|Maintenance history|x|O","fl_disposal|Disposal requirements|x|O"]};
+const PF={};
+Object.entries(PFD).forEach(([k,a])=>PF[k]=a.map(s=>{const[c,l,t,r,o]=s.split('|');return{c,l,t:PFT[t],r:r==='R',o:o?o.split(','):null}}));
+async function loadForms(){
+ const{data}=await sb.from('valuation_form_configs').select('*').eq('is_active',true).order('sort_order');
+ if(!data||!data.length)return;
+ const nf={};data.forEach(r=>(nf[r.purpose_code]=nf[r.purpose_code]||[]).push({c:r.field_code,l:r.field_label,t:r.field_type,r:r.is_required,o:r.options}));
+ Object.keys(nf).forEach(k=>{if(P[k])PF[k]=nf[k]});
+}
+const pfMissing=v=>(PF[v.purpose]||[]).filter(f=>f.r&&!String(v.inputs[f.c]??'').trim()).map(f=>f.l);
+function pfField(f){const k='i.'+f.c,l=esc(f.l)+(f.r?' *':'');
+ if(f.t==='select')return F(k,l,f.o||[]);
+ if(f.t==='textarea')return`<label style="grid-column:1/-1">${l}<textarea data-k="${k}" rows="2">${esc(get(k))}</textarea></label>`;
+ return F(k,l,f.t==='text'?'':f.t)}
+function pfCard(v){
+ const sw=v.status==='correction_required'?'':`<label>Service type<select onchange="chgPurpose(this.value)">${popts(v.purpose)}</select></label>`;
+ return`<div class="card"><h2>${esc(P[v.purpose].n)}: details</h2><p class="sm">${esc(P[v.purpose].d)}</p><div class="grid">${sw}${(PF[v.purpose]||[]).map(pfField).join('')}</div><p class="sm">Fields marked * are required before submission. Details entered for another service type are kept, not deleted.</p></div>`}
+function chgPurpose(np){
+ const v=S.val;if(np===v.purpose)return;
+ if(!confirm(`Change service type to "${P[np].n}"? Details specific to "${P[v.purpose].n}" are kept but hidden. The required checks, calculation method and fee will change.`)){formView();return}
+ if(num(v.inputs.hc)===P[v.purpose].hc)v.inputs.hc=P[np].hc;
+ v.inputs.purpose_changes=[...(v.inputs.purpose_changes||[]),{from:v.purpose,to:np,at:new Date().toISOString()}];
+ v.purpose=np;v.inputs.fee=(S.prices[np]||{}).price??null;formView()}
+function pfReport(v){
+ const fs=(PF[v.purpose]||[]).filter(f=>String(v.inputs[f.c]??'').trim());if(!fs.length)return'';
+ return`<h3 style="margin-top:14px">${esc(P[v.purpose].n)}: details</h3>`+fs.map(f=>`<div class="row"><span>${esc(f.l)}</span><b style="white-space:normal;text-align:right">${esc(v.inputs[f.c])}</b></div>`).join('')+`<div class="sm">Form configuration ${esc(v.inputs.form_version||'-')}</div>`}
+/* ---------- Form ---------- */
+function F(k,l,o){
+ const val=get(k);
+ if(Array.isArray(o))return`<label>${l}<select data-k="${k}"><option value=""></option>${(val&&!o.includes(val)?[...o,val]:o).map(x=>`<option${x===val?' selected':''}>${esc(x)}</option>`).join('')}</select></label>`;
+ return`<label>${l}<input data-k="${k}" type="${o||'text'}" ${o==='number'?'step="any" inputmode="decimal"':''} value="${esc(val)}"></label>`;
+}
+function formView(){
+ const v=S.val,p=P[v.purpose],has=k=>p.adj.split(' ').includes(k);
+ if(cashUnpaid(v))return payGateView();
+ const row=t=>{const a=v.answers[t.code]||'',L=lvl(t,v.purpose);
+  return`<div class="it"><div>${esc(t.label)} ${L==='R'?'<span class="rq">required</span>':''}</div><select class="st ${a}" data-k="a.${t.code}"><option value="">Not checked</option><option value="ok"${a==='ok'?' selected':''}>OK</option><option value="issue"${a==='issue'?' selected':''}>Minor issue</option><option value="major"${a==='major'?' selected':''}>Major defect</option><option value="na"${a==='na'?' selected':''}>N/A</option></select><input data-k="n.${t.code}" placeholder="Note" value="${esc(v.notes[t.code]||'')}"></div>`};
+ const pricing=p.noval?'':`<div class="card"><h2>Pricing inputs</h2>
+ <label>KRA CRSP match (from the database, used as a reference)<select id="crspSel"><option value="">Enter make and model first</option></select></label><p class="sm" id="crspMsg"></p><div class="grid">
+ ${F('i.crsp','CRSP value (KES), from the current KRA list','number')}
+ ${F('i.manual','Base value if no comparables (KES)','number')}
+ ${has('dep')?F('i.dep','Depreciation % (KRA schedule or book)','number'):''}
+ ${has('cond')?F('i.cond','Condition grade',['Excellent','Good','Fair','Poor']):''}
+ ${has('dem')?F('i.dem','Market demand',['High','Normal','Low']):''}
+ ${has('acc')?F('i.acc','Accessories value (KES)','number'):''}
+ ${has('acd')?F('i.acd',v.purpose==='PRE_LOSS'?'Previous damage / repair deduction %':'Accident / repair deduction %','number'):''}
+ ${v.purpose==='ACCIDENT'?F('i.repair','Repair estimate (KES)','number')+F('i.salvage','Salvage value (KES)','number'):''}
+ ${p.hc||p.hcopt?F('i.hc','Forced-sale haircut %','number')+F('i.hc_basis','Basis for haircut (marketing period, conditions)'):''}
+ </div>
+ <label style="margin-top:10px">Market comparables (KES, one per line, same make, model and year range)<textarea data-k="i.comps" rows="4">${esc(v.inputs.comps||'')}</textarea></label><p class="sm">Median of comparables is the base. With 5 or more, the highest and lowest are dropped. If none are entered, the manual base is used, then the CRSP value (low confidence). Verify CRSP against the current KRA schedule.</p>
+ <p class="sm" id="hint"></p></div>`;
+ const note=v.purpose==='PRE_LOSS'?'<div class="msg info">The vehicle may not be available for inspection. Record what you could see and rely on the pre-loss evidence documents. If it was not inspected, say so in the basis of assessment.</div>':p.noval?'<div class="msg info">This service produces findings only. No monetary value is calculated.</div>':'';
+ $('#app').innerHTML=topbar()+`<div class="wrap">
+ <button class="lnk noprint" onclick="home()">Back to list</button>
+ ${v.review_note&&v.id?`<div class="msg">Reviewer note: ${esc(v.review_note)}</div>`:''}<h1>${esc(p.n)}</h1><div class="sm">${v.ref?esc(v.ref):'New valuation'} · ${p.noval?'Inspection report (no valuation)':'Reference: market comparables, KRA CRSP as cross-check'}</div>${note}
+ <div class="card"><h2>Assignment</h2><div class="grid">${F('i.client','Client / instructing party')}${F('i.use','Intended use and users')}${F('i.instr_ref','Instruction reference')}${F('i.conflict','Independence declaration',['No conflict of interest','Conflict declared (see notes)'])}</div></div>
+ ${payCardHTML(v)}${pfCard(v)}<div class="card"><h2>Vehicle</h2><div class="grid">
+ <label>Make<input data-k="v.make" list="dl-make" autocomplete="off" value="${esc(get('v.make'))}"></label><label>Model<input data-k="v.model" list="dl-model" autocomplete="off" value="${esc(get('v.model'))}"></label><datalist id="dl-make"></datalist><datalist id="dl-model"></datalist>${F('v.variant','Variant / trim')}${F('v.chassis','Chassis / VIN')}${F('v.engine_no','Engine number')}${F('v.plate','Plate number')}
+ ${F('v.yom','Year of manufacture','number')}${F('v.reg_year','Year of first registration','number')}${F('v.cc','Engine cc','number')}
+ ${F('v.fuel','Fuel',['Petrol','Diesel','Hybrid','Electric'])}${F('v.trans','Transmission',['Manual','Automatic','CVT'])}${F('v.drive','Drivetrain',['2WD','4WD','AWD'])}
+ ${F('v.origin','Import status',['Japan import','UK used','Locally assembled','Other'])}${F('v.colour','Colour')}${F('v.owner','Owner / requester')}
+ ${F('v.mileage','Odometer (km)','number')}${F('v.usage','Usage type',['Private','Commercial','Taxi','Rental','Fleet'])}${F('i.date',p.noval?'Inspection date':'Valuation date','date')}
+ </div><p><button class="noprint" onclick="geo()">Capture location</button> <span class="sm" id="geo">${esc(v.inputs.location||'')}</span></p></div>
+ ${pricing}
+ ${SECS.map(([s,items])=>{const rows=items.filter(t=>{const L=lvl({2:t[2]},v.purpose);return L!=='-'&&(!p.lean||L==='R')}).map(t=>row({code:t[0],label:t[1],lv:t[2]}));return rows.length?`<div class="card"><h2>${s}</h2>${rows.join('')}</div>`:''}).join('')}
+ <div class="card"><h2>Photos and notes</h2><input id="ph" type="file" accept="image/*" capture="environment" multiple>
+ <p><button onclick="upl()">Upload photos</button> <span class="sm" id="pc">${(v.inputs.photos||[]).length} uploaded</span></p>
+ <label>Valuer notes, assumptions and limiting conditions<textarea data-k="i.remarks" rows="3">${esc(v.inputs.remarks||'')}</textarea></label></div></div><div id="bar"></div>`;
+ recalc();initCrsp();
+}
+document.addEventListener('input',e=>{
+ const k=e.target.dataset&&e.target.dataset.k;if(!k||!S.val)return;
+ const[a,b]=k.split('.');S.val[M[a]][b]=e.target.value;
+ if(a==='a')e.target.className='st '+e.target.value;
+ if(k==='v.make')loadModels();
+ if(k==='v.model'||k==='v.make'||k==='v.yom')loadCrsp();
+ recalc();
+});
+/* ---------- CRSP lookup: vehicle_makes, vehicle_models, vehicle_crsp ---------- */
+const clean=x=>String(x||'').trim().replace(/[%_,()]/g,'');
+let crspT=null,crspRows=[];
+const dl=(id,arr)=>{const e=document.getElementById(id);if(e)e.innerHTML=arr.map(x=>`<option value="${esc(x)}">`).join('')};
+async function initCrsp(){
+ if(!S.makes){const{data}=await sb.from('vehicle_makes').select('id,make').or('active.is.null,active.eq.true').order('make');S.makes=data||[]}
+ if(!S.val)return;
+ dl('dl-make',S.makes.map(m=>m.make));loadModels();doCrsp();
+}
+async function loadModels(){
+ if(!S.val||!S.makes)return;
+ const name=clean(get('v.make')).toLowerCase(),mk=S.makes.find(m=>String(m.make).toLowerCase()===name);
+ if(!mk)return dl('dl-model',[]);
+ S.models=S.models||{};S.mkey=mk.id;
+ if(!S.models[mk.id]){const{data}=await sb.from('vehicle_models').select('name').eq('make_id',mk.id).or('active.is.null,active.eq.true').order('name');S.models[mk.id]=(data||[]).map(x=>x.name)}
+ if(S.mkey!==mk.id||!S.val)return;
+ dl('dl-model',S.models[mk.id]);
+}
+function loadCrsp(){clearTimeout(crspT);crspT=setTimeout(doCrsp,350)}
+async function doCrsp(){
+ const sel=document.getElementById('crspSel'),msg=document.getElementById('crspMsg');if(!sel||!S.val)return;
+ const mk=clean(get('v.make')),md=clean(get('v.model'));
+ if(!mk||!md){sel.innerHTML='<option value="">Enter make and model first</option>';crspRows=[];msg.textContent='';S.cseq=(S.cseq||0)+1;return}
+ const seq=S.cseq=(S.cseq||0)+1;msg.textContent='Searching CRSP…';
+ const{data,error}=await sb.from('vehicle_crsp').select('crsp_id,make,model,trim_level,manufacture_year,engine_capacity_cc,fuel,transmission,drive_config,crsp_kes,crsp_reference_year,crsp_status').ilike('make',mk).ilike('model',md).order('manufacture_year',{ascending:false}).limit(300);
+ if(seq!==S.cseq||!S.val||!document.getElementById('crspSel'))return;
+ if(error){msg.textContent='Could not read CRSP data: '+error.message;return}
+ const yom=num(get('v.yom')),rows=data||[],yr=yom?rows.filter(r=>r.manufacture_year===yom):rows;
+ crspRows=yr.length?yr:rows;
+ msg.textContent=!rows.length?'No CRSP record for this make and model. Check the spelling, or type the value manually below.':(yom&&!yr.length?`No CRSP record for ${yom}; showing all years.`:`${crspRows.length} CRSP record(s) found.`);
+ const cur=String(get('i.crsp_id'));
+ sel.innerHTML='<option value="">Choose the matching variant…</option>'+crspRows.map((r,n)=>`<option value="${n}"${String(r.crsp_id)===cur?' selected':''}>${esc([r.manufacture_year,r.trim_level,r.engine_capacity_cc&&r.engine_capacity_cc+'cc',r.fuel,r.transmission,r.drive_config].filter(Boolean).join(' · '))} — ${KES(r.crsp_kes)}</option>`).join('');
+}
+document.addEventListener('change',e=>{if(e.target.id==='crspSel'&&e.target.value!=='')applyCrsp(crspRows[+e.target.value])});
+function applyCrsp(r){
+ if(!r)return;
+ const v=S.val.vehicle,i=S.val.inputs;
+ v.variant=r.trim_level||v.variant;v.cc=r.engine_capacity_cc||v.cc;v.fuel=r.fuel||v.fuel;v.trans=r.transmission||v.trans;v.drive=r.drive_config||v.drive;v.yom=v.yom||r.manufacture_year;
+ i.crsp=String(r.crsp_kes);i.crsp_db=String(r.crsp_kes);i.crsp_id=r.crsp_id;i.crsp_ref=r.crsp_reference_year;
+ const y=scrollY;formView();scrollTo(0,y);toast('CRSP value applied');
+}
+function geo(){navigator.geolocation.getCurrentPosition(pos=>{const c=pos.coords,l=`${c.latitude.toFixed(5)}, ${c.longitude.toFixed(5)} (±${Math.round(c.accuracy)} m)`;
+ S.val.inputs.location=l;S.val.inputs.geo={lat:c.latitude,lng:c.longitude,acc:Math.round(c.accuracy),ts:new Date(pos.timestamp).toISOString()};
+ if(c.accuracy>100){toast('GPS accuracy is poor (±'+Math.round(c.accuracy)+' m). Move to open sky and retry.');delete S.val.answers.geo}else S.val.answers.geo='ok';
+ const y=scrollY;formView();scrollTo(0,y)},()=>toast('Location not available'),{enableHighAccuracy:true,timeout:15000})}
+async function ensureSaved(){if(!S.val.id){const savedId=await save(false,true);if(!savedId)return null}return S.val.id||null}
+function shrink(f){return new Promise(res=>{const im=new Image();im.onload=()=>{const k=Math.min(1,1600/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);c.toBlob(b=>res(b||f),'image/jpeg',.82)};im.onerror=()=>res(f);im.src=URL.createObjectURL(f)})}
+async function upl(){
+ const fs=[...$('#ph').files];if(!fs.length)return toast('Choose photos first');
+ if(fs.some(f=>!/^image\//.test(f.type)))return toast('Only image files are allowed');
+ if(fs.some(f=>f.size>15e6))return toast('Each photo must be under 15 MB');
+ if(((S.val.inputs.photos||[]).length)+fs.length>40)return toast('Maximum 40 photos per valuation');
+ if(!await ensureSaved())return;
+ const v=S.val;v.inputs.photos=v.inputs.photos||[];
+ for(const f of fs){const path=`${S.user.id}/${v.id}/${Date.now()}_${f.name.replace(/[^\w.]/g,'_').replace(/\.\w+$/,'')}.jpg`;
+  const{error}=await sb.storage.from('valuation-photos').upload(path,await shrink(f),{contentType:'image/jpeg'});
+  if(error)return toast(error.message);v.inputs.photos.push(path)}
+ $('#pc').textContent=v.inputs.photos.length+' uploaded';await save(false,true);toast('Photos uploaded');
+}
+
+/* Turn raw database errors into something an officer can act on */
+function friendlyErr(e){
+ const m=String((e&&e.message)||e||'Unknown error');
+ if(/row-level security|not active|permission denied/i.test(m))
+  return 'Saving was blocked by database security.\n\nSigned in as: '+((S.user&&S.user.email)||'unknown')+'\nOfficer id: '+((S.user&&S.user.id)||'none')+'\n\nAsk an admin to confirm your officer account is active and that the onsite_valuations policies allow this action.\n\nTechnical detail: '+m;
+ if(/violates check constraint/i.test(m))return 'A field has a value the database does not accept ('+m+').';
+ if(/JWT/i.test(m))return 'Your session has expired. Please log in again.\n\nDetail: '+m+'\nDevice time: '+new Date().toISOString();
+ return m}
+/* Re-check the live session before writing so we never send an anonymous request */
+async function liveUser(){
+ let{data:{session}}=await sb.auth.getSession();
+ if(!session){try{const rr=await sb.auth.refreshSession();session=rr.data&&rr.data.session}catch(e){}}
+ if(!session){alert('Your session has expired. Please log in again.\n\nDetail: no session found in this browser.\nAuth events: '+((S.authLog||[]).join(', ')||'none')+'\nDevice time: '+new Date().toISOString());await sb.auth.signOut();authView();return null}
+ if(!S.user||S.user.id!==session.user.id)S.user=session.user;
+ return session.user}
+async function save(fin,quiet){
+ const v=S.val,r=S.r=calc(v);
+ if(fin&&cashUnpaid(v))return alert('Payment must be confirmed before this valuation can be submitted.');
+ if(fin&&(r.stops.length||r.missing.length||r.pfMissing.length))return alert(r.stops.length?r.stops.join('\n'):r.pfMissing.length?'Complete the required details: '+r.pfMissing.join(', '):`Answer all required checks first (${r.missing.length} left).`);
+ if(fin){const need=[['client','client / instructing party'],['use','intended use'],['conflict','independence declaration']].filter(([k])=>!String(v.inputs[k]||'').trim()).map(x=>x[1]);if(need.length)return alert('Complete before finalising: '+need.join(', ')+'.')}
+ if(fin&&!confirm('Submit for senior review? You cannot edit it while it is under review.'))return;
+ v.inputs.officer_name=v.inputs.officer_name||S.prof.full_name;v.inputs.form_version=v.inputs.form_version||PF_VER;v.inputs.officer_licence=v.inputs.officer_licence??(S.prof.licence_no||'');
+ const usr=await liveUser();if(!usr)return;
+ const body={client_id:v.client_id||null,purpose:v.purpose,vehicle:v.vehicle,inputs:v.inputs,answers:v.answers,notes:v.notes,result:r,final_value:Math.round(r.final),range_low:null,range_high:null,confidence:null};
+ let data=null,error=null;
+ if(!v.id){
+  /* New record: plain INSERT (no ON CONFLICT path, so only the INSERT policy applies) */
+  const res=await sb.from('onsite_valuations').insert({...body,officer_id:usr.id,status:'draft'}).select().single();
+  data=res.data;error=res.error;
+ }else{
+  /* Existing record: UPDATE only the editable fields. Never touch officer_id; only reopen a returned report as a draft. */
+  const patch={...body};if(v.status==='correction_required')patch.status='draft';
+  const res=await sb.from('onsite_valuations').update(patch).eq('id',v.id).select();
+  error=res.error;data=res.data&&res.data[0];
+  if(!error&&!data)error={message:'Update blocked by row-level security: this record is not editable by your account in its current status ('+v.status+').'};
+ }
+ if(error)return alert(friendlyErr(error));
+ v.id=data.id;v.ref=data.ref;v.status=data.status;v.pay={status:data.payment_status,receipt:data.mpesa_receipt,fee:data.fee,invoice:data.invoice_id};
+ if(fin){const{error:e2}=await sb.rpc('submit_valuation',{p_id:v.id});if(e2)return alert(friendlyErr(e2));toast('Submitted for review');return home()}
+ if(!quiet)toast('Draft saved');return v.id;
+}
+
+/* ---------- Report ---------- */
+/* ---------- Professional certificate (page 1 of the printed report) ---------- */
+const ONES=['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'],TENS=['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+const w999=n=>{let s='';if(n>=100){s+=ONES[Math.floor(n/100)]+' hundred';n%=100;if(n)s+=' and '}if(n>=20)s+=TENS[Math.floor(n/10)]+(n%10?'-'+ONES[n%10]:'');else if(n||!s)s+=ONES[n];return s};
+function kesWords(n){n=Math.round(n);if(!n)return'';const b=Math.floor(n/1e9),m=Math.floor(n/1e6)%1000,t=Math.floor(n/1e3)%1000,r=n%1000,parts=[];
+ if(b)parts.push(w999(b)+' billion');if(m)parts.push(w999(m)+' million');if(t)parts.push(w999(t)+' thousand');if(r)parts.push(w999(r));
+ let s=parts.join(', ');if(r&&r<100&&parts.length>1)s=parts.slice(0,-1).join(', ')+' and '+parts[parts.length-1];
+ return s.charAt(0).toUpperCase()+s.slice(1)+' Kenya Shillings only'}
+const logoSvg=(s,at='')=>`<svg ${at} width="${s}" height="${s}" viewBox="0 0 46 46"><rect width="46" height="46" rx="10" fill="#eab308"/><text x="23" y="21" font-size="19" font-family="Georgia,serif" font-weight="700" text-anchor="middle" fill="#0f172a">D</text><path d="M13 38 A11 11 0 0 1 33 38" fill="none" stroke="#0f172a" stroke-width="2.4" stroke-linecap="round"/><line x1="23" y1="38" x2="29" y2="31" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/><circle cx="23" cy="38" r="1.6" fill="#0f172a"/></svg>`;
+const sealSvg=()=>{const pts=[];for(let k=0;k<56;k++){const a=Math.PI*k/28,rr=k%2?34:38;pts.push((rr*Math.cos(a)).toFixed(1)+','+(rr*Math.sin(a)).toFixed(1))}
+ return`<svg viewBox="-40 -40 80 80" width="96" height="96"><polygon points="${pts.join(' ')}" fill="#c9a227"/><circle r="31" fill="#0f172a"/><circle r="27" fill="none" stroke="#eab308" stroke-width=".8"/><text y="-14" text-anchor="middle" font-size="5.4" font-weight="800" fill="#eab308" letter-spacing="1.2">CERTIFIED</text>${logoSvg(20,'x="-10" y="-10"')}<text y="21" text-anchor="middle" font-size="5.4" font-weight="800" fill="#eab308" letter-spacing="1.2">VALUATION</text></svg>`};
+const sigSvg=()=>`<svg viewBox="-8 -4 160 58" width="150" height="54"><path d="M0 40 C6 4 18 -2 22 24 C24 38 30 42 33 26 C36 8 44 4 48 30 C50 42 58 44 62 34 C68 18 78 20 84 36 C88 46 98 44 108 32 C116 22 124 24 132 34" fill="none" stroke="#1e2f7a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M-6 48 C40 53 90 45 150 51" fill="none" stroke="#1e2f7a" stroke-width="1.2" stroke-linecap="round"/></svg>`;
+const qrSvg=t=>{try{if(typeof qrcode==='undefined')return'';const q=qrcode(0,'M');q.addData(t);q.make();return q.createSvgTag(3,0)}catch(e){return''}};
+function certHTML(v,r){
+ const p=P[v.purpose],i=v.inputs,ve=v.vehicle,nv=!!p.noval,amt=Math.round(v.approved??r.final);
+ const fd=d=>d?new Date(d).toLocaleDateString('en-KE',{day:'numeric',month:'long',year:'numeric'}):'-';
+ const valid=p.days&&i.date?fd(new Date(new Date(i.date).getTime()+p.days*864e5)):'';
+ const g=(l,x,full)=>`<div${full?' class="full"':''}><small>${l}</small><b>${esc(x||'-')}</b></div>`;
+ const nm=v.reviewer_name||'',issued=fd(v.approved_at||Date.now());
+ const qrT=[v.cert,v.ref,nv?'inspection':'KES '+amt,i.date].join('|');
+ return`<div class="cert"><div class="hd"><div class="bn">${logoSvg(46)}<div><div class="nm">Auto-D</div><div class="tg">VEHICLE VALUATION SERVICES</div></div></div>
+ <div class="cn"><small>CERTIFICATE NUMBER</small><b>${esc(v.cert||'')}</b><span>${esc(p.n)}</span></div></div>
+ <div class="bd"><h1>${nv?'CERTIFICATE OF INSPECTION':'CERTIFICATE OF VALUATION'}</h1><div class="orn"></div>
+ <div class="stmt">${nv?`This is to certify that the motor vehicle described below was inspected on ${esc(fd(i.date))} and that the findings are recorded in the schedule overleaf.`:`This is to certify that the motor vehicle described below was inspected on ${esc(fd(i.date))} and that, in the opinion of the valuer, its value as at that date was as stated.`}</div>
+ <div class="val">${nv?`<div class="l">INSPECTION COMPLETED</div><div class="a" style="font-size:30px">Findings recorded</div><div class="m">${r.score!=null?'Condition score '+r.score+' / 100 · ':''}Report date ${esc(fd(v.approved_at||Date.now()))}</div>`
+ :`<div class="l">${r.forced?(v.purpose==='AUCTION'?'ESTIMATED FORCED-SALE PROCEEDS':'ASSESSED FORCED-SALE VALUE'):'ASSESSED MARKET VALUE'}</div><div class="a">${KES(amt)}</div><div class="w">${esc(kesWords(amt))}</div><div class="m">${r.forced&&v.purpose!=='AUCTION'?'Market value '+KES(r.market)+' · ':''}${valid?'Valid until '+esc(valid)+' · ':''}Valuation date ${esc(fd(i.date))} · Report date ${esc(fd(v.approved_at||Date.now()))}</div>`}</div>
+ <div class="sh">VEHICLE</div><div class="g">${g('Make / model / variant',[ve.make,ve.model,ve.variant].filter(Boolean).join(' '),1)}${g('Registration plate',ve.plate)}${g('Chassis / VIN',ve.chassis)}${g('Engine number',ve.engine_no)}${g('Year / registered',[ve.yom,ve.reg_year].filter(Boolean).join(' / '))}${g('Engine and fuel',[ve.cc&&ve.cc+'cc',ve.fuel].filter(Boolean).join(', '))}${g('Transmission / drive',[ve.trans,ve.drive].filter(Boolean).join(', '))}${g('Odometer',ve.mileage&&Number(ve.mileage).toLocaleString()+' km')}${g('Origin',ve.origin)}${g('Usage',ve.usage)}${g('Colour',ve.colour)}${g('Owner / requester',ve.owner)}</div>
+ <div class="sh">INSTRUCTION</div><div class="g">${g('Client / instructing party',i.client)}${g('Intended use and users',i.use)}${g('Instruction reference',i.instr_ref)}${g('Independence declaration',i.conflict)}</div>
+ ${(()=>{const pr=payRef(v);if(!pr)return'';const f=pr.fee!=null?KES(pr.fee):'-';return`<div class="sh">PAYMENT</div><div class="g">${pr.mode==='credit'?g('Payment basis','Credit account (invoiced)')+g('Invoice reference',pr.ref)+g('Fee',f):g('Payment method','M-Pesa')+g('M-Pesa confirmation no.',pr.ref)+g('Amount paid',f)+g('Account reference',v.ref)}</div>`})()}
+ <div class="sg"><div><div class="sig">${v.reviewer_sig?sigImgTag(v.reviewer_sig):nm?`<span class="sigtxt">${esc(nm)}</span>`:sigSvg()}</div><div class="ln">${nm?esc(nm):'Authorised signatory'}<div class="sm2">Electronically signed · ${esc(issued)}</div>${v.officer_sig?`<div class="isig">${sigImgTag(v.officer_sig)}</div>`:''}<div class="sm2">Inspecting valuer: ${esc(i.officer_name||'')}${i.officer_licence?' (licence '+esc(i.officer_licence)+')':''}</div></div></div>
+ <div style="text-align:center">${sealSvg()}</div>
+ <div class="qr"><div>Scan to read the<br>certificate details<br><b style="color:#0f172a">${esc(v.cert||'')}</b></div>${qrSvg(qrT)}</div></div>
+ <div class="fine">${nv?'This certificate records findings within the agreed scope as at the inspection date.':'This certificate is a professional opinion of value as at the valuation date. It is not a guarantee of sale price.'} See the schedule overleaf for the calculation, qualifications and assumptions on which it relies.</div></div></div>`}
+/* ---------- Signature + sharing ---------- */
+function okSig(s){return typeof s==='string'&&/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(s)?s:''}
+function sigImgTag(s){s=okSig(s);return s?`<img class="sigimg" src="${s}" alt="Signature">`:''}
+function sigCardHTML(){const s=okSig(S.prof.signature);
+ return`<div class="card"><h2>My signature</h2><div class="sm">Your signature appears on certificates you approve and on reports you inspect.</div>
+ ${s?`<div class="sigprev"><img src="${s}" alt="My signature"></div>`:'<div class="sm" style="margin-top:6px">No signature saved yet.</div>'}
+ <details class="sgc" id="sgd"><summary>${s?'Change signature':'Add signature'}</summary>
+ <canvas class="sigpad" id="sgc"></canvas>
+ <div><button onclick="sigClear()">Clear</button> <button class="pri" onclick="sigSaveDrawn()">Save drawn signature</button></div>
+ <p class="sm">Or upload a photo or scan of your signature (PNG or JPG, ideally on a white background):</p>
+ <input type="file" id="sgf" accept="image/png,image/jpeg" onchange="sigUpload(this)"></details></div>`}
+function sigInit(){const d=$('#sgd'),c=$('#sgc');if(!d||!c)return;
+ const fit=()=>{const w=c.clientWidth||600;if(c.width!==w*2){c.width=w*2;c.height=300}const x=c.getContext('2d');x.lineWidth=4;x.lineCap='round';x.lineJoin='round';x.strokeStyle='#1e2f7a'};
+ d.addEventListener('toggle',()=>{if(d.open)fit()});
+ let on=false,dirty=false;const pos=e=>{const r=c.getBoundingClientRect();return[(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height]};
+ c.onpointerdown=e=>{on=true;c.setPointerCapture(e.pointerId);const x=c.getContext('2d'),[a,b]=pos(e);x.beginPath();x.moveTo(a,b);x.lineTo(a+.1,b+.1);x.stroke();c._d=1;e.preventDefault()};
+ c.onpointermove=e=>{if(!on)return;const x=c.getContext('2d'),[a,b]=pos(e);x.lineTo(a,b);x.stroke();e.preventDefault()};
+ c.onpointerup=c.onpointercancel=()=>{on=false}}
+function sigClear(){const c=$('#sgc');if(!c)return;c.getContext('2d').clearRect(0,0,c.width,c.height);c._d=0}
+async function sigSaveDrawn(){const c=$('#sgc');if(!c||!c._d)return alert('Draw your signature first.');
+ const t=document.createElement('canvas');t.width=c.width/2;t.height=c.height/2;t.getContext('2d').drawImage(c,0,0,t.width,t.height);
+ await sigSave(t.toDataURL('image/png'))}
+function sigUpload(inp){const f=inp.files&&inp.files[0];if(!f)return;
+ if(!/^image\/(png|jpeg)$/.test(f.type))return alert('Please choose a PNG or JPG image.');
+ const rd=new FileReader();rd.onload=()=>{const im=new Image();im.onload=()=>{const k=Math.min(1,500/im.width,180/im.height),t=document.createElement('canvas');t.width=Math.round(im.width*k);t.height=Math.round(im.height*k);const x=t.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,t.width,t.height);x.drawImage(im,0,0,t.width,t.height);sigSave(t.toDataURL('image/png'))};im.onerror=()=>alert('Could not read that image.');im.src=rd.result};rd.readAsDataURL(f)}
+async function sigSave(data){data=okSig(data);if(!data)return;
+ if(data.length>400000)return alert('That signature image is too large. Use a smaller one.');
+ S.prof.signature=data;try{localStorage.setItem('sig_'+S.user.id,data)}catch(e){}
+ let ok=false;try{const{error}=await sb.from('valuation_officers').update({signature:data}).eq('id',S.user.id);ok=!error}catch(e){}
+ toast(ok?'Signature saved':'Signature saved on this device only');home()}
+
+function shareSummary(){const v=S.val,p=P[v.purpose],ve=v.vehicle,r=S.r||{},nv=!!p.noval,amt=Math.round(v.approved??r.final??0);
+ const car=[ve.make,ve.model,ve.plate||ve.chassis].filter(Boolean).join(' ');
+ return[`Auto-D ${p.n}`,car,v.cert?'Certificate '+v.cert:'Ref '+(v.ref||''),nv?'Inspection findings recorded':'Assessed value: '+KES(amt)].filter(Boolean).join('\n')}
+async function repPdf(){
+ if(typeof html2pdf==='undefined')throw new Error('The PDF tool did not load. Check your connection and try again.');
+ const src=$('#repdoc'),box=document.createElement('div');box.className='pdfmode';box.style.cssText='position:fixed;left:-10000px;top:0;width:800px;background:#fff';box.innerHTML=src.innerHTML;document.body.appendChild(box);
+ try{if(document.fonts&&document.fonts.ready)await document.fonts.ready;
+  const name=String(S.val.cert||S.val.ref||'report').replace(/[^\w-]+/g,'_')+'.pdf';
+  const blob=await html2pdf().set({margin:6,filename:name,image:{type:'jpeg',quality:.95},html2canvas:{scale:2,backgroundColor:'#fff',windowWidth:800},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy'],after:'.cert',avoid:['.ckr','.ckh','.s2','.row']}}).from(box).outputPdf('blob');
+  return{blob,name}}finally{box.remove()}}
+async function withBusy(b,fn){if(b.dataset.busy)return;b.dataset.busy=1;const t=b.textContent;b.textContent='Preparing PDF...';b.disabled=true;
+ try{await fn()}catch(e){if(e&&e.name!=='AbortError')alert(e.message||String(e))}finally{b.textContent=t;b.disabled=false;delete b.dataset.busy}}
+function saveBlob(blob,name){const a=document.createElement('a'),u=URL.createObjectURL(blob);a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000)}
+const repDownload=b=>withBusy(b,async()=>{const{blob,name}=await repPdf();saveBlob(blob,name)});
+const repShare=b=>withBusy(b,async()=>{const{blob,name}=await repPdf(),f=new File([blob],name,{type:'application/pdf'});
+ if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name.replace('.pdf',''),text:shareSummary()});return}
+ saveBlob(blob,name);toast('PDF downloaded. Attach it to WhatsApp or email.')});
+const repWA=()=>window.open('https://wa.me/?text='+encodeURIComponent(shareSummary()),'_blank','noopener');
+const repMail=()=>{location.href='mailto:?subject='+encodeURIComponent('Auto-D '+P[S.val.purpose].n+(S.val.cert?' '+S.val.cert:''))+'&body='+encodeURIComponent(shareSummary()+'\n\n(Attach the downloaded PDF.)')};
+/* ---------- Full checklist, valuation inputs, page-2 signature ---------- */
+const kfd=d=>d?new Date(d).toLocaleDateString('en-KE',{day:'numeric',month:'long',year:'numeric'}):'-';
+const CKL={ok:'OK',issue:'Minor issue',major:'Major defect',na:'N/A'};
+function ckHTML(v){const p=P[v.purpose],A=v.answers||{},N=v.notes||{},c={ok:0,issue:0,major:0,na:0,nc:0};
+ const secs=SECS.map(([s,items])=>{const rows=items.filter(t=>{const L=lvl({2:t[2]},v.purpose);return L!=='-'&&(!p.lean||L==='R')}).map(t=>{
+   const a=A[t[0]]||'',L=lvl({2:t[2]},v.purpose),k=CKL[a]?a:'nc';c[k]++;
+   return`<div class="ckr"><span class="ckl">${esc(t[1])}${L==='R'?' <i>*</i>':''}</span><span class="cks ${k}">${CKL[a]||'Not checked'}</span><span class="ckn">${esc(N[t[0]]||'')}</span></div>`}).join('');
+  return rows?`<div class="cksec"><div class="ckh">${esc(s)}</div>${rows}</div>`:''}).join('');
+ const tot=c.ok+c.issue+c.major+c.na+c.nc;
+ return`<h3 style="margin-top:14px">Inspection checklist</h3><div class="sm">${tot} checks · ${c.ok} OK · ${c.issue} minor issue${c.issue===1?'':'s'} · ${c.major} major defect${c.major===1?'':'s'} · ${c.na} N/A · ${c.nc} not checked. * marks a check required for this service.</div>${secs}`}
+function inHTML(v){const p=P[v.purpose];if(p.noval)return'';const i=v.inputs||{},has=k=>(p.adj||'').split(/\s+/).includes(k),rows=[];
+ const add=(l,x)=>{if(String(x??'').trim()!=='')rows.push([l,String(x)])},money=x=>String(x??'').trim()===''?'':KES(num(x));
+ add('KRA CRSP value (reference)',money(i.crsp));add('Manual base value',money(i.manual));
+ if(has('dep'))add('Depreciation',i.dep!==undefined&&String(i.dep).trim()!==''?i.dep+'%':'');
+ if(has('cond'))add('Condition grade',i.cond);if(has('dem'))add('Market demand',i.dem);if(has('acc'))add('Accessories value',money(i.acc));
+ if(has('acd'))add(v.purpose==='PRE_LOSS'?'Previous damage / repair deduction':'Accident / repair deduction',i.acd!==undefined&&String(i.acd).trim()!==''?i.acd+'%':'');
+ if(v.purpose==='ACCIDENT'){add('Repair estimate',money(i.repair));add('Salvage value',money(i.salvage))}
+ if(p.hc||p.hcopt){add('Forced-sale haircut',i.hc!==undefined&&String(i.hc).trim()!==''?i.hc+'%':'');add('Basis for haircut',i.hc_basis)}
+ const comps=String(i.comps||'').split(/[\n,;]+/).map(s=>s.trim()).filter(Boolean);if(comps.length)add('Market comparables ('+comps.length+')',comps.map(x=>isNaN(Number(x.replace(/,/g,'')))?x:KES(Number(x.replace(/,/g,'')))).join(' · '));
+ if(!rows.length)return'';
+ return`<h3 style="margin-top:14px">Valuation inputs</h3>`+rows.map(([a,b])=>`<div class="row"><span>${esc(a)}</span><b style="white-space:normal;text-align:right">${esc(b)}</b></div>`).join('')}
+function sign2HTML(v){const i=v.inputs||{},nm=v.reviewer_name||'',lic=i.officer_licence||S.prof.licence_no||'',
+ side=(t,sig,name,sub)=>`<div><div class="s2t">${t}</div><div class="s2s">${sig}</div><div class="s2l">${esc(name||'')||'&nbsp;'}<div class="sm">${sub}</div></div></div>`,
+ a=side('Inspecting valuer',v.officer_sig?sigImgTag(v.officer_sig):'',i.officer_name||S.prof.full_name,(lic?'Licence '+esc(lic)+' · ':'')+'Inspected '+esc(kfd(i.date))),
+ b=v.cert?side('Approved and issued by',v.reviewer_sig?sigImgTag(v.reviewer_sig):nm?`<span class="sigtxt">${esc(nm)}</span>`:'',nm||'Authorised signatory','Electronically signed · '+esc(kfd(v.approved_at||Date.now()))+' · Certificate '+esc(v.cert)):side('Senior review','','','Pending approval: not yet signed or certified');
+ return`<div class="s2">${a}<div>${v.cert?sealSvg():''}</div>${b}</div><div class="fine2">Page 2 of 2 · ${esc(v.cert||v.ref||'')} · Auto-D Vehicle Valuation Services</div>`}
+/* ---------- Clients, payment and billing ---------- */
+const PAY={paybill:'4095377',api:'https://auto-digital.onrender.com/api/v1',name:'Auto-D'}; /* set to the same paybill number used on the dashboard */
+const payOK=()=>!/REPLACE/.test(PAY.paybill);
+const PAYL={unpaid:'Unpaid',paid:'Paid',billable:'To invoice',invoiced:'Invoiced',void:'Void'};
+async function loadClients(){try{const{data,error}=await sb.from('onsite_clients').select('*').eq('active',true).order('name');S.clientErr=error?error.message:'';S.clients=data||[]}catch(e){S.clientErr=String(e.message||e);S.clients=[]}}
+const clientHint=()=>S.clientErr?`<span class="neg">Could not load clients: ${esc(S.clientErr)}</span>`:(S.clients||[]).length?'':'<span class="sm">No clients yet. Open "Add a client" below, save one, then select it here.</span>';
+const clientOf=v=>(S.clients||[]).find(c=>c.id===v.client_id);
+const cashUnpaid=v=>{const c=clientOf(v);return !!c&&c.client_type==='cash'&&(v.pay||{}).status!=='paid'};
+const releaseLocked=v=>v.status==='final'&&!!v.cert&&cashUnpaid(v);
+const isBilling=()=>!!S.prof&&!!S.prof.can_sign&&S.prof.role==='senior_valuer';
+const clientOpts=()=>'<option value="">Select client…</option>'+(S.clients||[]).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} (${c.client_category==='corporate'?'corporate':'individual'}${c.client_type==='credit'?', credit':''})</option>`).join('');
+const payTag=d=>d.client_id?`<br><span class="sm">${esc(PAYL[d.payment_status]||'')}</span>`:'';
+function clientCardHTML(){return`<div class="card"><details class="sgc"><summary>Add a client</summary><div class="grid" style="margin-top:8px">
+ <label>Client category<select id="cn_cat" onchange="cnType()"><option value="individual">Individual</option><option value="corporate">Corporate</option></select></label>
+ <label><span id="cn_namel">Full name</span><input id="cn_name"></label><label>Phone<input id="cn_phone" type="tel"></label><label>Email (optional)<input id="cn_email" type="email"></label><label>KRA PIN (optional)<input id="cn_pin"></label>
+ <label class="cnco" style="display:none">Contact person<input id="cn_contact"></label>
+ <label class="cnco" style="display:none">Payment type<select id="cn_type" onchange="cnType()"><option value="cash">Cash (pays per valuation)</option>${isBilling()?'<option value="credit">Credit (invoiced at month end)</option>':''}</select></label>
+ <label class="cnc" style="display:none">Credit limit (KES)<input id="cn_lim" type="number"></label><label class="cnc" style="display:none">Payment terms (days)<input id="cn_terms" type="number" value="30"></label></div>
+ <p class="sm">Individuals always pay per valuation. Corporate clients can pay per valuation or be put on credit by a senior valuer.</p>
+ <p><button class="pri" onclick="addClient()">Save client</button></p></details></div>`}
+function cnType(){const corp=$('#cn_cat').value==='corporate',t=corp?$('#cn_type').value:'cash';
+ document.querySelectorAll('.cnco').forEach(e=>e.style.display=corp?'':'none');
+ document.querySelectorAll('.cnc').forEach(e=>e.style.display=t==='credit'?'':'none');
+ $('#cn_namel').textContent=corp?'Company name':'Full name'}
+async function addClient(){const cat=$('#cn_cat').value,corp=cat==='corporate',name=$('#cn_name').value.trim(),type=corp?$('#cn_type').value:'cash';
+ if(!name)return alert(corp?'Enter the company name.':'Enter the client name.');
+ const row={name,client_category:cat,client_type:type,phone:$('#cn_phone').value.trim()||null,email:$('#cn_email').value.trim()||null,kra_pin:$('#cn_pin').value.trim()||null,contact_person:corp?($('#cn_contact').value.trim()||null):null};
+ if(type==='credit'){row.credit_limit=num($('#cn_lim').value);row.terms_days=parseInt($('#cn_terms').value)||30}
+ const{error}=await sb.from('onsite_clients').insert(row);if(error)return alert(error.message);toast('Client saved');await loadClients();home()}
+async function newVal(){const pu=$('#np').value,cid=$('#nc').value;if(!cid)return alert('Select the client first, or add one below.');
+ const c=(S.clients||[]).find(x=>x.id===cid);
+ if(c.client_type==='credit'){const{data,error}=await sb.rpc('onsite_credit_ok',{p_client:cid});if(error)return alert(error.message);if(data)return alert('This credit client cannot be instructed: '+data)}
+ S.val={purpose:pu,client_id:cid,pay:{status:'unpaid'},vehicle:{},inputs:{date:today(),client:c.name,hc:P[pu].hc,fee:(S.prices[pu]||{}).price??null,form_version:PF_VER},answers:{},notes:{}};
+ if(!await ensureSaved())return;
+ formView()}
+/* Payment reference captured on the certificate: M-Pesa code (cash) or invoice reference (credit) */
+const payRef=v=>{const c=clientOf(v),p=v.pay||{},fee=p.fee??(v.inputs||{}).fee,mode=c?c.client_type:(p.receipt?'cash':(p.invoice||p.invoice_no)?'credit':'');
+ if(mode==='credit')return{mode:'credit',ref:p.invoice_no||v.ref||'',fee};
+ if(mode==='cash')return{mode:'cash',ref:p.receipt||'',fee};return null};
+function payGateView(){const v=S.val,p=P[v.purpose],c=clientOf(v);
+ $('#app').innerHTML=topbar()+`<div class="wrap"><button class="lnk noprint" onclick="home()">Back to list</button><h1>${esc(p.n)}</h1><div class="sm">${v.ref?esc(v.ref):'New valuation'} · ${esc(c?c.name:'')}</div>
+ <div class="card"><h2>Form locked until payment</h2><div class="msg">${esc(c?c.name:'This client')} is a cash client. The inspection form opens only once payment is received and the M-Pesa confirmation code is recorded. That code is printed on the certificate.</div></div>${payCardHTML(v)}</div>`}
+function payCardHTML(v){const c=clientOf(v);if(!c)return'';const pay=v.pay||{},st=pay.status||'unpaid',fee=pay.fee??v.inputs.fee;
+ if(c.client_type==='credit')return`<div class="card noprint"><h2>Billing</h2><p class="sm">${esc(c.name)} is a credit client: nothing is paid per job. Invoice reference: <b>${esc(pay.invoice_no||v.ref||'')}</b>, printed on the certificate. This valuation goes onto the month-end invoice once it is approved and issued (${esc(PAYL[st]||'To invoice')}).${fee!=null?' Fee: '+KES(fee)+'.':''}</p></div>`;
+ if(st==='paid')return`<div class="card noprint"><h2>Payment</h2><div class="msg good">Paid${pay.receipt?' · M-Pesa '+esc(pay.receipt):''}${fee!=null?' · '+KES(fee):''}</div></div>`;
+ return`<div class="card noprint"><h2>Payment (cash client)</h2><p>Amount due: <b>${fee!=null?KES(fee):'not set'}</b></p>
+ ${payOK()?'':'<div class="msg">The paybill number is not set in this app yet.</div>'}
+ ${v.ref?`${stkHTML(c.phone)}<p class="sm">Or pay manually: Lipa na M-Pesa, Pay Bill, Business no. <b>${esc(PAY.paybill)}</b>, Account no. <b>${esc(v.ref)}</b>, Amount <b>${fee!=null?esc(Math.round(fee)):''}</b>.</p>
+ <label>M-Pesa confirmation code<input id="pr" placeholder="e.g. SGL7XY12AB" autocapitalize="characters"></label><p><button class="pri" onclick="payClaim()">Confirm payment</button></p>`:`<p class="sm">Save the draft first to get the account reference for payment.</p><p><button onclick="saveThenForm()">Save draft and get reference</button></p>`}
+ <p class="sm">The certificate cannot be approved and issued until this is paid. Each M-Pesa code works once.</p></div>`}
+async function saveThenForm(){await save(false,true);formView()}
+function rerender(){const v=S.val,y=scrollY;['final','submitted','rejected'].includes(v.status)?reviewView():formView();scrollTo(0,y)}
+const stkHTML=ph=>`<label>Payer's M-Pesa number<input id="stkph" type="tel" placeholder="0712345678" value="${esc(ph||'')}"></label><p><button class="pri" id="stkb" onclick="stkPay()">Pay with M-Pesa</button></p>`;
+async function stkPay(){const v=S.val,ph=($('#stkph').value||'').replace(/\s/g,'');
+ if(/REPLACE/.test(PAY.api))return alert('The payments server address is not set in this app yet.');
+ if(!/^(\+?254|0)?[71]\d{8}$/.test(ph))return alert('Enter the Safaricom number that will pay, for example 0712345678.');
+ if(!v.id&&!await ensureSaved())return;
+ const b=$('#stkb');b.disabled=true;b.textContent='Sending…';
+ try{const{data:{session}}=await sb.auth.getSession();
+  const r=await fetch(PAY.api+'/mpesa/onsite/stkpush',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({valuation_id:v.id,phone:ph})});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||'Could not start the payment.');
+  toast('Ask the client to enter their M-Pesa PIN');await waitPaid()}
+ catch(e){alert(e.message)}finally{const x=$('#stkb');if(x){x.disabled=false;x.textContent='Pay with M-Pesa'}}}
+async function waitPaid(){const v=S.val;
+ for(let i=0;i<30;i++){await new Promise(r=>setTimeout(r,3000));
+  const{data}=await sb.from('onsite_valuations').select('payment_status,mpesa_receipt').eq('id',v.id).single();
+  if(data&&data.payment_status==='paid'){v.pay={...(v.pay||{}),status:'paid',receipt:data.mpesa_receipt};toast('Payment received');return rerender()}}
+ alert('No payment confirmed yet. If the client has paid, enter the M-Pesa code below to confirm.')}
+async function payClaim(){const v=S.val,rc=($('#pr').value||'').trim().toUpperCase();
+ if(!/^[A-Z0-9]{8,12}$/.test(rc))return alert('Enter the M-Pesa confirmation code, for example SGL7XY12AB.');
+ if(!v.id&&!await ensureSaved())return;
+ const{error}=await sb.rpc('onsite_claim_payment',{p_id:v.id,p_receipt:rc});if(error)return alert(error.message);
+ v.pay={...(v.pay||{}),status:'paid',receipt:rc};toast('Payment confirmed');rerender()}
+function lockView(){const v=S.val;
+ $('#app').innerHTML=topbar()+`<div class="wrap"><div class="noprint"><button onclick="home()">Back to list</button></div><div class="card"><h2>Certificate on hold</h2><div class="msg">${esc(v.cert||'')}: this cash client has not paid, so the certificate and report cannot be shared or printed yet.</div></div>${payCardHTML(v)}</div>`}
+function billCardHTML(){if(!isBilling())return'';const m=new Date().toISOString().slice(0,7);
+ return`<div class="card"><h2>Billing (credit clients)</h2><div class="grid"><label>Month<input id="bm" type="month" value="${m}"></label><div style="align-self:end"><button class="pri" onclick="runInvoices()">Generate month-end invoices</button></div></div><p class="sm">Puts each credit client's approved valuations up to the end of that month onto one invoice. Run it on the last day of the month.</p><div id="inv" class="list sm">Loading…</div></div>`}
+async function runInvoices(){const m=$('#bm').value;if(!m)return;if(!confirm('Generate invoices for '+m+'? Approved credit valuations are locked onto invoices.'))return;
+ const{data,error}=await sb.rpc('onsite_run_invoices',{p_month:m+'-01'});if(error)return alert(error.message);toast(data+' invoice(s) created');loadInvoices()}
+async function loadInvoices(){const e=$('#inv');if(!e)return;
+ const{data,error}=await sb.from('onsite_invoices').select('*,onsite_clients(name)').order('issued_at',{ascending:false}).limit(30);
+ if(error)return e.textContent=error.message;
+ e.innerHTML=(data||[]).length?data.map(i=>`<div class="row"><span>${esc(i.number)} · ${esc((i.onsite_clients||{}).name||'')}<br><span class="sm">Due ${esc(kfd(i.due_at))} · ${esc(i.status)}</span></span><span><b>${KES(i.total)}</b><br><button class="lnk" onclick="invoiceView('${i.id}')">View</button>${i.status==='issued'?` <button class="lnk" onclick="invPaid('${i.id}')">Mark paid</button>`:''}</span></div>`).join(''):'No invoices yet.'}
+async function invPaid(id){if(!confirm('Mark this invoice as paid?'))return;const{error}=await sb.rpc('onsite_invoice_paid',{p_id:id});if(error)return alert(error.message);toast('Invoice marked paid');loadInvoices()}
+async function invoiceView(id){
+ const{data:inv,error}=await sb.from('onsite_invoices').select('*,onsite_clients(*)').eq('id',id).single();if(error)return alert(error.message);
+ const{data:ls}=await sb.from('onsite_valuations').select('ref,purpose,vehicle,approved_at,fee,certificate_number').eq('invoice_id',id).order('approved_at');
+ const c=inv.onsite_clients||{};
+ $('#app').innerHTML=topbar()+`<div class="wrap"><div class="noprint"><button onclick="home()">Back</button> <button class="pri" onclick="print()">Print</button></div>
+ <div class="rep card"><div style="display:flex;justify-content:space-between"><div><h2>Invoice ${esc(inv.number)}</h2><div class="sm">Issued ${esc(kfd(inv.issued_at))} · Due ${esc(kfd(inv.due_at))} · ${esc(inv.status)}</div></div><div class="brand">Auto-D</div></div>
+ <h3 style="margin-top:14px">Bill to</h3><div>${esc(c.name||'')}</div><div class="sm">${esc(c.phone||'')}${c.kra_pin?' · KRA PIN '+esc(c.kra_pin):''}</div>
+ <h3 style="margin-top:14px">Valuations (${(ls||[]).length})</h3>${(ls||[]).map(l=>`<div class="row"><span>${esc(l.ref)} · ${esc(pn(l.purpose))} · ${esc([l.vehicle.make,l.vehicle.model,l.vehicle.plate].filter(Boolean).join(' '))}<br><span class="sm">${esc(l.certificate_number||'')} · ${esc(kfd(l.approved_at))}</span></span><b>${KES(l.fee)}</b></div>`).join('')}
+ <div class="row"><span><b>Total</b></span><b>${KES(inv.total)}</b></div>
+ <p class="sm" style="margin-top:14px">Pay by M-Pesa: Pay Bill ${esc(PAY.paybill)}, Account no. ${esc(inv.number)}. Amounts in KES.</p></div></div>`}
+function reportView(){
+ if(releaseLocked(S.val))return lockView();
+ const v=S.val,p=P[v.purpose],r=S.r=(v.result&&v.status!=='draft'&&v.status!=='correction_required')?v.result:calc(v),i=v.inputs,ve=v.vehicle;
+ const issues=ITEMS.filter(t=>['issue','major'].includes(v.answers[t.code]));
+ const kv=(a,b)=>`<div class="row"><span>${a}</span><b>${esc(b||'-')}</b></div>`;
+ const valid=p.days?new Date(new Date(i.date||Date.now()).getTime()+p.days*864e5).toLocaleDateString('en-KE'):'Date-specific';
+ const q=r.q||{complete:0,evidence:0,data:0};
+ $('#app').innerHTML=topbar()+`<div class="wrap"><div class="noprint"><button onclick="home()">Back to list</button> <button class="pri" onclick="repShare(this)">Share</button> <button onclick="repDownload(this)">Download PDF</button> <button onclick="repWA()">WhatsApp</button> <button onclick="repMail()">Email</button> <button onclick="print()">Print</button></div>
+ <div id="repdoc">${v.cert?certHTML(v,r):''}<div class="rep card"><div style="display:flex;justify-content:space-between"><div><h2>${p.noval?'Vehicle Inspection Report':'Vehicle Valuation Report'}</h2><div class="sm">${esc(p.n)} · Ref ${esc(v.ref||'')}${v.cert?' · Certificate '+esc(v.cert):''}</div></div><div class="brand">Auto-D</div></div>
+ <h3 style="margin-top:14px">Assignment</h3>${kv('Client / instructing party',i.client)}${kv('Intended use and users',i.use)}${kv('Instruction reference',i.instr_ref)}${kv('Basis',BASIS[v.purpose])}${kv(p.noval?'Inspection date':'Valuation date',i.date)}${kv('Report date',v.approved_at?new Date(v.approved_at).toLocaleDateString('en-CA',{timeZone:'Africa/Nairobi'}):today())}${p.noval?'':kv('Currency','KES')}${i.fee!=null?kv(p.noval?'Inspection fee':'Valuation fee',KES(i.fee)):''}${(()=>{const pr=payRef(v);return pr?kv(pr.mode==='credit'?'Invoice reference':'M-Pesa confirmation no.',pr.ref):''})()}
+ <h3 style="margin-top:14px">Result</h3>${p.noval?`<div class="big">Inspection findings</div><div class="sm">No monetary value is stated for this service. Evidence and completeness index ${r.evidenceIndex??r.conf??'not recorded'}% · Inspection completeness ${q.complete}% · Evidence quality ${q.evidence}%${r.score!=null?' · Condition score '+r.score+'/100 (proposed internal weights)':''}</div>`:`${v.purpose==='ACCIDENT'?kv('Pre-accident market value',KES(r.preAccidentValue??r.base)):(r.forced?kv('Market value',KES(r.market)): '')}<div class="big">${KES(v.approved??r.final)}</div>${v.approved&&v.approved!==r.final?`<div class="sm">Recommended by inspecting officer: ${KES(r.final)}</div>`:''}${r.forced?`<div class="sm">${v.purpose==='AUCTION'?'Estimated forced-sale proceeds':'Forced-sale value'}. Basis: ${esc(i.hc_basis)}</div>`:''}
+ <div class="sm">No statistical valuation range is stated · Evidence and completeness index ${r.evidenceIndex??r.conf??'not recorded'}% · Valid until ${valid}${v.purpose==='ACCIDENT'?` · Repair estimate ${KES(r.repairEstimate)} · Salvage ${KES(r.salvageValue)} · Indicative pre-accident less salvage ${KES(r.net)}`:''}</div>
+ <div class="sm">Inspection completeness ${q.complete}% · Evidence quality ${q.evidence}% · Data quality ${q.data}%${r.score!=null?' · Condition score '+r.score+'/100 (proposed internal weights)':''}</div>`}
+ ${pfReport(v)}<h3 style="margin-top:14px">Vehicle</h3>${kv('Make / model / variant',[ve.make,ve.model,ve.variant].filter(Boolean).join(' '))}${kv('Plate',ve.plate)}${kv('Chassis / VIN',ve.chassis)}${kv('Engine no.',ve.engine_no)}${kv('Year / registered',[ve.yom,ve.reg_year].filter(Boolean).join(' / '))}${kv('Engine, fuel, transmission',[ve.cc&&ve.cc+'cc',ve.fuel,ve.trans,ve.drive].filter(Boolean).join(', '))}${kv('Origin',ve.origin)}${kv('Odometer',ve.mileage&&Number(ve.mileage).toLocaleString()+' km')}${kv('Usage',ve.usage)}${kv('Colour',ve.colour)}${kv('Owner / requester',ve.owner)}
+ ${inHTML(v)}${ckHTML(v)}${p.noval?'':`<h3 style="margin-top:14px">Calculation</h3>
+ <div class="row"><span>${r.src==='crsp'?'KRA CRSP base'+(i.crsp_id?` (record ${i.crsp_id}${i.crsp_ref?', ref. year '+i.crsp_ref:''})`:' (manual entry)'):r.src==='manual'?'Manual base value':r.src==='book'?'Book value (fleet register)':`Market base (${r.n} comparables)`}</span><b>${KES(r.base)}</b></div>
+ ${r.lines.map(l=>`<div class="row"><span>${esc(l[0])}</span><b class="${l[1]<0?'neg':'pos'}">${l[1]<0?'-':'+'}${KES(Math.abs(l[1]))}</b></div>`).join('')}`}
+ ${issues.length?`<h3 style="margin-top:14px">Issues found</h3>${issues.map(t=>kv(esc(t.label)+(v.answers[t.code]==='major'?' [MAJOR]':''),v.notes[t.code]||'Issue')).join('')}`:''}
+ ${r.warns.length?`<h3 style="margin-top:14px">Warnings</h3>${r.warns.map(w=>`<div class="row"><span>${esc(w)}</span></div>`).join('')}`:''}
+ ${i.remarks?`<h3 style="margin-top:14px">Notes and assumptions</h3><p>${esc(i.remarks)}</p>`:''}
+ ${kv('Independence declaration',i.conflict)}<p class="sm" style="margin-top:14px">Inspected ${esc(i.date||'')}${i.location?' at '+esc(i.location):''} by ${esc(i.officer_name||S.prof.full_name)}${(i.officer_licence||S.prof.licence_no)?' (licence '+esc(i.officer_licence||S.prof.licence_no)+')':''}. ${(i.photos||[]).length} photos on file. ${p.noval?'This report records findings within the agreed scope as at the inspection date.':'This is a professional opinion of value as at the valuation date, based on the inspection and data above. It is not a guarantee of sale price.'} Mileage, history and ownership rely on the documents and information supplied unless verified as stated. No dismantling or specialist diagnostics were performed unless stated in the notes.${i.legacy_purpose?' Originally recorded under the earlier service code '+esc(i.legacy_purpose)+'.':''} Engine ${ENGINE} (purpose-isolated calculation and evidence-index update).</p>
+ ${sign2HTML(v)}</div></div></div>`;
+}
+function reviewView(){
+ reportView();
+ const v=S.val,can=S.prof.can_sign&&S.prof.role==='senior_valuer'&&v.status==='submitted'&&v.officer_id!==S.user.id,nv=P[v.purpose].noval;
+ const box=document.createElement('div');box.className='card noprint';
+ box.innerHTML=can?`<h2>Senior review</h2>${nv?'':`<label>Approved value (KES). Change only with a justification in the notes<input id="rv" type="number" value="${Math.round(v.result.final)}"></label><br>`}<label>Review notes (required)<textarea id="rn" rows="3"></textarea></label><p>${cashUnpaid(v)?'<span class="neg">Cannot approve yet: the cash client has not paid.</span> ':'<button class="pri" onclick="decide(\'approve\')">Approve and issue</button> '}<button onclick="decide('correction')">Request corrections</button> <button onclick="decide('reject')">Reject</button></p>`
+  :`<h2>Status: ${esc(v.status)}</h2><p class="sm">${v.status==='submitted'?'Awaiting senior review. Editing is locked.':esc(v.review_note||'')}</p>`;
+ document.querySelector('.wrap').appendChild(box);
+ if(cashUnpaid(v)&&v.status!=='final'){const pc=document.createElement('div');pc.innerHTML=payCardHTML(v);document.querySelector('.wrap').appendChild(pc.firstElementChild)}
+}
+async function decide(d){
+ if(decide.b)return;
+ const v=S.val,notes=$('#rn').value.trim();
+ if(d==='approve'&&cashUnpaid(v))return alert('Cannot approve: the cash client has not paid.');
+ if(!notes)return alert('Review notes are required.');
+ if(d==='approve'&&!confirm('Approve and issue? This locks the record permanently.'))return;
+ decide.b=1;
+ try{const{error}=await sb.rpc('review_valuation',{p_id:v.id,p_decision:d,p_notes:notes,p_approved_value:d==='approve'?(P[v.purpose].noval?0:num($('#rv').value)):null});
+  if(error)return alert(error.message);toast('Decision recorded');home()}
+ finally{decide.b=0}
+}
+/* one in-flight save at a time (double-click protection) */
+(()=>{let busy=false;const orig=save;save=async function(...a){if(busy)return;busy=true;const bs=[...document.querySelectorAll('#bar button')];bs.forEach(b=>b.disabled=true);try{return await orig(...a)}finally{busy=false;bs.forEach(b=>b.disabled=false)}}})();
+boot();
+</script>
+</body>
+</html>
