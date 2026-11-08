@@ -332,7 +332,7 @@ function authView(mode='login',msg='',good=false){
 }
 /* Password reset: email link -> this page -> set new password */
 S.recovery=/type=recovery/.test(location.hash);
-sb.auth.onAuthStateChange(ev=>{if(ev==='PASSWORD_RECOVERY'){S.recovery=true;resetView()}});
+sb.auth.onAuthStateChange(ev=>{S.authLog=(S.authLog||[]).concat(ev+'@'+new Date().toISOString().slice(11,19)).slice(-8);if(ev==='PASSWORD_RECOVERY'){S.recovery=true;resetView()}});
 function forgotView(msg='',good=false){
  $('#app').innerHTML=`<div class="auth wrap"><div class="brand">Auto-<span>D</span> Onsite Valuation</div>
  <div class="card"><h2>Reset password</h2><p class="sm">Enter your officer email and we will send a reset link.</p>${msg?`<div class="msg ${good?'good':''}">${esc(msg)}</div>`:''}
@@ -557,8 +557,9 @@ function friendlyErr(e){
  return m}
 /* Re-check the live session before writing so we never send an anonymous request */
 async function liveUser(){
- const{data:{session}}=await sb.auth.getSession();
- if(!session){alert('Your session has expired. Please log in again.\n\nDetail: no session found in this browser.\nDevice time: '+new Date().toISOString());await sb.auth.signOut();authView();return null}
+ let{data:{session}}=await sb.auth.getSession();
+ if(!session){try{const rr=await sb.auth.refreshSession();session=rr.data&&rr.data.session}catch(e){}}
+ if(!session){alert('Your session has expired. Please log in again.\n\nDetail: no session found in this browser.\nAuth events: '+((S.authLog||[]).join(', ')||'none')+'\nDevice time: '+new Date().toISOString());await sb.auth.signOut();authView();return null}
  if(!S.user||S.user.id!==session.user.id)S.user=session.user;
  return session.user}
 async function save(fin,quiet){
