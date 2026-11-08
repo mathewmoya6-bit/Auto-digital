@@ -714,7 +714,7 @@
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>Reference</th>
+                                <th style="width:28px"><input type="checkbox" id="payCheckAll" onchange="window.togglePaymentSelectAll(this.checked)"></th><th>Reference</th>
                                 <th>User</th>
                                 <th>Amount (KES)</th>
                                 <th>Method</th>
@@ -724,12 +724,14 @@
                             </tr>
                         </thead>
                         <tbody id="paymentsTableBody">
-                            <tr class="row-empty"><td colspan="7">Loading transactions...</td></tr>
+                            <tr class="row-empty"><td colspan="8">Loading transactions...</td></tr>
                         </tbody>
                     </table>
                 </div>
                 <div class="action-bar">
                     <button class="action-btn success" onclick="window.fetchPayments()">🔄 Refresh Transactions</button>
+                    <button class="action-btn danger" id="payDeleteSelectedBtn" onclick="window.deleteSelectedPayments()" disabled>🗑️ Delete Selected</button>
+                    <button class="action-btn danger" onclick="window.deleteFilteredPayments()">🗑️ Delete All Shown</button>
                     <button class="action-btn" onclick="window.exportPaymentsCSV()">📊 Export CSV</button>
                 </div>
             </div>
@@ -970,7 +972,7 @@
             </div>
 
             <div style="border-top:1px solid var(--border);padding-top:20px;margin-top:10px;text-align:center;color:var(--text-muted);font-size:12px;">
-                Auto-D Kenya Admin Dashboard v7.1 · © 2026 Auto-D Kenya
+                Auto-D Kenya Admin Dashboard v7.2 · © 2026 Auto-D Kenya
                 <span style="display:block;font-size:10px;color:var(--text-muted);" id="connectionStatus">● Connecting...</span>
             </div>
         </div>
@@ -1051,6 +1053,7 @@
             <div class="modal-actions">
                 <button class="btn btn-success" onclick="window.setPaymentStatus('completed')">✅ Mark Completed</button>
                 <button class="btn btn-danger" onclick="window.setPaymentStatus('refunded')">↩️ Refund</button>
+                <button class="btn btn-danger" onclick="window.deleteCurrentPayment()">🗑️ Delete</button>
                 <button class="btn btn-secondary" onclick="window.closePaymentModal()">Close</button>
             </div>
         </div>
@@ -1116,7 +1119,7 @@
 
             function escapeHtml(str) {
                 if (!str) return '';
-                return String(str).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
+                return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
             }
 
             function fmtMoney(n) {
@@ -1135,7 +1138,7 @@
                 const toast = document.createElement('div');
                 toast.className = `toast toast-${type}`;
                 const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
-                toast.innerHTML = icon + ' ' + message;
+                toast.textContent = icon + ' ' + message;
                 container.appendChild(toast);
                 setTimeout(() => {
                     toast.style.opacity = '0';
@@ -2351,6 +2354,7 @@
                         .eq('id', currentValuationId)
                         .select();
                     if (error) throw error;
+                    if (!data || !data.length) throw new Error('Update blocked (0 rows). Check RLS UPDATE policy on valuation_reports.');
                     await addAdminLog(`🚘 Valuation ${currentValuationId} adjusted to KES ${fmtMoney(price)}${note ? ' — ' + note : ''}`, 'admin');
                     showToast('✅ Valuation adjustment saved!', 'success');
                     await window.fetchValuations();
@@ -2372,6 +2376,7 @@
                         .eq('id', currentValuationId)
                         .select();
                     if (error) throw error;
+                    if (!data || !data.length) throw new Error('Update blocked (0 rows). Check RLS UPDATE policy on valuation_reports.');
                     await addAdminLog(`🚘 Valuation ${currentValuationId} marked ${status}`, 'admin');
                     showToast(`✅ Valuation ${status}!`, status === 'rejected' ? 'warning' : 'success');
                     await window.fetchValuations();
@@ -2495,8 +2500,9 @@
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
-                    const { error } = await client.from('users').update({ role }).eq('id', currentUserModalId);
+                    const { data: upd, error } = await client.from('users').update({ role }).eq('id', currentUserModalId).select('id');
                     if (error) throw error;
+                    if (!upd || !upd.length) throw new Error('Update blocked (0 rows). Check RLS UPDATE policy on users.');
                     await addAdminLog(`👥 User ${currentUserModalId} role changed to ${role}`, 'admin');
                     showToast('✅ Role updated!', 'success');
                     await window.fetchUsers();
@@ -2514,8 +2520,9 @@
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
-                    const { error } = await client.from('users').update({ active: !active }).eq('id', currentUserModalId);
+                    const { data: upd, error } = await client.from('users').update({ active: !active }).eq('id', currentUserModalId).select('id');
                     if (error) throw error;
+                    if (!upd || !upd.length) throw new Error('Update blocked (0 rows). Check RLS UPDATE policy on users.');
                     await addAdminLog(`👥 User ${currentUserModalId} ${active ? 'deactivated' : 'activated'}`, 'admin');
                     showToast(`✅ User ${active ? 'deactivated' : 'activated'}!`, 'success');
                     await window.fetchUsers();
@@ -2575,7 +2582,7 @@
                     if (status && pStatus !== status) return false;
                     return true;
                 });
-                renderPaymentsTable();
+                renderPaymentsTable(); window.updatePaymentSelection();
             };
 
             window.resetPaymentFilters = function() {
@@ -2588,20 +2595,22 @@
                 const tbody = document.getElementById('paymentsTableBody');
                 document.getElementById('paymentsCountPill').textContent = `${filteredPayments.length} total`;
                 if (filteredPayments.length === 0) {
-                    tbody.innerHTML = `<tr class="row-empty"><td colspan="7">No transactions match these filters.</td></tr>`;
+                    tbody.innerHTML = `<tr class="row-empty"><td colspan="8">No transactions match these filters.</td></tr>`;
                     return;
                 }
                 tbody.innerHTML = filteredPayments.slice(0, 200).map(p => {
                     const status = (p.status || 'pending').toLowerCase();
                     return `
                         <tr>
+                            <td><input type="checkbox" class="pay-check" value="${escapeHtml(String(p.id))}" onchange="window.updatePaymentSelection()"></td>
                             <td>${escapeHtml(p.reference || p.transaction_id || p.mpesa_receipt || p.id)}</td>
                             <td>${escapeHtml(p.user_email || p.user_id || '—')}</td>
                             <td>KES ${fmtMoney(p.amount)}</td>
                             <td>${escapeHtml(p.method || p.payment_method || 'M-Pesa')}</td>
                             <td><span class="status-pill ${status}">${escapeHtml(status)}</span></td>
                             <td>${fmtDate(p.created_at)}</td>
-                            <td><button class="mini-btn" onclick="window.openPaymentModal('${p.id}')">🔍 Manage</button></td>
+                            <td><button class="mini-btn" onclick="window.openPaymentModal('${p.id}')">🔍 Manage</button>
+                                <button class="mini-btn reject" title="Delete" onclick="window.deletePayment('${p.id}')">🗑️</button></td>
                         </tr>
                     `;
                 }).join('');
@@ -2633,14 +2642,97 @@
                 try {
                     const client = getSupabaseClient();
                     if (!client) throw new Error('Supabase not initialized');
-                    const { error } = await client.from('payments').update({ status }).eq('id', currentPaymentId);
+                    const { data: upd, error } = await client.from('payments').update({ status }).eq('id', currentPaymentId).select('id');
                     if (error) throw error;
+                    if (!upd || !upd.length) throw new Error('Update blocked (0 rows). Check RLS UPDATE policy on payments.');
                     await addAdminLog(`💵 Transaction ${currentPaymentId} marked ${status}`, 'admin');
                     showToast(`✅ Transaction ${status}!`, 'success');
                     await window.fetchPayments();
                     window.closePaymentModal();
                 } catch (error) {
                     showToast(`❌ Failed to update transaction: ${error.message}`, 'error');
+                }
+            };
+
+            async function deletePaymentIds(ids) {
+                const client = getSupabaseClient();
+                if (!client) throw new Error('Supabase not initialized');
+                let deleted = 0;
+                for (let i = 0; i < ids.length; i += 100) {
+                    const chunk = ids.slice(i, i + 100);
+                    const { data, error } = await client.from('payments').delete().in('id', chunk).select('id');
+                    if (error) throw error;
+                    deleted += (data || []).length;
+                }
+                if (deleted === 0) throw new Error('Nothing was deleted. Add a DELETE policy on "payments" for admins (see SQL).');
+                return deleted;
+            }
+
+            async function afterPaymentsDeleted(n, what) {
+                await addAdminLog(`🗑️ ${n} payment record(s) deleted (${what})`, 'admin');
+                showToast(`✅ ${n} transaction(s) deleted`, 'success');
+                await window.fetchPayments();
+                fetchStats();
+                window.fetchAnalytics();
+            }
+
+            window.updatePaymentSelection = function() {
+                const boxes = document.querySelectorAll('.pay-check');
+                const sel = document.querySelectorAll('.pay-check:checked').length;
+                const btn = document.getElementById('payDeleteSelectedBtn');
+                if (btn) {
+                    btn.disabled = sel === 0;
+                    btn.textContent = sel ? `🗑️ Delete Selected (${sel})` : '🗑️ Delete Selected';
+                }
+                const all = document.getElementById('payCheckAll');
+                if (all) all.checked = boxes.length > 0 && sel === boxes.length;
+            };
+
+            window.togglePaymentSelectAll = function(checked) {
+                document.querySelectorAll('.pay-check').forEach(b => { b.checked = checked; });
+                window.updatePaymentSelection();
+            };
+
+            window.deletePayment = async function(id) {
+                if (!confirm('Permanently delete this transaction record? This cannot be undone.')) return false;
+                try {
+                    const n = await deletePaymentIds([id]);
+                    await afterPaymentsDeleted(n, 'single');
+                    return true;
+                } catch (error) {
+                    showToast('❌ Delete failed: ' + (error.message || error), 'error');
+                    return false;
+                }
+            };
+
+            window.deleteCurrentPayment = async function() {
+                if (!currentPaymentId) return;
+                const ok = await window.deletePayment(currentPaymentId);
+                if (ok) window.closePaymentModal();
+            };
+
+            window.deleteSelectedPayments = async function() {
+                const ids = Array.from(document.querySelectorAll('.pay-check:checked')).map(b => b.value);
+                if (!ids.length) return;
+                if (!confirm(`Permanently delete ${ids.length} selected transaction(s)? This cannot be undone.`)) return;
+                try {
+                    const n = await deletePaymentIds(ids);
+                    await afterPaymentsDeleted(n, 'selected');
+                } catch (error) {
+                    showToast('❌ Delete failed: ' + (error.message || error), 'error');
+                }
+            };
+
+            window.deleteFilteredPayments = async function() {
+                const ids = filteredPayments.map(p => String(p.id));
+                if (!ids.length) { showToast('Nothing to delete', 'info'); return; }
+                const typed = prompt(`Type DELETE to permanently remove the ${ids.length} transaction(s) currently shown.`);
+                if (typed !== 'DELETE') return;
+                try {
+                    const n = await deletePaymentIds(ids);
+                    await afterPaymentsDeleted(n, 'all shown');
+                } catch (error) {
+                    showToast('❌ Delete failed: ' + (error.message || error), 'error');
                 }
             };
 
@@ -2997,11 +3089,19 @@
             window.refreshLogs = function() { fetchLogs();
                 showToast('✅ Logs refreshed', 'success'); };
 
-            window.clearLogs = function() {
+            window.clearLogs = async function() {
                 if (confirm('Are you sure you want to clear all logs?')) {
                     activityLogs = [];
                     allAuditLogs = [];
                     localStorage.setItem('auto_d_logs', '[]');
+                    try {
+                        const { error } = await getSupabaseClient().from('admin_logs').delete().gte('created_at', '1970-01-01');
+                        if (error) throw error;
+                    } catch (e) {
+                        showToast('❌ Could not delete logs from database: ' + e.message, 'error');
+                        fetchLogs();
+                        return;
+                    }
                     renderLogs();
                     addAdminLog('🗑️ Logs cleared', 'admin');
                     showToast('✅ Logs cleared', 'info');
@@ -3160,7 +3260,7 @@
                 }
                 container.innerHTML = scraperLogs.slice(0, 10).map(log => `
                     <div class="log-entry ${log.type}">
-                        <span>${log.message}</span>
+                        <span>${escapeHtml(log.message)}</span>
                         <span class="log-time">${log.timestamp}</span>
                     </div>
                 `).join('');
@@ -3402,11 +3502,12 @@
                 }
             };
 
-            window.resetSettings = function() {
+            window.resetSettings = async function() {
                 if (confirm('⚠️ This will reset all settings to default. Continue?')) {
                     const defaults = { depreciation_rate: 0.15, insurance_rate: 0.045, annual_mileage: 20000,
                         tyre_lifespan: 45000, maintenance_rate: 3.5, service_interval: 5000 };
-                    localStorage.setItem('auto_d_settings', JSON.stringify(defaults));
+                    const rs = await updateEngineSettings(defaults);
+                    if (!rs.success) { showToast('❌ Reset failed: ' + rs.error, 'error'); return; }
                     addAdminLog('⚠️ All settings reset to default', 'admin');
                     showToast('✅ Settings reset to default!', 'warning');
                     window.fetchEngineSettings();
@@ -3605,6 +3706,7 @@
                 ]);
                 await window.fetchAnalytics();
                 setupRealtimeSubscriptions();
+                if (window.__osReload) window.__osReload();
                 showToast('✅ Dashboard loaded with live sync', 'success');
             }
 
@@ -3940,7 +4042,7 @@
   async function resolveIdentity(c) {
     const { data: { session } } = await c.auth.getSession();
     meId = session?.user?.id || null;
-    if (!meId) return;
+    if (!meId) { window.__osCanReview = async () => false; window.__osCanEditCalc = async () => false; window.__osIsAdmin = false; return; }
 
     // Officer row (if the admin also happens to be a valuation officer)
     const { data: off } = await c.from('valuation_officers').select('*').eq('id', meId).maybeSingle();
@@ -3951,11 +4053,12 @@
     myProfile = prof || null;
 
     let roleCode = (myProfile?.role || '').toLowerCase();
-    if (!roleCode && myProfile?.role_id) {
+    if (!['admin','administrator','super admin','super_admin'].includes(roleCode) && myProfile?.role_id) {
       const { data: roleRow } = await c.from('roles').select('code').eq('id', myProfile.role_id).maybeSingle();
       roleCode = (roleRow?.code || '').toLowerCase();
     }
     const isDashboardAdmin = ['admin','administrator','super admin','super_admin'].includes(roleCode);
+    window.__osIsAdmin = isDashboardAdmin;
 
     window.__osCanReview = async (v) => {
       if (!v || v.status !== 'submitted' || v.officer_id === meId) return false;
@@ -3987,6 +4090,7 @@
         .on('postgres_changes', { event:'INSERT', schema:'public', table:'valuation_officers' },
             p => { toast('New officer awaiting approval: ' + ((p.new && p.new.full_name) || ''), 'warning'); load(); })
         .subscribe();
+    db().channel('os_valuations').on('postgres_changes', { event: '*', schema: 'public', table: 'onsite_valuations' }, () => load()).subscribe();
     $('osReload').onclick = load;
     $('osCsv').onclick = exportCsv;
     $('onsiteSection').parentElement.addEventListener('click', onClick);
@@ -4157,7 +4261,8 @@
     // Permission gates
     const canReview = await window.__osCanReview(v);
     const canEdit   = await window.__osCanEditCalc(v);
-    $('osReviewPanel').style.display = (canReview || canEdit) ? '' : 'none';
+    const EDITABLE = ['submitted','draft','correction_required'];
+    $('osReviewPanel').style.display = (canReview || (canEdit && EDITABLE.includes(v.status))) ? '' : 'none';
     $('osApprovedValueWrap').style.display = 'none';
     $('osApprovedValue').value = Math.round(Number(v.final_value) || 0) || '';
     $('osReviewNotes').value = '';
@@ -4167,7 +4272,7 @@
     $('osReviewPanel').querySelectorAll('[data-act="review"]').forEach(b => b.disabled = !canReview);
     const editCalcBtn = $('osReviewPanel').querySelector('[data-act="editcalc"]');
     const editValBtn  = $('osReviewPanel').querySelector('[data-act="editvalue"]');
-    if (editCalcBtn) editCalcBtn.disabled = !canEdit;
+    if (editCalcBtn) editCalcBtn.disabled = !canEdit || !EDITABLE.includes(v.status);
     if (editValBtn)  editValBtn.disabled  = !canReview || noval;
 
     // History + photos
@@ -4240,6 +4345,7 @@
     const r = readCalcEditor(); if (!r) return;
     const v = r.v;
     const res = recalcOnAdmin(v);
+    if (!['submitted','draft','correction_required'].includes(v.status)) return toast('Final, rejected or withdrawn reports cannot be edited.', 'error');
     if (!res.base) return toast('Base value is required', 'error');
     if (res.stops && res.stops.length) return toast(res.stops[0], 'error');
     const c = db();
@@ -4311,11 +4417,18 @@
       });
       if (rpc.error) {
         // Fallback if RPC missing: direct update
-        if (/function .* does not exist/i.test(rpc.error.message || '')) {
+        if (/does not exist|could not find the function|schema cache/i.test(rpc.error.message || '') || window.__osIsAdmin) {
           const patch = { status: decision === 'approve' ? 'final' : decision === 'correction' ? 'correction_required' : 'rejected',
                           review_note: notes, reviewer_id: meId, reviewed_at: new Date().toISOString() };
           if (decision === 'approve') { patch.approved_value = approved; patch.approved_at = new Date().toISOString(); }
-          const { error: upErr } = await c.from('onsite_valuations').update(patch).eq('id', curId);
+          if (decision === 'approve') patch.certificate_number = 'CERT-' + new Date().getFullYear() + '-' + Date.now().toString(36).toUpperCase();
+          let up = await c.from('onsite_valuations').update(patch).eq('id', curId).select('id');
+          if (up.error && /certificate_number|approved_at|reviewed_at|column/i.test(up.error.message || '')) {
+            delete patch.certificate_number; delete patch.approved_at; delete patch.reviewed_at;
+            up = await c.from('onsite_valuations').update(patch).eq('id', curId).select('id');
+          }
+          const upErr = up.error || ((!up.data || !up.data.length)
+            ? { message: 'Update blocked (0 rows). RPC said: ' + rpc.error.message + '. Check RLS UPDATE policy on onsite_valuations for admins.' } : null);
           if (upErr) return toast(upErr.message, 'error');
           try {
             await c.from('valuation_reviews').insert({ valuation_id: curId, reviewer_id: meId, decision, notes, created_at: new Date().toISOString() });
@@ -4335,7 +4448,11 @@
       const row = b.closest('tr'), price = Number(row.querySelector('.os-price').value),
             active = row.querySelector('.os-active').checked;
       if (!(price >= 0) || row.querySelector('.os-price').value === '') return toast('Enter a valid fee', 'error');
-      const { error } = await c.rpc('admin_set_pricing', { p_purpose: id, p_price: price, p_active: active });
+      let { error } = await c.rpc('admin_set_pricing', { p_purpose: id, p_price: price, p_active: active });
+      if (error) {
+        const u = await c.from('onsite_pricing').upsert({ purpose: id, price, active, updated_at: new Date().toISOString() }, { onConflict: 'purpose' }).select();
+        error = u.error || ((!u.data || !u.data.length) ? { message: error.message } : null);
+      }
       if (error) return toast(error.message, 'error');
       log(`Onsite pricing ${id}: KES ${price}, ${active ? 'active' : 'inactive'}`);
       toast('Pricing saved'); return load();
@@ -4347,7 +4464,11 @@
     if (act === 'reject') {
       const o = officers.find(x => x.id === id); if (!o) return;
       if (!confirm(`Reject ${o.full_name}? Their officer registration is deleted and they cannot log in.`)) return;
-      const { error } = await c.rpc('admin_reject_officer', { p_id: id });
+      let { error } = await c.rpc('admin_reject_officer', { p_id: id });
+      if (error) {
+        const d = await c.from('valuation_officers').delete().eq('id', id).select('id');
+        error = d.error || ((!d.data || !d.data.length) ? { message: error.message } : null);
+      }
       if (error) return toast(error.message, 'error');
       log(`Officer ${o.full_name} (${o.email || id}) rejected`);
       toast('Officer rejected'); return load();
@@ -4365,7 +4486,17 @@
         if (d.trim()) patch.p_expires = d.trim(); else patch.p_clear_expiry = true;
       }
       if (patch.p_role === 'admin' && !confirm(`Make ${o.full_name} an admin?`)) return;
-      const { error } = await c.rpc('admin_update_officer', patch);
+      let { error } = await c.rpc('admin_update_officer', patch);
+      if (error) {
+        const upd = {};
+        if ('p_active' in patch) upd.active = patch.p_active;
+        if ('p_role' in patch) upd.role = patch.p_role;
+        if ('p_can_sign' in patch) upd.can_sign = patch.p_can_sign;
+        if ('p_expires' in patch) upd.authorisation_expires = patch.p_expires;
+        if (patch.p_clear_expiry) upd.authorisation_expires = null;
+        const u = await c.from('valuation_officers').update(upd).eq('id', id).select('id');
+        error = u.error || ((!u.data || !u.data.length) ? { message: error.message } : null);
+      }
       if (error) return toast(error.message, 'error');
       log(`Officer ${o.full_name}: ${act === 'toggle' ? (patch.p_active ? 'approved' : 'deactivated') : act + ' updated'}`);
       toast('Officer updated'); return load();
@@ -4374,7 +4505,11 @@
     if (act === 'withdraw' && curId) {
       const reason = prompt('Reason for withdrawing this final report (recorded in the audit log):');
       if (!reason || !reason.trim()) return;
-      const { error } = await c.rpc('admin_withdraw_valuation', { p_id: curId, p_reason: reason.trim() });
+      let { error } = await c.rpc('admin_withdraw_valuation', { p_id: curId, p_reason: reason.trim() });
+      if (error) {
+        const u = await c.from('onsite_valuations').update({ status: 'withdrawn', review_note: reason.trim(), updated_at: new Date().toISOString() }).eq('id', curId).select('id');
+        error = u.error || ((!u.data || !u.data.length) ? { message: 'Withdraw blocked: ' + error.message } : null);
+      }
       if (error) return toast(error.message, 'error');
       log(`Onsite valuation ${curId} withdrawn: ${reason.trim()}`);
       toast('Report withdrawn'); closeModal(); load();
@@ -4402,7 +4537,7 @@
   const t = setInterval(() => {
     const dash = $('dashboardScreen');
     if (injected || !dash || dash.classList.contains('hidden') || !db()) return;
-    if (inject()) { injected = true; clearInterval(t); load(); }
+    if (inject()) { injected = true; window.__osReload = load; clearInterval(t); load(); }
   }, 600);
 })();
 </script>
