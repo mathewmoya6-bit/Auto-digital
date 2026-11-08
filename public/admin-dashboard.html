@@ -4029,6 +4029,7 @@
         <button class="btn btn-success" data-act="review" data-id="approve">✓ Approve and issue certificate</button>
         <button class="btn btn-primary" data-act="review" data-id="correction">↩ Return for editing</button>
         <button class="btn btn-danger" data-act="review" data-id="reject">✕ Decline report</button>
+        <button class="btn btn-danger" id="osDeleteSub" data-act="delete" style="display:none" title="Permanently remove this report">🗑 Delete report</button>
       </div>
     </div>
 
@@ -4061,19 +4062,22 @@
       roleCode = (roleRow?.code || '').toLowerCase();
     }
     const isDashboardAdmin = ['admin','administrator','super admin','super_admin'].includes(roleCode);
-    window.__osIsAdmin = isDashboardAdmin;
+    let dbAdmin = false;
+    if (!isDashboardAdmin) { try { const r = await c.rpc('is_admin_user'); dbAdmin = r.data === true; } catch (e) {} }
+    const officerAdmin = !!(myOfficer && myOfficer.active && myOfficer.role === 'admin');
+    window.__osIsAdmin = isDashboardAdmin || officerAdmin || dbAdmin;
 
     window.__osCanReview = async (v) => {
       if (!v || v.status !== 'submitted') return false;
       
-      if (isDashboardAdmin) return true;
+      if (window.__osIsAdmin) return true;
       if (!myOfficer || !myOfficer.active || !myOfficer.can_sign) return false;
       if (!['admin','senior_valuer'].includes(myOfficer.role)) return false;
       if (myOfficer.authorisation_expires && myOfficer.authorisation_expires < new Date().toISOString().slice(0,10)) return false;
       return true;
     };
     window.__osCanEditCalc = async (v) => {
-      if (isDashboardAdmin) return true;
+      if (window.__osIsAdmin) return true;
       return !!(myOfficer && myOfficer.active && myOfficer.can_sign && ['admin','senior_valuer'].includes(myOfficer.role));
     };
   }
@@ -4296,6 +4300,7 @@
     else if (!canReview) why = 'Your account is not authorised to review this report (needs a dashboard admin role, or an active senior valuer/admin officer with signing rights).';
     $('osReviewWhy').textContent = why;
     const delBtn = $('osDelete'); if (delBtn) delBtn.style.display = window.__osIsAdmin ? '' : 'none';
+    const delSub = $('osDeleteSub'); if (delSub) delSub.style.display = (window.__osIsAdmin && v.status !== 'final') ? '' : 'none';
 
     // History + photos
     $('osMRev').innerHTML = '';
@@ -4411,7 +4416,7 @@
     if (finals.length) msg += `\n\n⚠ ${finals.length} of these ${finals.length === 1 ? 'is' : 'are'} FINAL / certificated (${finals.map(v => v.certificate_number || v.ref).join(', ')}). Consider "Withdraw report" instead, which keeps an audit trail.`;
     if (!confirm(msg)) return;
     // Extra friction for bulk or certificated deletes
-    if (recs.length > 1 || finals.length) {
+    if (recs.length > 1 || finals.length) {  // submitted/draft singles need only the confirm above
       const word = recs.length > 1 ? 'DELETE' : recs[0].ref;
       const typed = prompt(`Type ${word} to confirm:`);
       if (typed === null || typed.trim() !== word) return toast('Delete cancelled: confirmation did not match.', 'error');
@@ -4428,7 +4433,7 @@
         const d = await c.from('onsite_valuations').delete().eq('id', v.id).select('id');
         error = d.error || ((!d.data || !d.data.length) ? { message: 'Delete blocked by row-level security (' + error.message + ')' } : null);
       }
-      if (error) failed.push((v.ref || v.id) + ': ' + error.message); else { ok++; selected.delete(v.id); log(`Onsite valuation ${v.ref || v.id} (${v.status}) deleted by admin`); }
+      if (error) failed.push((v.ref || v.id) + ' (' + v.status + '): ' + error.message); else { ok++; selected.delete(v.id); log(`Onsite valuation ${v.ref || v.id} (${v.status}) deleted by admin`); }
     }
     if (ok) toast(ok + ' valuation' + (ok > 1 ? 's' : '') + ' deleted');
     if (failed.length) { toast(failed[0], 'error'); console.warn('Delete failures:', failed); alert('Some records could not be deleted:\n\n' + failed.join('\n') + '\n\nRun the admin-delete SQL (onsite-admin-delete.sql) in Supabase, then try again.'); }
