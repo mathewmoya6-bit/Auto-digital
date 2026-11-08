@@ -315,7 +315,7 @@ function recalc(){
 
 /* ---------- Auth ---------- */
 function authView(mode='login',msg='',good=false){
- const su=mode==='signup';
+ const su=false; /* self-registration removed */
  $('#app').innerHTML=`<div class="auth wrap"><div class="brand">Auto-<span>D</span> Onsite Valuation</div>
  <p class="sm">Sign in as a valuation officer to start an on-site inspection.</p>
  <div class="card"><h2>${su?'Create officer account':'Officer login'}</h2>${msg?`<div class="msg ${good?'good':''}">${esc(msg)}</div>`:''}
@@ -323,11 +323,8 @@ function authView(mode='login',msg='',good=false){
  <label>Email<input name="email" type="email" required autocomplete="email"></label><br>
  <label>Password<input name="password" type="password" minlength="8" required autocomplete="${su?'new':'current'}-password"></label><br>
  <button class="pri" style="width:100%">${su?'Create account':'Log in'}</button>${su?'':'<p class="sm"><button type="button" class="lnk" onclick="forgotView()">Forgot password?</button></p>'}</form>
- <p class="sm">${su?'Already registered?':'New officer?'} <button class="lnk" onclick="authView('${su?'login':'signup'}')">${su?'Log in':'Create an account'}</button></p></div></div>`;
+ <p class="sm">Officer accounts are created by an administrator.</p></div></div>`;
  $('#af').onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
-  if(su){const{data,error}=await sb.auth.signUp({email:f.email,password:f.password,options:{data:{app:'onsite_officer',full_name:f.full_name,phone:f.phone,licence_no:f.licence_no}}});
-   if(error)return authView('signup',error.message);
-   if(data.session)await sb.auth.signOut();return authView('login',data.session?'Account created. An admin must approve it before you can log in.':'Account created. Confirm your email, then wait for admin approval.',true)}
   const{error}=await sb.auth.signInWithPassword(f);if(error)return authView('login',error.message);boot()};
 }
 /* Password reset: email link -> this page -> set new password */
@@ -360,7 +357,8 @@ async function boot(){
  const{data:{session}}=await sb.auth.getSession();
  if(!session)return authView();
  S.user=session.user;
- const{data}=await sb.from('valuation_officers').select('*').eq('id',S.user.id).maybeSingle();
+ const{data,error:pe}=await sb.from('valuation_officers').select('*').eq('id',S.user.id).maybeSingle();
+ if(pe)return authView('login','Could not load your officer profile: '+pe.message+'. You are still signed in. Ask an admin to check your access, then log in again.');
  if(!data){await sb.auth.signOut();return authView('login','This account is not registered as a valuation officer.')}
  if(!data.active){await sb.auth.signOut();return authView('login','Your account is waiting for admin approval.')}
  S.prof=data;if(!S.prof.signature){try{S.prof.signature=localStorage.getItem('sig_'+S.user.id)||''}catch(e){}}home();
@@ -368,13 +366,13 @@ async function boot(){
 const logout=async()=>{await sb.auth.signOut();S.val=null;authView()};
 const topbar=()=>`<div class="top noprint"><div class="brand">Auto-<span>D</span> Onsite</div><div class="sm">${esc(S.prof.full_name)}${S.prof.licence_no?' · '+esc(S.prof.licence_no):''} <button class="lnk" onclick="logout()">Log out</button></div></div>`;
 
-async function loadPrices(){const{data}=await sb.from('onsite_pricing').select('purpose,price,active');S.prices={};(data||[]).forEach(r=>S.prices[r.purpose]=r)}
+async function loadPrices(){const{data,error}=await sb.from('onsite_pricing').select('purpose,price,active');S.priceErr=error?error.message:'';if(error)S.warn.push('Fees could not be loaded: '+error.message);S.prices={};(data||[]).forEach(r=>S.prices[r.purpose]=r)}
 /* ---------- Home ---------- */
 async function home(){
- await Promise.all([loadPrices(),loadForms(),loadClients()]);
+ S.warn=[];await Promise.all([loadPrices(),loadForms(),loadClients()]);
  S.val=null;
  const first=PK.find(k=>!S.prices[k]||S.prices[k].active)||PK[0];
- $('#app').innerHTML=topbar()+`<div class="wrap"><div class="card"><h2>New valuation</h2><div class="grid"><label>Client<select id="nc">${clientOpts()}</select>${clientHint()}</label><label>Service type<select id="np" onchange="npDesc()">${popts(first)}</select></label><div style="align-self:end"><button class="pri" onclick="newVal()">Start inspection</button></div></div><p class="sm" id="npd"></p></div>
+ $('#app').innerHTML=topbar()+`<div class="wrap">${(S.warn||[]).map(w=>`<div class="msg">${esc(w)}</div>`).join('')}<div class="card"><h2>New valuation</h2><div class="grid"><label>Client<select id="nc">${clientOpts()}</select>${clientHint()}</label><label>Service type<select id="np" onchange="npDesc()">${popts(first)}</select></label><div style="align-self:end"><button class="pri" onclick="newVal()">Start inspection</button></div></div><p class="sm" id="npd"></p></div>
  ${clientCardHTML()}${billCardHTML()}${sigCardHTML()}<div class="card list"><h2>My valuations</h2><div id="lst" class="sm">Loading…</div></div></div><div id="bar" style="display:none"></div>`;
  npDesc();sigInit();loadInvoices();
  const{data,error}=await sb.from('onsite_valuations').select('*').eq('officer_id',S.user.id).order('updated_at',{ascending:false}).limit(50);
@@ -413,7 +411,8 @@ const PFD={
 const PF={};
 Object.entries(PFD).forEach(([k,a])=>PF[k]=a.map(s=>{const[c,l,t,r,o]=s.split('|');return{c,l,t:PFT[t],r:r==='R',o:o?o.split(','):null}}));
 async function loadForms(){
- const{data}=await sb.from('valuation_form_configs').select('*').eq('is_active',true).order('sort_order');
+ const{data,error}=await sb.from('valuation_form_configs').select('*').eq('is_active',true).order('sort_order');
+ if(error){(S.warn=S.warn||[]).push('Service forms could not be loaded, built-in forms are used: '+error.message);return}
  if(!data||!data.length)return;
  const nf={};data.forEach(r=>(nf[r.purpose_code]=nf[r.purpose_code]||[]).push({c:r.field_code,l:r.field_label,t:r.field_type,r:r.is_required,o:r.options}));
  Object.keys(nf).forEach(k=>{if(P[k])PF[k]=nf[k]});
@@ -727,7 +726,7 @@ async function addClient(){const cat=$('#cn_cat').value,corp=cat==='corporate',n
  const row={name,client_category:cat,client_type:type,phone:$('#cn_phone').value.trim()||null,email:$('#cn_email').value.trim()||null,kra_pin:$('#cn_pin').value.trim()||null,contact_person:corp?($('#cn_contact').value.trim()||null):null};
  if(type==='credit'){row.credit_limit=num($('#cn_lim').value);row.terms_days=parseInt($('#cn_terms').value)||30}
  const{error}=await sb.from('onsite_clients').insert(row);if(error)return alert(error.message);toast('Client saved');await loadClients();home()}
-async function newVal(){const pu=$('#np').value,cid=$('#nc').value;if(!cid)return alert('Select the client first, or add one below.');
+async function newVal(){const pu=$('#np').value,cid=$('#nc').value;if(S.priceErr)return alert('Fees could not be loaded ('+S.priceErr+'). Reload the page or ask an admin to check access to onsite_pricing.');if(!cid)return alert('Select the client first, or add one below.');
  const c=(S.clients||[]).find(x=>x.id===cid);
  if(c.client_type==='credit'){const{data,error}=await sb.rpc('onsite_credit_ok',{p_client:cid});if(error)return alert(error.message);if(data)return alert('This credit client cannot be instructed: '+data)}
  S.val={purpose:pu,client_id:cid,pay:{status:'unpaid'},vehicle:{},inputs:{date:today(),client:c.name,hc:P[pu].hc,fee:(S.prices[pu]||{}).price??null,form_version:PF_VER},answers:{},notes:{}};
