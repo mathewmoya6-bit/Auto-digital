@@ -3824,7 +3824,7 @@
 
   /* ---------- State ---------- */
   let officers = [], vals = [], prices = [], meId = null, myOfficer = null,
-      myProfile = null, injected = false, ofFilter = 'all', page = 1, curId = null;
+      myProfile = null, injected = false, ofFilter = 'all', page = 1, curId = null, curCashUnpaid = false;
 
   /* ---------- Helpers ---------- */
   const $ = id => document.getElementById(id);
@@ -4006,8 +4006,10 @@
     <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Review history</h4>
     <div class="kv-list" id="osMRev"></div>
 
-    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">Photos</h4>
-    <div id="osMPhotos" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+    <h4 style="font-size:13px;color:var(--text-muted);margin:12px 0 6px;">1. Vehicle photos</h4>
+    <div id="osMPhotos"></div>
+    <h4 style="font-size:13px;color:var(--text-muted);margin:16px 0 6px;">2. Logbook and documents</h4>
+    <div id="osMDocs"></div>
 
     <!-- Review panel -->
     <div id="osReviewPanel" style="display:none;border-top:1px solid var(--border);margin-top:18px;padding-top:16px;">
@@ -4026,19 +4028,32 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" data-act="editcalc">✎ Edit calculation</button>
         <button class="btn btn-secondary" data-act="editvalue">✎ Edit approved value</button>
+        <button class="btn btn-primary" id="osSubmitRev" data-act="submitrev" style="display:none">📤 Submit for review</button>
         <button class="btn btn-success" data-act="review" data-id="approve">✓ Approve and issue certificate</button>
         <button class="btn btn-primary" data-act="review" data-id="correction">↩ Return for editing</button>
         <button class="btn btn-danger" data-act="review" data-id="reject">✕ Decline report</button>
-        <button class="btn btn-danger" id="osDeleteSub" data-act="delete" style="display:none" title="Permanently remove this report">🗑 Delete report</button>
       </div>
     </div>
 
     <div class="modal-actions">
       <button class="btn btn-danger" id="osReopen" data-act="withdraw">🚫 Withdraw report</button>
-      <button class="btn btn-danger" id="osDelete" data-act="delete" style="display:none">🗑 Delete record</button>
+      <button class="btn btn-danger" id="osDelete" data-act="delete" style="display:none" title="Permanently remove this report (admin only)">🗑 Delete report</button>
       <button class="btn btn-secondary" data-act="close">Close</button>
     </div>
   </div></div>`;
+
+
+  /* ---------- Attachment labels (mirrors the officer app) ---------- */
+  const SHOTS = [['fl','Front-left corner',1],['fr','Front-right corner',1],['rl','Rear-left corner',1],['rr','Rear-right corner',1],
+                 ['chassis','Chassis plate',1],['engine','Engine bay',1],['odo','Odometer reading',1],['other','Other photos',0]];
+  const DOCSL = [['logbook','Logbook / registration certificate',1],['id','Owner ID',0],['kra','KRA PIN certificate',0],['docs','Export certificate / other documents',0]];
+  const mediaOf = inp => (inp && inp.media) ? inp.media : ((inp && (inp.photos || []).length) ? { other: inp.photos } : {});
+  const allMediaPaths = inp => {
+    const m = mediaOf(inp), out = new Set([...(inp?.photos || []), ...(inp?.docs || [])]);
+    Object.values(m).forEach(a => (a || []).forEach(x => out.add(x)));
+    return [...out].filter(Boolean);
+  };
+  const isPdf = p => /\.pdf$/i.test(p || '');
 
   /* =========================================================================
      IDENTITY
@@ -4290,17 +4305,44 @@
     $('osCalcEditor').style.display = 'none';
     $('osReviewPanel').dataset.noval = noval ? 'true' : 'false';
 
-    $('osReviewPanel').querySelectorAll('[data-act="review"]').forEach(b => b.disabled = !canReview);
+    // Payment: a cash client must have paid before a certificate can be issued
+    curCashUnpaid = false;
+    if (v.client_id) {
+      try {
+        const { data: cl } = await db().from('onsite_clients').select('client_type').eq('id', v.client_id).maybeSingle();
+        curCashUnpaid = !!(cl && cl.client_type === 'cash' && v.payment_status !== 'paid');
+      } catch (e) { /* non-fatal */ }
+    }
+    $('osMKv').insertAdjacentHTML('beforeend',
+      kv('Payment', (v.payment_status || 'unpaid') + (v.mpesa_receipt ? ' · M-Pesa ' + v.mpesa_receipt : '') + (v.fee != null ? ' · ' + kes(v.fee) : '')));
+
+    const isDraftLike = ['draft', 'correction_required'].includes(v.status);
+    const canSubmit = isDraftLike && (window.__osIsAdmin || canEdit);
+    const reviewBtns = [...$('osReviewPanel').querySelectorAll('[data-act="review"]')];
+    reviewBtns.forEach(b => {
+      const isApprove = b.dataset.id === 'approve';
+      b.disabled = !canReview || (isApprove && curCashUnpaid);
+      b.title = b.disabled
+        ? (v.status !== 'submitted' ? 'Report must be submitted before it can be reviewed'
+           : !canReview ? 'You are not authorised to review this report'
+           : 'The cash client has not paid yet')
+        : '';
+    });
+    const subBtn = $('osSubmitRev');
+    if (subBtn) subBtn.style.display = canSubmit ? '' : 'none';
     const editCalcBtn = $('osReviewPanel').querySelector('[data-act="editcalc"]');
     const editValBtn  = $('osReviewPanel').querySelector('[data-act="editvalue"]');
-    if (editCalcBtn) editCalcBtn.disabled = !canEdit || !EDITABLE.includes(v.status);
-    if (editValBtn)  editValBtn.disabled  = !canReview || noval;
+    if (editCalcBtn) { editCalcBtn.disabled = !canEdit || !EDITABLE.includes(v.status); editCalcBtn.title = editCalcBtn.disabled ? 'Not editable in this status' : ''; }
+    if (editValBtn)  { editValBtn.disabled  = !canReview || noval; editValBtn.title = editValBtn.disabled ? 'Available once the report is submitted' : ''; }
     let why = '';
-    if (v.status !== 'submitted') why = 'Only reports with status "submitted" can be reviewed (this one is "' + v.status + '").';
+    if (v.status === 'draft') why = 'This report is still a draft: the officer has not submitted it. Use "Submit for review" to move it into the review queue (you can edit the calculation first). The decision buttons unlock once it is submitted.';
+    else if (v.status === 'correction_required') why = 'This report was returned to the officer for correction. Submit it for review once it is corrected, or edit it here.';
+    else if (['final', 'rejected', 'withdrawn'].includes(v.status)) why = 'This report is "' + v.status + '" and can no longer be reviewed.';
+    else if (v.status !== 'submitted') why = 'Only reports with status "submitted" can be reviewed (this one is "' + v.status + '").';
     else if (!canReview) why = 'Your account is not authorised to review this report (needs a dashboard admin role, or an active senior valuer/admin officer with signing rights).';
+    else if (curCashUnpaid) why = 'Cannot approve yet: the cash client has not paid. You can still return or decline the report.';
     $('osReviewWhy').textContent = why;
     const delBtn = $('osDelete'); if (delBtn) delBtn.style.display = window.__osIsAdmin ? '' : 'none';
-    const delSub = $('osDeleteSub'); if (delSub) delSub.style.display = (window.__osIsAdmin && v.status !== 'final') ? '' : 'none';
 
     // History + photos
     $('osMRev').innerHTML = '';
@@ -4311,13 +4353,30 @@
         : kv('No reviews yet', '');
     });
 
-    const ph = $('osMPhotos'); ph.innerHTML = '';
-    const paths = inp.photos || [];
+    // Vehicle photos and logbook/documents are shown separately, labelled by what each file is
+    const media = mediaOf(inp), phBox = $('osMPhotos'), docBox = $('osMDocs');
+    phBox.innerHTML = '<span class="sub">Loading…</span>'; docBox.innerHTML = '<span class="sub">Loading…</span>';
+    const paths = allMediaPaths(inp), urlOf = {};
     if (paths.length) {
-      const { data } = await db().storage.from('valuation-photos').createSignedUrls(paths, 3600);
-      (data || []).forEach(x => { if (x.signedUrl) ph.insertAdjacentHTML('beforeend',
-        `<a href="${x.signedUrl}" target="_blank" rel="noopener"><img src="${x.signedUrl}" alt="Inspection photo" style="width:110px;height:84px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"></a>`); });
-    } else ph.innerHTML = '<span class="sub">No photos uploaded.</span>';
+      try {
+        const { data } = await db().storage.from('valuation-photos').createSignedUrls(paths, 3600);
+        (data || []).forEach(x => { if (x.signedUrl) urlOf[x.path] = x.signedUrl; });
+      } catch (e) { /* links simply won't render */ }
+    }
+    const tile = (p, label) => {
+      const u = urlOf[p];
+      if (!u) return `<div class="sub" style="width:110px">${esc(label)}<br>unavailable</div>`;
+      return isPdf(p)
+        ? `<a href="${u}" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;width:110px;height:84px;border-radius:6px;border:1px solid var(--border);text-decoration:none;font-size:13px">📄 PDF</a>`
+        : `<a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="${esc(label)}" style="width:110px;height:84px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"></a>`;
+    };
+    const group = L => L.map(([tag, label, req]) => {
+      const files = media[tag] || [];
+      const head = `<div style="font-size:12px;margin:8px 0 4px"><b>${esc(label)}</b> ${files.length ? '<span class="sub">✓ ' + files.length + '</span>' : (req ? '<span style="color:var(--danger,#ef4444)">⚠ Missing (required)</span>' : '<span class="sub">not attached</span>')}</div>`;
+      return head + (files.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px">${files.map(p => tile(p, label)).join('')}</div>` : '');
+    }).join('');
+    phBox.innerHTML = group(SHOTS);
+    docBox.innerHTML = group(DOCSL);
 
     $('osModal').classList.add('open');
   }
@@ -4412,7 +4471,7 @@
     if (!recs.length) return;
     const finals = recs.filter(v => v.status === 'final' || v.certificate_number);
     const label = recs.length === 1 ? (recs[0].ref || recs[0].id) : recs.length + ' valuations';
-    let msg = `Permanently delete ${label}?\n\nThis removes the record, its review history and uploaded photos. It cannot be undone.`;
+    let msg = `Permanently delete ${label}?\n\nThis removes the record, its review history, uploaded photos and documents. It cannot be undone.`;
     if (finals.length) msg += `\n\n⚠ ${finals.length} of these ${finals.length === 1 ? 'is' : 'are'} FINAL / certificated (${finals.map(v => v.certificate_number || v.ref).join(', ')}). Consider "Withdraw report" instead, which keeps an audit trail.`;
     if (!confirm(msg)) return;
     // Extra friction for bulk or certificated deletes
@@ -4425,7 +4484,7 @@
     for (const v of recs) {
       // 1. best effort: review history + photos (do not block the delete if these fail)
       try { await c.from('valuation_reviews').delete().eq('valuation_id', v.id); } catch (e) {}
-      const photos = ((v.inputs || {}).photos || []).filter(Boolean);
+      const photos = allMediaPaths(v.inputs || {});
       if (photos.length) { try { await c.storage.from('valuation-photos').remove(photos); } catch (e) {} }
       // 2. delete the record: RPC first, direct delete as fallback; a 0-row delete means RLS blocked it
       let { error } = await c.rpc('admin_delete_valuation', { p_id: v.id });
@@ -4460,8 +4519,25 @@
     if (act === 'editvalue') {
       if ($('osReviewPanel').dataset.noval === 'true') return toast('This purpose does not produce a monetary valuation.', 'error');
       $('osApprovedValueWrap').style.display = '';
-      $('osApprovedValue').focus();
+      $('osApprovedValue').focus(); $('osApprovedValue').select();
       return;
+    }
+
+    if (act === 'submitrev' && curId) {
+      const v = vals.find(x => x.id === curId); if (!v) return;
+      if (!['draft', 'correction_required'].includes(v.status)) return toast('Only draft or returned reports can be submitted.', 'error');
+      const hasLog = ((mediaOf(v.inputs || {}).logbook) || []).length > 0;
+      if (!confirm(`Submit ${v.ref || v.id} for review?` + (hasLog ? '' : '\n\n⚠ No logbook is attached to this report.'))) return;
+      let { error } = await c.rpc('submit_valuation', { p_id: curId });
+      if (error) {
+        const u = await c.from('onsite_valuations').update({ status: 'submitted', updated_at: new Date().toISOString() })
+          .eq('id', curId).in('status', ['draft', 'correction_required']).select('id');
+        error = u.error || ((!u.data || !u.data.length) ? { message: 'Submit blocked: ' + error.message } : null);
+      }
+      if (error) return toast(error.message, 'error');
+      log(`Onsite valuation ${v.ref || curId}: submitted for review by admin`);
+      toast('Submitted for review');
+      await load(); return openModal(curId);
     }
 
     if (act === 'review' && curId) {
@@ -4469,6 +4545,7 @@
       const decision = id, notes = ($('osReviewNotes').value || '').trim();
       if (!(await window.__osCanReview(v))) return toast('Your account is not authorised to review this report.', 'error');
       if (!notes) return toast('Review notes are required.', 'error');
+      if (decision === 'approve' && curCashUnpaid) return toast('Cannot approve: the cash client has not paid.', 'error');
       const noval = NOVAL.includes(v.purpose);
       const approved = noval ? 0 : Number($('osApprovedValue').value || v.final_value || 0);
       if (decision === 'approve' && !noval && (!Number.isFinite(approved) || approved <= 0))
