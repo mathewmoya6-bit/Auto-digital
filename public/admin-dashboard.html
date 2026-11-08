@@ -4429,14 +4429,15 @@
       if (photos.length) { try { await c.storage.from('valuation-photos').remove(photos); } catch (e) {} }
       // 2. delete the record: RPC first, direct delete as fallback; a 0-row delete means RLS blocked it
       let { error } = await c.rpc('admin_delete_valuation', { p_id: v.id });
-      if (error) {
+      // Only fall back to a direct delete when the function itself is missing; otherwise show the real database error.
+      if (error && /does not exist|could not find the function|schema cache/i.test(error.message || '')) {
         const d = await c.from('onsite_valuations').delete().eq('id', v.id).select('id');
-        error = d.error || ((!d.data || !d.data.length) ? { message: 'Delete blocked by row-level security (' + error.message + ')' } : null);
+        error = d.error || ((!d.data || !d.data.length) ? { message: 'Delete blocked (run onsite-admin-delete.sql): ' + error.message } : null);
       }
       if (error) failed.push((v.ref || v.id) + ' (' + v.status + '): ' + error.message); else { ok++; selected.delete(v.id); log(`Onsite valuation ${v.ref || v.id} (${v.status}) deleted by admin`); }
     }
     if (ok) toast(ok + ' valuation' + (ok > 1 ? 's' : '') + ' deleted');
-    if (failed.length) { toast(failed[0], 'error'); console.warn('Delete failures:', failed); alert('Some records could not be deleted:\n\n' + failed.join('\n') + '\n\nRun the admin-delete SQL (onsite-admin-delete.sql) in Supabase, then try again.'); }
+    if (failed.length) { toast(failed[0], 'error'); console.warn('Delete failures:', failed); alert('Some records could not be deleted:\n\n' + failed.join('\n') + ''); }
     closeModal(); await load();
   }
 
