@@ -541,6 +541,21 @@ async function upl(){
   if(error)return toast(error.message);v.inputs.photos.push(path)}
  $('#pc').textContent=v.inputs.photos.length+' uploaded';await save(false,true);toast('Photos uploaded');
 }
+
+/* Turn raw database errors into something an officer can act on */
+function friendlyErr(e){
+ const m=String((e&&e.message)||e||'Unknown error');
+ if(/row-level security|not active|permission denied/i.test(m))
+  return 'Saving was blocked by database security.\n\nSigned in as: '+((S.user&&S.user.email)||'unknown')+'\nOfficer id: '+((S.user&&S.user.id)||'none')+'\n\nAsk an admin to confirm your officer account is active and that the onsite_valuations policies allow this action.\n\nTechnical detail: '+m;
+ if(/violates check constraint/i.test(m))return 'A field has a value the database does not accept ('+m+').';
+ if(/JWT|expired/i.test(m))return 'Your session has expired. Please log in again.';
+ return m}
+/* Re-check the live session before writing so we never send an anonymous request */
+async function liveUser(){
+ const{data:{session}}=await sb.auth.getSession();
+ if(!session){alert('Your session has expired. Please log in again.');await sb.auth.signOut();authView();return null}
+ if(!S.user||S.user.id!==session.user.id)S.user=session.user;
+ return session.user}
 async function save(fin,quiet){
  const v=S.val,r=S.r=calc(v);
  if(fin&&cashUnpaid(v))return alert('Payment must be confirmed before this valuation can be submitted.');
@@ -548,12 +563,23 @@ async function save(fin,quiet){
  if(fin){const need=[['client','client / instructing party'],['use','intended use'],['conflict','independence declaration']].filter(([k])=>!String(v.inputs[k]||'').trim()).map(x=>x[1]);if(need.length)return alert('Complete before finalising: '+need.join(', ')+'.')}
  if(fin&&!confirm('Submit for senior review? You cannot edit it while it is under review.'))return;
  v.inputs.officer_name=v.inputs.officer_name||S.prof.full_name;v.inputs.form_version=v.inputs.form_version||PF_VER;v.inputs.officer_licence=v.inputs.officer_licence??(S.prof.licence_no||'');
- const row={officer_id:S.user.id,client_id:v.client_id||null,purpose:v.purpose,status:'draft',vehicle:v.vehicle,inputs:v.inputs,answers:v.answers,notes:v.notes,result:r,final_value:Math.round(r.final),range_low:null,range_high:null,confidence:null};
- if(v.id)row.id=v.id;
- const{data,error}=await sb.from('onsite_valuations').upsert(row).select().single();
- if(error)return alert(error.message);
+ const usr=await liveUser();if(!usr)return;
+ const body={client_id:v.client_id||null,purpose:v.purpose,vehicle:v.vehicle,inputs:v.inputs,answers:v.answers,notes:v.notes,result:r,final_value:Math.round(r.final),range_low:null,range_high:null,confidence:null};
+ let data=null,error=null;
+ if(!v.id){
+  /* New record: plain INSERT (no ON CONFLICT path, so only the INSERT policy applies) */
+  const res=await sb.from('onsite_valuations').insert({...body,officer_id:usr.id,status:'draft'}).select().single();
+  data=res.data;error=res.error;
+ }else{
+  /* Existing record: UPDATE only the editable fields. Never touch officer_id; only reopen a returned report as a draft. */
+  const patch={...body};if(v.status==='correction_required')patch.status='draft';
+  const res=await sb.from('onsite_valuations').update(patch).eq('id',v.id).select();
+  error=res.error;data=res.data&&res.data[0];
+  if(!error&&!data)error={message:'Update blocked by row-level security: this record is not editable by your account in its current status ('+v.status+').'};
+ }
+ if(error)return alert(friendlyErr(error));
  v.id=data.id;v.ref=data.ref;v.status=data.status;v.pay={status:data.payment_status,receipt:data.mpesa_receipt,fee:data.fee,invoice:data.invoice_id};
- if(fin){const{error:e2}=await sb.rpc('submit_valuation',{p_id:v.id});if(e2)return alert(e2.message);toast('Submitted for review');return home()}
+ if(fin){const{error:e2}=await sb.rpc('submit_valuation',{p_id:v.id});if(e2)return alert(friendlyErr(e2));toast('Submitted for review');return home()}
  if(!quiet)toast('Draft saved');return v.id;
 }
 
