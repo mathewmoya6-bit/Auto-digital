@@ -217,6 +217,7 @@ class StkPushService:
         description: str,
         user_id: Optional[str] = None,
         service_id: Optional[int] = None,
+        account_reference: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Initiate an STK Push request.
@@ -275,7 +276,7 @@ class StkPushService:
             "PartyB": self.shortcode,
             "PhoneNumber": phone,
             "CallBackURL": self.callback_url,
-            "AccountReference": str(service_id or "AUTOD")[:20],
+            "AccountReference": str(account_reference or service_id or "AUTOD")[:12],
             "TransactionDesc": description[:50] if description else "Auto-D Kenya Payment",
         }
 
