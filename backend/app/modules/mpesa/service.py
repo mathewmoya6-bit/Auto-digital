@@ -567,6 +567,23 @@ class MpesaService:
             }
 
         # --------------------------------------------------------
+        # On-site valuation payments settle the valuation, not user_services
+        # --------------------------------------------------------
+
+        if payment.get("onsite_valuation_id"):
+            return await self._handle_onsite_callback(
+                payment,
+                checkout_request_id,
+                result_code,
+                result_desc,
+                receipt,
+                amount,
+                phone,
+                transaction_date,
+                callback_payload,
+            )
+
+        # --------------------------------------------------------
         # Validate phone
         # --------------------------------------------------------
 
@@ -675,6 +692,58 @@ class MpesaService:
             "status": "updated",
             "payment": updated,
         }
+
+    async def _handle_onsite_callback(
+        self,
+        payment: Dict[str, Any],
+        checkout_request_id: str,
+        result_code: str,
+        result_desc: str,
+        receipt: Optional[str],
+        amount: Optional[float],
+        phone: Optional[str],
+        transaction_date: Optional[str],
+        callback_payload: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Mark an on-site valuation paid (cash client paid by STK Push)."""
+
+        outcome = "failed"
+
+        if str(result_code) == "0" and receipt:
+            res = self.supabase.rpc(
+                "onsite_settle_payment",
+                {
+                    "p_valuation": payment["onsite_valuation_id"],
+                    "p_receipt": receipt,
+                    "p_amount": float(amount or 0),
+                    "p_phone": str(phone) if phone else None,
+                },
+            ).execute()
+            outcome = res.data if res else "unknown"
+
+            if outcome not in ("paid", "already_paid"):
+                logger.error(
+                    "Onsite settle %s for payment %s (receipt %s)",
+                    outcome,
+                    checkout_request_id,
+                    receipt,
+                )
+
+        try:
+            await self.repository.update_payment_from_callback(
+                checkout_request_id=checkout_request_id,
+                result_code=result_code,
+                result_desc=result_desc,
+                receipt=receipt,
+                amount=amount,
+                phone=phone,
+                transaction_date=transaction_date,
+                callback_payload=callback_payload,
+            )
+        except Exception:
+            logger.exception("Could not update onsite payment row")
+
+        return {"status": "updated", "onsite": outcome}
 
     def _normalize_phone(self, phone: str) -> str:
         """Normalize phone number for comparison."""
