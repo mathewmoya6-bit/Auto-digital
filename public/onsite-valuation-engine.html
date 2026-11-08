@@ -353,6 +353,7 @@ function resetView(msg=''){
   authView('login','Password updated. Log in with your new password.',true)};
 }
 async function boot(){
+ const vq=new URLSearchParams(location.search).get('verify');if(vq)return verifyView(vq);
  if(S.recovery)return resetView();
  const{data:{session}}=await sb.auth.getSession();
  if(!session)return authView();
@@ -418,7 +419,7 @@ function retHTML(){
  return `<div class="card"><h2>Returned by approver (${S.ret.length})</h2><p class="sm">Reports an approver or admin sent back for correction or declined, with their notes. Open one to read the full note${S.ret.some(d=>d.officer_id!==S.user.id)?'. Reports from other officers in your office are view-only':' and fix it'}.</p>${rows}</div>`}
 
 /* ---------- Service-specific forms (same config can be seeded in valuation_form_configs) ---------- */
-let PF_VER='pf-2.0';const ENGINE='onsite-2.2';
+let PF_VER='pf-2.0';const ENGINE='onsite-2.3';
 const PFT={t:'text',n:'number',d:'date',x:'textarea',s:'select'};
 const PFD={
 "PRE_INSURANCE":["in_insurer|Insurance company|t|R","in_holder|Proposer / policyholder|t|R","in_status|Cover status|s|R|New cover,Renewal","in_policy|Policy number (renewals)|t|O","in_type|Insurance type|s|R|Comprehensive,Third party fire and theft,Third party only","in_basis|Value basis|s|R|Agreed value,Market value,Replacement cost","in_prev|Previous insurer and claims history|x|O","in_mods|Accessories and modifications|x|O","in_evidence|Replacement-cost evidence|x|O"],
@@ -483,7 +484,7 @@ function formView(){
  ${v.purpose==='ACCIDENT'?F('i.repair','Repair estimate (KES)','number')+F('i.salvage','Salvage value (KES)','number'):''}
  ${p.hc||p.hcopt?F('i.hc','Forced-sale haircut %','number')+F('i.hc_basis','Basis for haircut (marketing period, conditions)'):''}
  </div>
- <label style="margin-top:10px">Market comparables (KES, one per line, same make, model and year range)<textarea data-k="i.comps" rows="4">${esc(v.inputs.comps||'')}</textarea></label><p class="sm">Median of comparables is the base. With 5 or more, the highest and lowest are dropped. If none are entered, the manual base is used, then the CRSP value (low confidence). Verify CRSP against the current KRA schedule.</p>
+ <label style="margin-top:10px">Market comparables (KES, one per line, same make, model and year range. Optionally add | source | km | date after the amount)<textarea data-k="i.comps" rows="4">${esc(v.inputs.comps||'')}</textarea></label><p class="sm">Median of comparables is the base. With 5 or more, the highest and lowest are dropped. If none are entered, the manual base is used, then the CRSP value (low confidence). Verify CRSP against the current KRA schedule.</p>
  <p class="sm" id="hint"></p></div>`;
  const note=v.purpose==='PRE_LOSS'?'<div class="msg info">The vehicle may not be available for inspection. Record what you could see and rely on the pre-loss evidence documents. If it was not inspected, say so in the basis of assessment.</div>':p.noval?'<div class="msg info">This service produces findings only. No monetary value is calculated.</div>':'';
  $('#app').innerHTML=topbar()+`<div class="wrap">
@@ -671,20 +672,20 @@ const qrSvg=t=>{try{if(typeof qrcode==='undefined')return'';const q=qrcode(0,'M'
 function certHTML(v,r){
  const p=P[v.purpose],i=v.inputs,ve=v.vehicle,nv=!!p.noval,amt=Math.round(v.approved??r.final);
  const fd=d=>d?new Date(d).toLocaleDateString('en-KE',{day:'numeric',month:'long',year:'numeric'}):'-';
- const valid=p.days&&i.date?fd(new Date(new Date(i.date).getTime()+p.days*864e5)):'';
+ const vdate=VD(v),valid=p.days&&vdate?fd(new Date(new Date(vdate).getTime()+p.days*864e5)):'';
  const g=(l,x,full)=>`<div${full?' class="full"':''}><small>${l}</small><b>${esc(x||'-')}</b></div>`;
  const nm=v.reviewer_name||'',issued=fd(v.approved_at||Date.now());
- const qrT=[v.cert,v.ref,nv?'inspection':'KES '+amt,i.date].join('|');
+ const qrT=location.origin+location.pathname+'?verify='+encodeURIComponent(v.cert||'');
  return`<div class="cert"><div class="hd"><div class="bn">${logoSvg(46)}<div><div class="nm">Auto-D</div><div class="tg">VEHICLE VALUATION SERVICES</div></div></div>
  <div class="cn"><small>CERTIFICATE NUMBER</small><b>${esc(v.cert||'')}</b><span>${esc(p.n)}</span></div></div>
  <div class="bd"><h1>${nv?'CERTIFICATE OF INSPECTION':'CERTIFICATE OF VALUATION'}</h1><div class="orn"></div>
  <div class="stmt">${nv?`This is to certify that the motor vehicle described below was inspected on ${esc(fd(i.date))} and that the findings are recorded in the schedule overleaf.`:`This is to certify that the motor vehicle described below was inspected on ${esc(fd(i.date))} and that, in the opinion of the valuer, its value as at that date was as stated.`}</div>
  <div class="val">${nv?`<div class="l">INSPECTION COMPLETED</div><div class="a" style="font-size:30px">Findings recorded</div><div class="m">${r.score!=null?'Condition score '+r.score+' / 100 · ':''}Report date ${esc(fd(v.approved_at||Date.now()))}</div>`
- :`<div class="l">${r.forced?(v.purpose==='AUCTION'?'ESTIMATED FORCED-SALE PROCEEDS':'ASSESSED FORCED-SALE VALUE'):'ASSESSED MARKET VALUE'}</div><div class="a">${KES(amt)}</div><div class="w">${esc(kesWords(amt))}</div><div class="m">${r.forced&&v.purpose!=='AUCTION'?'Market value '+KES(r.market)+' · ':''}${valid?'Valid until '+esc(valid)+' · ':''}Valuation date ${esc(fd(i.date))} · Report date ${esc(fd(v.approved_at||Date.now()))}</div>`}</div>
+ :`<div class="l">${r.forced?(v.purpose==='AUCTION'?'ESTIMATED FORCED-SALE PROCEEDS':'ASSESSED FORCED-SALE VALUE'):'ASSESSED MARKET VALUE'}</div><div class="a">${KES(amt)}</div><div class="w">${esc(kesWords(amt))}</div><div class="m">${r.forced&&v.purpose!=='AUCTION'?'Market value '+KES(r.market)+' · ':''}${valid?'Valid until '+esc(valid)+' · ':''}Valuation date ${esc(fd(vdate))} · Report date ${esc(fd(v.approved_at||Date.now()))}</div>`}</div>
  <div class="sh">VEHICLE</div><div class="g">${g('Make / model / variant',[ve.make,ve.model,ve.variant].filter(Boolean).join(' '),1)}${g('Registration plate',ve.plate)}${g('Chassis / VIN',ve.chassis)}${g('Engine number',ve.engine_no)}${g('Year / registered',[ve.yom,ve.reg_year].filter(Boolean).join(' / '))}${g('Engine and fuel',[ve.cc&&ve.cc+'cc',ve.fuel].filter(Boolean).join(', '))}${g('Transmission / drive',[ve.trans,ve.drive].filter(Boolean).join(', '))}${g('Odometer',ve.mileage&&Number(ve.mileage).toLocaleString()+' km')}${g('Origin',ve.origin)}${g('Usage',ve.usage)}${g('Colour',ve.colour)}${g('Owner / requester',ve.owner)}</div>
  <div class="sh">INSTRUCTION</div><div class="g">${g('Client / instructing party',i.client)}${g('Intended use and users',i.use)}${g('Instruction reference',i.instr_ref)}${g('Independence declaration',i.conflict)}</div>
  ${(()=>{const pr=payRef(v);if(!pr)return'';const f=pr.fee!=null?KES(pr.fee):'-';return`<div class="sh">PAYMENT</div><div class="g">${pr.mode==='credit'?g('Payment basis','Credit account (invoiced)')+g('Invoice reference',pr.ref)+g('Fee',f):g('Payment method','M-Pesa')+g('M-Pesa confirmation no.',pr.ref)+g('Amount paid',f)+g('Account reference',v.ref)}</div>`})()}
- <div class="sg"><div><div class="sig">${v.reviewer_sig?sigImgTag(v.reviewer_sig):nm?`<span class="sigtxt">${esc(nm)}</span>`:sigSvg()}</div><div class="ln">${nm?esc(nm):'Authorised signatory'}<div class="sm2">Electronically signed · ${esc(issued)}</div>${v.officer_sig?`<div class="isig">${sigImgTag(v.officer_sig)}</div>`:''}<div class="sm2">Inspecting valuer: ${esc(i.officer_name||'')}${i.officer_licence?' (licence '+esc(i.officer_licence)+')':''}</div></div></div>
+ <div class="sg"><div><div class="sig">${v.reviewer_sig?sigImgTag(v.reviewer_sig):nm?`<span class="sigtxt">${esc(nm)}</span>`:''}</div><div class="ln">${nm?esc(nm):'Authorised signatory'}<div class="sm2">Electronically signed · ${esc(issued)}</div>${v.officer_sig?`<div class="isig">${sigImgTag(v.officer_sig)}</div>`:''}<div class="sm2">Inspecting valuer: ${esc(i.officer_name||'')}${i.officer_licence?' (licence '+esc(i.officer_licence)+')':''}</div></div></div>
  <div style="text-align:center">${sealSvg()}</div>
  <div class="qr"><div>Scan to read the<br>certificate details<br><b style="color:#0f172a">${esc(v.cert||'')}</b></div>${qrSvg(qrT)}</div></div>
  <div class="fine">${nv?'This certificate records findings within the agreed scope as at the inspection date.':'This certificate is a professional opinion of value as at the valuation date. It is not a guarantee of sale price.'} See the schedule overleaf for the calculation, qualifications and assumptions on which it relies.</div></div></div>`}
@@ -724,11 +725,11 @@ function shareSummary(){const v=S.val,p=P[v.purpose],ve=v.vehicle,r=S.r||{},nv=!
  return[`Auto-D ${p.n}`,car,v.cert?'Certificate '+v.cert:'Ref '+(v.ref||''),nv?'Inspection findings recorded':'Assessed value: '+KES(amt)].filter(Boolean).join('\n')}
 async function repPdf(){
  if(typeof html2pdf==='undefined')throw new Error('The PDF tool did not load. Check your connection and try again.');
- const src=$('#repdoc'),box=document.createElement('div');box.className='pdfmode';box.style.cssText='position:fixed;left:-10000px;top:0;width:800px;background:#fff';box.innerHTML=src.innerHTML;document.body.appendChild(box);
+ const src=$('#repdoc'),box=document.createElement('div');box.className='pdfmode';box.style.width='800px';box.innerHTML=src.innerHTML;const wrap=document.createElement('div');wrap.style.cssText='position:fixed;left:-10000px;top:0;width:800px;background:#fff';wrap.appendChild(box);document.body.appendChild(wrap);
  try{if(document.fonts&&document.fonts.ready)await document.fonts.ready;
   const name=String(S.val.cert||S.val.ref||'report').replace(/[^\w-]+/g,'_')+'.pdf';
   const blob=await html2pdf().set({margin:6,filename:name,image:{type:'jpeg',quality:.95},html2canvas:{scale:2,backgroundColor:'#fff',windowWidth:800},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy'],after:'.cert',avoid:['.ckr','.ckh','.s2','.row']}}).from(box).outputPdf('blob');
-  return{blob,name}}finally{box.remove()}}
+  return{blob,name}}finally{wrap.remove()}}
 async function withBusy(b,fn){if(b.dataset.busy)return;b.dataset.busy=1;const t=b.textContent;b.textContent='Preparing PDF...';b.disabled=true;
  try{await fn()}catch(e){if(e&&e.name!=='AbortError')alert(e.message||String(e))}finally{b.textContent=t;b.disabled=false;delete b.dataset.busy}}
 function saveBlob(blob,name){const a=document.createElement('a'),u=URL.createObjectURL(blob);a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000)}
@@ -756,7 +757,7 @@ function inHTML(v){const p=P[v.purpose];if(p.noval)return'';const i=v.inputs||{}
  if(has('acd'))add(v.purpose==='PRE_LOSS'?'Previous damage / repair deduction':'Accident / repair deduction',i.acd!==undefined&&String(i.acd).trim()!==''?i.acd+'%':'');
  if(v.purpose==='ACCIDENT'){add('Repair estimate',money(i.repair));add('Salvage value',money(i.salvage))}
  if(p.hc||p.hcopt){add('Forced-sale haircut',i.hc!==undefined&&String(i.hc).trim()!==''?i.hc+'%':'');add('Basis for haircut',i.hc_basis)}
- const comps=String(i.comps||'').split(/[\n,;]+/).map(s=>s.trim()).filter(Boolean);if(comps.length)add('Market comparables ('+comps.length+')',comps.map(x=>isNaN(Number(x.replace(/,/g,'')))?x:KES(Number(x.replace(/,/g,'')))).join(' · '));
+ const comps=String(i.comps||'').split(/[\n;]+/).map(x=>x.trim()).filter(Boolean);if(comps.length)add('Market comparables ('+comps.length+')',comps.map(x=>{const a=parseFloat(x.replace(/kes|ksh/gi,'').replace(/[,\s]/g,'')),t=x.split('|').slice(1).join('|').trim();return isNaN(a)?x:KES(a)+(t?' ('+t+')':'')}).join(' · '));
  if(!rows.length)return'';
  return`<h3 style="margin-top:14px">Valuation inputs</h3>`+rows.map(([a,b])=>`<div class="row"><span>${esc(a)}</span><b style="white-space:normal;text-align:right">${esc(b)}</b></div>`).join('')}
 function sign2HTML(v){const i=v.inputs||{},nm=v.reviewer_name||'',lic=i.officer_licence||S.prof.licence_no||'',
@@ -863,11 +864,11 @@ function reportView(){
  const v=S.val,p=P[v.purpose],r=S.r=(v.result&&v.status!=='draft'&&v.status!=='correction_required')?v.result:calc(v),i=v.inputs,ve=v.vehicle;
  const issues=ITEMS.filter(t=>['issue','major'].includes(v.answers[t.code]));
  const kv=(a,b)=>`<div class="row"><span>${a}</span><b>${esc(b||'-')}</b></div>`;
- const valid=p.days?new Date(new Date(i.date||Date.now()).getTime()+p.days*864e5).toLocaleDateString('en-KE'):'Date-specific';
+ const valid=p.days?new Date(new Date(VD(v)||Date.now()).getTime()+p.days*864e5).toLocaleDateString('en-KE'):'Date-specific';
  const q=r.q||{complete:0,evidence:0,data:0};
  $('#app').innerHTML=topbar()+`<div class="wrap"><div class="noprint"><button onclick="home()">Back to list</button> <button class="pri" onclick="repShare(this)">Share</button> <button onclick="repDownload(this)">Download PDF</button> <button onclick="repWA()">WhatsApp</button> <button onclick="repMail()">Email</button> <button onclick="print()">Print</button></div>
  <div id="repdoc">${v.cert?certHTML(v,r):''}<div class="rep card"><div style="display:flex;justify-content:space-between"><div><h2>${p.noval?'Vehicle Inspection Report':'Vehicle Valuation Report'}</h2><div class="sm">${esc(p.n)} · Ref ${esc(v.ref||'')}${v.cert?' · Certificate '+esc(v.cert):''}</div></div><div class="brand">Auto-D</div></div>
- <h3 style="margin-top:14px">Assignment</h3>${kv('Client / instructing party',i.client)}${kv('Intended use and users',i.use)}${kv('Instruction reference',i.instr_ref)}${kv('Basis',BASIS[v.purpose])}${kv(p.noval?'Inspection date':'Valuation date',i.date)}${kv('Report date',v.approved_at?new Date(v.approved_at).toLocaleDateString('en-CA',{timeZone:'Africa/Nairobi'}):today())}${p.noval?'':kv('Currency','KES')}${i.fee!=null?kv(p.noval?'Inspection fee':'Valuation fee',KES(i.fee)):''}${(()=>{const pr=payRef(v);return pr?kv(pr.mode==='credit'?'Invoice reference':'M-Pesa confirmation no.',pr.ref):''})()}
+ <h3 style="margin-top:14px">Assignment</h3>${kv('Client / instructing party',i.client)}${kv('Intended use and users',i.use)}${kv('Instruction reference',i.instr_ref)}${kv('Basis',BASIS[v.purpose])}${kv(p.noval?'Inspection date':'Valuation date',p.noval?i.date:VD(v))}${kv('Report date',v.approved_at?new Date(v.approved_at).toLocaleDateString('en-CA',{timeZone:'Africa/Nairobi'}):today())}${p.noval?'':kv('Currency','KES')}${i.fee!=null?kv(p.noval?'Inspection fee':'Valuation fee',KES(i.fee)):''}${(()=>{const pr=payRef(v);return pr?kv(pr.mode==='credit'?'Invoice reference':'M-Pesa confirmation no.',pr.ref):''})()}
  <h3 style="margin-top:14px">Result</h3>${p.noval?`<div class="big">Inspection findings</div><div class="sm">No monetary value is stated for this service. Evidence and completeness index ${r.evidenceIndex??r.conf??'not recorded'}% · Inspection completeness ${q.complete}% · Evidence quality ${q.evidence}%${r.score!=null?' · Condition score '+r.score+'/100 (proposed internal weights)':''}</div>`:`${v.purpose==='ACCIDENT'?kv('Pre-accident market value',KES(r.preAccidentValue??r.base)):(r.forced?kv('Market value',KES(r.market)): '')}<div class="big">${KES(v.approved??r.final)}</div>${v.approved&&v.approved!==r.final?`<div class="sm">Recommended by inspecting officer: ${KES(r.final)}</div>`:''}${r.forced?`<div class="sm">${v.purpose==='AUCTION'?'Estimated forced-sale proceeds':'Forced-sale value'}. Basis: ${esc(i.hc_basis)}</div>`:''}
  <div class="sm">No statistical valuation range is stated · Evidence and completeness index ${r.evidenceIndex??r.conf??'not recorded'}% · Valid until ${valid}${v.purpose==='ACCIDENT'?` · Repair estimate ${KES(r.repairEstimate)} · Salvage ${KES(r.salvageValue)} · Indicative pre-accident less salvage ${KES(r.net)}`:''}</div>
  <div class="sm">Inspection completeness ${q.complete}% · Evidence quality ${q.evidence}% · Data quality ${q.data}%${r.score!=null?' · Condition score '+r.score+'/100 (proposed internal weights)':''}</div>`}
@@ -875,27 +876,31 @@ function reportView(){
  ${inHTML(v)}${ckHTML(v)}${p.noval?'':`<h3 style="margin-top:14px">Calculation</h3>
  <div class="row"><span>${r.src==='crsp'?'KRA CRSP base'+(i.crsp_id?` (record ${i.crsp_id}${i.crsp_ref?', ref. year '+i.crsp_ref:''})`:' (manual entry)'):r.src==='manual'?'Manual base value':r.src==='book'?'Book value (fleet register)':`Market base (${r.n} comparables)`}</span><b>${KES(r.base)}</b></div>
  ${r.lines.map(l=>`<div class="row"><span>${esc(l[0])}</span><b class="${l[1]<0?'neg':'pos'}">${l[1]<0?'-':'+'}${KES(Math.abs(l[1]))}</b></div>`).join('')}`}
- ${issues.length?`<h3 style="margin-top:14px">Issues found</h3>${issues.map(t=>kv(esc(t.label)+(v.answers[t.code]==='major'?' [MAJOR]':''),v.notes[t.code]||'Issue')).join('')}`:''}
+ ${p.noval?'':ratioHTML(v,r)}${issues.length?`<h3 style="margin-top:14px">Issues found</h3>${issues.map(t=>kv(esc(t.label)+(v.answers[t.code]==='major'?' [MAJOR]':''),v.notes[t.code]||'Issue')).join('')}`:''}
  ${r.warns.length?`<h3 style="margin-top:14px">Warnings</h3>${r.warns.map(w=>`<div class="row"><span>${esc(w)}</span></div>`).join('')}`:''}
  ${i.remarks?`<h3 style="margin-top:14px">Notes and assumptions</h3><p>${esc(i.remarks)}</p>`:''}
  ${kv('Independence declaration',i.conflict)}<p class="sm" style="margin-top:14px">Inspected ${esc(i.date||'')}${i.location?' at '+esc(i.location):''} by ${esc(i.officer_name||S.prof.full_name)}${(i.officer_licence||S.prof.licence_no)?' (licence '+esc(i.officer_licence||S.prof.licence_no)+')':''}. ${(i.photos||[]).length} photos on file. ${p.noval?'This report records findings within the agreed scope as at the inspection date.':'This is a professional opinion of value as at the valuation date, based on the inspection and data above. It is not a guarantee of sale price.'} Mileage, history and ownership rely on the documents and information supplied unless verified as stated. No dismantling or specialist diagnostics were performed unless stated in the notes.${i.legacy_purpose?' Originally recorded under the earlier service code '+esc(i.legacy_purpose)+'.':''} Engine ${ENGINE} (purpose-isolated calculation and evidence-index update).</p>
- ${sign2HTML(v)}</div></div></div>`;
+ ${stdHTML(v,r)}${sign2HTML(v)}</div></div></div>`;
 }
 function reviewView(){
  reportView();
  const v=S.val,can=S.prof.can_sign&&S.prof.role==='senior_valuer'&&v.status==='submitted'&&v.officer_id!==S.user.id,nv=P[v.purpose].noval;
  const box=document.createElement('div');box.className='card noprint';
- box.innerHTML=can?`<h2>Senior review</h2>${nv?'':`<label>Approved value (KES). Change only with a justification in the notes<input id="rv" type="number" value="${Math.round(v.result.final)}"></label><br>`}<label>Review notes (required)<textarea id="rn" rows="3"></textarea></label><p>${cashUnpaid(v)?'<span class="neg">Cannot approve yet: the cash client has not paid.</span> ':'<button class="pri" onclick="decide(\'approve\')">Approve and issue</button> '}<button onclick="decide('correction')">Request corrections</button> <button onclick="decide('reject')">Reject</button></p>`
+ box.innerHTML=can?`<h2>Senior review</h2>${nv?'':rvPanel(v)}<label>Review notes (required)<textarea id="rn" rows="3"></textarea></label><p>${cashUnpaid(v)?'<span class="neg">Cannot approve yet: the cash client has not paid.</span> ':'<button class="pri" onclick="decide(\'approve\')">Approve and issue</button> '}<button onclick="decide('correction')">Request corrections</button> <button onclick="decide('reject')">Reject</button></p>`
   :`<h2>Status: ${esc(v.status)}</h2><p class="sm">${v.status==='submitted'?'Awaiting senior review. Editing is locked.':esc(v.review_note||'')}</p>`;
- document.querySelector('.wrap').appendChild(box);
+ document.querySelector('.wrap').appendChild(box);if(can&&!nv)rvUpdate();
  {const at=document.createElement('div');at.className='card noprint';at.innerHTML='<h2>Attachments</h2><p class="sm">Loading…</p>';document.querySelector('.wrap').appendChild(at);loadAttach(v,at)}
  if(cashUnpaid(v)&&v.status!=='final'){const pc=document.createElement('div');pc.innerHTML=payCardHTML(v);document.querySelector('.wrap').appendChild(pc.firstElementChild)}
 }
 async function decide(d){
  if(decide.b)return;
- const v=S.val,notes=$('#rn').value.trim();
+ const v=S.val;let notes=$('#rn').value.trim();
  if(d==='approve'&&cashUnpaid(v))return alert('Cannot approve: the cash client has not paid.');
  if(!notes)return alert('Review notes are required.');
+ if(d==='approve'&&!P[v.purpose].noval){const ed=rvEdits(),av=num($('#rv').value),of=v.result.final;
+  if(!(av>0))return alert('Enter a valid approved value.');
+  if(of&&Math.abs(av-of)/of>.05&&notes.length<25)return alert("The approved value differs from the officer's figure by more than 5%. Explain why in the review notes.");
+  notes+='\n[Approver review] Officer '+KES(of)+' to Approved '+KES(av)+(ed.length?'\n[Edits] '+ed.join('; '):'')}
  if(d==='approve'&&!confirm('Approve and issue? This locks the record permanently.'))return;
  decide.b=1;
  try{const{error}=await sb.rpc('review_valuation',{p_id:v.id,p_decision:d,p_notes:notes,p_approved_value:d==='approve'?(P[v.purpose].noval?0:num($('#rv').value)):null});
@@ -904,6 +909,64 @@ async function decide(d){
 }
 /* one in-flight save at a time (double-click protection) */
 (()=>{let busy=false;const orig=save;save=async function(...a){if(busy)return;busy=true;const bs=[...document.querySelectorAll('#bar button')];bs.forEach(b=>b.disabled=true);try{return await orig(...a)}finally{busy=false;bs.forEach(b=>b.disabled=false)}}})();
+/* ---------- v2.3 additions: valuation date, ratios, standards text, approver edit, certificate verification ---------- */
+const VD=v=>{const i=v.inputs||{};return ({COURT:i.lg_valdate,DISPUTE:i.ds_valdate,PRE_LOSS:i.pl_date})[v.purpose]||i.date};
+const pcs=x=>x==null||!isFinite(x)?'-':(x*100).toFixed(1)+'%';
+const parseComps=t=>String(t||'').split(/[\n;]+/).map(x=>parseFloat(x.replace(/kes|ksh/gi,'').replace(/[,\s]/g,''))).filter(x=>x>0).sort((a,b)=>a-b);
+function ratios(v,r){
+ const i=v.inputs||{},ve=v.vehicle||{},o=[],add=(l,val,note,flag)=>o.push({l,val,note:note||'',flag:!!flag});
+ if(!r||!r.base||r.sub==null)return o;
+ const adj=(r.sub-r.base)/r.base,cm=parseComps(i.comps),crsp=num(i.crsp);
+ add('Net adjustment ÷ base value',pcs(adj),'All adjustments combined. Above 35% needs strong justification.',Math.abs(adj)>.35);
+ add('Adjusted market value ÷ base value',pcs(r.market/r.base));
+ if(crsp)add('Market value ÷ KRA CRSP',pcs(r.market/crsp),'Cross-check only. The usual band is 60% to 120%.',r.market/crsp<.6||r.market/crsp>1.2);
+ if(cm.length>1){const mean=cm.reduce((a,b)=>a+b,0)/cm.length,sd=Math.sqrt(cm.reduce((a,b)=>a+(b-mean)**2,0)/(cm.length-1));
+  add('Comparables spread (high − low) ÷ mean',pcs((cm[cm.length-1]-cm[0])/mean),cm.length+' comparables, '+KES(cm[0])+' to '+KES(cm[cm.length-1]),(cm[cm.length-1]-cm[0])/mean>.4);
+  add('Comparables variation (std dev ÷ mean)',pcs(sd/mean),'Above 15% means the evidence is loose: check the comparables match.',sd/mean>.15)}
+ if(r.forced&&r.market)add('Forced-sale ÷ market value',pcs(r.forced/r.market),'Implied discount '+pcs(1-r.forced/r.market));
+ if(v.purpose==='ACCIDENT'&&r.preAccidentValue){add('Repair estimate ÷ pre-accident value',pcs(r.repairEstimate/r.preAccidentValue),'Review trigger above 70%',r.ratio>.7);add('Salvage ÷ pre-accident value',pcs(r.salvageValue/r.preAccidentValue))}
+ const age=ve.yom?new Date().getFullYear()-num(ve.yom):0,km=num(ve.mileage);
+ if(age>0&&km)add('Average km per year',Math.round(km/age).toLocaleString()+' km','Provisional benchmark used by the engine: 15,000 km a year',km/age>35000||km/age<4000);
+ if(age>0&&crsp)add('Value retained vs CRSP, per year of age',pcs(Math.pow(Math.max(r.market,1)/crsp,1/age)),'Compound yearly ratio. Compare with similar vehicles.');
+ if(v.approved&&v.result&&v.result.final)add('Approved ÷ officer recommendation',pcs(v.approved/v.result.final),'Variance '+pcs(v.approved/v.result.final-1),Math.abs(v.approved/v.result.final-1)>.05);
+ return o}
+function ratioHTML(v,r){const a=ratios(v,r);if(!a.length)return'';
+ return`<h3 style="margin-top:14px">Valuation ratios</h3>`+a.map(x=>`<div class="row"><span>${esc(x.l)}${x.note?`<br><span class="sm">${esc(x.note)}</span>`:''}</span><b class="${x.flag?'neg':''}" style="white-space:normal;text-align:right">${esc(x.val)}${x.flag?' ⚑':''}</b></div>`).join('')+'<div class="sm">⚑ marks a ratio outside its usual band. It is a prompt for review, not an error.</div>'}
+function stdHTML(v,r){const p=P[v.purpose],i=v.inputs||{},nv=!!p.noval,legal=['COURT','DISPUTE'].includes(v.purpose);
+ return`<h3 style="margin-top:14px">Basis of preparation and standards</h3>
+ <p class="sm" style="color:inherit">${nv?'This inspection was carried out within the scope agreed with the client.':'Prepared with reference to the International Valuation Standards (IVS) framework on scope of work, bases of value, valuation approaches and reporting. Market value means the estimated amount for which the asset should exchange on the valuation date between a willing buyer and a willing seller in an arm\'s-length transaction after proper marketing, where the parties had each acted knowledgeably, prudently and without compulsion.'}</p>
+ <p class="sm" style="color:inherit">Extent of investigation: visual and road-test inspection, documents supplied${nv?'':', '+(r.n||0)+' market comparable'+((r.n||0)===1?'':'s')+(i.crsp?' and the KRA CRSP as a reference'+(i.crsp_ref?' (reference year '+esc(i.crsp_ref)+')':''):'')}. Adjustments marked provisional rest on the valuer's judgement and are disclosed above.</p>
+ <p class="sm" style="color:inherit">Use and reliance: this report is for the stated client and intended use only. No responsibility is accepted to any third party, and it must not be reproduced or relied on for another purpose without written consent.</p>
+ ${legal?'<p class="sm" style="color:inherit">Expert declaration: the valuer understands that the duty is to give independent, impartial opinion to the court or forum, overriding any obligation to the party who instructed them. The opinion is the valuer\'s own and the independence declaration above is true.</p>':''}`}
+/* Approver: edit the figures, see the recalculation and ratios, then approve */
+const RVF=[['comps','Market comparables (one per line)','x'],['crsp','CRSP value (KES)','n'],['manual','Manual base (KES)','n'],['dep','Depreciation %','n'],['cond','Condition',['Excellent','Good','Fair','Poor']],['dem','Market demand',['High','Normal','Low']],['acc','Accessories (KES)','n'],['acd','Accident / repair deduction %','n'],['repair','Repair estimate (KES)','n'],['salvage','Salvage value (KES)','n'],['hc','Forced-sale haircut %','n'],['hc_basis','Haircut basis','t']];
+function rvOn(k,v){const p=P[v.purpose],has=x=>(p.adj||'').split(/\s+/).includes(x);
+ return({comps:1,crsp:1,manual:1,dep:has('dep'),cond:has('cond'),dem:has('dem'),acc:has('acc'),acd:has('acd'),repair:v.purpose==='ACCIDENT',salvage:v.purpose==='ACCIDENT',hc:p.hc||p.hcopt,hc_basis:p.hc||p.hcopt})[k]}
+function rvPanel(v){const i=v.inputs||{};
+ return`<div class="sm" style="margin-bottom:8px">Review and, where justified, correct the officer's figures. The result and ratios update as you type. Every change is written into the review record.</div>
+ <details class="sgc" open><summary>Edit figures</summary><div class="grid" style="margin-top:8px">${RVF.filter(f=>rvOn(f[0],v)).map(f=>{const x=esc(i[f[0]]??'');
+  return Array.isArray(f[2])?`<label>${f[1]}<select data-rv="${f[0]}" oninput="rvUpdate()"><option value=""></option>${f[2].map(o=>`<option${o===i[f[0]]?' selected':''}>${o}</option>`).join('')}</select></label>`
+  :f[2]==='x'?`<label style="grid-column:1/-1">${f[1]}<textarea data-rv="${f[0]}" rows="3" oninput="rvUpdate()">${x}</textarea></label>`
+  :`<label>${f[1]}<input data-rv="${f[0]}" type="${f[2]==='n'?'number':'text'}" step="any" value="${x}" oninput="rvUpdate()"></label>`}).join('')}</div></details>
+ <div id="rvres" style="margin:10px 0"></div>
+ <label>Approved value (KES). Defaults to the recalculated figure. Overriding it needs a reason in the notes<input id="rv" type="number" value="${Math.round(v.result.final)}" oninput="this.dataset.manual=1"></label><br>`}
+function rvInputs(){const o={...S.val.inputs};document.querySelectorAll('[data-rv]').forEach(e=>{o[e.dataset.rv]=e.value});return o}
+function rvEdits(){const v=S.val,o=rvInputs(),lab=Object.fromEntries(RVF.map(f=>[f[0],f[1]]));
+ return RVF.map(f=>f[0]).filter(k=>rvOn(k,v)&&String(o[k]??'').trim()!==String(v.inputs[k]??'').trim()).map(k=>lab[k]+': '+(String(v.inputs[k]??'').trim()||'-')+' to '+(String(o[k]??'').trim()||'-'))}
+function rvUpdate(){const v=S.val,box=$('#rvres');if(!box)return;
+ const rr=calc({...v,inputs:rvInputs()}),of=v.result.final||0,nf=Math.round(rr.final),d=of?(nf-of)/of:0;
+ box.innerHTML=`<div class="row"><span>Officer recommendation</span><b>${KES(of)}</b></div><div class="row"><span>Base (${rr.src||'none'})</span><b>${KES(rr.base)}</b></div>${rr.lines.map(l=>`<div class="row"><span>${esc(l[0])}</span><b class="${l[1]<0?'neg':'pos'}">${l[1]<0?'-':'+'}${KES(Math.abs(l[1]))}</b></div>`).join('')}<div class="row"><span><b>Recalculated value</b></span><b class="big">${KES(nf)}</b></div><div class="row"><span>Change from officer figure</span><b class="${Math.abs(d)>.05?'neg':''}">${d>=0?'+':''}${(d*100).toFixed(1)}%</b></div>
+ ${ratios({...v,inputs:rvInputs(),approved:null},rr).map(x=>`<div class="row"><span>${esc(x.l)}</span><b class="${x.flag?'neg':''}">${esc(x.val)}${x.flag?' ⚑':''}</b></div>`).join('')}
+ ${rr.stops.filter(t=>!/Chassis|senior valuer review/.test(t)).map(t=>`<div class="msg">${esc(t)}</div>`).join('')}`;
+ const inp=$('#rv');if(inp&&!inp.dataset.manual)inp.value=nf}
+/* Public certificate check: opened from the QR code, no login needed. Needs onsite_verify_certificate (see the .sql file) */
+async function verifyView(c){
+ $('#app').innerHTML=`<div class="auth wrap"><div class="brand">🚗 Auto-D <span>Verify</span></div><div class="card" id="vr"><p class="sm">Checking certificate…</p></div></div>`;
+ let d=null,err='';try{const x=await sb.rpc('onsite_verify_certificate',{p_cert:c});d=x.data&&x.data[0];if(x.error)err=x.error.message}catch(e){err=String(e.message||e)}
+ const ve=d&&d.vehicle||{};
+ $('#vr').innerHTML=d?`<h2>Certificate is genuine</h2><div class="msg good">${esc(d.certificate_number)} was issued by Auto-D.</div><div class="row"><span>Vehicle</span><b>${esc([ve.make,ve.model,ve.plate].filter(Boolean).join(' '))}</b></div><div class="row"><span>Service</span><b>${esc(pn(d.purpose))}</b></div>${P[pc(d.purpose)].noval?'':`<div class="row"><span>Value</span><b>${KES(d.approved_value||d.final_value)}</b></div>`}<div class="row"><span>Issued</span><b>${esc(kfd(d.approved_at))}</b></div><p class="sm">Compare these details with the printed certificate.</p>`
+ :`<h2>Not verified</h2><div class="msg">${err?'The check could not be completed: '+esc(err):'No issued certificate matches '+esc(c)+'. Treat the document with caution.'}</div>`}
+
 boot();
 </script>
 </body>
