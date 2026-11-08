@@ -3939,10 +3939,11 @@
         <option value="withdrawn">Withdrawn</option>
       </select>
       <select id="osOfficer"><option value="">All officers</option></select>
+      <button class="btn btn-danger" id="osBulkDel" data-act="bulkdel" style="display:none">🗑 Delete selected (0)</button>
     </div>
     <div class="data-table-wrap"><table class="data-table">
-      <thead><tr><th>Ref</th><th>Vehicle</th><th>Purpose</th><th>Officer</th><th>Recommended</th><th>Approved</th><th>Status</th><th>Updated</th><th></th></tr></thead>
-      <tbody id="osValBody"><tr class="row-empty"><td colspan="9">Loading...</td></tr></tbody>
+      <thead><tr><th style="width:30px"><input type="checkbox" id="osSelAll" data-act="selall" title="Select all on this page"></th><th>Ref</th><th>Vehicle</th><th>Purpose</th><th>Officer</th><th>Recommended</th><th>Approved</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+      <tbody id="osValBody"><tr class="row-empty"><td colspan="10">Loading...</td></tr></tbody>
     </table></div>
     <div class="pager"><span id="osPager">Page 1</span>
       <button data-act="pg" data-id="-1">‹ Prev</button>
@@ -4033,6 +4034,7 @@
 
     <div class="modal-actions">
       <button class="btn btn-danger" id="osReopen" data-act="withdraw">🚫 Withdraw report</button>
+      <button class="btn btn-danger" id="osDelete" data-act="delete" style="display:none">🗑 Delete record</button>
       <button class="btn btn-secondary" data-act="close">Close</button>
     </div>
   </div></div>`;
@@ -4108,6 +4110,14 @@
   /* =========================================================================
      LOAD
      ========================================================================= */
+  const selected = new Set(); let pageIds = [];
+  function syncBulk() {
+    const b = $('osBulkDel'); if (!b) return;
+    b.style.display = (window.__osIsAdmin && selected.size) ? '' : 'none';
+    b.textContent = '🗑 Delete selected (' + selected.size + ')';
+    const all = $('osSelAll'); if (all) all.checked = pageIds.length > 0 && pageIds.every(i => selected.has(i));
+  }
+
   async function load() {
     const c = db(); if (!c) return;
     await resolveIdentity(c);
@@ -4118,6 +4128,7 @@
     ]);
     const err = o.error || v.error;
     officers = o.data || []; vals = v.data || []; prices = pr.data || [];
+    [...selected].forEach(i => { if (!vals.some(x => x.id === i)) selected.delete(i); });
     renderPrices(pr.error);
     const b = $('osBadge');
     b.textContent = err ? 'Setup needed: ' + err.message : '● Connected';
@@ -4197,9 +4208,11 @@
     });
     const pages = Math.max(1, Math.ceil(rows.length / 15)); page = Math.min(page, pages);
     $('osPager').textContent = `Page ${page} of ${pages} · ${rows.length} records`;
-    $('osValBody').innerHTML = rows.length ? rows.slice((page-1)*15, page*15).map(v => {
+    const pageRows = rows.slice((page-1)*15, page*15); pageIds = pageRows.map(v => v.id);
+    const isAdm = !!window.__osIsAdmin;
+    $('osValBody').innerHTML = rows.length ? pageRows.map(v => {
       const ve = v.vehicle || {};
-      return `<tr><td>${esc(v.ref)}</td>
+      return `<tr><td>${isAdm ? `<input type="checkbox" data-act="sel" data-id="${v.id}" ${selected.has(v.id) ? 'checked' : ''}>` : ''}</td><td>${esc(v.ref)}</td>
         <td>${esc([ve.make, ve.model, ve.plate].filter(Boolean).join(' ') || '-')}</td>
         <td>${PN[v.purpose] || v.purpose}</td>
         <td>${esc(name(v.officer_id))}</td>
@@ -4208,8 +4221,10 @@
         <td><span class="status-pill ${({final:'completed',rejected:'rejected',withdrawn:'failed',correction_required:'failed'})[v.status] || 'pending'}">${String(v.status).replace('_',' ')}</span>
           ${v.certificate_number ? '<br><span class="sub">' + esc(v.certificate_number) + '</span>' : ''}</td>
         <td>${when(v.updated_at)}</td>
-        <td><button class="mini-btn" data-act="view" data-id="${v.id}">🔍 View</button></td></tr>`;
-    }).join('') : '<tr class="row-empty"><td colspan="9">No onsite valuations match.</td></tr>';
+        <td><button class="mini-btn" data-act="view" data-id="${v.id}">🔍 View</button>
+          ${isAdm ? `<button class="mini-btn reject" data-act="delete" data-id="${v.id}">🗑 Delete</button>` : ''}</td></tr>`;
+    }).join('') : '<tr class="row-empty"><td colspan="10">No onsite valuations match.</td></tr>';
+    syncBulk();
   }
 
   /* =========================================================================
@@ -4280,6 +4295,7 @@
     if (v.status !== 'submitted') why = 'Only reports with status "submitted" can be reviewed (this one is "' + v.status + '").';
     else if (!canReview) why = 'Your account is not authorised to review this report (needs a dashboard admin role, or an active senior valuer/admin officer with signing rights).';
     $('osReviewWhy').textContent = why;
+    const delBtn = $('osDelete'); if (delBtn) delBtn.style.display = window.__osIsAdmin ? '' : 'none';
 
     // History + photos
     $('osMRev').innerHTML = '';
@@ -4382,12 +4398,54 @@
   }
 
   /* =========================================================================
+     DELETE (admin only)
+     ========================================================================= */
+  async function deleteValuations(ids) {
+    const c = db(); if (!c || !ids.length) return;
+    if (!window.__osIsAdmin) return toast('Only dashboard admins can delete valuations.', 'error');
+    const recs = ids.map(i => vals.find(x => x.id === i)).filter(Boolean);
+    if (!recs.length) return;
+    const finals = recs.filter(v => v.status === 'final' || v.certificate_number);
+    const label = recs.length === 1 ? (recs[0].ref || recs[0].id) : recs.length + ' valuations';
+    let msg = `Permanently delete ${label}?\n\nThis removes the record, its review history and uploaded photos. It cannot be undone.`;
+    if (finals.length) msg += `\n\n⚠ ${finals.length} of these ${finals.length === 1 ? 'is' : 'are'} FINAL / certificated (${finals.map(v => v.certificate_number || v.ref).join(', ')}). Consider "Withdraw report" instead, which keeps an audit trail.`;
+    if (!confirm(msg)) return;
+    // Extra friction for bulk or certificated deletes
+    if (recs.length > 1 || finals.length) {
+      const word = recs.length > 1 ? 'DELETE' : recs[0].ref;
+      const typed = prompt(`Type ${word} to confirm:`);
+      if (typed === null || typed.trim() !== word) return toast('Delete cancelled: confirmation did not match.', 'error');
+    }
+    let ok = 0, failed = [];
+    for (const v of recs) {
+      // 1. best effort: review history + photos (do not block the delete if these fail)
+      try { await c.from('valuation_reviews').delete().eq('valuation_id', v.id); } catch (e) {}
+      const photos = ((v.inputs || {}).photos || []).filter(Boolean);
+      if (photos.length) { try { await c.storage.from('valuation-photos').remove(photos); } catch (e) {} }
+      // 2. delete the record: RPC first, direct delete as fallback; a 0-row delete means RLS blocked it
+      let { error } = await c.rpc('admin_delete_valuation', { p_id: v.id });
+      if (error) {
+        const d = await c.from('onsite_valuations').delete().eq('id', v.id).select('id');
+        error = d.error || ((!d.data || !d.data.length) ? { message: 'Delete blocked by row-level security (' + error.message + ')' } : null);
+      }
+      if (error) failed.push((v.ref || v.id) + ': ' + error.message); else { ok++; selected.delete(v.id); log(`Onsite valuation ${v.ref || v.id} (${v.status}) deleted by admin`); }
+    }
+    if (ok) toast(ok + ' valuation' + (ok > 1 ? 's' : '') + ' deleted');
+    if (failed.length) { toast(failed[0], 'error'); console.warn('Delete failures:', failed); alert('Some records could not be deleted:\n\n' + failed.join('\n') + '\n\nRun the admin-delete SQL (onsite-admin-delete.sql) in Supabase, then try again.'); }
+    closeModal(); await load();
+  }
+
+  /* =========================================================================
      ACTIONS
      ========================================================================= */
   async function onClick(e) {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act, id = b.dataset.id, c = db();
     if (act === 'view') return openModal(id);
+    if (act === 'sel') { if (b.checked) selected.add(id); else selected.delete(id); return syncBulk(); }
+    if (act === 'selall') { pageIds.forEach(i => b.checked ? selected.add(i) : selected.delete(i)); renderVals(); return; }
+    if (act === 'delete') return deleteValuations([id || curId]);
+    if (act === 'bulkdel') return deleteValuations([...selected]);
 
     if (act === 'editcalc') { return openCalcEditor(); }
     if (act === 'closecalc') { $('osCalcEditor').style.display = 'none'; return; }
