@@ -9,6 +9,7 @@ import base64
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -17,6 +18,8 @@ from app.core.exceptions import AppException
 
 logger = logging.getLogger(__name__)
 
+NAIROBI_TZ = ZoneInfo("Africa/Nairobi")
+
 
 # ============================================================
 # Helpers
@@ -24,49 +27,37 @@ logger = logging.getLogger(__name__)
 
 def normalize_phone(phone: str) -> str:
     """
-    Convert Kenyan phone numbers to 2547XXXXXXXX format.
-    
-    Args:
-        phone: Phone number in any format (e.g., 0712345678, +254712345678, 254712345678)
-    
-    Returns:
-        Normalized phone number in 2547XXXXXXXX format
-    
+    Convert Kenyan phone numbers to 2547XXXXXXXX / 2541XXXXXXXX format.
+
+    Accepts 0712345678, +254712345678, 254712345678, 712345678.
+
     Raises:
-        ValueError: If phone number is invalid
+        ValueError: If the phone number is invalid.
     """
     if not phone:
         raise ValueError("Phone number is required")
 
-    # Remove all non-digit characters
     phone = "".join(ch for ch in str(phone) if ch.isdigit())
 
-    # Format to 254...
     if phone.startswith("254"):
         pass
     elif phone.startswith("0"):
         phone = "254" + phone[1:]
-    elif phone.startswith("7"):
+    elif phone.startswith(("7", "1")):
         phone = "254" + phone
     else:
         raise ValueError("Invalid Kenyan phone number")
 
     if len(phone) != 12:
-        raise ValueError(f"Invalid phone number length: {len(phone)} (expected 12)")
+        raise ValueError(
+            f"Invalid phone number length: {len(phone)} (expected 12)"
+        )
 
     return phone
 
 
 def mask_sensitive(value: Optional[str]) -> str:
-    """
-    Mask sensitive values for logs.
-    
-    Args:
-        value: String to mask
-    
-    Returns:
-        Masked string with only first 3 and last 3 characters visible
-    """
+    """Mask sensitive values for logs (first 3 and last 3 characters only)."""
     if not value:
         return "***"
 
@@ -85,7 +76,7 @@ def mask_sensitive(value: Optional[str]) -> str:
 class StkPushService:
     """
     Safaricom Daraja STK Push client.
-    
+
     Handles:
         - OAuth token acquisition and caching
         - STK Push initiation
@@ -96,9 +87,11 @@ class StkPushService:
 
     TOKEN_BUFFER_SECONDS = 60
 
+    # Daraja returns this error from the query endpoint while the
+    # customer is still completing the prompt.
+    _STILL_PROCESSING_CODE = "500.001.1001"
+
     def __init__(self):
-        """Initialize the STK Push service with configuration from settings."""
-        
         self.consumer_key = settings.MPESA_CONSUMER_KEY
         self.consumer_secret = settings.MPESA_CONSUMER_SECRET
         self.passkey = settings.MPESA_PASSKEY
@@ -117,18 +110,9 @@ class StkPushService:
     # ============================================================
 
     async def get_access_token(self) -> str:
-        """
-        Get a valid OAuth access token from Safaricom.
-        
-        Returns:
-            Access token string
-        
-        Raises:
-            AppException: If token acquisition fails
-        """
+        """Return a valid OAuth access token, using the cache when possible."""
         now = datetime.now(timezone.utc)
 
-        # Return cached token if still valid
         if (
             self._access_token
             and self._token_expiry
@@ -139,7 +123,6 @@ class StkPushService:
         if not self.consumer_key or not self.consumer_secret:
             raise AppException("M-Pesa credentials are not configured")
 
-        # Encode credentials
         credentials = f"{self.consumer_key}:{self.consumer_secret}"
         encoded = base64.b64encode(credentials.encode()).decode()
 
@@ -168,7 +151,6 @@ class StkPushService:
 
             expires = int(data.get("expires_in", 3600))
 
-            # Cache token with buffer
             self._access_token = token
             self._token_expiry = now + timedelta(
                 seconds=expires - self.TOKEN_BUFFER_SECONDS
@@ -180,6 +162,8 @@ class StkPushService:
         except httpx.TimeoutException:
             logger.error("OAuth request timed out")
             raise AppException("M-Pesa OAuth request timed out")
+        except AppException:
+            raise
         except Exception as e:
             logger.exception("OAuth failed")
             raise AppException(f"OAuth failed: {str(e)}")
@@ -189,19 +173,11 @@ class StkPushService:
     # ============================================================
 
     def _generate_timestamp(self) -> str:
-        """Generate Safaricom timestamp in YYYYMMDDHHMMSS format."""
-        return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        """Safaricom timestamp (YYYYMMDDHHMMSS) in Nairobi time."""
+        return datetime.now(NAIROBI_TZ).strftime("%Y%m%d%H%M%S")
 
     def _generate_password(self, timestamp: str) -> str:
-        """
-        Generate STK push password.
-        
-        Args:
-            timestamp: Timestamp in YYYYMMDDHHMMSS format
-        
-        Returns:
-            Base64 encoded password string
-        """
+        """Base64(shortcode + passkey + timestamp)."""
         raw = f"{self.shortcode}{self.passkey}{timestamp}"
         return base64.b64encode(raw.encode("utf-8")).decode("utf-8")
 
@@ -216,32 +192,28 @@ class StkPushService:
         amount: float,
         description: str,
         user_id: Optional[str] = None,
-        service_id: Optional[int] = None,
+        service_id: Optional[Any] = None,
         account_reference: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Initiate an STK Push request.
 
-        Compatible with MpesaService.initiate_payment().
-
         Args:
             phone: Customer phone number
-            amount: Amount to charge
+            amount: Amount to charge (rounded to whole shillings)
             description: Transaction description
-            user_id: Optional user ID (for reference)
-            service_id: Optional service ID (for reference)
+            user_id: Optional user ID (logging only)
+            service_id: Optional service ID, used as the account
+                reference when account_reference is not given
+            account_reference: Reference shown to the customer
+                (max 12 characters)
 
         Returns:
-            Dict containing:
-                - status: "pending"
-                - checkout_request_id: M-Pesa checkout request ID
-                - merchant_request_id: M-Pesa merchant request ID
-                - customer_message: Message for customer
-                - response_code: M-Pesa response code
-                - response_description: M-Pesa response description
+            Dict with status, checkout_request_id, merchant_request_id,
+            customer_message, response_code and response_description.
 
         Raises:
-            AppException: If STK Push fails
+            AppException: If the STK Push fails.
         """
         if not self.shortcode:
             raise AppException("MPESA_SHORTCODE is not configured")
@@ -252,20 +224,21 @@ class StkPushService:
         if not self.callback_url:
             raise AppException("MPESA_CALLBACK_URL is not configured")
 
-        # Normalize phone
-        phone = normalize_phone(phone)
+        try:
+            phone = normalize_phone(phone)
+        except ValueError as exc:
+            raise AppException(str(exc))
 
-        # Ensure amount is an integer (M-Pesa expects whole numbers)
         amount = int(round(float(amount)))
 
         if amount <= 0:
             raise AppException("Amount must be greater than 0")
 
-        # Generate credentials
         timestamp = self._generate_timestamp()
         password = self._generate_password(timestamp)
 
-        # Prepare payload
+        reference = str(account_reference or service_id or "AUTOD")[:12]
+
         payload = {
             "BusinessShortCode": self.shortcode,
             "Password": password,
@@ -276,18 +249,19 @@ class StkPushService:
             "PartyB": self.shortcode,
             "PhoneNumber": phone,
             "CallBackURL": self.callback_url,
-            "AccountReference": str(account_reference or service_id or "AUTOD")[:12],
-            "TransactionDesc": description[:50] if description else "Auto-D Kenya Payment",
+            "AccountReference": reference,
+            "TransactionDesc": (
+                description[:50] if description else "Auto-D Kenya Payment"
+            ),
         }
 
-        # Get access token
         token = await self.get_access_token()
 
         logger.info(
-            "Initiating STK Push | phone=%s amount=%s service=%s user=%s",
+            "Initiating STK Push | phone=%s amount=%s ref=%s user=%s",
             mask_sensitive(phone),
             amount,
-            service_id,
+            reference,
             user_id,
         )
 
@@ -312,12 +286,8 @@ class StkPushService:
 
             data = response.json()
 
-            # Check response
-            if data.get("ResponseCode") != "0":
-                error_msg = data.get(
-                    "ResponseDescription",
-                    "STK Push rejected"
-                )
+            if str(data.get("ResponseCode")) != "0":
+                error_msg = data.get("ResponseDescription", "STK Push rejected")
                 logger.error("STK rejected request | %s", error_msg)
                 raise AppException(error_msg)
 
@@ -348,25 +318,20 @@ class StkPushService:
     # STK Query
     # ============================================================
 
-    async def query_payment(
-        self,
-        checkout_request_id: str,
-    ) -> Dict[str, Any]:
+    async def query_payment(self, checkout_request_id: str) -> Dict[str, Any]:
         """
         Query the payment status from Safaricom.
 
-        Args:
-            checkout_request_id: M-Pesa checkout request ID
+        Returns a dict with:
+            status: "completed", "pending", "failed" or "cancelled"
+            result_code, result_desc, checkout_request_id,
+            amount, receipt, transaction_date
 
-        Returns:
-            Dict containing:
-                - status: "completed", "pending", "failed", or "cancelled"
-                - result_code: M-Pesa result code
-                - result_desc: M-Pesa result description
-                - checkout_request_id: Original checkout request ID
+        A transaction that is still being processed is reported as
+        "pending" instead of raising.
 
         Raises:
-            AppException: If query fails
+            AppException: If the query fails for any other reason.
         """
         if not checkout_request_id:
             raise AppException("Checkout request ID is required")
@@ -400,6 +365,25 @@ class StkPushService:
                 )
 
             if response.status_code != 200:
+                try:
+                    err = response.json()
+                except Exception:
+                    err = {}
+
+                if err.get("errorCode") == self._STILL_PROCESSING_CODE:
+                    return {
+                        "status": "pending",
+                        "result_code": "2001",
+                        "result_desc": err.get(
+                            "errorMessage",
+                            "Transaction is being processed",
+                        ),
+                        "checkout_request_id": checkout_request_id,
+                        "amount": None,
+                        "receipt": None,
+                        "transaction_date": None,
+                    }
+
                 logger.error(
                     "Query failed | %s | %s",
                     response.status_code,
@@ -409,7 +393,6 @@ class StkPushService:
 
             data = response.json()
 
-            # Map result codes to statuses
             status_map = {
                 "0": "completed",
                 "1": "failed",
@@ -456,8 +439,7 @@ class StkPushService:
         Cleanup hook for stale pending payments.
 
         The payment repository/service owns payment state, so this
-        method simply exists to satisfy MpesaService and can be
-        extended later if automatic expiry is required.
+        exists to satisfy MpesaService and can be extended later.
         """
         logger.info("Running stale payment cleanup")
         return 0
@@ -467,13 +449,8 @@ class StkPushService:
     # ============================================================
 
     async def health_check(self) -> Dict[str, Any]:
-        """
-        Verify M-Pesa configuration and connectivity.
-        
-        Returns:
-            Dict with health status and check results
-        """
-        status = {
+        """Verify M-Pesa configuration and connectivity."""
+        status: Dict[str, Any] = {
             "service": "mpesa",
             "status": "healthy",
             "environment": settings.MPESA_ENVIRONMENT,
@@ -484,7 +461,6 @@ class StkPushService:
             },
         }
 
-        # Check credentials
         if not all([
             self.consumer_key,
             self.consumer_secret,
@@ -497,7 +473,6 @@ class StkPushService:
             status["message"] = "Missing required credentials"
             return status
 
-        # Check OAuth connectivity
         try:
             await self.get_access_token()
             status["checks"]["oauth"] = True
@@ -512,22 +487,12 @@ class StkPushService:
     # Callback Verification
     # ============================================================
 
-    def verify_callback_secret(
-        self,
-        callback_secret: Optional[str],
-    ) -> bool:
+    def verify_callback_secret(self, callback_secret: Optional[str]) -> bool:
         """
-        Verify callback secret if configured.
+        Verify the callback secret if one is configured.
 
-        Returns True when:
-            • no callback secret is configured
-            • supplied secret matches configuration
-
-        Args:
-            callback_secret: The secret from the request
-
-        Returns:
-            True if valid or no secret required
+        Returns True when no secret is configured or the supplied
+        secret matches.
         """
         configured = getattr(settings, "MPESA_CALLBACK_SECRET", "")
 
@@ -541,9 +506,7 @@ class StkPushService:
     # ============================================================
 
     def is_configured(self) -> bool:
-        """
-        Returns True if all required credentials exist.
-        """
+        """True if all required credentials exist."""
         return all([
             self.consumer_key,
             self.consumer_secret,
@@ -554,7 +517,5 @@ class StkPushService:
         ])
 
     async def close(self) -> None:
-        """
-        Reserved for future shared HTTP client cleanup.
-        """
+        """Reserved for future shared HTTP client cleanup."""
         return
