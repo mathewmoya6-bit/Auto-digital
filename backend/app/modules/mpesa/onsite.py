@@ -98,7 +98,9 @@ async def onsite_stk_push(
     body: OnsiteStkRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    uid = str(current_user["id"])
+    # get_current_user returns the row from `profiles`, whose "id" is the profile's own id.
+    # The Supabase auth uid (= valuation_officers.id) is in "user_id".
+    uid = str(current_user.get("user_id") or current_user["id"])
     _rate_limit(f"onsite-stk:{uid}")
 
     try:
