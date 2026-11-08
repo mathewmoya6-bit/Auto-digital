@@ -78,6 +78,12 @@ def _one(query) -> Dict[str, Any] | None:
     return res.data if res else None
 
 
+def _rows(query) -> list:
+    """Plain select that never raises on 'no rows' (unlike maybe_single on some client versions)."""
+    res = query.execute()
+    return (res.data if res else None) or []
+
+
 # ================================================================
 # STK Push
 # ================================================================
@@ -102,10 +108,19 @@ async def onsite_stk_push(
 
     sb = get_supabase()
 
-    officer = _one(
-        sb.table("valuation_officers").select("id,active,role,can_sign").eq("id", uid)
+    # Separate "no profile found" from "profile inactive" so the cause is visible.
+    found = _rows(
+        sb.table("valuation_officers").select("id,active,role,can_sign").eq("id", uid).limit(1)
     )
-    if not officer or not officer.get("active"):
+    officer = found[0] if found else None
+    if not officer:
+        logger.warning(
+            "Onsite STK: no valuation_officers row for id=%s | current_user keys=%s | "
+            "check that get_supabase() uses the service-role key and that this id is the Supabase auth uid",
+            uid, sorted(current_user.keys()),
+        )
+        raise HTTPException(status_code=403, detail="No officer profile was found for this login.")
+    if not officer.get("active"):
         raise HTTPException(status_code=403, detail="Your officer account is not active.")
 
     val = _one(
