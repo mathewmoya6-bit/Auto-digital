@@ -1,500 +1,521 @@
+# app/modules/mpesa/stk_push.py
+"""
+Auto-D Kenya - M-Pesa STK Push Service
+"""
 
-# app/modules/mpesa/onsite.py
-# ================================================================
-# Auto-D Kenya - M-Pesa for Onsite Valuations
-#
-# POST /mpesa/onsite/stkpush
-#   Initiates an STK push for a cash-client valuation.
-#
-# POST /mpesa/onsite/callback
-#   Processes Safaricom payment confirmation.
-#
-# Ownership:
-#   - An officer can pay for their own valuation.
-#   - A senior valuer with can_sign=true can pay for another
-#     officer's valuation.
-#   - Inactive or unregistered officers are rejected.
-#
-# Payment completion is handled by the database RPC:
-#   onsite_stk_complete
-# ================================================================
+from __future__ import annotations
 
-import asyncio
+import base64
 import logging
-import time
-from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+import httpx
 
 from app.core.config import settings
-from app.core.database import get_supabase
-from app.core.dependencies import get_current_user
 from app.core.exceptions import AppException
-from app.core.security import mask_sensitive
-from app.modules.mpesa.stk_push import StkPushService, normalize_phone
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["M-Pesa Onsite"])
-
-_buckets: Dict[str, deque] = defaultdict(deque)
-
-_stk: Optional[StkPushService] = None
+NAIROBI_TZ = ZoneInfo("Africa/Nairobi")
 
 
-# ================================================================
+# ============================================================
 # Helpers
-# ================================================================
+# ============================================================
 
-def _rate_limit(key: str, max_requests: int = 5, window: int = 60) -> None:
-    now = time.monotonic()
-    bucket = _buckets[key]
-
-    while bucket and now - bucket[0] > window:
-        bucket.popleft()
-
-    if len(bucket) >= max_requests:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests. Wait a minute and try again.",
-        )
-
-    bucket.append(now)
-
-
-def _one(query) -> Optional[Dict[str, Any]]:
-    """Return the first matching database row or None."""
-    result = query.limit(1).execute()
-    rows = (result.data if result else None) or []
-    return rows[0] if rows else None
-
-
-def _onsite_callback_url() -> str:
-    """Resolve the dedicated onsite callback URL."""
-    explicit = getattr(settings, "MPESA_ONSITE_CALLBACK_URL", "") or ""
-
-    if explicit:
-        return explicit
-
-    base = (settings.MPESA_CALLBACK_URL or "").rstrip("/")
-
-    if base.endswith("/mpesa/callback"):
-        return (
-            base[: -len("/mpesa/callback")]
-            + "/mpesa/onsite/callback"
-        )
-
-    return (
-        f"{settings.API_BASE_URL.rstrip('/')}"
-        f"{settings.API_V1_PREFIX}/mpesa/onsite/callback"
-    )
-
-
-def _get_stk() -> StkPushService:
-    """Return an STK service configured for onsite callbacks."""
-    global _stk
-
-    if _stk is None:
-        if not settings.mpesa_configured:
-            raise HTTPException(
-                status_code=503,
-                detail="M-Pesa is not configured on the server.",
-            )
-
-        _stk = StkPushService()
-        _stk.callback_url = _onsite_callback_url()
-
-        logger.info(
-            "Onsite STK callback URL configured: %s",
-            _stk.callback_url,
-        )
-
-    return _stk
-
-
-def _resolve_officer(sb, current_user: dict) -> Dict[str, Any]:
+def normalize_phone(phone: str) -> str:
     """
-    Resolve the authenticated user to their valuation_officers row.
+    Convert Kenyan phone numbers to 2547XXXXXXXX / 2541XXXXXXXX format.
 
-    get_current_user() returns a profiles row. Its user_id is the
-    Supabase Auth UID. The profile's own id must not be assumed to
-    be the valuation officer ID.
+    Accepts 0712345678, +254712345678, 254712345678, 712345678.
 
-    The valuation_officers.id is the canonical officer identifier.
+    Raises:
+        ValueError: If the phone number is invalid.
     """
-    auth_uid = current_user.get("user_id")
+    if not phone:
+        raise ValueError("Phone number is required")
 
-    if not auth_uid:
-        raise HTTPException(
-            status_code=403,
-            detail="Your login could not be linked to a valuation officer account.",
+    phone = "".join(ch for ch in str(phone) if ch.isdigit())
+
+    if phone.startswith("254"):
+        pass
+    elif phone.startswith("0"):
+        phone = "254" + phone[1:]
+    elif phone.startswith(("7", "1")):
+        phone = "254" + phone
+    else:
+        raise ValueError("Invalid Kenyan phone number")
+
+    if len(phone) != 12:
+        raise ValueError(
+            f"Invalid phone number length: {len(phone)} (expected 12)"
         )
 
-    officer = _one(
-        sb.table("valuation_officers")
-        .select("id,active,role,can_sign")
-        .eq("id", str(auth_uid))
-    )
-
-    if not officer:
-        logger.warning(
-            "No valuation officer found for authenticated UID=%s",
-            auth_uid,
-        )
-        raise HTTPException(
-            status_code=403,
-            detail="No valuation officer profile was found for this login.",
-        )
-
-    if not officer.get("active"):
-        raise HTTPException(
-            status_code=403,
-            detail="Your officer account is not active.",
-        )
-
-    return officer
-
-
-def _can_pay_for_another_officer(officer: Dict[str, Any]) -> bool:
-    return (
-        officer.get("role") == "senior_valuer"
-        and officer.get("can_sign") is True
-    )
-
-
-# ================================================================
-# Request model
-# ================================================================
-
-class OnsiteStkRequest(BaseModel):
-    valuation_id: str
-    phone: str
-
-
-# ================================================================
-# STK Push
-# ================================================================
-
-@router.post("/mpesa/onsite/stkpush")
-async def onsite_stk_push(
-    body: OnsiteStkRequest,
-    current_user: dict = Depends(get_current_user),
-):
-    sb = get_supabase()
-
-    # Resolve the authenticated user to the actual officer record.
-    officer = _resolve_officer(sb, current_user)
-
-    # Always use the officer table ID as the canonical identity.
-    officer_id = str(officer["id"])
-
-    _rate_limit(f"onsite-stk:{officer_id}")
-
-    # Validate phone number.
-    try:
-        phone = normalize_phone(body.phone)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        )
-
-    # Retrieve the requested valuation.
-    valuation = _one(
-        sb.table("onsite_valuations")
-        .select(
-            "id,ref,officer_id,purpose,client_id,fee,payment_status"
-        )
-        .eq("id", body.valuation_id)
-    )
-
-    if not valuation:
-        raise HTTPException(
-            status_code=404,
-            detail="Valuation not found.",
-        )
-
-    # ------------------------------------------------------------
-    # Ownership verification
-    # ------------------------------------------------------------
-
-    valuation_owner = str(valuation.get("officer_id") or "")
-
-    is_owner = valuation_owner == officer_id
-    is_authorized_senior = _can_pay_for_another_officer(officer)
-
-    if not is_owner and not is_authorized_senior:
-        logger.warning(
-            "Onsite payment ownership denied | valuation=%s owner=%s caller=%s role=%s",
-            valuation.get("id"),
-            valuation_owner,
-            officer_id,
-            officer.get("role"),
-        )
-
-        raise HTTPException(
-            status_code=403,
-            detail="This valuation belongs to another officer.",
-        )
-
-    # ------------------------------------------------------------
-    # Client verification
-    # ------------------------------------------------------------
-
-    client_id = valuation.get("client_id")
-
-    if not client_id:
-        raise HTTPException(
-            status_code=400,
-            detail="This valuation has no linked client.",
-        )
-
-    client = _one(
-        sb.table("onsite_clients")
-        .select("client_type")
-        .eq("id", client_id)
-    )
-
-    if not client or client.get("client_type") != "cash":
-        raise HTTPException(
-            status_code=400,
-            detail="Only cash clients pay per valuation.",
-        )
-
-    # ------------------------------------------------------------
-    # Payment status verification
-    # ------------------------------------------------------------
-
-    if valuation.get("payment_status") == "paid":
-        raise HTTPException(
-            status_code=409,
-            detail="This valuation is already paid.",
-        )
-
-    # ------------------------------------------------------------
-    # Determine valuation fee
-    # ------------------------------------------------------------
-
-    fee = valuation.get("fee")
-
-    if fee is None:
-        pricing = _one(
-            sb.table("onsite_pricing")
-            .select("price")
-            .eq("purpose", valuation.get("purpose"))
-        )
-
-        fee = pricing.get("price") if pricing else None
-
-    try:
-        amount = float(fee)
-    except (TypeError, ValueError):
-        amount = 0
-
-    if amount <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="No valid fee is set for this service.",
-        )
-
-    account_ref = str(valuation.get("ref") or "AUTOD")[:12]
-
-    # ------------------------------------------------------------
-    # Initiate Safaricom STK push
-    # ------------------------------------------------------------
-
-    try:
-        push = await _get_stk().initiate_push(
-            phone=phone,
-            amount=amount,
-            description="Auto-D Valuation",
-            user_id=officer_id,
-            service_id=account_ref,
-        )
-
-    except AppException as exc:
-        logger.exception(
-            "Onsite STK initiation failed | valuation=%s",
-            valuation.get("id"),
-        )
-        raise HTTPException(
-            status_code=502,
-            detail=str(exc),
-        )
-
-    checkout_id = push.get("checkout_request_id")
-
-    if not checkout_id:
-        raise HTTPException(
-            status_code=502,
-            detail="Safaricom did not return a checkout request ID.",
-        )
-
-    # ------------------------------------------------------------
-    # Record STK request
-    # ------------------------------------------------------------
-
-    try:
-        sb.table("onsite_stk_requests").insert(
-            {
-                "checkout_request_id": checkout_id,
-                "merchant_request_id": push.get("merchant_request_id"),
-                "valuation_id": valuation["id"],
-                "user_id": officer_id,
-                "phone": phone,
-                "amount": amount,
-            }
-        ).execute()
-
-    except Exception:
-        logger.exception(
-            "STK sent but request could not be recorded | checkout=%s",
-            mask_sensitive(checkout_id),
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "The payment prompt was sent but could not be recorded. "
-                "Verify the payment before attempting another prompt."
-            ),
-        )
-
-    logger.info(
-        "Onsite STK initiated | valuation=%s officer=%s checkout=%s",
-        valuation.get("ref"),
-        officer_id,
-        mask_sensitive(checkout_id),
-    )
-
-    return {
-        "checkout_request_id": checkout_id,
-        "status": "pending",
-        "message": (
-            push.get("customer_message")
-            or "STK Push sent successfully."
-        ),
-    }
-
-
-# ================================================================
-# Safaricom Callback
-# ================================================================
-
-@router.post("/mpesa/onsite/callback")
-async def onsite_callback(request: Request):
-    accepted = JSONResponse(
-        status_code=200,
-        content={
-            "ResultCode": 0,
-            "ResultDesc": "Accepted",
-        },
-    )
-
-    try:
-        payload = await request.json()
-    except Exception:
-        logger.warning("Onsite callback received invalid JSON.")
-        return accepted
-
-    callback = (
-        (payload.get("Body") or {}).get("stkCallback")
-    )
-
-    if not callback:
-        logger.warning("Onsite callback missing stkCallback.")
-        return accepted
-
-    checkout_id = callback.get("CheckoutRequestID")
-
-    if not checkout_id:
-        return accepted
-
-    result_code = str(callback.get("ResultCode"))
-
-    metadata_items = (
-        (callback.get("CallbackMetadata") or {}).get("Item", [])
-    )
-
-    metadata = {
-        item.get("Name"): item.get("Value")
-        for item in metadata_items
-        if item.get("Name")
-    }
-
-    try:
-        # Safaricom success callback must be independently verified.
-        if result_code == "0":
-            confirmed = False
-
-            for attempt in range(3):
-                try:
-                    query_result = await _get_stk().query_payment(
-                        checkout_id
-                    )
-
-                    confirmed = (
-                        query_result.get("status") == "completed"
-                    )
-
-                    break
-
-                except Exception:
-                    if attempt == 2:
-                        raise
-
-                    await asyncio.sleep(2)
-
-            if not confirmed:
-                logger.error(
-                    "Onsite callback not confirmed by Safaricom | checkout=%s",
-                    mask_sensitive(checkout_id),
+    return phone
+
+
+def mask_sensitive(value: Optional[str]) -> str:
+    """Mask sensitive values for logs (first 3 and last 3 characters only)."""
+    if not value:
+        return "***"
+
+    value = str(value)
+
+    if len(value) <= 6:
+        return "***"
+
+    return f"{value[:3]}***{value[-3:]}"
+
+
+# ============================================================
+# STK Push Service
+# ============================================================
+
+class StkPushService:
+    """
+    Safaricom Daraja STK Push client.
+
+    Handles:
+        - OAuth token acquisition and caching
+        - STK Push initiation
+        - Payment status queries
+        - Health checks
+        - Callback verification
+    """
+
+    TOKEN_BUFFER_SECONDS = 60
+
+    # Daraja returns this error from the query endpoint while the
+    # customer is still completing the prompt.
+    _STILL_PROCESSING_CODE = "500.001.1001"
+
+    def __init__(self):
+        self.consumer_key = settings.MPESA_CONSUMER_KEY
+        self.consumer_secret = settings.MPESA_CONSUMER_SECRET
+        self.passkey = settings.MPESA_PASSKEY
+        self.shortcode = settings.MPESA_SHORTCODE
+
+        self.callback_url = settings.MPESA_CALLBACK_URL
+        self.base_url = settings.get_mpesa_base_url()
+
+        self.timeout = settings.get_mpesa_timeout()
+
+        self._access_token: Optional[str] = None
+        self._token_expiry: Optional[datetime] = None
+
+    # ============================================================
+    # OAuth
+    # ============================================================
+
+    async def get_access_token(self) -> str:
+        """Return a valid OAuth access token, using the cache when possible."""
+        now = datetime.now(timezone.utc)
+
+        if (
+            self._access_token
+            and self._token_expiry
+            and now < self._token_expiry
+        ):
+            return self._access_token
+
+        if not self.consumer_key or not self.consumer_secret:
+            raise AppException("M-Pesa credentials are not configured")
+
+        credentials = f"{self.consumer_key}:{self.consumer_secret}"
+        encoded = base64.b64encode(credentials.encode()).decode()
+
+        url = f"{self.base_url}/oauth/v1/generate?grant_type=client_credentials"
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(
+                    url,
+                    headers={"Authorization": f"Basic {encoded}"},
                 )
-                return accepted
 
-        amount = metadata.get("Amount")
-        phone_number = metadata.get("PhoneNumber")
+            if response.status_code != 200:
+                logger.error(
+                    "OAuth failed | %s | %s",
+                    response.status_code,
+                    response.text,
+                )
+                raise AppException("Unable to obtain M-Pesa access token")
 
-        # Database function validates the checkout request and performs
-        # the payment update atomically.
-        result = (
-            get_supabase()
-            .rpc(
-                "onsite_stk_complete",
-                {
-                    "p_checkout": checkout_id,
-                    "p_code": result_code,
-                    "p_desc": callback.get("ResultDesc", ""),
-                    "p_receipt": metadata.get("MpesaReceiptNumber"),
-                    "p_amount": (
-                        float(amount)
-                        if amount is not None
-                        else None
-                    ),
-                    "p_phone": (
-                        str(phone_number)
-                        if phone_number
-                        else None
-                    ),
-                },
+            data = response.json()
+            token = data.get("access_token")
+
+            if not token:
+                raise AppException("M-Pesa returned no access token")
+
+            expires = int(data.get("expires_in", 3600))
+
+            self._access_token = token
+            self._token_expiry = now + timedelta(
+                seconds=expires - self.TOKEN_BUFFER_SECONDS
             )
-            .execute()
-        )
+
+            logger.info("M-Pesa OAuth token refreshed")
+            return token
+
+        except httpx.TimeoutException:
+            logger.error("OAuth request timed out")
+            raise AppException("M-Pesa OAuth request timed out")
+        except AppException:
+            raise
+        except Exception as e:
+            logger.exception("OAuth failed")
+            raise AppException(f"OAuth failed: {str(e)}")
+
+    # ============================================================
+    # Helpers
+    # ============================================================
+
+    def _generate_timestamp(self) -> str:
+        """Safaricom timestamp (YYYYMMDDHHMMSS) in Nairobi time."""
+        return datetime.now(NAIROBI_TZ).strftime("%Y%m%d%H%M%S")
+
+    def _generate_password(self, timestamp: str) -> str:
+        """Base64(shortcode + passkey + timestamp)."""
+        raw = f"{self.shortcode}{self.passkey}{timestamp}"
+        return base64.b64encode(raw.encode("utf-8")).decode("utf-8")
+
+    # ============================================================
+    # STK Push Initiation
+    # ============================================================
+
+    async def initiate_push(
+        self,
+        *,
+        phone: str,
+        amount: float,
+        description: str,
+        user_id: Optional[str] = None,
+        service_id: Optional[Any] = None,
+        account_reference: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Initiate an STK Push request.
+
+        Args:
+            phone: Customer phone number
+            amount: Amount to charge (rounded to whole shillings)
+            description: Transaction description
+            user_id: Optional user ID (logging only)
+            service_id: Optional service ID, used as the account
+                reference when account_reference is not given
+            account_reference: Reference shown to the customer
+                (max 12 characters)
+
+        Returns:
+            Dict with status, checkout_request_id, merchant_request_id,
+            customer_message, response_code and response_description.
+
+        Raises:
+            AppException: If the STK Push fails.
+        """
+        if not self.shortcode:
+            raise AppException("MPESA_SHORTCODE is not configured")
+
+        if not self.passkey:
+            raise AppException("MPESA_PASSKEY is not configured")
+
+        if not self.callback_url:
+            raise AppException("MPESA_CALLBACK_URL is not configured")
+
+        try:
+            phone = normalize_phone(phone)
+        except ValueError as exc:
+            raise AppException(str(exc))
+
+        amount = int(round(float(amount)))
+
+        if amount <= 0:
+            raise AppException("Amount must be greater than 0")
+
+        timestamp = self._generate_timestamp()
+        password = self._generate_password(timestamp)
+
+        reference = str(account_reference or service_id or "AUTOD")[:12]
+
+        payload = {
+            "BusinessShortCode": self.shortcode,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": amount,
+            "PartyA": phone,
+            "PartyB": self.shortcode,
+            "PhoneNumber": phone,
+            "CallBackURL": self.callback_url,
+            "AccountReference": reference,
+            "TransactionDesc": (
+                description[:50] if description else "Auto-D Kenya Payment"
+            ),
+        }
+
+        token = await self.get_access_token()
 
         logger.info(
-            "Onsite M-Pesa callback processed | checkout=%s result=%s",
-            mask_sensitive(checkout_id),
-            result.data,
+            "Initiating STK Push | phone=%s amount=%s ref=%s user=%s",
+            mask_sensitive(phone),
+            amount,
+            reference,
+            user_id,
         )
 
-    except Exception:
-        logger.exception(
-            "Onsite callback processing failed | checkout=%s",
-            mask_sensitive(checkout_id),
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.base_url}/mpesa/stkpush/v1/processrequest",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+
+            if response.status_code != 200:
+                logger.error(
+                    "STK Push HTTP Error | %s | %s",
+                    response.status_code,
+                    response.text,
+                )
+                raise AppException("Failed to initiate STK Push")
+
+            data = response.json()
+
+            if str(data.get("ResponseCode")) != "0":
+                error_msg = data.get("ResponseDescription", "STK Push rejected")
+                logger.error("STK rejected request | %s", error_msg)
+                raise AppException(error_msg)
+
+            logger.info(
+                "STK Push accepted | checkout=%s",
+                mask_sensitive(data.get("CheckoutRequestID")),
+            )
+
+            return {
+                "status": "pending",
+                "response_code": data.get("ResponseCode"),
+                "response_description": data.get("ResponseDescription"),
+                "checkout_request_id": data.get("CheckoutRequestID"),
+                "merchant_request_id": data.get("MerchantRequestID"),
+                "customer_message": data.get("CustomerMessage"),
+            }
+
+        except httpx.TimeoutException:
+            logger.error("STK Push request timed out")
+            raise AppException("STK Push request timed out")
+        except AppException:
+            raise
+        except Exception as e:
+            logger.exception("STK Push failed")
+            raise AppException(f"STK Push failed: {str(e)}")
+
+    # ============================================================
+    # STK Query
+    # ============================================================
+
+    async def query_payment(self, checkout_request_id: str) -> Dict[str, Any]:
+        """
+        Query the payment status from Safaricom.
+
+        Returns a dict with:
+            status: "completed", "pending", "failed" or "cancelled"
+            result_code, result_desc, checkout_request_id,
+            amount, receipt, transaction_date
+
+        A transaction that is still being processed is reported as
+        "pending" instead of raising.
+
+        Raises:
+            AppException: If the query fails for any other reason.
+        """
+        if not checkout_request_id:
+            raise AppException("Checkout request ID is required")
+
+        timestamp = self._generate_timestamp()
+        password = self._generate_password(timestamp)
+
+        token = await self.get_access_token()
+
+        payload = {
+            "BusinessShortCode": self.shortcode,
+            "Password": password,
+            "Timestamp": timestamp,
+            "CheckoutRequestID": checkout_request_id,
+        }
+
+        logger.info(
+            "Querying payment | checkout=%s",
+            mask_sensitive(checkout_request_id),
         )
 
-    # Safaricom callbacks should receive an acknowledgement.
-    return accepted
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.base_url}/mpesa/stkpushquery/v1/query",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+
+            if response.status_code != 200:
+                try:
+                    err = response.json()
+                except Exception:
+                    err = {}
+
+                if err.get("errorCode") == self._STILL_PROCESSING_CODE:
+                    return {
+                        "status": "pending",
+                        "result_code": "2001",
+                        "result_desc": err.get(
+                            "errorMessage",
+                            "Transaction is being processed",
+                        ),
+                        "checkout_request_id": checkout_request_id,
+                        "amount": None,
+                        "receipt": None,
+                        "transaction_date": None,
+                    }
+
+                logger.error(
+                    "Query failed | %s | %s",
+                    response.status_code,
+                    response.text,
+                )
+                raise AppException("Unable to query payment status")
+
+            data = response.json()
+
+            status_map = {
+                "0": "completed",
+                "1": "failed",
+                "1032": "cancelled",
+                "1037": "failed",
+                "2001": "pending",
+            }
+
+            result_code = str(data.get("ResultCode", "2001"))
+            status = status_map.get(result_code, "pending")
+
+            logger.info(
+                "Query result | checkout=%s status=%s result_code=%s",
+                mask_sensitive(checkout_request_id),
+                status,
+                result_code,
+            )
+
+            return {
+                "status": status,
+                "result_code": result_code,
+                "result_desc": data.get("ResultDesc", "Unknown status"),
+                "checkout_request_id": checkout_request_id,
+                "amount": data.get("Amount"),
+                "receipt": data.get("MpesaReceiptNumber"),
+                "transaction_date": data.get("TransactionDate"),
+            }
+
+        except httpx.TimeoutException:
+            logger.error("Query request timed out")
+            raise AppException("Payment status query timed out")
+        except AppException:
+            raise
+        except Exception as e:
+            logger.exception("Query failed")
+            raise AppException(f"Payment status query failed: {str(e)}")
+
+    # ============================================================
+    # Cleanup
+    # ============================================================
+
+    async def cleanup_stale_payments(self) -> int:
+        """
+        Cleanup hook for stale pending payments.
+
+        The payment repository/service owns payment state, so this
+        exists to satisfy MpesaService and can be extended later.
+        """
+        logger.info("Running stale payment cleanup")
+        return 0
+
+    # ============================================================
+    # Health Check
+    # ============================================================
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Verify M-Pesa configuration and connectivity."""
+        status: Dict[str, Any] = {
+            "service": "mpesa",
+            "status": "healthy",
+            "environment": settings.MPESA_ENVIRONMENT,
+            "base_url": self.base_url,
+            "checks": {
+                "credentials": True,
+                "oauth": False,
+            },
+        }
+
+        if not all([
+            self.consumer_key,
+            self.consumer_secret,
+            self.passkey,
+            self.shortcode,
+            self.callback_url,
+        ]):
+            status["status"] = "unhealthy"
+            status["checks"]["credentials"] = False
+            status["message"] = "Missing required credentials"
+            return status
+
+        try:
+            await self.get_access_token()
+            status["checks"]["oauth"] = True
+        except Exception as exc:
+            logger.exception("OAuth health check failed")
+            status["status"] = "degraded"
+            status["message"] = str(exc)
+
+        return status
+
+    # ============================================================
+    # Callback Verification
+    # ============================================================
+
+    def verify_callback_secret(self, callback_secret: Optional[str]) -> bool:
+        """
+        Verify the callback secret if one is configured.
+
+        Returns True when no secret is configured or the supplied
+        secret matches.
+        """
+        configured = getattr(settings, "MPESA_CALLBACK_SECRET", "")
+
+        if not configured:
+            return True
+
+        return callback_secret == configured
+
+    # ============================================================
+    # Convenience Methods
+    # ============================================================
+
+    def is_configured(self) -> bool:
+        """True if all required credentials exist."""
+        return all([
+            self.consumer_key,
+            self.consumer_secret,
+            self.passkey,
+            self.shortcode,
+            self.callback_url,
+            self.base_url,
+        ])
+
+    async def close(self) -> None:
+        """Reserved for future shared HTTP client cleanup."""
+        return
