@@ -4535,10 +4535,11 @@
       const o = officers.find(x => x.id === id); if (!o) return;
       if (!confirm(`Reject ${o.full_name}? Their officer registration is deleted and they cannot log in.`)) return;
       let { error } = await c.rpc('admin_reject_officer', { p_id: id });
-      if (error) {
+      if (error && /does not exist|could not find the function|schema cache/i.test(error.message || '')) {
         const d = await c.from('valuation_officers').delete().eq('id', id).select('id');
         error = d.error || ((!d.data || !d.data.length) ? { message: error.message } : null);
       }
+      if (error && /permission denied/i.test(error.message || '')) error = { message: 'admin_reject_officer is missing on the database. Run the officer SQL setup. (' + error.message + ')' };
       if (error) return toast(error.message, 'error');
       log(`Officer ${o.full_name} (${o.email || id}) rejected`);
       toast('Officer rejected'); return load();
@@ -4557,7 +4558,7 @@
       }
       if (patch.p_role === 'admin' && !confirm(`Make ${o.full_name} an admin?`)) return;
       let { error } = await c.rpc('admin_update_officer', patch);
-      if (error) {
+      if (error && /does not exist|could not find the function|schema cache/i.test(error.message || '')) {
         const upd = {};
         if ('p_active' in patch) upd.active = patch.p_active;
         if ('p_role' in patch) upd.role = patch.p_role;
@@ -4567,6 +4568,7 @@
         const u = await c.from('valuation_officers').update(upd).eq('id', id).select('id');
         error = u.error || ((!u.data || !u.data.length) ? { message: error.message } : null);
       }
+      if (error && /permission denied/i.test(error.message || '')) error = { message: 'admin_update_officer is missing on the database. Run the officer SQL setup. (' + error.message + ')' };
       if (error) return toast(error.message, 'error');
       log(`Officer ${o.full_name}: ${act === 'toggle' ? (patch.p_active ? 'approved' : 'deactivated') : act + ' updated'}`);
       toast('Officer updated'); return load();
