@@ -551,7 +551,7 @@ async function save(fin,quiet){
  if(error)return alert(error.message);
  v.id=data.id;v.ref=data.ref;v.status=data.status;v.pay={status:data.payment_status,receipt:data.mpesa_receipt,fee:data.fee,invoice:data.invoice_id};
  if(fin){const{error:e2}=await sb.rpc('submit_valuation',{p_id:v.id});if(e2)return alert(e2.message);toast('Submitted for review');return home()}
- if(!quiet)toast('Draft saved');
+ if(!quiet)toast('Draft saved');return v.id;
 }
 
 /* ---------- Report ---------- */
@@ -663,7 +663,7 @@ function sign2HTML(v){const i=v.inputs||{},nm=v.reviewer_name||'',lic=i.officer_
  b=v.cert?side('Approved and issued by',v.reviewer_sig?sigImgTag(v.reviewer_sig):nm?`<span class="sigtxt">${esc(nm)}</span>`:'',nm||'Authorised signatory','Electronically signed · '+esc(kfd(v.approved_at||Date.now()))+' · Certificate '+esc(v.cert)):side('Senior review','','','Pending approval: not yet signed or certified');
  return`<div class="s2">${a}<div>${v.cert?sealSvg():''}</div>${b}</div><div class="fine2">Page 2 of 2 · ${esc(v.cert||v.ref||'')} · Auto-D Vehicle Valuation Services</div>`}
 /* ---------- Clients, payment and billing ---------- */
-const PAY={paybill:'REPLACE_WITH_PAYBILL',name:'Auto-D'}; /* set to the same paybill number used on the dashboard */
+const PAY={paybill:'REPLACE_WITH_PAYBILL',api:'REPLACE_WITH_API_BASE',name:'Auto-D'}; /* set to the same paybill number used on the dashboard */
 const payOK=()=>!/REPLACE/.test(PAY.paybill);
 const PAYL={unpaid:'Unpaid',paid:'Paid',billable:'To invoice',invoiced:'Invoiced',void:'Void'};
 async function loadClients(){try{const{data}=await sb.from('onsite_clients').select('*').eq('active',true).order('name');S.clients=data||[]}catch(e){S.clients=[]}}
@@ -692,11 +692,27 @@ function payCardHTML(v){const c=clientOf(v);if(!c)return'';const pay=v.pay||{},s
  if(st==='paid')return`<div class="card noprint"><h2>Payment</h2><div class="msg good">Paid${pay.receipt?' · M-Pesa '+esc(pay.receipt):''}${fee!=null?' · '+KES(fee):''}</div></div>`;
  return`<div class="card noprint"><h2>Payment (cash client)</h2><p>Amount due: <b>${fee!=null?KES(fee):'not set'}</b></p>
  ${payOK()?'':'<div class="msg">The paybill number is not set in this app yet.</div>'}
- ${v.ref?`<p class="sm">M-Pesa: Lipa na M-Pesa, Pay Bill, Business no. <b>${esc(PAY.paybill)}</b>, Account no. <b>${esc(v.ref)}</b>, Amount <b>${fee!=null?esc(Math.round(fee)):''}</b>.</p>
+ ${v.ref?`${stkHTML(c.phone)}<p class="sm">Or pay manually: Lipa na M-Pesa, Pay Bill, Business no. <b>${esc(PAY.paybill)}</b>, Account no. <b>${esc(v.ref)}</b>, Amount <b>${fee!=null?esc(Math.round(fee)):''}</b>.</p>
  <label>M-Pesa confirmation code<input id="pr" placeholder="e.g. SGL7XY12AB" autocapitalize="characters"></label><p><button class="pri" onclick="payClaim()">Confirm payment</button></p>`:`<p class="sm">Save the draft first to get the account reference for payment.</p><p><button onclick="saveThenForm()">Save draft and get reference</button></p>`}
  <p class="sm">The certificate cannot be approved and issued until this is paid. Each M-Pesa code works once.</p></div>`}
 async function saveThenForm(){await save(false,true);formView()}
 function rerender(){const v=S.val,y=scrollY;['final','submitted','rejected'].includes(v.status)?reviewView():formView();scrollTo(0,y)}
+const stkHTML=ph=>`<label>Payer's M-Pesa number<input id="stkph" type="tel" placeholder="0712345678" value="${esc(ph||'')}"></label><p><button class="pri" id="stkb" onclick="stkPay()">Pay with M-Pesa</button></p>`;
+async function stkPay(){const v=S.val,ph=($('#stkph').value||'').replace(/\s/g,'');
+ if(/REPLACE/.test(PAY.api))return alert('The payments server address is not set in this app yet.');
+ if(!/^(\+?254|0)?[71]\d{8}$/.test(ph))return alert('Enter the Safaricom number that will pay, for example 0712345678.');
+ if(!v.id&&!await ensureSaved())return;
+ const b=$('#stkb');b.disabled=true;b.textContent='Sending…';
+ try{const{data:{session}}=await sb.auth.getSession();
+  const r=await fetch(PAY.api+'/mpesa/onsite/stkpush',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token},body:JSON.stringify({valuation_id:v.id,phone:ph})});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||'Could not start the payment.');
+  toast('Ask the client to enter their M-Pesa PIN');await waitPaid()}
+ catch(e){alert(e.message)}finally{const x=$('#stkb');if(x){x.disabled=false;x.textContent='Pay with M-Pesa'}}}
+async function waitPaid(){const v=S.val;
+ for(let i=0;i<30;i++){await new Promise(r=>setTimeout(r,3000));
+  const{data}=await sb.from('onsite_valuations').select('payment_status,mpesa_receipt').eq('id',v.id).single();
+  if(data&&data.payment_status==='paid'){v.pay={...(v.pay||{}),status:'paid',receipt:data.mpesa_receipt};toast('Payment received');return rerender()}}
+ alert('No payment confirmed yet. If the client has paid, enter the M-Pesa code below to confirm.')}
 async function payClaim(){const v=S.val,rc=($('#pr').value||'').trim().toUpperCase();
  if(!/^[A-Z0-9]{8,12}$/.test(rc))return alert('Enter the M-Pesa confirmation code, for example SGL7XY12AB.');
  if(!v.id&&!await ensureSaved())return;
