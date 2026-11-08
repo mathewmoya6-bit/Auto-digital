@@ -4519,6 +4519,9 @@
       const u = await c.from('onsite_valuations').update({ status: 'submitted', updated_at: new Date().toISOString() })
         .eq('id', v.id).in('status', ['draft', 'correction_required']).select('id');
       error = u.error || ((!u.data || !u.data.length) ? { message: 'blocked by database rules (' + error.message + ')' } : null);
+      if (error && /review workflow/i.test(error.message || '')) {
+        error = { message: 'The database only lets the officer submit their own report (status can only change through the review workflow). Ask the officer to press Submit in their app, or have the admin submit function installed on the database.' };
+      }
     }
     if (!error) log(`Onsite valuation ${v.ref || v.id}: submitted for review by admin`);
     return error;
@@ -4534,6 +4537,8 @@
     if (!allowed) return fail('Your account is not authorised to review this report.');
     if (!notes) { $('osReviewNotes').focus(); return fail('Review notes are required. Write your findings or reason in the notes box, then press the button again.'); }
     if (decision === 'approve' && curCashUnpaid) return fail('Cannot approve: the cash client has not paid.');
+    if (v.status === 'draft' && decision === 'correction')
+      return fail('This report is still a draft, so the officer can already edit it. "Return for editing" applies to submitted reports. Leave your note for the officer, or wait for them to submit.');
     const noval = NOVAL.includes(v.purpose);
     const approved = noval ? 0 : Number($('osApprovedValue').value || v.final_value || 0);
     if (decision === 'approve' && !noval && (!Number.isFinite(approved) || approved <= 0)) return fail('Enter a positive approved value.');
