@@ -366,22 +366,22 @@ const topbar=()=>`<div class="top noprint"><div class="brand">Auto-<span>D</span
 async function loadPrices(){const{data}=await sb.from('onsite_pricing').select('purpose,price,active');S.prices={};(data||[]).forEach(r=>S.prices[r.purpose]=r)}
 /* ---------- Home ---------- */
 async function home(){
- await Promise.all([loadPrices(),loadForms()]);
+ await Promise.all([loadPrices(),loadForms(),loadClients()]);
  S.val=null;
  const first=PK.find(k=>!S.prices[k]||S.prices[k].active)||PK[0];
- $('#app').innerHTML=topbar()+`<div class="wrap"><div class="card"><h2>New valuation</h2><div class="grid"><label>Service type<select id="np" onchange="npDesc()">${popts(first)}</select></label><div style="align-self:end"><button class="pri" onclick="newVal()">Start inspection</button></div></div><p class="sm" id="npd"></p></div>
- ${sigCardHTML()}<div class="card list"><h2>My valuations</h2><div id="lst" class="sm">Loading…</div></div></div><div id="bar" style="display:none"></div>`;
- npDesc();sigInit();
+ $('#app').innerHTML=topbar()+`<div class="wrap"><div class="card"><h2>New valuation</h2><div class="grid"><label>Client<select id="nc">${clientOpts()}</select></label><label>Service type<select id="np" onchange="npDesc()">${popts(first)}</select></label><div style="align-self:end"><button class="pri" onclick="newVal()">Start inspection</button></div></div><p class="sm" id="npd"></p></div>
+ ${clientCardHTML()}${billCardHTML()}${sigCardHTML()}<div class="card list"><h2>My valuations</h2><div id="lst" class="sm">Loading…</div></div></div><div id="bar" style="display:none"></div>`;
+ npDesc();sigInit();loadInvoices();
  const{data,error}=await sb.from('onsite_valuations').select('*').eq('officer_id',S.user.id).order('updated_at',{ascending:false}).limit(50);
  if(error)return $('#lst').textContent=error.message;
  S.list=data.slice();
  if(S.prof.can_sign&&S.prof.role==='senior_valuer'){const{data:q}=await sb.from('onsite_valuations').select('*').eq('status','submitted').neq('officer_id',S.user.id).order('updated_at');if(q&&q.length)S.list=[...q,...data]}
- $('#lst').innerHTML=S.list.length?S.list.map((d,n)=>`<div class="row" onclick="openRow(${n})"><span>${esc(d.vehicle.make||'')} ${esc(d.vehicle.model||'')} ${esc(d.vehicle.plate||d.vehicle.chassis||'')}<br><span class="sm">${esc(d.ref)} · ${esc(pn(d.purpose))} · ${new Date(d.updated_at).toLocaleDateString('en-KE')}</span></span><span><span class="tag ${d.status}">${d.status}</span><br><b>${d.final_value?KES(d.final_value):''}</b></span></div>`).join(''):'No valuations yet. Start one above.';
+ $('#lst').innerHTML=S.list.length?S.list.map((d,n)=>`<div class="row" onclick="openRow(${n})"><span>${esc(d.vehicle.make||'')} ${esc(d.vehicle.model||'')} ${esc(d.vehicle.plate||d.vehicle.chassis||'')}<br><span class="sm">${esc(d.ref)} · ${esc(pn(d.purpose))} · ${new Date(d.updated_at).toLocaleDateString('en-KE')}</span></span><span><span class="tag ${d.status}">${d.status}</span><br><b>${d.final_value?KES(d.final_value):''}</b>${payTag(d)}</span></div>`).join(''):'No valuations yet. Start one above.';
 }
 function npDesc(){const e=$('#np'),d=$('#npd');if(e&&d&&P[e.value])d.textContent=P[e.value].d}
-function newVal(){const pu=$('#np').value;S.val={purpose:pu,vehicle:{},inputs:{date:today(),hc:P[pu].hc,fee:(S.prices[pu]||{}).price??null,form_version:PF_VER},answers:{},notes:{}};formView()}
+
 async function openRow(n){const d=S.list[n],lp=pc(d.purpose),inp=lp!==d.purpose?{...d.inputs,legacy_purpose:d.purpose}:d.inputs;
- S.val={id:d.id,ref:d.ref,purpose:lp,status:d.status,vehicle:d.vehicle,inputs:inp,answers:d.answers,notes:d.notes,result:d.result,officer_id:d.officer_id,approved:d.approved_value,cert:d.certificate_number,review_note:d.review_note,approved_at:d.approved_at,reviewer_id:d.reviewer_id};
+ S.val={id:d.id,ref:d.ref,purpose:lp,status:d.status,vehicle:d.vehicle,inputs:inp,answers:d.answers,notes:d.notes,result:d.result,officer_id:d.officer_id,approved:d.approved_value,cert:d.certificate_number,review_note:d.review_note,approved_at:d.approved_at,reviewer_id:d.reviewer_id,client_id:d.client_id,pay:{status:d.payment_status,receipt:d.mpesa_receipt,fee:d.fee,invoice:d.invoice_id}};
  const ldo=async id=>{try{const{data:o}=await sb.from('valuation_officers').select('*').eq('id',id).maybeSingle();return o}catch(e){return null}};
  if(d.status==='final'&&d.reviewer_id){const rv=d.reviewer_id===S.user.id?S.prof:await ldo(d.reviewer_id);if(rv){S.val.reviewer_name=rv.full_name;S.val.reviewer_sig=okSig(rv.signature)}}
  if(d.officer_id){const of=d.officer_id===S.user.id?S.prof:await ldo(d.officer_id);if(of)S.val.officer_sig=okSig(of.signature)}
@@ -458,7 +458,7 @@ function formView(){
  <button class="lnk noprint" onclick="home()">Back to list</button>
  ${v.review_note&&v.id?`<div class="msg">Reviewer note: ${esc(v.review_note)}</div>`:''}<h1>${esc(p.n)}</h1><div class="sm">${v.ref?esc(v.ref):'New valuation'} · ${p.noval?'Inspection report (no valuation)':'Reference: market comparables, KRA CRSP as cross-check'}</div>${note}
  <div class="card"><h2>Assignment</h2><div class="grid">${F('i.client','Client / instructing party')}${F('i.use','Intended use and users')}${F('i.instr_ref','Instruction reference')}${F('i.conflict','Independence declaration',['No conflict of interest','Conflict declared (see notes)'])}</div></div>
- ${pfCard(v)}<div class="card"><h2>Vehicle</h2><div class="grid">
+ ${payCardHTML(v)}${pfCard(v)}<div class="card"><h2>Vehicle</h2><div class="grid">
  <label>Make<input data-k="v.make" list="dl-make" autocomplete="off" value="${esc(get('v.make'))}"></label><label>Model<input data-k="v.model" list="dl-model" autocomplete="off" value="${esc(get('v.model'))}"></label><datalist id="dl-make"></datalist><datalist id="dl-model"></datalist>${F('v.variant','Variant / trim')}${F('v.chassis','Chassis / VIN')}${F('v.engine_no','Engine number')}${F('v.plate','Plate number')}
  ${F('v.yom','Year of manufacture','number')}${F('v.reg_year','Year of first registration','number')}${F('v.cc','Engine cc','number')}
  ${F('v.fuel','Fuel',['Petrol','Diesel','Hybrid','Electric'])}${F('v.trans','Transmission',['Manual','Automatic','CVT'])}${F('v.drive','Drivetrain',['2WD','4WD','AWD'])}
@@ -545,11 +545,11 @@ async function save(fin,quiet){
  if(fin){const need=[['client','client / instructing party'],['use','intended use'],['conflict','independence declaration']].filter(([k])=>!String(v.inputs[k]||'').trim()).map(x=>x[1]);if(need.length)return alert('Complete before finalising: '+need.join(', ')+'.')}
  if(fin&&!confirm('Submit for senior review? You cannot edit it while it is under review.'))return;
  v.inputs.officer_name=v.inputs.officer_name||S.prof.full_name;v.inputs.form_version=v.inputs.form_version||PF_VER;v.inputs.officer_licence=v.inputs.officer_licence??(S.prof.licence_no||'');
- const row={officer_id:S.user.id,purpose:v.purpose,status:'draft',vehicle:v.vehicle,inputs:v.inputs,answers:v.answers,notes:v.notes,result:r,final_value:Math.round(r.final),range_low:null,range_high:null,confidence:null};
+ const row={officer_id:S.user.id,client_id:v.client_id||null,purpose:v.purpose,status:'draft',vehicle:v.vehicle,inputs:v.inputs,answers:v.answers,notes:v.notes,result:r,final_value:Math.round(r.final),range_low:null,range_high:null,confidence:null};
  if(v.id)row.id=v.id;
  const{data,error}=await sb.from('onsite_valuations').upsert(row).select().single();
  if(error)return alert(error.message);
- v.id=data.id;v.ref=data.ref;v.status=data.status;
+ v.id=data.id;v.ref=data.ref;v.status=data.status;v.pay={status:data.payment_status,receipt:data.mpesa_receipt,fee:data.fee,invoice:data.invoice_id};
  if(fin){const{error:e2}=await sb.rpc('submit_valuation',{p_id:v.id});if(e2)return alert(e2.message);toast('Submitted for review');return home()}
  if(!quiet)toast('Draft saved');
 }
@@ -662,7 +662,69 @@ function sign2HTML(v){const i=v.inputs||{},nm=v.reviewer_name||'',lic=i.officer_
  a=side('Inspecting valuer',v.officer_sig?sigImgTag(v.officer_sig):'',i.officer_name||S.prof.full_name,(lic?'Licence '+esc(lic)+' · ':'')+'Inspected '+esc(kfd(i.date))),
  b=v.cert?side('Approved and issued by',v.reviewer_sig?sigImgTag(v.reviewer_sig):nm?`<span class="sigtxt">${esc(nm)}</span>`:'',nm||'Authorised signatory','Electronically signed · '+esc(kfd(v.approved_at||Date.now()))+' · Certificate '+esc(v.cert)):side('Senior review','','','Pending approval: not yet signed or certified');
  return`<div class="s2">${a}<div>${v.cert?sealSvg():''}</div>${b}</div><div class="fine2">Page 2 of 2 · ${esc(v.cert||v.ref||'')} · Auto-D Vehicle Valuation Services</div>`}
+/* ---------- Clients, payment and billing ---------- */
+const PAY={paybill:'REPLACE_WITH_PAYBILL',name:'Auto-D'}; /* set to the same paybill number used on the dashboard */
+const payOK=()=>!/REPLACE/.test(PAY.paybill);
+const PAYL={unpaid:'Unpaid',paid:'Paid',billable:'To invoice',invoiced:'Invoiced',void:'Void'};
+async function loadClients(){try{const{data}=await sb.from('onsite_clients').select('*').eq('active',true).order('name');S.clients=data||[]}catch(e){S.clients=[]}}
+const clientOf=v=>(S.clients||[]).find(c=>c.id===v.client_id);
+const cashUnpaid=v=>{const c=clientOf(v);return !!c&&c.client_type==='cash'&&(v.pay||{}).status!=='paid'};
+const releaseLocked=v=>v.status==='final'&&!!v.cert&&cashUnpaid(v);
+const isBilling=()=>!!S.prof&&!!S.prof.can_sign&&S.prof.role==='senior_valuer';
+const clientOpts=()=>'<option value="">Select client…</option>'+(S.clients||[]).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} (${c.client_type==='credit'?'credit':'cash'})</option>`).join('');
+const payTag=d=>d.client_id?`<br><span class="sm">${esc(PAYL[d.payment_status]||'')}</span>`:'';
+function clientCardHTML(){return`<div class="card"><details class="sgc"><summary>Add a client</summary><div class="grid" style="margin-top:8px">
+ <label>Client name<input id="cn_name"></label><label>Phone<input id="cn_phone" type="tel"></label><label>KRA PIN (optional)<input id="cn_pin"></label>
+ <label>Type<select id="cn_type" onchange="cnType()"><option value="cash">Cash (pays per valuation)</option>${isBilling()?'<option value="credit">Credit (invoiced at month end)</option>':''}</select></label>
+ <label class="cnc" style="display:none">Credit limit (KES)<input id="cn_lim" type="number"></label><label class="cnc" style="display:none">Payment terms (days)<input id="cn_terms" type="number" value="30"></label></div>
+ <p><button class="pri" onclick="addClient()">Save client</button></p></details></div>`}
+function cnType(){const t=$('#cn_type').value;document.querySelectorAll('.cnc').forEach(e=>e.style.display=t==='credit'?'':'none')}
+async function addClient(){const name=$('#cn_name').value.trim(),type=$('#cn_type').value;if(!name)return alert('Enter the client name.');
+ const row={name,client_type:type,phone:$('#cn_phone').value.trim()||null,kra_pin:$('#cn_pin').value.trim()||null};
+ if(type==='credit'){row.credit_limit=num($('#cn_lim').value);row.terms_days=parseInt($('#cn_terms').value)||30}
+ const{error}=await sb.from('onsite_clients').insert(row);if(error)return alert(error.message);toast('Client saved');await loadClients();home()}
+async function newVal(){const pu=$('#np').value,cid=$('#nc').value;if(!cid)return alert('Select the client first, or add one below.');
+ const c=(S.clients||[]).find(x=>x.id===cid);
+ if(c.client_type==='credit'){const{data,error}=await sb.rpc('onsite_credit_ok',{p_client:cid});if(error)return alert(error.message);if(data)return alert('This credit client cannot be instructed: '+data)}
+ S.val={purpose:pu,client_id:cid,pay:{status:'unpaid'},vehicle:{},inputs:{date:today(),client:c.name,hc:P[pu].hc,fee:(S.prices[pu]||{}).price??null,form_version:PF_VER},answers:{},notes:{}};formView()}
+function payCardHTML(v){const c=clientOf(v);if(!c)return'';const pay=v.pay||{},st=pay.status||'unpaid',fee=pay.fee??v.inputs.fee;
+ if(c.client_type==='credit')return`<div class="card noprint"><h2>Billing</h2><p class="sm">${esc(c.name)} is a credit client: nothing is paid per job. This valuation goes onto the month-end invoice once it is approved and issued (${esc(PAYL[st]||'To invoice')}).${fee!=null?' Fee: '+KES(fee)+'.':''}</p></div>`;
+ if(st==='paid')return`<div class="card noprint"><h2>Payment</h2><div class="msg good">Paid${pay.receipt?' · M-Pesa '+esc(pay.receipt):''}${fee!=null?' · '+KES(fee):''}</div></div>`;
+ return`<div class="card noprint"><h2>Payment (cash client)</h2><p>Amount due: <b>${fee!=null?KES(fee):'not set'}</b></p>
+ ${payOK()?'':'<div class="msg">The paybill number is not set in this app yet.</div>'}
+ ${v.ref?`<p class="sm">M-Pesa: Lipa na M-Pesa, Pay Bill, Business no. <b>${esc(PAY.paybill)}</b>, Account no. <b>${esc(v.ref)}</b>, Amount <b>${fee!=null?esc(Math.round(fee)):''}</b>.</p>
+ <label>M-Pesa confirmation code<input id="pr" placeholder="e.g. SGL7XY12AB" autocapitalize="characters"></label><p><button class="pri" onclick="payClaim()">Confirm payment</button></p>`:`<p class="sm">Save the draft first to get the account reference for payment.</p><p><button onclick="saveThenForm()">Save draft and get reference</button></p>`}
+ <p class="sm">The certificate cannot be approved and issued until this is paid. Each M-Pesa code works once.</p></div>`}
+async function saveThenForm(){await save(false,true);formView()}
+function rerender(){const v=S.val,y=scrollY;['final','submitted','rejected'].includes(v.status)?reviewView():formView();scrollTo(0,y)}
+async function payClaim(){const v=S.val,rc=($('#pr').value||'').trim().toUpperCase();
+ if(!/^[A-Z0-9]{8,12}$/.test(rc))return alert('Enter the M-Pesa confirmation code, for example SGL7XY12AB.');
+ if(!v.id&&!await ensureSaved())return;
+ const{error}=await sb.rpc('onsite_claim_payment',{p_id:v.id,p_receipt:rc});if(error)return alert(error.message);
+ v.pay={...(v.pay||{}),status:'paid',receipt:rc};toast('Payment confirmed');rerender()}
+function lockView(){const v=S.val;
+ $('#app').innerHTML=topbar()+`<div class="wrap"><div class="noprint"><button onclick="home()">Back to list</button></div><div class="card"><h2>Certificate on hold</h2><div class="msg">${esc(v.cert||'')}: this cash client has not paid, so the certificate and report cannot be shared or printed yet.</div></div>${payCardHTML(v)}</div>`}
+function billCardHTML(){if(!isBilling())return'';const m=new Date().toISOString().slice(0,7);
+ return`<div class="card"><h2>Billing (credit clients)</h2><div class="grid"><label>Month<input id="bm" type="month" value="${m}"></label><div style="align-self:end"><button class="pri" onclick="runInvoices()">Generate month-end invoices</button></div></div><p class="sm">Puts each credit client's approved valuations up to the end of that month onto one invoice. Run it on the last day of the month.</p><div id="inv" class="list sm">Loading…</div></div>`}
+async function runInvoices(){const m=$('#bm').value;if(!m)return;if(!confirm('Generate invoices for '+m+'? Approved credit valuations are locked onto invoices.'))return;
+ const{data,error}=await sb.rpc('onsite_run_invoices',{p_month:m+'-01'});if(error)return alert(error.message);toast(data+' invoice(s) created');loadInvoices()}
+async function loadInvoices(){const e=$('#inv');if(!e)return;
+ const{data,error}=await sb.from('onsite_invoices').select('*,onsite_clients(name)').order('issued_at',{ascending:false}).limit(30);
+ if(error)return e.textContent=error.message;
+ e.innerHTML=(data||[]).length?data.map(i=>`<div class="row"><span>${esc(i.number)} · ${esc((i.onsite_clients||{}).name||'')}<br><span class="sm">Due ${esc(kfd(i.due_at))} · ${esc(i.status)}</span></span><span><b>${KES(i.total)}</b><br><button class="lnk" onclick="invoiceView('${i.id}')">View</button>${i.status==='issued'?` <button class="lnk" onclick="invPaid('${i.id}')">Mark paid</button>`:''}</span></div>`).join(''):'No invoices yet.'}
+async function invPaid(id){if(!confirm('Mark this invoice as paid?'))return;const{error}=await sb.rpc('onsite_invoice_paid',{p_id:id});if(error)return alert(error.message);toast('Invoice marked paid');loadInvoices()}
+async function invoiceView(id){
+ const{data:inv,error}=await sb.from('onsite_invoices').select('*,onsite_clients(*)').eq('id',id).single();if(error)return alert(error.message);
+ const{data:ls}=await sb.from('onsite_valuations').select('ref,purpose,vehicle,approved_at,fee,certificate_number').eq('invoice_id',id).order('approved_at');
+ const c=inv.onsite_clients||{};
+ $('#app').innerHTML=topbar()+`<div class="wrap"><div class="noprint"><button onclick="home()">Back</button> <button class="pri" onclick="print()">Print</button></div>
+ <div class="rep card"><div style="display:flex;justify-content:space-between"><div><h2>Invoice ${esc(inv.number)}</h2><div class="sm">Issued ${esc(kfd(inv.issued_at))} · Due ${esc(kfd(inv.due_at))} · ${esc(inv.status)}</div></div><div class="brand">Auto-D</div></div>
+ <h3 style="margin-top:14px">Bill to</h3><div>${esc(c.name||'')}</div><div class="sm">${esc(c.phone||'')}${c.kra_pin?' · KRA PIN '+esc(c.kra_pin):''}</div>
+ <h3 style="margin-top:14px">Valuations (${(ls||[]).length})</h3>${(ls||[]).map(l=>`<div class="row"><span>${esc(l.ref)} · ${esc(pn(l.purpose))} · ${esc([l.vehicle.make,l.vehicle.model,l.vehicle.plate].filter(Boolean).join(' '))}<br><span class="sm">${esc(l.certificate_number||'')} · ${esc(kfd(l.approved_at))}</span></span><b>${KES(l.fee)}</b></div>`).join('')}
+ <div class="row"><span><b>Total</b></span><b>${KES(inv.total)}</b></div>
+ <p class="sm" style="margin-top:14px">Pay by M-Pesa: Pay Bill ${esc(PAY.paybill)}, Account no. ${esc(inv.number)}. Amounts in KES.</p></div></div>`}
 function reportView(){
+ if(releaseLocked(S.val))return lockView();
  const v=S.val,p=P[v.purpose],r=S.r=(v.result&&v.status!=='draft'&&v.status!=='correction_required')?v.result:calc(v),i=v.inputs,ve=v.vehicle;
  const issues=ITEMS.filter(t=>['issue','major'].includes(v.answers[t.code]));
  const kv=(a,b)=>`<div class="row"><span>${a}</span><b>${esc(b||'-')}</b></div>`;
@@ -688,9 +750,10 @@ function reviewView(){
  reportView();
  const v=S.val,can=S.prof.can_sign&&S.prof.role==='senior_valuer'&&v.status==='submitted'&&v.officer_id!==S.user.id,nv=P[v.purpose].noval;
  const box=document.createElement('div');box.className='card noprint';
- box.innerHTML=can?`<h2>Senior review</h2>${nv?'':`<label>Approved value (KES). Change only with a justification in the notes<input id="rv" type="number" value="${Math.round(v.result.final)}"></label><br>`}<label>Review notes (required)<textarea id="rn" rows="3"></textarea></label><p><button class="pri" onclick="decide('approve')">Approve and issue</button> <button onclick="decide('correction')">Request corrections</button> <button onclick="decide('reject')">Reject</button></p>`
+ box.innerHTML=can?`<h2>Senior review</h2>${nv?'':`<label>Approved value (KES). Change only with a justification in the notes<input id="rv" type="number" value="${Math.round(v.result.final)}"></label><br>`}<label>Review notes (required)<textarea id="rn" rows="3"></textarea></label><p>${cashUnpaid(v)?'<span class="neg">Cannot approve yet: the cash client has not paid.</span> ':'<button class="pri" onclick="decide(\'approve\')">Approve and issue</button> '}<button onclick="decide('correction')">Request corrections</button> <button onclick="decide('reject')">Reject</button></p>`
   :`<h2>Status: ${esc(v.status)}</h2><p class="sm">${v.status==='submitted'?'Awaiting senior review. Editing is locked.':esc(v.review_note||'')}</p>`;
  document.querySelector('.wrap').appendChild(box);
+ if(cashUnpaid(v)&&v.status!=='final'){const pc=document.createElement('div');pc.innerHTML=payCardHTML(v);document.querySelector('.wrap').appendChild(pc.firstElementChild)}
 }
 async function decide(d){
  if(decide.b)return;
