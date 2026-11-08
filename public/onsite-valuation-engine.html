@@ -369,7 +369,7 @@ async function home(){
  await Promise.all([loadPrices(),loadForms(),loadClients()]);
  S.val=null;
  const first=PK.find(k=>!S.prices[k]||S.prices[k].active)||PK[0];
- $('#app').innerHTML=topbar()+`<div class="wrap"><div class="card"><h2>New valuation</h2><div class="grid"><label>Client<select id="nc">${clientOpts()}</select></label><label>Service type<select id="np" onchange="npDesc()">${popts(first)}</select></label><div style="align-self:end"><button class="pri" onclick="newVal()">Start inspection</button></div></div><p class="sm" id="npd"></p></div>
+ $('#app').innerHTML=topbar()+`<div class="wrap"><div class="card"><h2>New valuation</h2><div class="grid"><label>Client<select id="nc">${clientOpts()}</select>${clientHint()}</label><label>Service type<select id="np" onchange="npDesc()">${popts(first)}</select></label><div style="align-self:end"><button class="pri" onclick="newVal()">Start inspection</button></div></div><p class="sm" id="npd"></p></div>
  ${clientCardHTML()}${billCardHTML()}${sigCardHTML()}<div class="card list"><h2>My valuations</h2><div id="lst" class="sm">Loading…</div></div></div><div id="bar" style="display:none"></div>`;
  npDesc();sigInit();loadInvoices();
  const{data,error}=await sb.from('onsite_valuations').select('*').eq('officer_id',S.user.id).order('updated_at',{ascending:false}).limit(50);
@@ -666,7 +666,8 @@ function sign2HTML(v){const i=v.inputs||{},nm=v.reviewer_name||'',lic=i.officer_
 const PAY={paybill:'REPLACE_WITH_PAYBILL',api:'REPLACE_WITH_API_BASE',name:'Auto-D'}; /* set to the same paybill number used on the dashboard */
 const payOK=()=>!/REPLACE/.test(PAY.paybill);
 const PAYL={unpaid:'Unpaid',paid:'Paid',billable:'To invoice',invoiced:'Invoiced',void:'Void'};
-async function loadClients(){try{const{data}=await sb.from('onsite_clients').select('*').eq('active',true).order('name');S.clients=data||[]}catch(e){S.clients=[]}}
+async function loadClients(){try{const{data,error}=await sb.from('onsite_clients').select('*').eq('active',true).order('name');S.clientErr=error?error.message:'';S.clients=data||[]}catch(e){S.clientErr=String(e.message||e);S.clients=[]}}
+const clientHint=()=>S.clientErr?`<span class="neg">Could not load clients: ${esc(S.clientErr)}</span>`:(S.clients||[]).length?'':'<span class="sm">No clients yet. Open "Add a client" below, save one, then select it here.</span>';
 const clientOf=v=>(S.clients||[]).find(c=>c.id===v.client_id);
 const cashUnpaid=v=>{const c=clientOf(v);return !!c&&c.client_type==='cash'&&(v.pay||{}).status!=='paid'};
 const releaseLocked=v=>v.status==='final'&&!!v.cert&&cashUnpaid(v);
