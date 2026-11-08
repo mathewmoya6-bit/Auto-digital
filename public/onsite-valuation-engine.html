@@ -473,8 +473,8 @@ function formView(){
  </div><p><button class="noprint" onclick="geo()">Capture location</button> <span class="sm" id="geo">${esc(v.inputs.location||'')}</span></p></div>
  ${pricing}
  ${SECS.map(([s,items])=>{const rows=items.filter(t=>{const L=lvl({2:t[2]},v.purpose);return L!=='-'&&(!p.lean||L==='R')}).map(t=>row({code:t[0],label:t[1],lv:t[2]}));return rows.length?`<div class="card"><h2>${s}</h2>${rows.join('')}</div>`:''}).join('')}
- <div class="card"><h2>Photos and notes</h2><input id="ph" type="file" accept="image/*" capture="environment" multiple>
- <p><button onclick="upl()">Upload photos</button> <span class="sm" id="pc">${(v.inputs.photos||[]).length} uploaded</span></p>
+ <div id="media">${mediaHTML(v)}</div>
+ <div class="card"><h2>Notes</h2>
  <label>Valuer notes, assumptions and limiting conditions<textarea data-k="i.remarks" rows="3">${esc(v.inputs.remarks||'')}</textarea></label></div></div><div id="bar"></div>`;
  recalc();initCrsp();
 }
@@ -533,18 +533,58 @@ function geo(){navigator.geolocation.getCurrentPosition(pos=>{const c=pos.coords
  const y=scrollY;formView();scrollTo(0,y)},()=>toast('Location not available'),{enableHighAccuracy:true,timeout:15000})}
 async function ensureSaved(){if(!S.val.id){const savedId=await save(false,true);if(!savedId)return null}return S.val.id||null}
 function shrink(f){return new Promise(res=>{const im=new Image();im.onload=()=>{const k=Math.min(1,1600/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);c.toBlob(b=>res(b||f),'image/jpeg',.82)};im.onerror=()=>res(f);im.src=URL.createObjectURL(f)})}
-async function upl(){
- const fs=[...$('#ph').files];if(!fs.length)return toast('Choose photos first');
- if(fs.some(f=>!/^image\//.test(f.type)))return toast('Only image files are allowed');
- if(fs.some(f=>f.size>15e6))return toast('Each photo must be under 15 MB');
- if(((S.val.inputs.photos||[]).length)+fs.length>40)return toast('Maximum 40 photos per valuation');
+/* ---------- Attachments: vehicle photos and logbook/documents are kept separate ---------- */
+/* [tag, label, required, allows several files] */
+const SHOTS=[['fl','Front-left corner',1],['fr','Front-right corner',1],['rl','Rear-left corner',1],['rr','Rear-right corner',1],['chassis','Chassis plate',1],['engine','Engine bay',1],['odo','Odometer reading',1],['other','Other photos (damage, accessories, tyres)',0,1]];
+const DOCSL=[['logbook','Logbook / registration certificate',1],['id','Owner ID',0],['kra','KRA PIN certificate',0],['docs','Export certificate or other documents',0,1]];
+function getMedia(v){const i=v.inputs;if(!i.media){i.media={};if((i.photos||[]).length)i.media.other=[...i.photos]}return i.media}
+function syncMedia(v){const m=getMedia(v),f=L=>L.flatMap(x=>m[x[0]]||[]);v.inputs.photos=f(SHOTS);v.inputs.docs=f(DOCSL)}
+function mediaMissing(v){const m=getMedia(v),pi=ITEMS.find(t=>t.code==='photos'),si=ITEMS.find(t=>t.code==='scans'),
+ pr=pi&&lvl(pi,v.purpose)==='R',dr=si&&lvl(si,v.purpose)==='R',o=[];
+ SHOTS.forEach(x=>{if(pr&&x[2]&&!(m[x[0]]||[]).length)o.push('Photo: '+x[1])});
+ DOCSL.forEach(x=>{if(dr&&x[2]&&!(m[x[0]]||[]).length)o.push('Document: '+x[1])});return o}
+function slotHTML(kind,d,m){const t=d[0],a=m[t]||[],doc=kind==='doc';
+ return `<div style="padding:10px 0;border-top:1px solid rgba(148,163,184,.2)"><div><b>${esc(d[1])}</b>${d[2]?' <span class="sm">(required)</span>':''} <span class="${a.length?'sm':(d[2]?'neg':'sm')}">${a.length?'✓ '+a.length+' attached':(d[2]?'⚠ Missing':'Not attached')}</span></div>
+ ${a.map((p,x)=>`<div class="sm">${esc(p.split('/').pop().replace(/^\d+_/,''))} · <a href="#" onclick="rmMedia('${t}',${x});return false">Remove</a></div>`).join('')}
+ <input type="file" id="mf_${t}" accept="${doc?'image/*,application/pdf':'image/*'}" ${doc?'':'capture="environment"'} ${d[3]?'multiple':''} onchange="upSlot('${t}')"></div>`}
+function mediaHTML(v){const m=getMedia(v);
+ return `<div class="card"><h2>1. Vehicle photos</h2><p class="sm">Photos of the vehicle only. Use one slot per shot so the reviewer knows what each photo shows. Do not put the logbook or ID here.</p>${SHOTS.map(d=>slotHTML('photo',d,m)).join('')}</div>
+ <div class="card"><h2>2. Logbook and documents</h2><p class="sm">Attach the logbook (or export certificate) here, separate from the vehicle photos. Capture the full page, flat and readable. Image or PDF.</p>${DOCSL.map(d=>slotHTML('doc',d,m)).join('')}</div>`}
+async function upSlot(tag){
+ const el=$('#mf_'+tag),fs=[...((el&&el.files)||[])];if(!fs.length)return;
+ const doc=!!DOCSL.find(x=>x[0]===tag),def=(doc?DOCSL:SHOTS).find(x=>x[0]===tag),multi=!!def[3];
+ const okType=f=>/^image\//.test(f.type)||(doc&&f.type==='application/pdf');
+ if(fs.some(f=>!okType(f))){el.value='';return toast(doc?'Only images or PDF files are allowed':'Only image files are allowed')}
+ if(fs.some(f=>f.size>15e6)){el.value='';return toast('Each file must be under 15 MB')}
  if(!await ensureSaved())return;
- const v=S.val;v.inputs.photos=v.inputs.photos||[];
- for(const f of fs){const path=`${S.user.id}/${v.id}/${Date.now()}_${f.name.replace(/[^\w.]/g,'_').replace(/\.\w+$/,'')}.jpg`;
-  const{error}=await sb.storage.from('valuation-photos').upload(path,await shrink(f),{contentType:'image/jpeg'});
-  if(error)return toast(error.message);v.inputs.photos.push(path)}
- $('#pc').textContent=v.inputs.photos.length+' uploaded';await save(false,true);toast('Photos uploaded');
+ const v=S.val,m=getMedia(v);
+ if(((v.inputs.photos||[]).length+(v.inputs.docs||[]).length)+fs.length>60){el.value='';return toast('Maximum 60 files per valuation')}
+ if(!await liveUser())return;
+ el.disabled=true;toast('Uploading…');
+ try{for(const f of (multi?fs:[fs[0]])){
+   const pdf=f.type==='application/pdf',base=f.name.replace(/[^\w.]/g,'_').replace(/\.\w+$/,''),
+    path=`${S.user.id}/${v.id}/${tag}/${Date.now()}_${base}.${pdf?'pdf':'jpg'}`,
+    body=pdf?f:await shrink(f);
+   const{error}=await sb.storage.from('valuation-photos').upload(path,body,{contentType:pdf?'application/pdf':'image/jpeg'});
+   if(error)return toast(error.message);
+   if(!multi&&(m[tag]||[]).length){const old=m[tag];m[tag]=[];try{await sb.storage.from('valuation-photos').remove(old)}catch(e){}}
+   (m[tag]=m[tag]||[]).push(path)}
+  syncMedia(v);await save(false,true);toast('Attached')}
+ finally{const box=$('#media');if(box)box.innerHTML=mediaHTML(v)}
 }
+async function rmMedia(tag,x){const v=S.val,m=getMedia(v),a=m[tag]||[],p=a[x];if(!p||!confirm('Remove this file?'))return;
+ try{await sb.storage.from('valuation-photos').remove([p])}catch(e){}
+ a.splice(x,1);syncMedia(v);await save(false,true);const box=$('#media');if(box)box.innerHTML=mediaHTML(v)}
+/* Reviewer view: signed links, grouped so photos and logbook are never mixed */
+async function loadAttach(v,el){
+ const m=getMedia(v);
+ const part=async(title,L)=>{let rows='';
+  for(const d of L){const a=m[d[0]]||[],links=[];
+   for(const p of a){const{data}=await sb.storage.from('valuation-photos').createSignedUrl(p,3600);links.push(data&&data.signedUrl?`<a href="${esc(data.signedUrl)}" target="_blank" rel="noopener">View ${links.length+1}</a>`:'unavailable')}
+   rows+=`<div class="sm" style="padding:4px 0">${a.length?'✓':'⚠'} <b>${esc(d[1])}</b>: ${links.length?links.join(' · '):'not attached'}</div>`}
+  return `<h3>${title}</h3>${rows}`};
+ try{el.innerHTML='<h2>Attachments</h2>'+await part('Vehicle photos',SHOTS)+await part('Logbook and documents',DOCSL)}
+ catch(e){el.innerHTML='<h2>Attachments</h2><p class="sm">Could not load attachments.</p>'}}
 
 /* Turn raw database errors into something an officer can act on */
 function friendlyErr(e){
@@ -566,6 +606,7 @@ async function save(fin,quiet){
  if(fin&&cashUnpaid(v))return alert('Payment must be confirmed before this valuation can be submitted.');
  if(fin&&(r.stops.length||r.missing.length||r.pfMissing.length))return alert(r.stops.length?r.stops.join('\n'):r.pfMissing.length?'Complete the required details: '+r.pfMissing.join(', '):`Answer all required checks first (${r.missing.length} left).`);
  if(fin){const need=[['client','client / instructing party'],['use','intended use'],['conflict','independence declaration']].filter(([k])=>!String(v.inputs[k]||'').trim()).map(x=>x[1]);if(need.length)return alert('Complete before finalising: '+need.join(', ')+'.')}
+ if(fin){const mm=mediaMissing(v);if(mm.length)return alert('Attach before submitting:\n- '+mm.join('\n- '))}
  if(fin&&!confirm('Submit for senior review? You cannot edit it while it is under review.'))return;
  v.inputs.officer_name=v.inputs.officer_name||S.prof.full_name;v.inputs.form_version=v.inputs.form_version||PF_VER;v.inputs.officer_licence=v.inputs.officer_licence??(S.prof.licence_no||'');
  const usr=await liveUser();if(!usr)return;
@@ -821,6 +862,7 @@ function reviewView(){
  box.innerHTML=can?`<h2>Senior review</h2>${nv?'':`<label>Approved value (KES). Change only with a justification in the notes<input id="rv" type="number" value="${Math.round(v.result.final)}"></label><br>`}<label>Review notes (required)<textarea id="rn" rows="3"></textarea></label><p>${cashUnpaid(v)?'<span class="neg">Cannot approve yet: the cash client has not paid.</span> ':'<button class="pri" onclick="decide(\'approve\')">Approve and issue</button> '}<button onclick="decide('correction')">Request corrections</button> <button onclick="decide('reject')">Reject</button></p>`
   :`<h2>Status: ${esc(v.status)}</h2><p class="sm">${v.status==='submitted'?'Awaiting senior review. Editing is locked.':esc(v.review_note||'')}</p>`;
  document.querySelector('.wrap').appendChild(box);
+ {const at=document.createElement('div');at.className='card noprint';at.innerHTML='<h2>Attachments</h2><p class="sm">Loading…</p>';document.querySelector('.wrap').appendChild(at);loadAttach(v,at)}
  if(cashUnpaid(v)&&v.status!=='final'){const pc=document.createElement('div');pc.innerHTML=payCardHTML(v);document.querySelector('.wrap').appendChild(pc.firstElementChild)}
 }
 async function decide(d){
