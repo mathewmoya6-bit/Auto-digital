@@ -106,7 +106,7 @@ details.sgc summary{cursor:pointer;color:var(--amb);font-weight:700}
 <body>
 <div id="toast"></div>
 <div id="app"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" integrity="sha384-0w2KAL2YHP6wKOkUDzkCDGgVvfmHnj02DHeQ6XcHOgTfFsGyonKOpShMH1x6nk9o" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" integrity="sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js" integrity="sha384-aBc0BOllaGWrQx51DYt978St/L7B+21jzNGc4N/jnGD0NxGwj8S/ftRgW0AkXIak" crossorigin="anonymous"></script>
 <script>
@@ -280,7 +280,7 @@ function calc(v){
  if(A.chassis!=='ok')r.stops.push('Chassis/VIN is not confirmed against the logbook or export certificate.');
  if(['BANK','SALE','AUCTION','COURT','DISPUTE'].includes(v.purpose)&&['issue','major'].includes(A.search))r.stops.push('Caveat, lien or police stop found on official search.');if(['issue','major'].includes(A.odo_ok))r.stops.push('Odometer tampering is suspected: stop valuation pending documented investigation and senior valuer review.');
  let req=0;ITEMS.forEach(t=>{if(lvl(t,v.purpose)==='R'){req++;if(!A[t.code])r.missing.push(t.label);if(A[t.code]==='na'&&!String(v.notes[t.code]||'').trim())r.stops.push(`${t.label}: provide a reason for marking a required check N/A.`)}});
- r.pfMissing=pfMissing(v);const comp=Math.round(100*(Math.max(req,1)-r.missing.length)/Math.max(req,1)),ph=(i.photos||[]).length;
+ r.pfMissing=pfMissing(v);const comp=Math.round(100*(Math.max(req,1)-r.missing.length)/Math.max(req,1)),ph=(()=>{const m=getMedia(v);return SHOTS.reduce((a,x)=>a+((m[x[0]]||[]).length),0)})();
  const evid=Math.min(100,(ph>=4?40:ph*10)+(A.geo==='ok'?20:0)+(A.scans==='ok'?20:0)+(A.odo==='ok'?20:0));
  const data=p.noval?100:(r.n>=5?100:r.n>=3?75:r.n>0?40:src==='book'?50:src==='crsp'?(i.crsp_id&&num(i.crsp)===num(i.crsp_db)?50:30):20);r.q={complete:comp,evidence:evid,data};
  r.evidenceIndex=Math.max(0,Math.min(100,Math.round(comp*.4+evid*.3+data*.3)));r.conf=null;r.lo=null;r.hi=null;
@@ -295,7 +295,7 @@ function calc(v){
 }
 const get2=(v,k)=>v.inputs[k]||'';
 function recalc(){
- const v=S.val,r=S.r=calc(v),p=P[v.purpose];
+ const v=S.val,r=S.r=calc(v),p=P[v.purpose];stash();
  $('#bar').innerHTML=`<div class="in"><div><div class="sm">${esc(p.n)}</div><div class="big">${p.noval?'Inspection report':KES(r.final)}</div>${r.forced?`<div class="sm">Market value ${KES(r.market)}</div>`:''}<div class="sm">${p.noval?'':'No statistical valuation range is calculated. · '}Evidence and completeness index ${r.evidenceIndex??r.conf??'not recorded'}%</div></div>
  <div class="sm" style="max-width:300px">${r.stops.length?`<span class="neg">${r.stops.length} blocking: ${esc(r.stops[0])}</span>`:(r.missing.length+r.pfMissing.length)?`${r.missing.length+r.pfMissing.length} required items unanswered`:'<span class="pos">Ready to submit</span>'}</div>
  <div><button onclick="save(false)">Save draft</button> <button class="pri" onclick="save(true)">Submit for review</button></div></div>`;
@@ -363,8 +363,8 @@ async function home(){
  S.val=null;
  const first=PK.find(k=>!S.prices[k]||S.prices[k].active)||PK[0];
  $('#app').innerHTML=topbar()+`<div class="wrap">${(S.warn||[]).map(w=>`<div class="msg">${esc(w)}</div>`).join('')}<div class="card"><h2>New valuation</h2><div class="grid"><label>Client<select id="nc">${clientOpts()}</select>${clientHint()}</label><label>Service type<select id="np" onchange="npDesc()">${popts(first)}</select></label><div style="align-self:end"><button class="pri" onclick="newVal()">Start inspection</button></div></div><p class="sm" id="npd"></p></div>
- ${clientCardHTML()}${billCardHTML()}${sigCardHTML()}<div id="retbox"></div><div class="card list"><h2>My valuations</h2><div id="lst" class="sm">Loading…</div></div></div><div id="bar" style="display:none"></div>`;
- npDesc();sigInit();loadInvoices();
+ ${clientCardHTML()}${billCardHTML()}${sigCardHTML()}<div id="stashbox"></div><div id="retbox"></div><div class="card list"><h2>My valuations</h2><div id="lst" class="sm">Loading…</div></div></div><div id="bar" style="display:none"></div>`;
+ npDesc();sigInit();loadInvoices();stashBanner();
  const{data,error}=await sb.from('onsite_valuations').select('*').eq('officer_id',S.user.id).order('updated_at',{ascending:false}).limit(50);
  if(error)return $('#lst').textContent=error.message;
  S.list=data.slice();
@@ -408,7 +408,7 @@ function retHTML(){
  return `<div class="card"><h2>Returned by approver (${S.ret.length})</h2><p class="sm">Reports an approver or admin sent back for correction or declined, with their notes. Open one to read the full note${S.ret.some(d=>d.officer_id!==S.user.id)?'. Reports from other officers in your office are view-only':' and fix it'}.</p>${rows}</div>`}
 
 /* ---------- Service-specific forms (same config can be seeded in valuation_form_configs) ---------- */
-let PF_VER='pf-2.1';const ENGINE='onsite-3.0.0';const METHOD='AD-MKT-1.0';
+let PF_VER='pf-2.1';const ENGINE='onsite-3.1.0';const METHOD='AD-MKT-1.0';
 const PFT={t:'text',n:'number',d:'date',x:'textarea',s:'select'};
 const PFD={
 "PRE_INSURANCE":["in_insurer|Insurance company|t|R","in_holder|Proposer / policyholder|t|R","in_status|Cover status|s|R|New cover,Renewal","in_policy|Policy number (renewals)|t|O","in_type|Insurance type|s|R|Comprehensive,Third party fire and theft,Third party only","in_basis|Value basis|s|R|Agreed value,Market value,Replacement cost","in_prev|Previous insurer and claims history|x|O","in_mods|Accessories and modifications|x|O","in_evidence|Replacement-cost evidence|x|O"],
@@ -629,8 +629,8 @@ async function loadAttach(v,el){
 /* Turn raw database errors into something an officer can act on */
 function friendlyErr(e){
  const m=String((e&&e.message)||e||'Unknown error');
- if(/row-level security|not active|permission denied/i.test(m))
-  return 'Saving was blocked by database security.\n\nSigned in as: '+((S.user&&S.user.email)||'unknown')+'\nOfficer id: '+((S.user&&S.user.id)||'none')+'\n\nAsk an admin to confirm your officer account is active and that the onsite_valuations policies allow this action.\n\nTechnical detail: '+m;
+ if(/row-level security|not active|permission denied/i.test(m)){console.warn('Blocked write. user:',(S.user&&S.user.email),(S.user&&S.user.id),m);
+  return 'Saving was blocked by database security. Ask an admin to confirm your officer account is active and allowed to perform this action.\n\nDetail: '+m}
  if(/violates check constraint/i.test(m))return 'A field has a value the database does not accept ('+m+').';
  if(/JWT/i.test(m))return 'Your session has expired. Please log in again.\n\nDetail: '+m+'\nDevice time: '+new Date().toISOString();
  return m}
@@ -650,7 +650,7 @@ async function save(fin,quiet){
  if(fin&&!confirm('Submit for senior review? You cannot edit it while it is under review.'))return;
  v.inputs.officer_name=v.inputs.officer_name||S.prof.full_name;v.inputs.form_version=v.inputs.form_version||PF_VER;v.inputs.calculation_engine=ENGINE;v.inputs.methodology_version=METHOD;v.inputs.officer_licence=v.inputs.officer_licence??(S.prof.licence_no||'');
  const usr=await liveUser();if(!usr)return;
- const body={client_id:v.client_id||null,purpose:v.purpose,vehicle:v.vehicle,inputs:v.inputs,answers:v.answers,notes:v.notes,result:r,final_value:Math.round(r.final),range_low:null,range_high:null,confidence:null};
+ const body={client_id:v.client_id||null,purpose:v.purpose,vehicle:v.vehicle,inputs:v.inputs,answers:v.answers,notes:v.notes,result:{},final_value:Math.round(r.final),range_low:null,range_high:null,confidence:null};
  let data=null,error=null;
  if(!v.id){
   /* New record: plain INSERT (no ON CONFLICT path, so only the INSERT policy applies) */
@@ -663,8 +663,11 @@ async function save(fin,quiet){
   error=res.error;data=res.data&&res.data[0];
   if(!error&&!data)error={message:'Update blocked by row-level security: this record is not editable by your account in its current status ('+v.status+').'};
  }
- if(error)return alert(friendlyErr(error));
+ if(error){const m=String(error.message||error);if(!navigator.onLine||/failed to fetch|networkerror|network request failed|load failed/i.test(m)){stash();return alert('No connection. Your work is kept on this device. When the signal returns, tap Save draft again (it also retries automatically).')}return alert(friendlyErr(error))}
  v.id=data.id;v.ref=data.ref;v.status=data.status;v.pay={status:data.payment_status,receipt:data.mpesa_receipt,fee:data.fee,invoice:data.invoice_id};
+ {const sf=data.final_value==null?null:Math.round(Number(data.final_value)),cf=P[v.purpose].noval?null:Math.round(r.final);
+  if(sf!==cf){console.warn('Server/browser value mismatch',sf,cf);if(fin)return alert('The server calculated '+(sf==null?'no value':KES(sf))+' but this screen shows '+(cf==null?'no value':KES(cf))+'. Reload the page (you may have an old version open) and re-check the inputs before submitting.');toast('Saved, but the server figure differs from this screen. Reload the page.')}}
+ clearStash();
  if(fin){const{error:e2}=await sb.rpc('submit_valuation',{p_id:v.id});if(e2)return alert(friendlyErr(e2));toast('Submitted for review');return home()}
  if(!quiet)toast('Draft saved');return v.id;
 }
@@ -921,10 +924,22 @@ async function decide(d){
   notes+='\n[Approver review] Officer '+KES(of)+' to Approved '+KES(av)+(ed.length?'\n[Edits] '+ed.join('; '):'')}
  if(d==='approve'&&!confirm('Approve and issue? This locks the record permanently.'))return;
  decide.b=1;
- try{const{error}=await sb.rpc('review_valuation',{p_id:v.id,p_decision:d,p_notes:notes,p_approved_value:d==='approve'?(P[v.purpose].noval?0:num($('#rv').value)):null});
+ try{if(d==='approve'&&!P[v.purpose].noval){const o=rvInputs(),patch={};RVF.forEach(f=>{const k=f[0];if(rvOn(k,v)&&String(o[k]??'').trim()!==String(v.inputs[k]??'').trim())patch[k]=String(o[k]??'').trim()});
+   if(Object.keys(patch).length){const{error:ee}=await sb.rpc('onsite_review_edit',{p_id:v.id,p_patch:patch});if(ee)return alert('Your corrections could not be saved, so nothing was approved: '+ee.message)}}
+  const{error}=await sb.rpc('review_valuation',{p_id:v.id,p_decision:d,p_notes:notes,p_approved_value:d==='approve'?(P[v.purpose].noval?0:num($('#rv').value)):null});
   if(error)return alert(error.message);toast('Decision recorded');home()}
  finally{decide.b=0}
 }
+/* ---------- v3.1: on-device autosave so a dropped connection never loses an inspection ---------- */
+const stashKey=()=>'onsite_draft_'+((S.user&&S.user.id)||'anon');
+function stash(){try{const v=S.val;if(!v||!S.user||!['draft','correction_required',undefined,null].includes(v.status))return;
+ localStorage.setItem(stashKey(),JSON.stringify({at:Date.now(),val:{id:v.id||null,ref:v.ref||null,client_id:v.client_id||null,purpose:v.purpose,status:v.status||'draft',pay:v.pay||{status:'unpaid'},vehicle:v.vehicle,inputs:v.inputs,answers:v.answers,notes:v.notes}}))}catch(e){}}
+function clearStash(){try{localStorage.removeItem(stashKey())}catch(e){}}
+function readStash(){try{return JSON.parse(localStorage.getItem(stashKey())||'null')}catch(e){return null}}
+function stashBanner(){const b=$('#stashbox'),s=readStash();if(!b||!s||!s.val||!P[s.val.purpose])return;
+ const w=s.val;b.innerHTML=`<div class="msg">Unsaved work found on this device: ${esc((w.vehicle&&((w.vehicle.make||'')+' '+(w.vehicle.model||'')+' '+(w.vehicle.plate||'')).trim())||pn(w.purpose))} (${esc(new Date(s.at).toLocaleString('en-KE'))}). <button onclick="restoreStash()">Restore</button> <button onclick="clearStash();stashBanner();$('#stashbox').innerHTML=''">Discard</button></div>`}
+function restoreStash(){const s=readStash();if(!s)return;S.val=s.val;formView()}
+window.addEventListener('online',()=>{if(S.val&&readStash()&&!restoreStash.busy){restoreStash.busy=1;save(false,true).then(()=>toast('Back online: draft saved')).finally(()=>{restoreStash.busy=0})}});
 /* one in-flight save at a time (double-click protection) */
 (()=>{let busy=false;const orig=save;save=async function(...a){if(busy)return;busy=true;const bs=[...document.querySelectorAll('#bar button')];bs.forEach(b=>b.disabled=true);try{return await orig(...a)}finally{busy=false;bs.forEach(b=>b.disabled=false)}}})();
 /* ---------- v2.3 additions: valuation date, ratios, standards text, approver edit, certificate verification ---------- */
@@ -943,7 +958,7 @@ function ratios(v,r){
   add('Comparables variation (std dev ÷ mean)',pcs(sd/mean),'Above 15% means the evidence is loose: check the comparables match.',sd/mean>.15)}
  if(r.forced&&r.market)add('Forced-sale ÷ market value',pcs(r.forced/r.market),'Implied discount '+pcs(1-r.forced/r.market));
  if(v.purpose==='ACCIDENT'&&r.preAccidentValue){add('Repair estimate ÷ pre-accident value',pcs(r.repairEstimate/r.preAccidentValue),'Review trigger above 70%',r.ratio>.7);add('Salvage ÷ pre-accident value',pcs(r.salvageValue/r.preAccidentValue))}
- const age=ve.yom?new Date().getFullYear()-num(ve.yom):0,km=num(ve.mileage);
+ const vy=(()=>{const d=VD(v),t=d?new Date(d):null;return t&&!isNaN(t)?t.getFullYear():new Date().getFullYear()})(),age=ve.yom?Math.max(0,vy-num(ve.yom)):0,km=num(ve.mileage);
  if(age>0&&km)add('Average km per year',Math.round(km/age).toLocaleString()+' km','Provisional benchmark used by the engine: 15,000 km a year',km/age>35000||km/age<4000);
  if(age>0&&crsp)add('Value retained vs CRSP, per year of age',pcs(Math.pow(Math.max(r.market,1)/crsp,1/age)),'Compound yearly ratio. Compare with similar vehicles.');
  if(v.approved&&v.result&&v.result.final)add('Approved ÷ officer recommendation',pcs(v.approved/v.result.final),'Variance '+pcs(v.approved/v.result.final-1),Math.abs(v.approved/v.result.final-1)>.05);
