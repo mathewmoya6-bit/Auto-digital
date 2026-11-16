@@ -148,8 +148,8 @@ details.sgc summary{cursor:pointer;color:var(--amb);font-weight:700}
 .sheet .ct-amt.m .a{font-size:17pt}
 .sheet .ct-note{text-align:center;font-size:12pt;margin-top:6mm}
 .sheet .ct-extra{text-align:center;font-size:9.5pt;color:#333;margin-top:2mm}
-.sheet .cg{display:grid;grid-template-columns:1fr auto;gap:0 6mm;font-size:8.2pt;line-height:1.5;margin-top:3mm}
-.sheet .cg .rt{text-align:right}
+.sheet .cg{display:grid;grid-template-columns:1fr 1fr;gap:0 6mm;font-size:8.2pt;line-height:1.5;margin-top:3mm}
+.sheet .cg .rt{text-align:left}
 .sheet .scope{font-weight:700;font-size:8.6pt;margin:2.5mm 0 2mm}
 .sheet .vg{display:grid;grid-template-columns:1.05fr 1.05fr 1.15fr .85fr;gap:0 4mm;font-size:8.2pt;line-height:1.55}
 .sheet .fl{font-size:9pt;line-height:1.45;margin:.1mm 0}
@@ -222,80 +222,79 @@ const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setT
 
 /* Service types. Level strings below follow the order of PK (13 characters): R required, O optional, - hidden.
    noval: inspection or assessment with no monetary value. lean: show required checks only. hcopt: optional forced-sale haircut. */
-const PK=['PRE_INSURANCE','TECHNICAL_BRIEF','FULL_MECHANICAL','ACCIDENT','PRE_LOSS','COMPONENT','NON_STANDARD','BANK','SALE','AUCTION','COURT','DISPUTE','FLEET'];
+const PK=['PRE_INSURANCE','FULL_MECHANICAL','ACCIDENT','PRE_LOSS','COMPONENT','NON_STANDARD','BANK','SALE','AUCTION','COURT','DISPUTE','FLEET'];
 const P={
  PRE_INSURANCE:{n:'Pre-insurance valuation',g:'Core valuations',d:'Value of a vehicle before insurance cover is issued or renewed.',adj:'mil cond acc use acd',hc:0,days:90},
- TECHNICAL_BRIEF:{n:'Technical brief valuation',g:'Core valuations',d:'A technical opinion on the vehicle\'s value and condition.',adj:'mil cond acc use acd dem',hc:0,days:30},
  FULL_MECHANICAL:{n:'Full mechanical valuation',g:'Core valuations',d:'Comprehensive valuation combined with a mechanical inspection, for commercial and small vehicles.',adj:'mil cond acc use acd dem',hc:0,days:30},
  PRE_LOSS:{n:'Pre-loss assessment',g:'Core valuations',d:'Value immediately before an event such as theft or fire.',adj:'mil cond acc use acd',hc:0,days:30},
  ACCIDENT:{n:'Accident assessment',g:'Assessments and inspections',d:'Assessment of vehicle damage following an accident, with pre-accident value, repair estimate and salvage.',adj:'mil',hc:0,days:30},
  COMPONENT:{n:'Component inspection',g:'Assessments and inspections',d:'Examination of specified vehicle components. No monetary value is produced.',adj:'',hc:0,days:0,noval:1,lean:1},
  NON_STANDARD:{n:'Non-standard inspection',g:'Assessments and inspections',d:'Specialised inspection outside the standard valuation process. No monetary value is produced.',adj:'',hc:0,days:0,noval:1,lean:1},
- BANK:{n:'Bank / asset finance valuation',g:'Finance, sale and disposal',d:'Market and forced-sale value for lending and collateral decisions.',adj:'mil cond use acd dem',hc:25,days:90},
+ BANK:{n:'Bank / financial institution valuation',g:'Finance, sale and disposal',d:'Market and forced-sale value for banks and financial institutions: loans, collateral and technical briefs.',adj:'mil cond use acd dem',hc:25,days:90},
  SALE:{n:'Sale / disposal valuation',g:'Finance, sale and disposal',d:'Expected market value when selling or disposing of a vehicle.',adj:'mil cond acc use acd dem',hc:0,days:14},
  AUCTION:{n:'Auction valuation',g:'Finance, sale and disposal',d:'Expected auction realisation and reserve price recommendation.',adj:'mil cond acd dem',hc:25,days:30},
  COURT:{n:'Court / bond valuation',g:'Specialised and bulk',d:'Value required for court proceedings, bonds or succession.',adj:'mil cond acc use acd',hc:0,hcopt:1,days:0},
  DISPUTE:{n:'Dispute resolution valuation',g:'Specialised and bulk',d:'Independent opinion on a disputed vehicle value.',adj:'mil cond acc use acd',hc:0,hcopt:1,days:0},
  FLEET:{n:'Fleet valuation',g:'Specialised and bulk',d:'Value of vehicles held by an organisation (one inspection per vehicle).',adj:'dep cond use',hc:0,days:180}};
 /* Codes from the earlier eight-purpose version, mapped when old records are opened */
-const MAP={DUTY:'SALE',INS:'PRE_INSURANCE',CLAIM:'ACCIDENT',LEGAL:'COURT',AUCT:'AUCTION'};
+const MAP={TECHNICAL_BRIEF:'BANK',DUTY:'SALE',INS:'PRE_INSURANCE',CLAIM:'ACCIDENT',LEGAL:'COURT',AUCT:'AUCTION'};
 const pc=c=>MAP[c]||c;
 const pn=c=>(P[pc(c)]||{n:c}).n;
 const SECS=[
- ['Admin and consent',[['consent','Data Protection Act consent recorded','RRRRRRRRRRRRR']]],
+ ['Admin and consent',[['consent','Data Protection Act consent recorded','RRRRRRRRRRRR']]],
  ['Identity and documents',[
-  ['chassis','Chassis/VIN matches logbook or export certificate','RRRRRRRRRRRRR'],
-  ['engno','Engine number matches documents','OORROOORRORRR'],
-  ['plate','Plate number and type verified','RRRRRRORRRRRR'],
-  ['acc_list','Optional equipment and accessories listed','ROORR--OROOOO'],
-  ['logbook','Logbook name matches seller ID','RRRRROORRRRRR'],
-  ['search','Official search clear (no caveat, lien, police stop)','OOOOO--RRRRRO'],
-  ['export','Import / customs documents seen (export certificate, entry)','-------OOOOO-'],
-  ['dutypd','Proof of duty paid (KRA)','OOOOO--ROROOO'],
-  ['ntsa','Valid NTSA inspection','OORO-O-OOO--R'],
-  ['insur','Insurance history / current cover','ROORR--ROOOOR'],
-  ['service','Service records','ORROOOOOROOOR'],
-  ['acc_hist','Accident / repair history declared','RRRROOORRRRRO'],
-  ['police','Police abstract / fire brigade report','---RR-----OO-'],
-  ['preloss_ev','Pre-loss evidence (earlier photos, service or sale records, insurer file)','----R--------'],
-  ['lender','Financier consent / settlement figure','---O---ROOOOO'],
-  ['court','Court order / letters of administration','----------RR-'],
-  ['asset','Asset register entry and acquisition cost','------------R']]],
+  ['chassis','Chassis/VIN matches logbook or export certificate','RRRRRRRRRRRR'],
+  ['engno','Engine number matches documents','ORROOORRORRR'],
+  ['plate','Plate number and type verified','RRRRRORRRRRR'],
+  ['acc_list','Optional equipment and accessories listed','RORR--OROOOO'],
+  ['logbook','Logbook name matches seller ID','RRRROORRRRRR'],
+  ['search','Official search clear (no caveat, lien, police stop)','OOOO--RRRRRO'],
+  ['export','Import / customs documents seen (export certificate, entry)','------OOOOO-'],
+  ['dutypd','Proof of duty paid (KRA)','OOOO--ROROOO'],
+  ['ntsa','Valid NTSA inspection','ORO-O-OOO--R'],
+  ['insur','Insurance history / current cover','RORR--ROOOOR'],
+  ['service','Service records','OROOOOOROOOR'],
+  ['acc_hist','Accident / repair history declared','RRROOORRRRRO'],
+  ['police','Police abstract / fire brigade report','--RR-----OO-'],
+  ['preloss_ev','Pre-loss evidence (earlier photos, service or sale records, insurer file)','---R--------'],
+  ['lender','Financier consent / settlement figure','--O---ROOOOO'],
+  ['court','Court order / letters of administration','---------RR-'],
+  ['asset','Asset register entry and acquisition cost','-----------R']]],
  ['Mileage',[
-  ['odo','Odometer reading photographed','RRRROOORRRRRR'],
-  ['odo_ok','Odometer genuine (no rollback signs)','RRRROOORRRRRO']]],
+  ['odo','Odometer reading photographed','RRROOORRRRRR'],
+  ['odo_ok','Odometer genuine (no rollback signs)','RRROOORRRRRO']]],
  ['Exterior',[
-  ['paint','Paint, repaints, mismatched panels','RRRROOORRRRRO'],
-  ['dents','Dents and scratches','RRRROOORRRRRO'],
-  ['rust','Rust / corrosion (sills, arches, underbody)','RRRROOORRRRRO'],
-  ['gaps','Panel gaps (accident repair sign)','RRRROOORRRRRO'],
-  ['glass','Glass: chips, cracks, replaced','RROROOOORORRO'],
-  ['lights','Lights, mirrors, bumpers','RROROOOORORRO'],
-  ['tyres','Tyres: tread, wear, spare','RRRROOORRORRR']]],
+  ['paint','Paint, repaints, mismatched panels','RRROOORRRRRO'],
+  ['dents','Dents and scratches','RRROOORRRRRO'],
+  ['rust','Rust / corrosion (sills, arches, underbody)','RRROOORRRRRO'],
+  ['gaps','Panel gaps (accident repair sign)','RRROOORRRRRO'],
+  ['glass','Glass: chips, cracks, replaced','ROROOOORORRO'],
+  ['lights','Lights, mirrors, bumpers','ROROOOORORRO'],
+  ['tyres','Tyres: tread, wear, spare','RRROOORRORRR']]],
  ['Interior and electronics',[
-  ['seats','Seats, upholstery, headliner','RROROOOORORRO'],
-  ['dashwear','Dash, steering, pedal wear vs mileage','RRRROOORRRRRO'],
-  ['elec','AC, windows, locks, infotainment','ORROOOOORORRO'],
-  ['warn','Dashboard warning lights','RRRROOORRRRRR'],
-  ['flood','Odour / flood signs','RRRROOORRRRRO'],
-  ['airbag','Airbags / SRS status','RRRROOORRRRRR']]],
+  ['seats','Seats, upholstery, headliner','ROROOOORORRO'],
+  ['dashwear','Dash, steering, pedal wear vs mileage','RRROOORRRRRO'],
+  ['elec','AC, windows, locks, infotainment','OROOOOORORRO'],
+  ['warn','Dashboard warning lights','RRROOORRRRRR'],
+  ['flood','Odour / flood signs','RRROOORRRRRO'],
+  ['airbag','Airbags / SRS status','RRROOORRRRRR']]],
  ['Engine and mechanical',[
-  ['leaks','Fluid leaks (oil, coolant, transmission)','ORRROOORRRRRR'],
-  ['engine','Engine noise, smoke, cold start','ORRROOORRRRRR'],
-  ['gearbox','Gearbox / clutch','ORRROOORRRRRR'],
-  ['susp','Suspension and steering play','ORRROOORRORRR'],
-  ['brakes','Brakes','ORRROOORRORRR'],
-  ['batt','Battery, belts, hoses','OOROOOOOROOOR'],
-  ['hybrid','Hybrid / EV battery health (if fitted)','ORROOOORRROOR']]],
+  ['leaks','Fluid leaks (oil, coolant, transmission)','ORROOORRRRRR'],
+  ['engine','Engine noise, smoke, cold start','ORROOORRRRRR'],
+  ['gearbox','Gearbox / clutch','ORROOORRRRRR'],
+  ['susp','Suspension and steering play','ORROOORRORRR'],
+  ['brakes','Brakes','ORROOORRORRR'],
+  ['batt','Battery, belts, hoses','OROOOOOROOOR'],
+  ['hybrid','Hybrid / EV battery health (if fitted)','OROOOORRROOR']]],
  ['Structure and accident',[
-  ['struct','Chassis alignment, welds, repairs','RRRROOORRRRRO'],
-  ['fire','Flood or fire damage signs','RRRROOORRRRRO'],
-  ['dmg_est','Damage extent and repair estimate','---R-----OOO-']]],
+  ['struct','Chassis alignment, welds, repairs','RRROOORRRRRO'],
+  ['fire','Flood or fire damage signs','RRROOORRRRRO'],
+  ['dmg_est','Damage extent and repair estimate','--R-----OOO-']]],
  ['Road test and evidence',[
-  ['road','Road test: acceleration, braking, steering pull','ORRO-OORRORRR'],
-  ['photos','Photos: 4 corners, chassis plate, engine bay, odometer','RRRRORRRRRRRR'],
-  ['scans','Document scans (logbook, ID, KRA PIN)','RRRRROORORRRR'],
-  ['geo','Geo-tagged location captured','OOOR-OOR-ORRO']]]];
+  ['road','Road test: acceleration, braking, steering pull','ORO-OORRORRR'],
+  ['photos','Photos: 4 corners, chassis plate, engine bay, odometer','RRRORRRRRRRR'],
+  ['scans','Document scans (logbook, ID, KRA PIN)','RRRROORORRRR'],
+  ['geo','Geo-tagged location captured','OOR-OOR-ORRO']]]];
 const lvl=(row,pu)=>(row.lv||row[2])[PK.indexOf(pu)];
 const ITEMS=SECS.flatMap(s=>s[1].map(r=>({sec:s[0],code:r[0],label:r[1],lv:r[2]})));
 /* Startup check: every level string must have one character per service type */
@@ -303,7 +302,7 @@ SECS.forEach(s=>s[1].forEach(r=>{if(r[2].length!==PK.length)console.error('SECS 
 const CATS={struct:'Structure',fire:'Structure',engine:'Engine',leaks:'Engine',batt:'Engine',hybrid:'Engine',gearbox:'Transmission',susp:'Suspension and brakes',brakes:'Suspension and brakes',warn:'Electrical and safety',airbag:'Electrical and safety',elec:'Electrical and safety',lights:'Electrical and safety',paint:'Exterior',dents:'Exterior',rust:'Exterior',gaps:'Exterior',glass:'Exterior',seats:'Interior',dashwear:'Interior',flood:'Interior',tyres:'Tyres'};
 const W={'Structure':20,'Engine':20,'Transmission':15,'Suspension and brakes':15,'Electrical and safety':10,'Exterior':10,'Interior':5,'Tyres':5}; /* proposed internal weights, not published coefficients */
 const CRITICAL=['Structure','Engine','Transmission','Suspension and brakes','Electrical and safety'];
-const BASIS={PRE_INSURANCE:'Insurable value before cover is issued or renewed, as instructed by the insurer (agreed, market or replacement value).',TECHNICAL_BRIEF:'Technical opinion of condition and market value, as set out in the brief.',FULL_MECHANICAL:'Market value supported by a full mechanical inspection and repair findings.',ACCIDENT:'Pre-accident market value for indemnity, with damage, repair and salvage assessment.',PRE_LOSS:'Market value immediately before the loss event (theft or fire), assessed from records and available evidence.',COMPONENT:'Not applicable: condition findings on the specified components only.',NON_STANDARD:'Not applicable: findings of a specialised inspection within the agreed scope.',BANK:'Market value and, separately, forced-sale value for collateral.',SALE:'Market value.',AUCTION:'Estimated forced-sale proceeds and reserve price recommendation.',COURT:'Value on the date and basis specified by the court, bond or instruction.',DISPUTE:'Independent opinion of value on the date and basis agreed by the parties or directed by the forum.',FLEET:'Market value or depreciated value as instructed.'};
+const BASIS={PRE_INSURANCE:'Insurable value before cover is issued or renewed, as instructed by the insurer (agreed, market or replacement value).',FULL_MECHANICAL:'Market value supported by a full mechanical inspection and repair findings.',ACCIDENT:'Pre-accident market value for indemnity, with damage, repair and salvage assessment.',PRE_LOSS:'Market value immediately before the loss event (theft or fire), assessed from records and available evidence.',COMPONENT:'Not applicable: condition findings on the specified components only.',NON_STANDARD:'Not applicable: findings of a specialised inspection within the agreed scope.',BANK:'Market value and, separately, forced-sale value for collateral.',SALE:'Market value.',AUCTION:'Estimated forced-sale proceeds and reserve price recommendation.',COURT:'Value on the date and basis specified by the court, bond or instruction.',DISPUTE:'Independent opinion of value on the date and basis agreed by the parties or directed by the forum.',FLEET:'Market value or depreciated value as instructed.'};
 const M={v:'vehicle',i:'inputs',a:'answers',n:'notes'};
 const S={user:null,prof:null,val:null,r:null,list:[]};
 const get=k=>{const[a,b]=k.split('.');return S.val[M[a]][b]??''};
@@ -513,13 +512,12 @@ let PF_VER='pf-2.1';const ENGINE='onsite-3.1.0';const METHOD='AD-MKT-1.0';
 const PFT={t:'text',n:'number',d:'date',x:'textarea',s:'select'};
 const PFD={
 "PRE_INSURANCE":["in_insurer|Insurance company|t|R","in_holder|Proposer / policyholder|t|R","in_status|Cover status|s|R|New cover,Renewal","in_policy|Policy number (renewals)|t|O","in_type|Insurance type|s|R|Comprehensive,Third party fire and theft,Third party only","in_basis|Value basis|s|R|Agreed value,Market value,Replacement cost","in_prev|Previous insurer and claims history|x|O","in_mods|Accessories and modifications|x|O","in_items|Separately insurable items (one per line, as Item: value)|x|O","in_evidence|Replacement-cost evidence|x|O"],
-"TECHNICAL_BRIEF":["tb_requester|Requested by|t|R","tb_question|Question put in the brief|x|R","tb_scope|Scope of inspection and limits|x|R","tb_docs|Documents supplied|x|O","tb_opinion|Technical opinion and reasoning|x|R"],
 "FULL_MECHANICAL":["fm_class|Vehicle class|s|R|Commercial vehicle (truck, bus, PSV),Light commercial (van, pickup),Small private vehicle,Motorcycle or three-wheeler,Other","fm_hours|Hour meter reading (if fitted)|n|O","fm_body|Body, hydraulics or special equipment|x|O","fm_tests|Mechanical tests performed (scan tool, compression, lift, road test)|x|R","fm_findings|Mechanical findings|x|R","fm_repairs|Recommended repairs|x|O","fm_cost|Estimated repair cost (KES)|n|O","fm_road|Roadworthiness opinion|s|R|Roadworthy,Roadworthy after repairs,Not roadworthy"],
 "ACCIDENT":["cl_insurer|Insurer (if any)|t|O","cl_policy|Policy number|t|O","cl_claim|Claim number|t|O","cl_date|Accident date|d|R","cl_place|Accident location|t|R","cl_desc|Accident description|x|R","cl_precond|Pre-accident vehicle condition|x|R","cl_damage|Damage description|x|R","cl_prev|Previous repairs|x|O","cl_instr|Relevant policy instructions|x|O"],
 "PRE_LOSS":["pl_event|Loss event|s|R|Theft,Fire,Theft and fire,Other","pl_date|Date of loss|d|R","pl_place|Location of loss|t|R","pl_report|Police abstract or fire report number|t|R","pl_insurer|Insurer (if any)|t|O","pl_policy|Policy number|t|O","pl_inspect_basis|Basis of assessment|s|R|Vehicle inspected after loss,Remains inspected,Vehicle not available: records only","pl_precond|Last known pre-loss condition and evidence|x|R","pl_mods|Accessories and modifications|x|O"],
 "COMPONENT":["co_requester|Requested by|t|R","co_reason|Reason for inspection|x|R","co_list|Components inspected|x|R","co_standard|Standard or specification applied|x|O","co_findings|Findings per component|x|R","co_verdict|Overall verdict|s|R|Serviceable,Repairable,Replace,Inconclusive","co_recommend|Recommendation|x|R","co_cost|Estimated repair or replacement cost (KES)|n|O"],
 "NON_STANDARD":["ns_requester|Requested by|t|R","ns_type|Type of inspection|t|R","ns_scope|Scope agreed with the client|x|R","ns_method|Methods, tools and standards used|x|R","ns_findings|Findings|x|R","ns_limits|Limitations|x|R","ns_conclusion|Conclusion|x|R"],
-"BANK":["bk_bank|Bank or financial institution|t|R","bk_branch|Branch|t|O","bk_applicant|Loan applicant|t|R","bk_ref|Account or loan reference|t|R","bk_facility|Facility type|s|R|Asset finance,Logbook loan,Overdraft security,Other","bk_amount|Requested loan amount (KES)|n|O","bk_encumb|Existing encumbrances|x|R","bk_liquidity|Liquidity and resale considerations|x|R"],
+"BANK":["bk_bank|Bank or financial institution|t|R","bk_branch|Branch|t|O","bk_applicant|Loan applicant|t|R","bk_ref|Account or loan reference|t|R","bk_facility|Facility type|s|R|Asset finance,Logbook loan,Overdraft security,Other","bk_amount|Requested loan amount (KES)|n|O","bk_dutyfree|Duty-free value (KES), if required by the institution|n|O","bk_items|Separately insurable items (one per line, as Item: value)|x|O","bk_encumb|Existing encumbrances|x|R","bk_liquidity|Liquidity and resale considerations|x|R"],
 "SALE":["sa_seller|Seller name|t|R","sa_buyer|Buyer name (if known)|t|O","sa_place|Intended selling location|t|O","sa_time|Intended selling timeframe|s|O|Under 2 weeks,2 to 4 weeks,1 to 3 months,Over 3 months","sa_dealer|Dealer or retail evidence|x|O","sa_terms|Negotiable selling conditions|x|O"],
 "AUCTION":["au_house|Auction house|t|R","au_ref|Auction reference|t|R","au_seller|Seller|t|R","au_date|Auction date|d|R","au_place|Sale location|t|O","au_format|Sale format|s|R|Physical,Online,Hybrid,Sealed bid","au_reserve|Reserve price (KES)|n|O","au_defects|Known defects|x|O","au_limits|Inspection limitations|x|O","au_costs|Estimated sale costs (KES)|n|O","au_time|Time constraints|x|O"],
 "COURT":["lg_type|Matter type|s|R|Court proceedings,Court bond,Succession,Other","lg_firm|Instructing law firm|t|O","lg_advocate|Advocate or instructing party|t|R","lg_case|Case or bond number|t|R","lg_court|Court or tribunal|t|O","lg_matter|Matter description|x|R","lg_valdate|Relevant valuation date|d|R","lg_question|Question requiring expert opinion|x|R","lg_docs|Documents supplied|x|R","lg_assume|Assumptions and limitations|x|R","lg_opinion|Expert opinion and supporting reasoning|x|R"],
@@ -610,13 +608,13 @@ function formView(){
  ${F('v.yom','Year of manufacture','number')}${F('v.reg_year','Year of first registration','number')}${F('v.reg_date','Date of first registration','date')}${F('v.cc','Engine cc','number')}
  ${F('v.fuel','Fuel',['Petrol','Diesel','Hybrid','Electric'])}${F('v.trans','Transmission',['Manual','Automatic','CVT'])}${F('v.drive','Drivetrain',['2WD','4WD','AWD'])}
  ${F('v.origin','Import status',['Japan import','UK used','Locally assembled','Other'])}${F('v.colour','Colour')}${F('v.body','Body type (e.g. pick-up, saloon)')}${F('v.owner','Owner / requester')}
- ${F('v.mileage','Odometer (km)','number')}${F('v.usage','Usage type',['Private','Commercial','Taxi','Rental','Fleet'])}${F('i.date',p.noval?'Inspection date':'Valuation date','date')}${F('i.place','Inspection location (town / area)')}${[['fl','front-left'],['fr','front-right'],['rl','rear-left'],['rr','rear-right']].map(([k,l])=>F('i.tyre_'+k,'Tyre: '+l,['Good','Fair','Worn','Replace'])).join('')}
+ ${F('v.mileage','Odometer (km)','number')}${F('v.usage','Usage type',['Private','Commercial','Taxi','Rental','Fleet'])}${F('v.state','Vehicle state',['Not grounded','Grounded'])}${F('i.date',p.noval?'Inspection date':'Valuation date','date')}${F('i.place','Inspection location (town / area)')}${[['fl','front-left'],['fr','front-right'],['rl','rear-left'],['rr','rear-right']].map(([k,l])=>F('i.tyre_'+k,'Tyre: '+l,['Good','Fair','Worn','Replace'])).join('')}
  </div><p><button class="noprint" onclick="geo()">Capture location</button> <span class="sm" id="geo">${esc(v.inputs.location||'')}</span></p></div>
  ${pricing}
  ${SECS.map(([s,items])=>{const rows=items.filter(t=>{const L=lvl({2:t[2]},v.purpose);return L!=='-'&&(!p.lean||L==='R')}).map(t=>row({code:t[0],label:t[1],lv:t[2]}));return rows.length?`<div class="card"><h2>${s}</h2>${rows.join('')}</div>`:''}).join('')}
  <div id="media">${mediaHTML(v)}</div>
  <div class="card"><h2>Notes</h2>
- <label>Valuer notes, assumptions and limiting conditions<textarea data-k="i.remarks" rows="3">${esc(v.inputs.remarks||'')}</textarea></label></div></div><div id="bar"></div>`;
+ ${profile(v).comment?`<label>Comments printed on the report (optional: if blank, a sentence is generated from the checklist grade)<textarea data-k="i.comments" rows="2">${esc(v.inputs.comments||'')}</textarea></label><br>`:''}<label>Valuer notes, assumptions and limiting conditions<textarea data-k="i.remarks" rows="3">${esc(v.inputs.remarks||'')}</textarea></label></div></div><div id="bar"></div>`;
  recalc();initCrsp();
 }
 document.addEventListener('input',e=>{
@@ -815,16 +813,17 @@ const tok=s=>String(s).replace(/\{ORG\}/g,BRAND.legal);
 
 const DOCP_DEF={verb:'Has been Inspected and Valued by {ORG} at (Kshs)',verbMulti:'Has been Inspected and Valued by {ORG} as follows (Kshs)',verbNv:'Has been Inspected by {ORG} within the agreed scope',
  scope:'A Brief Examination and Road Test have been carried out on the following vehicle and the findings are as follows:-',
- docs:['instr','logbook','sticker','docs'],extras:[],hide:[],ex:[],check:0,legal:0,ins:'',basis:''};
+ docs:['instr','logbook','sticker','docs'],extras:[],hide:[],ex:[],check:0,legal:0,ins:'',basis:'',cr:[],after:[]};
 const DOCP={
  PRE_INSURANCE:{title:'PRE-INSURANCE VALUATION',ex:[['Insurer','in_insurer'],['Cover','in_type']],extras:['in_mods'],ins:'in_items',basis:'in_basis',hide:['in_mods','in_items']},
- TECHNICAL_BRIEF:{title:'TECHNICAL BRIEF VALUATION',scope:'A technical examination has been carried out on the following vehicle in answer to the brief, and the findings are as follows:-',ex:[['Requested by','tb_requester']],check:1,hide:['tb_opinion']},
  FULL_MECHANICAL:{title:'FULL MECHANICAL VALUATION',scope:'A full mechanical examination and road test have been carried out on the following vehicle and the findings are as follows:-',ex:[['Roadworthiness','fm_road']],check:1},
  ACCIDENT:{title:'ACCIDENT ASSESSMENT',verb:'Has been Inspected and Assessed by {ORG}. Pre-accident market value (Kshs)',scope:'The following vehicle has been inspected after the accident and the findings are as follows:-',ex:[['Claim number','cl_claim'],['Accident date','cl_date']],check:1},
  PRE_LOSS:{title:'PRE-LOSS ASSESSMENT',verb:'Has been Assessed by {ORG} as having a pre-loss market value of (Kshs)',scope:'The following vehicle has been assessed from the inspection and records available, and the findings are as follows:-',ex:[['Loss event','pl_event'],['Report no.','pl_report']],extras:['pl_mods'],hide:['pl_mods']},
  COMPONENT:{title:'COMPONENT INSPECTION',noval:1,scope:'The components below have been inspected on the following vehicle and the findings are as follows:-',ex:[['Verdict','co_verdict']],check:1},
  NON_STANDARD:{title:'NON-STANDARD INSPECTION',noval:1,scope:'A specialised inspection within the agreed scope has been carried out on the following vehicle and the findings are as follows:-',ex:[['Inspection type','ns_type']],check:1},
- BANK:{title:'BANK / ASSET FINANCE VALUATION',scope:'A Brief Examination and Road Test have been carried out on the following vehicle for finance purposes and the findings are as follows:-',ex:[['Prepared for','bk_bank'],['Reference','bk_ref']],check:1},
+ BANK:{title:'BANK LOAN VALUATION',ex:[],check:1,certOne:1,opx:1,comment:1,ins:'bk_items',insNA:1,
+  cr:[['Bank','bk_bank'],['Branch','bk_branch'],['Applicant','bk_applicant'],['Loan ref.','bk_ref'],['Facility','bk_facility'],['Loan amount (Kshs)','bk_amount']],
+  after:['bk_encumb','bk_liquidity'],hide:['bk_bank','bk_branch','bk_applicant','bk_ref','bk_facility','bk_amount','bk_dutyfree','bk_items','bk_encumb','bk_liquidity']},
  SALE:{title:'SALE / DISPOSAL VALUATION',ex:[['Seller','sa_seller']]},
  AUCTION:{title:'AUCTION VALUATION',verb:'Has been Inspected and Valued by {ORG} for auction at (Kshs)',ex:[['Auction house','au_house'],['Auction ref.','au_ref']]},
  COURT:{title:'COURT / BOND VALUATION',verb:'Has been Inspected and Valued by {ORG} as at {DATE} at (Kshs)',verbMulti:'Has been Inspected and Valued by {ORG} as at {DATE} (Kshs)',ex:[['Case / bond no.','lg_case'],['Court','lg_court']],legal:1,check:1},
@@ -861,7 +860,8 @@ const logoTag=()=>BRAND.logoImg&&/^data:image\/(png|jpeg|webp);base64,/.test(BRA
 const stampSvg=()=>{const L=(BRAND.stamp||[BRAND.name]).slice(0,3);return`<svg viewBox="0 0 200 84" style="width:40mm;transform:rotate(-6deg)"><rect x="3" y="4" width="194" height="76" rx="9" fill="none" stroke="#2b5fa8" stroke-width="2.4"/><rect x="8" y="9" width="184" height="66" rx="6" fill="none" stroke="#2b5fa8" stroke-width="1"/>${L.map((t,k)=>`<text x="100" y="${L.length===1?50:(L.length===2?(k?58:38):(30+k*20))}" text-anchor="middle" font-family="Arial,sans-serif" font-weight="700" font-size="${k?11:17}" fill="#2b5fa8" letter-spacing="1">${esc(t)}</text>`).join('')}</svg>`};
 
 /* ---- amounts shown per service ---- */
-function certRows(v,r){const pu=v.purpose,i=v.inputs||{},amt=Math.round(v.approved??r.final??0),rows=[],row=(l,x,s)=>rows.push({l,x:Math.round(x),s:s||''});
+function certRows(v,r){const rows=certRows0(v,r),df=num((v.inputs||{}).bk_dutyfree);if(v.purpose==='BANK'&&df>0)rows.push({l:'Duty Free Value (Kshs)',x:Math.round(df),s:''});return rows}
+function certRows0(v,r){const pu=v.purpose,i=v.inputs||{},amt=Math.round(v.approved??r.final??0),rows=[],row=(l,x,s)=>rows.push({l,x:Math.round(x),s:s||''});
  if(pu==='ACCIDENT'){row('Pre-Accident Market Value (Kshs)',r.preAccidentValue??r.base);
   const e=[];if(r.repairEstimate)e.push('Repair estimate '+kn(r.repairEstimate));if(r.salvageValue)e.push('Salvage '+kn(r.salvageValue));rows[0].s=e.join(' · ');return rows}
  if(pu==='AUCTION'){row('Estimated Forced-Sale Proceeds (Kshs)',amt);if(num(i.au_reserve))row('Recommended Reserve Price (Kshs)',num(i.au_reserve));return rows}
@@ -870,7 +870,7 @@ function certRows(v,r){const pu=v.purpose,i=v.inputs||{},amt=Math.round(v.approv
 function basisNote(v,pr){const i=v.inputs||{};return pr.basis&&String(i[pr.basis]||'').trim()?`(${esc(i[pr.basis])} basis)`:''}
 
 /* ---- certificate sheet body ---- */
-function certBody(v,r,pr){const p=P[v.purpose],i=v.inputs||{},ve=v.vehicle||{},nv=!!p.noval,rows=nv?[]:certRows(v,r),vd=VD(v);
+function certBody(v,r,pr){const p=P[v.purpose],i=v.inputs||{},ve=v.vehicle||{},nv=!!p.noval,rows=nv?[]:(pr.certOne?certRows(v,r).slice(0,1):certRows(v,r)),vd=VD(v);
  const verb=esc(tok(nv?pr.verbNv:(rows.length>1?pr.verbMulti:pr.verb)).replace('{DATE}',dmy(vd)||'the valuation date'));
  const tr=(l,x)=>String(x||'').trim()?`<div class="r"><span>${esc(l)} :</span><b>${esc(x)}</b></div>`:'';
  const ex=pr.ex.map(([l,c])=>tr(l,/date/i.test(l)?dmy(i[c])||i[c]:i[c])).join('');
@@ -886,42 +886,48 @@ function certBody(v,r,pr){const p=P[v.purpose],i=v.inputs||{},ve=v.vehicle||{},n
  <div class="ct-note">A detailed report is attached.</div>`}
 
 /* ---- report page atoms ---- */
-const FIND=[['Body',['struct','paint','dents','rust','gaps','glass'],'IN GOOD CONDITION'],['Engine',['engine','leaks','batt','hybrid'],'SOUND, NO DEFECTS NOTED'],['Transmission',['gearbox'],'OPERATIONAL'],
+const FIND=[['Body',['struct','paint','dents','rust','gaps','glass'],'IN GOOD CONDITION'],['Engine',['engine','leaks','batt','hybrid'],'SOUND, NO DEFECTS NOTED'],['Transmission',['gearbox'],'INTACT'],
  ['Electrical',['elec','warn','lights','airbag'],'FUNCTIONAL AND SECURE'],['Suspension and steering',['susp'],'INTACT, NO EXCESSIVE PLAY'],['Braking',['brakes'],'SATISFACTORY'],['Interior',['seats','dashwear','flood'],'IN GOOD CONDITION'],['Road test',['road'],'SATISFACTORY']];
 function findAtoms(v){const A=v.answers||{},N=v.notes||{},lab=c=>(ITEMS.find(t=>t.code===c)||{}).label||c,o=[];
  FIND.forEach(([name,codes,okt])=>{const got=codes.filter(c=>A[c]&&A[c]!=='na');if(!got.length)return;
   const maj=got.filter(c=>A[c]==='major'),iss=got.filter(c=>A[c]==='issue'),one=c=>esc(lab(c))+(N[c]?' ('+esc(N[c])+')':'');
   const txt=maj.length?'<span style="color:#b91c1c">DEFECT: '+maj.map(one).join('; ')+'</span>'+(iss.length?'. Also noted: '+iss.map(one).join('; '):''):iss.length?'NOTED: '+iss.map(one).join('; '):okt;
-  o.push(`<div class="fl"><b>${esc(name)}:</b> ${txt}</div>`)});
+  o.push(`<div class="fl"><b>${esc(name.toUpperCase())}:</b> ${txt}</div>`)});
  return o}
-function tyreAtom(v){const i=v.inputs||{},t=[['FLT','tyre_fl'],['FRT','tyre_fr'],['RLT','tyre_rl'],['RRT','tyre_rr']].filter(x=>String(i[x[1]]||'').trim());
- if(t.length)return t.map(x=>`<div class="fl"><b>${x[0]}:</b> ${esc(String(i[x[1]]).toUpperCase())}</div>`);
+function tyreAtom(v){const i=v.inputs||{},t=[['FRT','tyre_fr'],['FLT','tyre_fl'],['RRT','tyre_rr'],['RLT','tyre_rl']].filter(x=>String(i[x[1]]||'').trim());
+ if(t.length){const TV={good:'GOOD TREAD DEPTH',fair:'FAIR TREAD DEPTH',worn:'WORN',replace:'REPLACE'};return[`<div class="fl"><b>TYRES:</b> ${t.map(x=>`<b>${x[0]}:</b> ${esc(TV[String(i[x[1]]).toLowerCase()]||String(i[x[1]]).toUpperCase())}`).join('&nbsp;&nbsp; ')}</div>`]}
  const A=v.answers||{},N=v.notes||{};if(A.tyres&&A.tyres!=='na')return[`<div class="fl"><b>Tyres:</b> ${A.tyres==='ok'?'SERVICEABLE':(A.tyres==='major'?'DEFECT':'NOTED')}${N.tyres?': '+esc(N.tyres):''}</div>`];return[]}
-function clientAtom(v){const i=v.inputs||{},c=(typeof clientOf==='function'&&clientOf(v))||null,nm=(c&&c.name)||i.client||'',em=c&&c.email,ph=c&&c.phone,loc=i.place||i.location||'';
- const l=[['Name',nm],['Email',em],['Phone',ph],['Location',loc]].filter(x=>String(x[1]||'').trim()).map(x=>`${x[0]}: ${esc(x[1])}`).join('<br>');
- return`<div class="cg"><div>${l}</div><div class="rt">Valuer: ${esc(i.officer_name||(S.prof&&S.prof.full_name)||'')}</div></div>`}
+function clientAtom(v,pr){const i=v.inputs||{},c=(typeof clientOf==='function'&&clientOf(v))||null,nm=(c&&c.name)||i.client||'',em=c&&c.email,ph=c&&c.phone,loc=i.place||i.location||'';
+ const l=[['Client',nm],['Email',em],['Phone',ph],['Location',loc],['Instruction Ref',i.instr_ref]].filter(x=>String(x[1]||'').trim()).map(x=>`${x[0]}: ${esc(x[1])}`).join('<br>');
+ const rt=((pr&&pr.cr)||[]).map(([lb,cd])=>{const x=i[cd];if(!String(x??'').trim())return'';return`${esc(lb)}: ${cd==='bk_amount'?kn(num(x)):esc(x)}`}).filter(Boolean);
+ rt.push('Valuer: '+esc(i.officer_name||(S.prof&&S.prof.full_name)||''));
+ return`<div class="cg"><div>${l}</div><div class="rt">${rt.join('<br>')}</div></div>`}
 function vehAtom(v){const ve=v.vehicle||{},c=(l,x)=>`<div>${l}: ${esc(x==null||x===''?'-':x)}</div>`,up=x=>String(x||'').toUpperCase();
  const col=a=>`<div>${a.join('')}</div>`;
- return`<div class="vg">${col([c('Reg',up(ve.plate)),c('YOM',ve.yom),c('Capacity',ve.cc),c('Transmission',ve.trans)])}${col([c('Make',up(ve.make)),c('Country',up(ve.origin)),c('Engine No',ve.engine_no),c('Body',up(ve.body))])}${col([c('Model',up([ve.model,ve.variant].filter(Boolean).join(' '))),c('Chassis',up(ve.chassis)),c('Odometer',ve.mileage?Number(ve.mileage).toLocaleString('en-KE')+' KM':''),c('Fuel',ve.fuel)])}${col([c('Color',ve.colour),c('Drive',ve.drive),c('Reg Date',dmy(ve.reg_date)||ve.reg_date||''),c('Usage',ve.usage)])}</div>`}
+ return`<div class="vg">${col([c('Reg',up(ve.plate)),c('YOM',ve.yom),c('Capacity',ve.cc),c('Transmission',ve.trans)])}${col([c('Make',up(ve.make)),c('Country',up(ve.origin)),c('Engine No',ve.engine_no),c('Body',up(ve.body))])}${col([c('Model',up([ve.model,ve.variant].filter(Boolean).join(' '))),c('Chassis',up(ve.chassis)),c('Odometer',ve.mileage?Number(ve.mileage).toLocaleString('en-KE')+' KM':''),c('Fuel',ve.fuel)])}${col([c('Color',ve.colour),c('Drive',ve.drive),c('Reg Date',dmy(ve.reg_date)||ve.reg_date||''),ve.state?c('State',ve.state):c('Usage',ve.usage)])}</div>`}
 function pfAtoms(v,pr){const i=v.inputs||{},hid=new Set([...pr.hide,...pr.extras,pr.ins].filter(Boolean)),fs=(PF[v.purpose]||[]).filter(f=>!hid.has(f.c)&&String(i[f.c]??'').trim()),o=[];
  const sh=fs.filter(f=>f.t!=='textarea'),lg=fs.filter(f=>f.t==='textarea'),val=f=>f.t==='date'?(dmy(i[f.c])||i[f.c]):i[f.c];
  if(sh.length)o.push(`<div class="pd">${sh.map(f=>`<div><b>${esc(f.l)}:</b> ${esc(val(f))}</div>`).join('')}</div>`);
  lg.forEach(f=>{o.push(`<div class="fh keep">${esc(f.l)}:</div>`,`<div class="fp">${esc(i[f.c])}</div>`)});return o}
-function insAtoms(v,pr){const i=v.inputs||{},t=pr.ins&&String(i[pr.ins]||'').trim();if(!t)return[];
+function insAtoms(v,pr){const i=v.inputs||{},t=pr.ins&&String(i[pr.ins]||'').trim();if(!t)return pr.insNA?[`<div class="fh keep">Separately Insurable Items (Kshs):</div>`,`<div class="fl">NA</div>`]:[];
  return[`<div class="fh keep">Separately Insurable Items (Kshs):</div>`,...t.split(/\n+/).filter(x=>x.trim()).map(l=>{const ix=l.search(/[|:]/),a=ix<0?l:l.slice(0,ix),x=ix<0?'':l.slice(ix+1).trim(),n=parseFloat(x.replace(/kes|ksh|,|\s/gi,''));return`<div class="fl">${esc(a.trim())}${x?': '+esc(isFinite(n)&&/^[\d,.\s]+$/.test(x.replace(/kes|ksh/gi,''))?n.toLocaleString('en-KE'):x):''}</div>`})]}
 function opinionAtoms(v,r,pr){const p=P[v.purpose],i=v.inputs||{};
  if(p.noval)return[`<div class="fh keep opn">Findings and conclusion:</div>`,`<div class="fp">No monetary value is stated for this service.${r.score!=null?' Condition score '+r.score+' / 100 (coverage '+r.conditionCoverage+'%).':''}</div>`];
  const rows=certRows(v,r),o=[`<div class="fh keep opn">Examiner's Opinion (Kshs):</div>`];
+ if(pr.opx){rows.forEach((x,k)=>{if(k)o.push(`<div class="fh keep opn">${esc(x.l)}:</div>`);o.push(`<div class="opn"><span class="v">${kn(x.x)} ${esc(kesWords2(x.x).replace(/ ONLY\)$/,')'))}</span></div>`);if(k&&x.s)o.push(`<div class="fl">${esc(x.s)}</div>`)});return o}
  rows.forEach(x=>o.push(`<div class="opn b"><span class="v">${rows.length>1?esc(x.l.replace(' (Kshs)',''))+': ':''}${kn(x.x)} ${esc(kesWords2(x.x).replace(/ ONLY\)$/,')'))}</span></div>`));
  if(v.purpose==='ACCIDENT'&&r.net!=null)o.push(`<div class="fl">Repair estimate: ${kn(r.repairEstimate)} · Salvage value: ${kn(r.salvageValue)} · Indicative pre-accident less salvage: ${kn(r.net)}</div>`);
  return o}
 function repAtoms(v,r,pr){const i=v.inputs||{},rem=[],ext=pr.extras.map(c=>String(i[c]||'').trim()).filter(Boolean);
  const A=v.answers||{},N=v.notes||{};if(!ext.length&&A.acc_list&&A.acc_list!=='na'&&N.acc_list)ext.push(N.acc_list);if(!ext.length&&String(i.acc_reason||'').trim())ext.push(i.acc_reason);
  const recOnly=v.purpose==='PRE_LOSS'&&i.pl_inspect_basis==='Vehicle not available: records only';
- const o=[clientAtom(v),`<div class="scope">${esc(tok(pr.scope))}</div>`,vehAtom(v),...pfAtoms(v,pr),...(recOnly?[`<div class="fh keep">Inspection:</div>`,`<div class="fp">The vehicle was not available for inspection. This assessment rests on the records and earlier evidence described above.</div>`]:[...findAtoms(v),...tyreAtom(v)])];
+ const o=[clientAtom(v,pr),`<div class="scope">${esc(tok(pr.scope))}</div>`,vehAtom(v),...pfAtoms(v,pr),...(recOnly?[`<div class="fh keep">Inspection:</div>`,`<div class="fp">The vehicle was not available for inspection. This assessment rests on the records and earlier evidence described above.</div>`]:[...findAtoms(v),...tyreAtom(v)])];
  if(ext.length)o.push(`<div class="fh keep">Extras:</div>`,`<div class="fp">${esc(ext.join('\n'))}</div>`);
- o.push(...insAtoms(v,pr));
+ if(pr.comment&&!recOnly){const g=r.hint||(r.score==null?'':r.score>=92?'Excellent':r.score>=80?'Good':r.score>=60?'Fair':'Poor'),ct=String(i.comments||'').trim()||(g?'The general condition, performance and handling of the subject vehicle was found to be '+g.toLowerCase()+'.':'');
+  if(ct)o.push(`<div class="fh keep">Comments:</div>`,`<div class="fp"><b>${esc(ct.toUpperCase())}</b></div>`)}
  if(String(i.remarks||'').trim())o.push(`<div class="fh keep">Remarks:</div>`,`<div class="fp">${esc(i.remarks)}</div>`);
+ o.push(...insAtoms(v,pr));
+ (pr.after||[]).forEach(c=>{const f=(PF[v.purpose]||[]).find(x=>x.c===c);if(f&&String(i[c]??'').trim())o.push(`<div class="fh keep">${esc(f.l)}:</div>`,`<div class="fp">${esc(i[c])}</div>`)});
  o.push(...opinionAtoms(v,r,pr));return o}
 
 /* ---- schedule: calculation, evidence and (where the service needs it) the full checklist ---- */
@@ -982,7 +988,7 @@ const imgBox=(e,cls)=>{const d=e.p&&MC[e.p];return d&&d.src?`<img src="${d.src}"
 /* ---- assemble every sheet for the current record ---- */
 function buildSheets(v,r){const pr=profile(v),sh=[],{ph,dc}=printable(v,pr);
  {const cb=certBody(v,r,pr);sh.push({body:cb,qr:1,cls:fitCert(cb)})}
- paginate(c=>repHead(pr,c>0),repAtoms(v,r,pr)).forEach((b,k)=>sh.push({body:b,qr:k===0}));
+ paginate(c=>repHead(pr,c>0),repAtoms(v,r,pr)).forEach((b,k)=>sh.push({body:b}));
  paginate(c=>`<div class="pt">${P[v.purpose].noval?'INSPECTION SCHEDULE':'VALUATION SCHEDULE'}${c?' (CONTINUED)':''}</div>`,splitAtoms(schedHTML(v,r,pr))).forEach(b=>sh.push({body:`<div class="sc">${b}</div>`}));
  dc.forEach(d=>sh.push({body:`<div class="dh">DOCUMENT IMAGES</div><div class="dt">${esc(d.title)}${d.n?' ('+(d.n+1)+')':''}</div><div class="dimg">${imgBox(d.e)}</div>${metaHTML(d.e,'dmeta')}`}));
  for(let k=0;k<ph.length;k+=6){const part=ph.slice(k,k+6);sh.push({body:`<div class="pt">INSPECTION IMAGES${k?' (CONTINUED)':''}</div><div class="pk">${part.map(x=>`<div class="c"><div class="lb">${esc(x.label)}</div><div class="im">${imgBox(x.e)}</div>${metaHTML(x.e,'mt')}</div>`).join('')}</div>`,qr:k+6>=ph.length})}
